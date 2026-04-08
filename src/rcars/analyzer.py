@@ -227,6 +227,11 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
         with _embedding_lock:
             if model_name not in _embedding_models:
                 from sentence_transformers import SentenceTransformer
+                import logging as _logging
+                # Suppress noisy download/redirect messages from sentence-transformers
+                _logging.getLogger("sentence_transformers").setLevel(_logging.WARNING)
+                _logging.getLogger("huggingface_hub").setLevel(_logging.WARNING)
+                _logging.getLogger("urllib3").setLevel(_logging.WARNING)
                 _embedding_models[model_name] = SentenceTransformer(model_name)
 
     embedding = _embedding_models[model_name].encode(text, normalize_embeddings=True)

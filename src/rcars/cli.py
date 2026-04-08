@@ -356,6 +356,10 @@ def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, 
             score = rec.get("fit_score", 0)
             color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
             console.print(f"  [{color}]{score}%[/{color}] [bold]{rec.get('display_name', rec.get('ci_name'))}[/bold]")
+            ci_name = rec.get('ci_name', '')
+            catalog_ns = "babylon-catalog-prod" if not include_dev else "babylon-catalog-dev"
+            catalog_link = _catalog_url(ci_name, catalog_ns)
+            console.print(f"       [dim]CI:[/dim] {ci_name}  [dim]→[/dim] {catalog_link}")
             console.print(f"       {rec.get('rationale', '')}")
             console.print(f"       Format: {rec.get('suggested_format', '-')} | {rec.get('duration_notes', '')}")
             if rec.get("caveats"):
