@@ -189,3 +189,185 @@ def show(ci_name: str, full: bool):
 
     console.print()
     db.close()
+
+
+@cli.command()
+@click.option("--max", "max_analyze", type=int, default=None, help="Max items to analyze")
+@click.option("--force", is_flag=True, default=False, help="Re-analyze everything")
+def scan(max_analyze: int | None, force: bool):
+    """Analyze Showroom content via Sonnet API."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from rcars.analyzer import analyze_showroom
+
+    settings = Settings()
+    db = get_db()
+
+    anthropic_client = settings.get_anthropic_client()
+    if not anthropic_client:
+        console.print("[red]Error:[/red] No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+        db.close()
+        sys.exit(1)
+
+    if force:
+        items = db.list_catalog_items()
+        items = [i for i in items if i.get("showroom_url")]
+    else:
+        items = db.get_items_needing_analysis()
+
+    # Filter to non-published items (analyze base CIs, not published VCIs)
+    items = [i for i in items if not i.get("is_published")]
+
+    if max_analyze:
+        items = items[:max_analyze]
+
+    if not items:
+        console.print("[green]Nothing to analyze.[/green] All items are up to date.")
+        db.close()
+        return
+
+    console.print(f"[bold]Analyzing {len(items)} Showroom(s)...[/bold]")
+
+    completed = 0
+    errors = 0
+
+    def process_item(item):
+        return analyze_showroom(
+            ci_name=item["ci_name"],
+            display_name=item.get("display_name", ""),
+            category=item.get("category", ""),
+            product=item.get("product", ""),
+            showroom_url=item["showroom_url"],
+            showroom_ref=item.get("showroom_ref"),
+            anthropic_client=anthropic_client,
+            model=settings.model,
+            clone_dir=settings.clone_dir,
+        )
+
+    with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
+        futures = {executor.submit(process_item, item): item for item in items}
+
+        for future in as_completed(futures):
+            item = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    analysis = result["analysis"]
+                    db.upsert_showroom_analysis({
+                        "ci_name": result["ci_name"],
+                        "content_type": analysis.get("content_type"),
+                        "summary": analysis.get("summary"),
+                        "products_json": analysis.get("products"),
+                        "audience_json": analysis.get("audience"),
+                        "topics_json": analysis.get("topics"),
+                        "modules_json": analysis.get("modules"),
+                        "learning_objectives_json": analysis.get("learning_objectives"),
+                        "difficulty": analysis.get("difficulty"),
+                        "estimated_duration_min": analysis.get("estimated_duration_min"),
+                        "event_fit_json": analysis.get("event_fit"),
+                        "use_cases_json": analysis.get("use_cases"),
+                        "last_repo_commit": result.get("last_repo_commit"),
+                        "last_repo_updated": result.get("last_repo_updated"),
+                    })
+
+                    # Store embeddings
+                    db.store_embedding(
+                        ci_name=result["ci_name"],
+                        embed_type="ci_summary",
+                        content_text=result["ci_embedding_text"],
+                        embedding=result["ci_embedding"],
+                    )
+                    for mod_emb in result.get("module_embeddings", []):
+                        db.store_embedding(
+                            ci_name=result["ci_name"],
+                            embed_type="module",
+                            module_title=mod_emb["module_title"],
+                            content_text=mod_emb["content_text"],
+                            embedding=mod_emb["embedding"],
+                        )
+
+                    db.log_action(result["ci_name"], "analyze")
+                    completed += 1
+                    console.print(f"  [green]✓[/green] {item['ci_name']}")
+                else:
+                    errors += 1
+                    db.log_action(item["ci_name"], "error", details="Analysis returned None")
+                    console.print(f"  [red]✗[/red] {item['ci_name']}")
+            except Exception as e:
+                errors += 1
+                db.log_action(item["ci_name"], "error", details=str(e)[:200])
+                console.print(f"  [red]✗[/red] {item['ci_name']}: {e}")
+
+    console.print(f"\n[bold]Done.[/bold] {completed} analyzed, {errors} errors")
+    db.close()
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--url", "event_url", type=str, default=None, help="Event URL to analyze")
+@click.option("--include-dev", is_flag=True, default=False, help="Include dev items")
+@click.option("--limit", type=int, default=15, help="Max candidates to consider")
+@click.option("--json-output", is_flag=True, default=False, help="Output raw JSON")
+def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, json_output: bool):
+    """Get content recommendations for an event or use case."""
+    import json as json_mod
+    from rcars.recommender import recommend as run_recommend
+    from rcars.event_parser import parse_event_url
+
+    settings = Settings()
+    db = get_db()
+
+    anthropic_client = settings.get_anthropic_client()
+    if not anthropic_client:
+        console.print("[red]Error:[/red] No Anthropic credentials")
+        db.close()
+        sys.exit(1)
+
+    # If event URL provided, parse it and enhance query
+    if event_url:
+        console.print("[bold]Parsing event URL...[/bold]")
+        event_profile = parse_event_url(event_url, anthropic_client, settings.model)
+        if event_profile:
+            queries = event_profile.get("search_queries", [])
+            themes = event_profile.get("themes", [])
+            query = f"{query}. Event themes: {', '.join(themes)}. {' '.join(queries)}"
+            console.print(f"  Event: {event_profile.get('event_name', 'Unknown')}")
+
+    console.print("[bold]Searching for recommendations...[/bold]")
+
+    result = run_recommend(
+        query=query,
+        db=db,
+        anthropic_client=anthropic_client,
+        model=settings.model,
+        limit=limit,
+        prod_only=not include_dev,
+    )
+
+    if not result:
+        console.print("[yellow]No recommendations found.[/yellow]")
+        db.close()
+        return
+
+    if json_output:
+        console.print(json_mod.dumps(result, indent=2))
+    else:
+        console.print("\n[bold]Recommendations[/bold]\n")
+        for rec in result.get("recommendations", []):
+            score = rec.get("fit_score", 0)
+            color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
+            console.print(f"  [{color}]{score}%[/{color}] [bold]{rec.get('display_name', rec.get('ci_name'))}[/bold]")
+            console.print(f"       {rec.get('rationale', '')}")
+            console.print(f"       Format: {rec.get('suggested_format', '-')} | {rec.get('duration_notes', '')}")
+            if rec.get("caveats"):
+                console.print(f"       [dim]Caveat: {rec['caveats']}[/dim]")
+            console.print()
+
+        if result.get("content_gaps"):
+            console.print("[bold]Content Gaps[/bold]")
+            for gap in result["content_gaps"]:
+                console.print(f"  • {gap}")
+
+        if result.get("overall_assessment"):
+            console.print(f"\n[dim]{result['overall_assessment']}[/dim]")
+
+    db.close()
