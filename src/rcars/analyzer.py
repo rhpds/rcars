@@ -6,6 +6,7 @@ structured analysis, generates embeddings, and stores results.
 
 import json
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -14,22 +15,30 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+# Silence HuggingFace/sentence-transformers noise before any library imports.
+# These env vars are read at library import time — setting them here at module
+# load ensures they're in place before sentence_transformers is imported lazily
+# inside generate_embedding().
+#
+# TQDM_DISABLE=1            — suppresses the "Loading weights" progress bar
+# TRANSFORMERS_VERBOSITY    — suppresses BertModel LOAD REPORT and similar
+# HF_HUB_DISABLE_PROGRESS_BARS — suppresses HuggingFace download progress
+os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+
 log = logging.getLogger(__name__)
 
-# Suppress noisy low-level HTTP and HuggingFace loggers unconditionally.
-# These emit connection-level debug noise (httpcore) and redirect traces
-# (httpx, huggingface_hub) that are never useful to end users, even in
-# verbose mode. Set at module load time so they take effect before any
-# CLI basicConfig call can cascade DEBUG to the root logger.
-# ERROR (not WARNING) for sentence_transformers to also silence BertModel LOAD REPORT.
+# Suppress low-level HTTP and HuggingFace loggers. Set at module load time
+# so they take effect before any CLI basicConfig call cascades DEBUG to root.
 for _noisy_logger in ("httpcore", "httpx", "huggingface_hub", "transformers", "urllib3"):
     logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 
-# Suppress the "unauthenticated HF Hub requests" UserWarning — it goes through
-# Python's warnings module, not logging, so setLevel alone doesn't catch it.
-warnings.filterwarnings("ignore", message=".*unauthenticated.*", category=UserWarning)
-warnings.filterwarnings("ignore", message=".*HF_TOKEN.*", category=UserWarning)
+# Suppress the "unauthenticated HF Hub" UserWarning — goes through Python's
+# warnings module, not logging, so setLevel alone doesn't catch it.
+warnings.filterwarnings("ignore", message=".*unauthenticated.*")
+warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 
 # Content signals that indicate boilerplate (case-insensitive)
 BOILERPLATE_SIGNALS = [
