@@ -1,5 +1,6 @@
 """RCARS FastAPI application."""
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,6 +9,8 @@ from fastapi.staticfiles import StaticFiles
 
 from rcars.config import get_settings
 from rcars.db import Database
+
+_logger = logging.getLogger(__name__)
 
 # Module-level DB instance — shared across all requests
 _db: Database | None = None
@@ -25,6 +28,8 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     if settings.database_url:
         _db = Database(settings.database_url)
+    else:
+        _logger.warning("RCARS_DATABASE_URL not set — database unavailable; DB-dependent routes will fail")
     yield
     if _db:
         _db.close()
@@ -36,6 +41,7 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).parent / "static"
     static_dir.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    # Import routes here to avoid circular imports with templates_registry
     from rcars.web.routes import advisor, curate, admin
     app.include_router(advisor.router)
     app.include_router(curate.router)

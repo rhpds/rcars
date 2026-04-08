@@ -4,18 +4,20 @@ import pytest
 from unittest.mock import MagicMock
 from starlette.testclient import TestClient
 from rcars.web.app import app, get_db
-from rcars.config import Settings
+from rcars.config import Settings, get_settings
 
 
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("RCARS_DEV_USER", "test@redhat.com")
+    get_settings.cache_clear()  # ensure monkeypatched env vars take effect
     mock_db = MagicMock()
     mock_db.get_db_currency.return_value = {"last_refresh": "2026.04.08", "is_stale": False}
     app.dependency_overrides[get_db] = lambda: mock_db
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+    get_settings.cache_clear()  # clean up after test
 
 
 def test_advisor_page_loads(client):

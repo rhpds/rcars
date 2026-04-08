@@ -1,5 +1,6 @@
 """RCARS configuration from environment variables."""
 
+import functools
 import os
 from dataclasses import dataclass, field
 
@@ -113,6 +114,7 @@ class Settings:
         return None
 
 
+@functools.lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Return the application settings (reads from environment)."""
     return Settings()
