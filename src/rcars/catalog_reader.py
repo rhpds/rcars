@@ -5,10 +5,14 @@ and extracts catalog metadata and Showroom URLs using a strict allowlist.
 """
 
 import logging
+import urllib3
 from datetime import datetime
 from typing import Any
 
 from kubernetes import client, config as k8s_config
+
+# Suppress SSL warnings for clusters with self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 log = logging.getLogger(__name__)
 
