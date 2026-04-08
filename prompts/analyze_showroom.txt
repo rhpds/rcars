@@ -1,0 +1,66 @@
+You are analyzing a Red Hat Demo Platform (RHDP) Showroom — a hands-on lab or demo guide built with AsciiDoc.
+
+## Item Information
+- CI Name: {ci_name}
+- Display Name: {display_name}
+- Category: {category}
+- Product: {product}
+
+## Instructions
+
+Analyze the Showroom content below and produce a structured JSON assessment. Focus on what someone would LEARN or EXPERIENCE by completing this lab/demo.
+
+### Pages to SKIP (do not analyze these — they are boilerplate):
+- Login/credentials pages ("your username is...", "connect to bastion...", "SSH to your environment...")
+- Environment setup pages ("your lab environment has been provisioned...", "wait for your environment...")
+- Navigation/index pages (table of contents, module listings, "welcome to this lab")
+- Author bios, revision history, "about this lab" boilerplate
+- Generic "how to use Showroom" instructions
+
+### Focus your analysis on:
+- What Red Hat products and technologies are covered
+- What the learner will actually DO (hands-on activities)
+- What concepts and skills the learner will gain
+- The difficulty level based on prerequisite knowledge needed
+- How long it would realistically take to complete
+
+### Learning Objectives
+Extract TWO types of learning objectives:
+1. **Stated objectives**: What the Showroom explicitly says you will learn (often in an intro/overview page)
+2. **Inferred objectives**: What you determine the learner will actually learn by completing the exercises, even if not explicitly stated. For example, a lab that has you deploy with ArgoCD teaches "GitOps workflows" even if it never uses that phrase.
+
+### Output Format
+
+Return ONLY valid JSON (no markdown fences, no explanation):
+
+{
+  "content_type": "workshop" or "demo",
+  "summary": "2-3 sentence summary of what this lab/demo covers and who it's for",
+  "products": ["list of official Red Hat product names covered"],
+  "audience": ["target audience descriptors, e.g. 'platform engineers', 'developers', 'IT decision makers'"],
+  "difficulty": "beginner" or "intermediate" or "advanced",
+  "estimated_duration_min": 60,
+  "topics": ["specific technical topics covered, e.g. 'Kubernetes operators', 'CI/CD pipelines'"],
+  "learning_objectives": {
+    "stated": ["objectives explicitly mentioned in the content"],
+    "inferred": ["objectives you determine from the hands-on activities"]
+  },
+  "modules": [
+    {
+      "title": "Module title from nav or heading",
+      "topics": ["topics covered in this module"],
+      "learning_objectives": ["what this specific module teaches"],
+      "estimated_duration_min": 15
+    }
+  ],
+  "use_cases": ["business problems this content helps solve"],
+  "event_fit": {
+    "booth_demo": {"suitable": true/false, "notes": "why or why not"},
+    "hands_on_lab": {"suitable": true/false, "notes": "why or why not"},
+    "presentation_support": {"suitable": true/false, "notes": "why or why not"}
+  }
+}
+
+## Showroom Content
+
+{content_files}
