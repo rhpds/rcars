@@ -66,3 +66,33 @@ def test_showroom_url_variables():
     settings = Settings()
     assert "ocp4_workload_showroom_content_git_repo" in settings.showroom_url_vars
     assert "showroom_git_repo" in settings.showroom_url_vars
+
+
+def test_get_anthropic_client_vertex(monkeypatch):
+    """Should return AnthropicVertex when project ID is set."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+    monkeypatch.setenv("CLOUD_ML_REGION", "us-east5")
+    settings = Settings()
+    client = settings.get_anthropic_client()
+    from anthropic import AnthropicVertex
+    assert isinstance(client, AnthropicVertex)
+
+
+def test_get_anthropic_client_direct(monkeypatch):
+    """Should return Anthropic when API key is set."""
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    settings = Settings()
+    client = settings.get_anthropic_client()
+    from anthropic import Anthropic
+    assert isinstance(client, Anthropic)
+
+
+def test_get_anthropic_client_none(monkeypatch):
+    """Should return None when no credentials."""
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    settings = Settings()
+    client = settings.get_anthropic_client()
+    assert client is None

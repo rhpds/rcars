@@ -75,3 +75,20 @@ class Settings:
     def use_vertex(self) -> bool:
         """Whether to use Vertex AI (preferred) or direct Anthropic API."""
         return bool(self.vertex_project_id)
+
+    def get_anthropic_client(self):
+        """Create an Anthropic client based on available credentials.
+
+        Returns AnthropicVertex if project ID is set, Anthropic if API key
+        is set, or None if no credentials are available.
+        """
+        if self.vertex_project_id:
+            from anthropic import AnthropicVertex
+            return AnthropicVertex(
+                project_id=self.vertex_project_id,
+                region=self.cloud_ml_region,
+            )
+        elif self.anthropic_api_key:
+            from anthropic import Anthropic
+            return Anthropic(api_key=self.anthropic_api_key)
+        return None
