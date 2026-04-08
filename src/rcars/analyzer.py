@@ -10,6 +10,7 @@ import re
 import shutil
 import subprocess
 import threading
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -20,12 +21,15 @@ log = logging.getLogger(__name__)
 # (httpx, huggingface_hub) that are never useful to end users, even in
 # verbose mode. Set at module load time so they take effect before any
 # CLI basicConfig call can cascade DEBUG to the root logger.
-for _noisy_logger in (
-    "httpcore", "httpx",
-    "huggingface_hub", "sentence_transformers",
-    "transformers", "urllib3",
-):
+# ERROR (not WARNING) for sentence_transformers to also silence BertModel LOAD REPORT.
+for _noisy_logger in ("httpcore", "httpx", "huggingface_hub", "transformers", "urllib3"):
     logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
+logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
+
+# Suppress the "unauthenticated HF Hub requests" UserWarning — it goes through
+# Python's warnings module, not logging, so setLevel alone doesn't catch it.
+warnings.filterwarnings("ignore", message=".*unauthenticated.*", category=UserWarning)
+warnings.filterwarnings("ignore", message=".*HF_TOKEN.*", category=UserWarning)
 
 # Content signals that indicate boilerplate (case-insensitive)
 BOILERPLATE_SIGNALS = [
@@ -239,7 +243,14 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
         with _embedding_lock:
             if model_name not in _embedding_models:
                 from sentence_transformers import SentenceTransformer
-                _embedding_models[model_name] = SentenceTransformer(model_name)
+                # Try loading from local cache first (no network check, no tqdm bar).
+                # Falls back to downloading if not yet cached (first install).
+                try:
+                    _embedding_models[model_name] = SentenceTransformer(
+                        model_name, local_files_only=True
+                    )
+                except Exception:
+                    _embedding_models[model_name] = SentenceTransformer(model_name)
 
     embedding = _embedding_models[model_name].encode(text, normalize_embeddings=True)
     return embedding.tolist()
