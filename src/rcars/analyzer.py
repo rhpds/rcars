@@ -226,12 +226,14 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
     if model_name not in _embedding_models:
         with _embedding_lock:
             if model_name not in _embedding_models:
+                # Suppress noisy HTTP/download messages BEFORE importing sentence-transformers,
+                # as the import itself triggers huggingface_hub connectivity checks.
+                # These loggers are only re-enabled if the user explicitly configures them.
+                logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
+                logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
+                logging.getLogger("transformers").setLevel(logging.WARNING)
+                logging.getLogger("urllib3").setLevel(logging.WARNING)
                 from sentence_transformers import SentenceTransformer
-                import logging as _logging
-                # Suppress noisy download/redirect messages from sentence-transformers
-                _logging.getLogger("sentence_transformers").setLevel(_logging.WARNING)
-                _logging.getLogger("huggingface_hub").setLevel(_logging.WARNING)
-                _logging.getLogger("urllib3").setLevel(_logging.WARNING)
                 _embedding_models[model_name] = SentenceTransformer(model_name)
 
     embedding = _embedding_models[model_name].encode(text, normalize_embeddings=True)
