@@ -129,9 +129,15 @@ def list_items(prod_only: bool, with_showroom: bool, category: str | None):
     db.close()
 
 
+def _catalog_url(ci_name: str, namespace: str) -> str:
+    """Construct demo.redhat.com catalog URL for a CI."""
+    return f"https://catalog.demo.redhat.com/catalog?item={namespace}/{ci_name}"
+
+
 @cli.command()
 @click.argument("ci_name")
-def show(ci_name: str):
+@click.option("--full", is_flag=True, default=False, help="Show full description")
+def show(ci_name: str, full: bool):
     """Show details for a specific catalog item."""
     db = get_db()
     item = db.get_catalog_item(ci_name)
@@ -141,8 +147,12 @@ def show(ci_name: str):
         db.close()
         return
 
+    catalog_ns = item.get("catalog_namespace", "babylon-catalog-prod")
+    catalog_link = _catalog_url(item["ci_name"], catalog_ns)
+
     console.print(f"\n[bold]{item.get('display_name', ci_name)}[/bold]")
     console.print(f"  CI Name:    {item['ci_name']}")
+    console.print(f"  Catalog:    {catalog_link}")
     console.print(f"  Category:   {item.get('category', '-')}")
     console.print(f"  Product:    {item.get('product', '-')}")
     console.print(f"  Stage:      {item.get('stage', '-')}")
@@ -151,10 +161,16 @@ def show(ci_name: str):
     console.print(f"  Ref:        {item.get('showroom_ref', '-')}")
 
     if item.get("description"):
-        desc = item["description"]
-        if len(desc) > 200:
-            desc = desc[:200] + "..."
-        console.print(f"\n  [dim]{desc}[/dim]")
+        if full:
+            console.print(f"\n[dim]{item['description']}[/dim]")
+        else:
+            desc = item["description"]
+            if len(desc) > 200:
+                desc = desc[:200] + "..."
+                console.print(f"\n  [dim]{desc}[/dim]")
+                console.print("  [dim italic](use --full for complete description)[/dim italic]")
+            else:
+                console.print(f"\n  [dim]{desc}[/dim]")
 
     console.print()
     db.close()
