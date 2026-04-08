@@ -14,15 +14,14 @@ console = Console()
 log = logging.getLogger("rcars")
 
 
-def get_db(ensure_schema: bool = False) -> Database:
-    """Get database connection from settings."""
+def get_db() -> Database:
+    """Get database connection from settings. Creates schema if needed."""
     settings = Settings()
     if not settings.database_url:
         console.print("[red]Error:[/red] RCARS_DATABASE_URL not set")
         sys.exit(1)
     db = Database(settings.database_url)
-    if ensure_schema:
-        db.create_schema()
+    db.create_schema()
     return db
 
 
@@ -46,7 +45,7 @@ def refresh(include_dev: bool):
     from rcars.catalog_reader import CatalogReader
 
     settings = Settings()
-    db = get_db(ensure_schema=True)
+    db = get_db()
 
     namespaces = (
         settings.catalog_namespaces_all if include_dev
