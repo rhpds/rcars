@@ -4,6 +4,8 @@ import pytest
 from rcars.catalog_reader import (
     extract_catalog_item,
     extract_showroom_url,
+    extract_base_ci_refs,
+    component_item_to_ci_name,
     CRD_FIELD_ALLOWLIST,
 )
 
@@ -171,3 +173,99 @@ def test_crd_field_allowlist_excludes_secrets():
         assert "token" not in field_name.lower()
         assert "vault" not in field_name.lower()
         assert "ssh" not in field_name.lower()
+
+
+# --- Published VCI tests ---
+
+SAMPLE_PUBLISHED_CATALOG_ITEM = {
+    "metadata": {
+        "name": "published.ocp4-lightspeed.prod",
+        "namespace": "babylon-catalog-prod",
+        "labels": {
+            "babylon.gpte.redhat.com/stage": "prod",
+            "babylon.gpte.redhat.com/Product": "Red_Hat_OpenShift_Container_Platform",
+            "babylon.gpte.redhat.com/category": "Demos",
+        },
+    },
+    "spec": {
+        "displayName": "OpenShift Lightspeed Demo",
+        "category": "Demos",
+        "keywords": ["openshift", "lightspeed"],
+    },
+}
+
+
+SAMPLE_PUBLISHED_COMPONENT = {
+    "spec": {
+        "definition": {
+            "__meta__": {
+                "components": [
+                    {
+                        "display_name": "OpenShift Lightspeed Demo (CNV)",
+                        "item": "openshift_cnv/ocp4-lightspeed-cnv",
+                        "name": "ocp4-lightspeed-cnv",
+                    }
+                ]
+            }
+        }
+    }
+}
+
+
+SAMPLE_MULTI_COMPONENT = {
+    "spec": {
+        "definition": {
+            "__meta__": {
+                "components": [
+                    {"item": "agd_v2/ocp-cluster-cnv", "name": "ocp-cluster-cnv"},
+                    {"item": "agd_v2/ocp-cluster-aws", "name": "ocp-cluster-aws"},
+                ]
+            }
+        }
+    }
+}
+
+
+def test_extract_catalog_item_detects_published():
+    """Published VCIs should have is_published=True."""
+    result = extract_catalog_item(SAMPLE_PUBLISHED_CATALOG_ITEM)
+    assert result["is_published"] is True
+    assert result["ci_name"] == "published.ocp4-lightspeed.prod"
+
+
+def test_extract_catalog_item_base_not_published():
+    """Base CIs should have is_published=False."""
+    result = extract_catalog_item(SAMPLE_CATALOG_ITEM)
+    assert result["is_published"] is False
+
+
+def test_extract_base_ci_refs():
+    """Should extract component item paths from published VCI."""
+    refs = extract_base_ci_refs(SAMPLE_PUBLISHED_COMPONENT)
+    assert refs == ["openshift_cnv/ocp4-lightspeed-cnv"]
+
+
+def test_extract_base_ci_refs_multi():
+    """Should extract multiple component item paths."""
+    refs = extract_base_ci_refs(SAMPLE_MULTI_COMPONENT)
+    assert len(refs) == 2
+    assert refs[0] == "agd_v2/ocp-cluster-cnv"
+    assert refs[1] == "agd_v2/ocp-cluster-aws"
+
+
+def test_extract_base_ci_refs_no_components():
+    """Should return empty list when no components."""
+    refs = extract_base_ci_refs(SAMPLE_AGNOSTICV_COMPONENT)
+    assert refs == []
+
+
+def test_component_item_to_ci_name():
+    """Should convert component path to CI name format."""
+    result = component_item_to_ci_name("openshift_cnv/ocp4-lightspeed-cnv", "prod")
+    assert result == "openshift-cnv.ocp4-lightspeed-cnv.prod"
+
+
+def test_component_item_to_ci_name_agd_v2():
+    """Should handle agd_v2 paths."""
+    result = component_item_to_ci_name("agd_v2/aap-multiinstance-workshop", "dev")
+    assert result == "agd-v2.aap-multiinstance-workshop.dev"

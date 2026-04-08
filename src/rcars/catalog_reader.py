@@ -78,7 +78,31 @@ def extract_catalog_item(crd: dict[str, Any]) -> dict[str, Any]:
         "owners_json": spec.get("owners"),
         "last_crd_update": last_crd_update,
         "is_prod": stage == "prod",
+        "is_published": metadata.get("name", "").startswith("published."),
     }
+
+
+def extract_base_ci_refs(
+    component_crd: dict[str, Any],
+) -> list[str]:
+    """Extract base CI component item paths from a published VCI's AgnosticVComponent.
+
+    Returns list of component item paths (e.g., ['openshift_cnv/ocp4-lightspeed-cnv']).
+    Only reads from __meta__.components[].item — nothing else.
+    """
+    definition = component_crd.get("spec", {}).get("definition", {}) or {}
+    meta = definition.get("__meta__", {})
+    components = meta.get("components", [])
+    return [c["item"] for c in components if "item" in c]
+
+
+def component_item_to_ci_name(component_item: str, stage: str) -> str:
+    """Convert a component item path to a CI name.
+
+    e.g., 'openshift_cnv/ocp4-lightspeed-cnv' + 'prod'
+       -> 'openshift-cnv.ocp4-lightspeed-cnv.prod'
+    """
+    return component_item.replace("/", ".").replace("_", "-") + "." + stage
 
 
 def extract_showroom_url(
@@ -198,8 +222,29 @@ class CatalogReader:
                     item["showroom_url"] = url
                     item["showroom_ref"] = ref
 
+                    # For published VCIs, extract base CI references
+                    if item["is_published"]:
+                        base_refs = extract_base_ci_refs(component)
+                        if base_refs:
+                            stage = item.get("stage", "prod")
+                            # Use first component (1:1 is the norm)
+                            item["base_ci_name"] = component_item_to_ci_name(
+                                base_refs[0], stage
+                            )
+
                 items.append(item)
 
             log.info("Found %d CatalogItems in %s", len(crds), ns)
+
+        # Second pass: set published_ci_name on base CIs
+        items_by_name = {i["ci_name"]: i for i in items}
+        for item in items:
+            if item.get("base_ci_name") and item["base_ci_name"] in items_by_name:
+                base = items_by_name[item["base_ci_name"]]
+                base["published_ci_name"] = item["ci_name"]
+                # Inherit Showroom URL from base CI if published VCI doesn't have one
+                if not item.get("showroom_url") and base.get("showroom_url"):
+                    item["showroom_url"] = base["showroom_url"]
+                    item["showroom_ref"] = base.get("showroom_ref")
 
         return items

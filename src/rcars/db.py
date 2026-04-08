@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     showroom_ref TEXT,
     last_crd_update TIMESTAMPTZ,
     last_refreshed TIMESTAMPTZ DEFAULT NOW(),
-    is_prod BOOLEAN DEFAULT FALSE
+    is_prod BOOLEAN DEFAULT FALSE,
+    is_published BOOLEAN DEFAULT FALSE,
+    published_ci_name TEXT,
+    base_ci_name TEXT
 );
 
 CREATE TABLE IF NOT EXISTS showroom_analysis (
@@ -151,6 +154,7 @@ class Database:
             "primary_bu", "secondary_bu", "stage", "catalog_namespace",
             "keywords", "description", "icon_url", "owners_json",
             "showroom_url", "showroom_ref", "last_crd_update", "is_prod",
+            "is_published", "published_ci_name", "base_ci_name",
         ]
         present = {k: item.get(k) for k in fields if k in item}
         present["last_refreshed"] = datetime.now(timezone.utc)
