@@ -15,6 +15,18 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
+# Suppress noisy low-level HTTP and HuggingFace loggers unconditionally.
+# These emit connection-level debug noise (httpcore) and redirect traces
+# (httpx, huggingface_hub) that are never useful to end users, even in
+# verbose mode. Set at module load time so they take effect before any
+# CLI basicConfig call can cascade DEBUG to the root logger.
+for _noisy_logger in (
+    "httpcore", "httpx",
+    "huggingface_hub", "sentence_transformers",
+    "transformers", "urllib3",
+):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
+
 # Content signals that indicate boilerplate (case-insensitive)
 BOILERPLATE_SIGNALS = [
     "your username is",
@@ -226,13 +238,6 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
     if model_name not in _embedding_models:
         with _embedding_lock:
             if model_name not in _embedding_models:
-                # Suppress noisy HTTP/download messages BEFORE importing sentence-transformers,
-                # as the import itself triggers huggingface_hub connectivity checks.
-                # These loggers are only re-enabled if the user explicitly configures them.
-                logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
-                logging.getLogger("huggingface_hub").setLevel(logging.WARNING)
-                logging.getLogger("transformers").setLevel(logging.WARNING)
-                logging.getLogger("urllib3").setLevel(logging.WARNING)
                 from sentence_transformers import SentenceTransformer
                 _embedding_models[model_name] = SentenceTransformer(model_name)
 
