@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse
 
-from rcars.web.app import templates
+from rcars.web.templates_registry import templates
 
 router = APIRouter()
 
