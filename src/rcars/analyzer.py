@@ -9,6 +9,7 @@ import logging
 import re
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -142,7 +143,7 @@ def read_showroom_content(clone_path: Path) -> dict[str, str]:
     """Read .adoc files from a cloned Showroom repo.
 
     Reads from content/modules/ROOT/pages/ (standard Antora layout).
-    Also reads nav.adoc and antora.yml if present.
+    Also reads nav.adoc if present, for structure context.
     """
     files = {}
     pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
@@ -200,25 +201,35 @@ def build_analysis_prompt(
     all_content = "\n\n".join(content_parts)
     all_content = truncate_content(all_content)
 
-    return template.format(
-        ci_name=ci_name,
-        display_name=display_name or ci_name,
-        category=category or "Unknown",
-        product=product or "Unknown",
-        content_files=all_content,
-    )
+    # Use simple string replacement instead of str.format() to avoid KeyErrors
+    # from AsciiDoc {attribute} syntax in both the template (JSON examples)
+    # and the content files.
+    substitutions = {
+        "{ci_name}": ci_name,
+        "{display_name}": display_name or ci_name,
+        "{category}": category or "Unknown",
+        "{product}": product or "Unknown",
+        "{content_files}": all_content,
+    }
+    result = template
+    for placeholder, value in substitutions.items():
+        result = result.replace(placeholder, value)
+    return result
+
+
+_embedding_lock = threading.Lock()
+_embedding_models: dict[str, Any] = {}
 
 
 def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[float]:
     """Generate a 384-dim embedding for text using sentence-transformers."""
-    from sentence_transformers import SentenceTransformer
+    if model_name not in _embedding_models:
+        with _embedding_lock:
+            if model_name not in _embedding_models:
+                from sentence_transformers import SentenceTransformer
+                _embedding_models[model_name] = SentenceTransformer(model_name)
 
-    # Cache model instance on the function
-    if not hasattr(generate_embedding, "_model") or generate_embedding._model_name != model_name:
-        generate_embedding._model = SentenceTransformer(model_name)
-        generate_embedding._model_name = model_name
-
-    embedding = generate_embedding._model.encode(text, normalize_embeddings=True)
+    embedding = _embedding_models[model_name].encode(text, normalize_embeddings=True)
     return embedding.tolist()
 
 
@@ -234,10 +245,10 @@ def build_embedding_text(analysis: dict[str, Any]) -> str:
         parts.extend(objectives.get("stated", []))
         parts.extend(objectives.get("inferred", []))
 
-    parts.extend(analysis.get("topics", []))
-    parts.extend(analysis.get("products", []))
-    parts.extend(analysis.get("audience", []))
-    parts.extend(analysis.get("use_cases", []))
+    for field in ("topics", "products", "audience", "use_cases"):
+        val = analysis.get(field, [])
+        if isinstance(val, list):
+            parts.extend(val)
 
     return " ".join(str(p) for p in parts if p)
 
@@ -247,8 +258,10 @@ def build_module_embedding_text(module: dict[str, Any]) -> str:
     parts = [
         module.get("title", ""),
     ]
-    parts.extend(module.get("topics", []))
-    parts.extend(module.get("learning_objectives", []))
+    for field in ("topics", "learning_objectives"):
+        val = module.get(field, [])
+        if isinstance(val, list):
+            parts.extend(val)
     return " ".join(str(p) for p in parts if p)
 
 

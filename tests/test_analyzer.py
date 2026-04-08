@@ -1,8 +1,8 @@
 """Tests for Showroom analyzer."""
 
 import json
-import pytest
 from rcars.analyzer import (
+    build_analysis_prompt,
     parse_analysis_response,
     filter_boilerplate_files,
     truncate_content,
@@ -126,3 +126,18 @@ def test_truncate_content_short():
     content = "Short content"
     result = truncate_content(content, max_chars=150000)
     assert result == content
+
+
+def test_build_analysis_prompt_escapes_asciidoc_braces():
+    """Should not raise KeyError when content contains AsciiDoc {attribute} syntax."""
+    files = {"01-module.adoc": "Set {product_name} to {value} and deploy."}
+    # Should not raise KeyError
+    result = build_analysis_prompt(
+        ci_name="test.ci",
+        display_name="Test CI",
+        category="Demos",
+        product="OpenShift",
+        content_files=files,
+    )
+    assert "{product_name}" in result
+    assert "{value}" in result
