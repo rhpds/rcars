@@ -6,6 +6,7 @@ from typing import Any
 
 import psycopg
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 
 log = logging.getLogger(__name__)
 
@@ -152,6 +153,10 @@ class Database:
         ]
         present = {k: item.get(k) for k in fields if k in item}
         present["last_refreshed"] = datetime.now(timezone.utc)
+
+        # Wrap JSONB fields with Jsonb adapter
+        if "owners_json" in present and present["owners_json"] is not None:
+            present["owners_json"] = Jsonb(present["owners_json"])
 
         columns = list(present.keys())
         placeholders = [f"%({k})s" for k in columns]
