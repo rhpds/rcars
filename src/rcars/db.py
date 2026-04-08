@@ -264,3 +264,134 @@ class Database:
             "analyzed": analyzed,
             "stale": stale,
         }
+
+    def upsert_showroom_analysis(self, analysis: dict[str, Any]):
+        """Insert or update a showroom analysis result."""
+        fields = [
+            "ci_name", "content_type", "summary",
+            "products_json", "audience_json", "topics_json",
+            "modules_json", "learning_objectives_json",
+            "difficulty", "estimated_duration_min",
+            "event_fit_json", "use_cases_json",
+            "last_repo_commit", "last_repo_updated",
+            "last_analyzed", "is_stale", "stale_commit",
+            "enrichment_review_needed",
+        ]
+        present = {k: analysis.get(k) for k in fields if k in analysis}
+        if "last_analyzed" not in present:
+            present["last_analyzed"] = datetime.now(timezone.utc)
+
+        # Wrap JSONB fields
+        jsonb_fields = [
+            "products_json", "audience_json", "topics_json",
+            "modules_json", "learning_objectives_json",
+            "event_fit_json", "use_cases_json",
+        ]
+        for f in jsonb_fields:
+            if f in present and present[f] is not None:
+                present[f] = Jsonb(present[f])
+
+        columns = list(present.keys())
+        placeholders = [f"%({k})s" for k in columns]
+        updates = [f"{k} = EXCLUDED.{k}" for k in columns if k != "ci_name"]
+
+        sql = f"""
+            INSERT INTO showroom_analysis ({', '.join(columns)})
+            VALUES ({', '.join(placeholders)})
+            ON CONFLICT (ci_name) DO UPDATE SET {', '.join(updates)}
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql, present)
+        self._conn.commit()
+
+    def get_showroom_analysis(self, ci_name: str) -> dict[str, Any] | None:
+        """Get analysis for a catalog item."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM showroom_analysis WHERE ci_name = %(ci_name)s",
+                {"ci_name": ci_name},
+            )
+            return cur.fetchone()
+
+    def store_embedding(
+        self,
+        ci_name: str,
+        embed_type: str,
+        content_text: str,
+        embedding: list[float],
+        module_title: str | None = None,
+    ):
+        """Store an embedding vector."""
+        with self._conn.cursor() as cur:
+            # Delete existing embedding of same type for this CI
+            if module_title:
+                cur.execute(
+                    """DELETE FROM embeddings
+                       WHERE ci_name = %(ci_name)s AND embed_type = %(embed_type)s
+                       AND module_title = %(module_title)s""",
+                    {"ci_name": ci_name, "embed_type": embed_type, "module_title": module_title},
+                )
+            else:
+                cur.execute(
+                    """DELETE FROM embeddings
+                       WHERE ci_name = %(ci_name)s AND embed_type = %(embed_type)s
+                       AND module_title IS NULL""",
+                    {"ci_name": ci_name, "embed_type": embed_type},
+                )
+            cur.execute(
+                """INSERT INTO embeddings (ci_name, embed_type, module_title, content_text, embedding)
+                   VALUES (%(ci_name)s, %(embed_type)s, %(module_title)s, %(content_text)s, %(embedding)s::vector)""",
+                {
+                    "ci_name": ci_name,
+                    "embed_type": embed_type,
+                    "module_title": module_title,
+                    "content_text": content_text,
+                    "embedding": f"[{','.join(str(v) for v in embedding)}]",
+                },
+            )
+        self._conn.commit()
+
+    def search_embeddings(
+        self,
+        query_embedding: list[float],
+        limit: int = 15,
+        prod_only: bool = True,
+        embed_type: str = "ci_summary",
+    ) -> list[dict[str, Any]]:
+        """Search embeddings by cosine similarity."""
+        prod_filter = ""
+        if prod_only:
+            prod_filter = "AND ci.is_prod = TRUE"
+
+        sql = f"""
+            SELECT e.ci_name, e.content_text, e.module_title,
+                   e.embedding <=> %(query)s::vector AS distance,
+                   ci.display_name, ci.category, ci.stage,
+                   ci.is_published, ci.published_ci_name, ci.base_ci_name
+            FROM embeddings e
+            JOIN catalog_items ci ON e.ci_name = ci.ci_name
+            WHERE e.embed_type = %(embed_type)s
+            {prod_filter}
+            ORDER BY distance ASC
+            LIMIT %(limit)s
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql, {
+                "query": f"[{','.join(str(v) for v in query_embedding)}]",
+                "embed_type": embed_type,
+                "limit": limit,
+            })
+            return cur.fetchall()
+
+    def get_items_needing_analysis(self) -> list[dict[str, Any]]:
+        """Get catalog items with Showroom URLs but no analysis."""
+        with self._conn.cursor() as cur:
+            cur.execute("""
+                SELECT ci.* FROM catalog_items ci
+                LEFT JOIN showroom_analysis sa ON ci.ci_name = sa.ci_name
+                WHERE ci.showroom_url IS NOT NULL
+                AND ci.showroom_url != ''
+                AND sa.ci_name IS NULL
+                ORDER BY ci.ci_name
+            """)
+            return cur.fetchall()

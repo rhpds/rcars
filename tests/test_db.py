@@ -137,3 +137,100 @@ def test_get_status_summary(db):
     assert summary["total"] == 2
     assert summary["prod"] == 1
     assert summary["with_showroom"] == 1
+
+
+def test_upsert_showroom_analysis(db):
+    """Should store and retrieve analysis results."""
+    # Need a catalog item first (FK constraint)
+    db.upsert_catalog_item({
+        "ci_name": "test.item.prod",
+        "display_name": "Test",
+        "stage": "prod",
+        "catalog_namespace": "babylon-catalog-prod",
+        "is_prod": True,
+    })
+
+    analysis = {
+        "ci_name": "test.item.prod",
+        "content_type": "workshop",
+        "summary": "A test workshop",
+        "products_json": ["OpenShift"],
+        "audience_json": ["developers"],
+        "topics_json": ["kubernetes"],
+        "modules_json": [{"title": "Intro", "topics": ["k8s"]}],
+        "learning_objectives_json": {
+            "stated": ["Learn Kubernetes"],
+            "inferred": ["Understand container orchestration"],
+        },
+        "difficulty": "beginner",
+        "estimated_duration_min": 60,
+        "last_repo_commit": "abc123",
+        "last_repo_updated": "2026-01-01T00:00:00+00:00",
+    }
+    db.upsert_showroom_analysis(analysis)
+
+    result = db.get_showroom_analysis("test.item.prod")
+    assert result is not None
+    assert result["content_type"] == "workshop"
+    assert result["summary"] == "A test workshop"
+    assert result["difficulty"] == "beginner"
+
+
+def test_store_and_search_embeddings(db):
+    """Should store embeddings and search by vector similarity."""
+    db.upsert_catalog_item({
+        "ci_name": "test.item.prod",
+        "display_name": "Test",
+        "stage": "prod",
+        "catalog_namespace": "babylon-catalog-prod",
+        "is_prod": True,
+    })
+
+    # Store a CI-level embedding (384 dims)
+    embedding = [0.1] * 384
+    db.store_embedding(
+        ci_name="test.item.prod",
+        embed_type="ci_summary",
+        content_text="OpenShift Kubernetes workshop for developers",
+        embedding=embedding,
+    )
+
+    # Search should find it
+    results = db.search_embeddings(
+        query_embedding=embedding,
+        limit=5,
+        prod_only=False,
+    )
+    assert len(results) >= 1
+    assert results[0]["ci_name"] == "test.item.prod"
+
+
+def test_get_items_needing_analysis(db):
+    """Should return items with Showroom URLs but no analysis."""
+    db.upsert_catalog_item({
+        "ci_name": "analyzed.item",
+        "display_name": "Analyzed",
+        "stage": "prod",
+        "catalog_namespace": "babylon-catalog-prod",
+        "is_prod": True,
+        "showroom_url": "https://github.com/example/repo1.git",
+    })
+    db.upsert_catalog_item({
+        "ci_name": "pending.item",
+        "display_name": "Pending",
+        "stage": "prod",
+        "catalog_namespace": "babylon-catalog-prod",
+        "is_prod": True,
+        "showroom_url": "https://github.com/example/repo2.git",
+    })
+    # Only analyze the first one
+    db.upsert_showroom_analysis({
+        "ci_name": "analyzed.item",
+        "content_type": "demo",
+        "summary": "Already analyzed",
+    })
+
+    pending = db.get_items_needing_analysis()
+    ci_names = [p["ci_name"] for p in pending]
+    assert "pending.item" in ci_names
+    assert "analyzed.item" not in ci_names
