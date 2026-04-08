@@ -150,8 +150,17 @@ def show(ci_name: str, full: bool):
     catalog_ns = item.get("catalog_namespace", "babylon-catalog-prod")
     catalog_link = _catalog_url(item["ci_name"], catalog_ns)
 
+    # Determine item type
+    if item.get("is_published"):
+        item_type = "[magenta]Virtual CI (Published)[/magenta]"
+    elif item.get("published_ci_name"):
+        item_type = "[cyan]Base CI[/cyan]"
+    else:
+        item_type = "[dim]Standalone CI[/dim]"
+
     console.print(f"\n[bold]{item.get('display_name', ci_name)}[/bold]")
     console.print(f"  CI Name:    {item['ci_name']}")
+    console.print(f"  Type:       {item_type}")
     console.print(f"  Catalog:    {catalog_link}")
     console.print(f"  Category:   {item.get('category', '-')}")
     console.print(f"  Product:    {item.get('product', '-')}")
@@ -159,6 +168,12 @@ def show(ci_name: str, full: bool):
     console.print(f"  Keywords:   {', '.join(item.get('keywords') or [])}")
     console.print(f"  Showroom:   {item.get('showroom_url', '-')}")
     console.print(f"  Ref:        {item.get('showroom_ref', '-')}")
+
+    # Show relationship
+    if item.get("is_published") and item.get("base_ci_name"):
+        console.print(f"  Base CI:    {item['base_ci_name']}")
+    elif item.get("published_ci_name"):
+        console.print(f"  Published:  {item['published_ci_name']}")
 
     if item.get("description"):
         if full:
