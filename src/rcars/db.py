@@ -126,6 +126,7 @@ class Database:
 
     def drop_schema(self):
         """Drop all tables. Only for testing."""
+        # Table names are hardcoded literals, not user input — safe for f-string SQL
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "catalog_items",
