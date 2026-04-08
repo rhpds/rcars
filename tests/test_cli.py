@@ -55,3 +55,46 @@ def test_show_nonexistent(runner):
     result = runner.invoke(cli, ["show", "nonexistent.item"])
     assert result.exit_code == 0
     assert "not found" in result.output.lower()
+
+
+def test_scan_no_credentials(runner, monkeypatch):
+    """Scan should exit with error when no Anthropic credentials."""
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = runner.invoke(cli, ["scan"])
+    assert result.exit_code == 1
+    assert "credentials" in result.output.lower() or "error" in result.output.lower()
+
+
+def test_scan_nothing_to_analyze(runner, monkeypatch):
+    """Scan should report nothing to analyze when catalog has no Showroom URLs."""
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+    # DB has no items with showroom_url → nothing pending
+    result = runner.invoke(cli, ["scan"])
+    assert result.exit_code == 0
+    assert "nothing to analyze" in result.output.lower()
+
+
+def test_recommend_no_credentials(runner, monkeypatch):
+    """Recommend should exit with error when no Anthropic credentials."""
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    result = runner.invoke(cli, ["recommend", "OpenShift demos for developers"])
+    assert result.exit_code == 1
+    assert "credentials" in result.output.lower() or "error" in result.output.lower()
+
+
+def test_recommend_no_results(runner, monkeypatch):
+    """Recommend should handle no candidates gracefully."""
+    monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
+    # Empty DB → no embeddings → recommend returns None
+    # We need to mock the recommend function to return None
+    import unittest.mock as mock
+    with mock.patch("rcars.recommender.recommend") as mock_rec:
+        mock_rec.return_value = None
+        # Also mock generate_embedding to avoid loading sentence-transformers
+        with mock.patch("rcars.recommender.generate_embedding") as mock_emb:
+            mock_emb.return_value = [0.0] * 384
+            result = runner.invoke(cli, ["recommend", "OpenShift demos for developers"])
+    assert result.exit_code == 0
+    assert "no recommendations" in result.output.lower()
