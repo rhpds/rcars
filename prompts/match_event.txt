@@ -1,0 +1,33 @@
+You are analyzing a conference or event page to extract a structured profile for matching RHDP demo content.
+
+## Page Content
+
+{page_content}
+
+## Instructions
+
+Extract a structured profile from this event page. Handle non-English content by translating key themes.
+
+Return ONLY valid JSON (no markdown fences):
+
+{
+  "event_name": "Name of the event",
+  "event_dates": "Date range or null",
+  "event_location": "Location or null",
+  "event_type": "conference" or "meetup" or "workshop_series" or "hackathon" or "summit" or "other",
+  "audience_profile": {
+    "primary_audience": "developers, architects, etc.",
+    "experience_level": "beginner, intermediate, advanced, mixed",
+    "industry_focus": "specific industry or general"
+  },
+  "themes": ["major event themes"],
+  "relevant_topics": ["technical topics relevant to Red Hat products"],
+  "format_opportunities": {
+    "has_booth": true/false,
+    "has_lab_slots": true/false,
+    "has_talk_slots": true/false,
+    "estimated_session_duration_min": 45,
+    "notes": "Any relevant format details"
+  },
+  "search_queries": ["3-5 natural language queries to find matching RHDP content"]
+}
