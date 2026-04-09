@@ -43,10 +43,10 @@
       {% if current_user %}
         {% if is_curator %}
           <button class="curator-toggle" @click="curatorMode = !curatorMode" :class="curatorMode ? 'active' : ''">
-            <span x-text="curatorMode ? 'Curator ON' : 'Curator'"></span>
+            <span x-text="curatorMode ? 'Curator ON' : 'Curator'">Curator</span>
           </button>
         {% endif %}
-        <span class="user-email">{{ current_user }}</span>
+        <span class="user-email" style="min-width:40px;">{{ current_user }}</span>
       {% endif %}
     </div>
   </header>
