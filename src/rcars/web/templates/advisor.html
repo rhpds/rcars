@@ -1,7 +1,32 @@
-<!DOCTYPE html>
-<html>
-<head><title>RCARS</title></head>
-<body>
-<h1>RCARS</h1>
-</body>
-</html>
+{% extends "base.html" %}
+{% block content %}
+<div class="advisor-layout">
+  <div class="chat-pane">
+    <div class="pane-label">Conversation</div>
+    <div class="chat-turns" id="chat-pane">
+      <div class="chat-welcome">
+        <p>Describe what you're looking for or paste an event URL.</p>
+        <p class="hint">e.g. "OpenShift demos for a developer audience at KubeCon"</p>
+        <p class="hint">e.g. "https://summit.redhat.com/2026"</p>
+      </div>
+    </div>
+    <form hx-post="/advisor/query"
+          hx-target="#rec-pane"
+          hx-swap="innerHTML"
+          class="chat-input-row"
+          x-data="{ msg: '' }"
+          @htmx:after-request="msg = ''">
+      <input type="hidden" name="session_id" value="{{ session_id }}">
+      <textarea name="message" class="chat-input" rows="2"
+                placeholder="Refine or ask anything..."
+                x-model="msg"
+                @keydown.enter.prevent="if (!$event.shiftKey && msg.trim()) $el.closest('form').requestSubmit()"></textarea>
+      <button type="submit" class="btn-send">Send</button>
+    </form>
+  </div>
+  <div class="rec-pane" id="rec-pane">
+    <div class="pane-label">Recommendations</div>
+    <p style="color: var(--text-muted); font-size: 12px;">Start a conversation to see results</p>
+  </div>
+</div>
+{% endblock %}

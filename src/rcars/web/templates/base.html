@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RCARS — RHDP Content Advisor</title>
+  <link rel="stylesheet" href="/static/rcars.css">
+  <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+  <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+</head>
+<body x-data="{ curatorMode: false }">
+
+  <!-- Top bar with LCARS logo -->
+  <header class="rcars-header">
+    <svg width="300" height="80" viewBox="0 0 300 80" xmlns="http://www.w3.org/2000/svg" class="rcars-logo">
+      <!-- Arc -->
+      <path d="M 10 8 A 44 44 0 0 1 54 52 L 68 52 L 68 66 L 46 66 Q 10 66 10 32 Z" fill="#FF9900"/>
+      <path d="M 20 22 A 22 22 0 0 1 40 44" stroke="#CC6600" stroke-width="3" fill="none" opacity="0.6"/>
+      <!-- Header bars -->
+      <rect x="72" y="8" width="108" height="24" rx="4" fill="#FF9900"/>
+      <rect x="184" y="8" width="26" height="24" rx="4" fill="#FFCC99"/>
+      <rect x="214" y="8" width="48" height="24" rx="4" fill="#9966CC"/>
+      <!-- Middle bar -->
+      <rect x="72" y="36" width="190" height="16" rx="3" fill="#1c1c2e"/>
+      <!-- Bottom bar -->
+      <rect x="72" y="56" width="190" height="16" rx="3" fill="#1c1c2e"/>
+      <!-- RCARS -->
+      <text x="80" y="25" font-family="Arial Black, Impact, sans-serif" font-size="15" font-weight="900" fill="#000" letter-spacing="4">RCARS</text>
+      <!-- RHDP CONTENT ADVISOR -->
+      <text x="80" y="48" font-family="Arial, sans-serif" font-size="9" fill="#FF9900" letter-spacing="1.5">RHDP CONTENT ADVISOR</text>
+      <!-- Date + currency badge -->
+      <text x="80" y="68" font-family="Arial, sans-serif" font-size="8" fill="#FFCC99">{{ db_status.last_refresh }}</text>
+      {% if db_status.is_stale %}
+      <rect x="142" y="57" width="52" height="14" rx="2" fill="#3a0d0d"/>
+      <text x="147" y="67" font-family="Arial Black, sans-serif" font-size="8" font-weight="900" fill="#c9190b">● STALE</text>
+      {% else %}
+      <rect x="142" y="57" width="60" height="14" rx="2" fill="#0d3a0d"/>
+      <text x="147" y="67" font-family="Arial Black, sans-serif" font-size="8" font-weight="900" fill="#5cb85c">● CURRENT</text>
+      {% endif %}
+    </svg>
+
+    <div class="header-right">
+      {% if current_user %}
+        {% if is_curator %}
+          <button class="curator-toggle" @click="curatorMode = !curatorMode" :class="curatorMode ? 'active' : ''">
+            <span x-text="curatorMode ? 'Curator ON' : 'Curator'"></span>
+          </button>
+        {% endif %}
+        <span class="user-email">{{ current_user }}</span>
+      {% endif %}
+    </div>
+  </header>
+
+  <!-- Body with nav + content -->
+  <div class="rcars-body">
+    <nav class="rcars-nav">
+      <a href="/advisor" class="nav-item {% if active_page == 'advisor' %}active{% endif %}">Advisor</a>
+      {% if is_curator %}
+      <a href="/curate" class="nav-item {% if active_page == 'curate' %}active{% endif %}">Curate</a>
+      <a href="/admin" class="nav-item {% if active_page == 'admin' %}active{% endif %}">Admin</a>
+      {% endif %}
+
+      {% if active_page == 'advisor' %}
+      <div class="nav-section-label">HISTORY</div>
+      <div id="session-history" x-data="sessionHistory()">
+        <template x-for="s in sessions" :key="s.id">
+          <a :href="'/advisor?session_id=' + s.id" class="nav-item history-item" x-text="s.label"></a>
+        </template>
+      </div>
+      {% endif %}
+    </nav>
+
+    <main class="rcars-main">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script>
+  function sessionHistory() {
+    return {
+      sessions: JSON.parse(localStorage.getItem('rcars_sessions') || '[]').slice(0, 10),
+    };
+  }
+
+  function saveSession(sessionId, label) {
+    const sessions = JSON.parse(localStorage.getItem('rcars_sessions') || '[]');
+    const filtered = sessions.filter(s => s.id !== sessionId);
+    filtered.unshift({ id: sessionId, label: label.slice(0, 40), ts: Date.now() });
+    localStorage.setItem('rcars_sessions', JSON.stringify(filtered.slice(0, 20)));
+  }
+  </script>
+</body>
+</html>
