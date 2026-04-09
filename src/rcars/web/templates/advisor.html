@@ -24,6 +24,12 @@
           {% endif %}
         {% endfor %}
       {% else %}
+        {% if session_expired %}
+        <div class="chat-welcome" style="border-left: 3px solid var(--score-amber);">
+          <p>This session has expired (server was restarted).</p>
+          <p class="hint">Start a new conversation below, or click "+ New Session" in the nav.</p>
+        </div>
+        {% endif %}
         <div class="chat-welcome">
           <p>Describe what you're looking for or paste an event URL.</p>
           <p class="hint">e.g. "OpenShift demos for a developer audience at KubeCon"</p>

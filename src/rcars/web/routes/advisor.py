@@ -128,6 +128,7 @@ async def advisor(
     # Restore previous conversation if session exists
     turns = _sessions.get(sid, [])
     ctx["turns"] = turns
+    ctx["session_expired"] = bool(session_id and not turns)
 
     # Restore last recommendations if session has them
     last_recs_html = ""

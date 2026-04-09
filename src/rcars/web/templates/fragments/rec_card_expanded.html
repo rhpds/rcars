@@ -18,7 +18,25 @@
 
   {% if is_curator %}
   <div class="curator-actions" x-show="curatorMode" @click.stop>
-    <form hx-post="/curate/tag" hx-swap="none" style="display:inline-flex;gap:6px;align-items:center;">
+    <div class="tag-list" style="margin-right:8px;">
+      {% if rec.tags %}
+        {% for tag in rec.tags %}
+        <span class="tag-pill">{{ tag.tag_value }}</span>
+        {% endfor %}
+      {% endif %}
+    </div>
+    <form hx-post="/curate/tag" hx-swap="none" style="display:inline-flex;gap:6px;align-items:center;"
+          onsubmit="setTimeout(function(){
+            var input = event.target.querySelector('[name=tag_value]');
+            var tagList = event.target.closest('.curator-actions').querySelector('.tag-list');
+            if (input.value.trim() && tagList) {
+              var pill = document.createElement('span');
+              pill.className = 'tag-pill';
+              pill.textContent = input.value.trim();
+              tagList.appendChild(pill);
+            }
+            input.value = '';
+          }, 100)">
       <input type="hidden" name="ci_name" value="{{ rec.ci_name }}">
       <input type="hidden" name="tag_type" value="label">
       <input type="text" name="tag_value" placeholder="tag text..."
@@ -28,7 +46,8 @@
     <button class="btn-curator secondary"
             hx-post="/curate/flag"
             hx-vals='{"ci_name": "{{ rec.ci_name }}", "needed": "true"}'
-            hx-swap="none">
+            hx-swap="none"
+            onclick="this.textContent = 'Flagged'; this.style.color = 'var(--text-amber)'; this.disabled = true;">
       Flag
     </button>
   </div>

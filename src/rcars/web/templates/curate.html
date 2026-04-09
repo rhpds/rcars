@@ -22,13 +22,12 @@
   <div class="curate-item" id="item-{{ item.ci_name | replace('.', '-') }}">
     <div style="display:flex;align-items:center;margin-bottom:4px;">
       <span class="curate-item-title">{{ item.display_name or item.ci_name }}</span>
-      {% if item.enrichment_review_needed %}
-      <span class="review-badge">needs review</span>
-      {% endif %}
+      <span class="review-badge" id="badge-{{ item.ci_name | replace('.', '-') }}"
+            style="{% if not item.enrichment_review_needed %}display:none;{% endif %}">needs review</span>
     </div>
     <div class="curate-item-ci">{{ item.ci_name }}</div>
 
-    <div class="tag-list" style="margin-bottom:8px;">
+    <div class="tag-list" id="tags-{{ item.ci_name | replace('.', '-') }}" style="margin-bottom:8px;">
       {% for tag in item.tags %}
       <span class="tag-pill-removable"
             hx-delete="/curate/tag?ci_name={{ item.ci_name | urlencode }}&tag_type={{ tag.tag_type }}&tag_value={{ tag.tag_value | urlencode }}"
@@ -40,12 +39,23 @@
       {% endfor %}
       <form hx-post="/curate/tag"
             hx-swap="none"
-            hx-on::after-request="this.reset()"
-            style="display:inline-flex;gap:4px;align-items:center;">
+            style="display:inline-flex;gap:4px;align-items:center;"
+            onsubmit="setTimeout(function(){
+              var input = event.target.querySelector('[name=tag_value]');
+              var tagList = event.target.closest('.tag-list');
+              if (input.value.trim() && tagList) {
+                var pill = document.createElement('span');
+                pill.className = 'tag-pill-removable';
+                pill.textContent = input.value.trim() + ' x';
+                pill.title = 'Click to remove';
+                tagList.insertBefore(pill, event.target);
+              }
+              input.value = '';
+            }, 100)">
         <input type="hidden" name="ci_name" value="{{ item.ci_name }}">
         <input type="hidden" name="tag_type" value="label">
         <input type="text" name="tag_value" placeholder="+ add tag"
-               style="background:transparent;border:1px dashed #3a5a3a;color:var(--score-green);padding:1px 7px;border-radius:10px;font-size:10px;width:90px;">
+               style="background:transparent;border:1px dashed #3a5a3a;color:var(--score-green);padding:3px 10px;border-radius:10px;font-size:12px;width:110px;">
       </form>
     </div>
 
@@ -54,26 +64,29 @@
       <input type="text" name="note"
              value="{{ item.note or '' }}"
              placeholder="Add a note..."
-             style="background:var(--bg-card);border:1px solid #333;color:#aaa;padding:4px 8px;border-radius:3px;font-size:11px;width:100%;font-style:italic;"
+             style="background:var(--bg-card);border:1px solid #333;color:#aaa;padding:6px 10px;border-radius:4px;font-size:13px;width:100%;font-style:italic;"
              onchange="this.form.requestSubmit()">
     </form>
 
     <div style="display:flex;gap:6px;">
-      {% if item.enrichment_review_needed %}
       <button class="btn-curator secondary"
               hx-post="/curate/flag"
-              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "false"}'
-              hx-swap="none">
-        Clear flag
+              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "{{ 'false' if item.enrichment_review_needed else 'true' }}"}'
+              hx-swap="none"
+              onclick="var badge = document.getElementById('badge-{{ item.ci_name | replace('.', '-') }}');
+                       var isFlagging = this.textContent.trim().indexOf('Flag for') === 0;
+                       if (isFlagging) {
+                         badge.style.display = 'inline-block';
+                         this.textContent = 'Clear flag';
+                         this.setAttribute('hx-vals', '{\"ci_name\": \"{{ item.ci_name }}\", \"needed\": \"false\"}');
+                       } else {
+                         badge.style.display = 'none';
+                         this.textContent = 'Flag for review';
+                         this.setAttribute('hx-vals', '{\"ci_name\": \"{{ item.ci_name }}\", \"needed\": \"true\"}');
+                       }
+                       htmx.process(this);">
+        {{ 'Clear flag' if item.enrichment_review_needed else 'Flag for review' }}
       </button>
-      {% else %}
-      <button class="btn-curator secondary"
-              hx-post="/curate/flag"
-              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "true"}'
-              hx-swap="none">
-        Flag for review
-      </button>
-      {% endif %}
     </div>
   </div>
   {% endfor %}

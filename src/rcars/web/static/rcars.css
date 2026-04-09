@@ -134,6 +134,20 @@ body {
 .nav-item.history-item { font-size: 13px; color: #444; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .nav-item.history-item:hover { color: var(--text-muted); }
 
+.nav-new-session {
+  display: block;
+  padding: 8px 20px;
+  margin: 4px 10px 2px;
+  color: var(--accent-blue);
+  text-decoration: none;
+  font-size: 13px;
+  border: 1px dashed #2a3a5a;
+  border-radius: 6px;
+  text-align: center;
+  cursor: pointer;
+}
+.nav-new-session:hover { background: #0d1a2d; border-color: var(--accent-blue); }
+
 .nav-section-label {
   padding: 12px 20px 4px;
   font-size: 11px;

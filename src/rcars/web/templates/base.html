@@ -65,6 +65,7 @@
       {% endif %}
 
       {% if active_page == 'advisor' %}
+      <a href="/advisor" class="nav-new-session">+ New Session</a>
       <div class="nav-section-label">HISTORY</div>
       <div id="session-history" x-data="sessionHistory()">
         <template x-for="s in sessions" :key="s.id">
