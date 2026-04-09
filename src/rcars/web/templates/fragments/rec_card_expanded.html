@@ -17,25 +17,18 @@
   {% endif %}
 
   {% if is_curator %}
-  <div class="curator-actions" x-show="curatorMode">
-    <button class="btn-curator"
-            hx-post="/curate/tag"
-            hx-vals='{"ci_name": "{{ rec.ci_name }}", "tag_type": "label"}'
-            hx-include="closest .curator-actions [name=tag_value]"
-            hx-swap="none"
-            @click.stop>
-      + Tag
-    </button>
-    <input type="text"
-           name="tag_value"
-           placeholder="tag text..."
-           style="background:#1a1f2e;border:1px solid #333;color:#d2d2d2;padding:2px 6px;border-radius:3px;font-size:10px;width:100px;"
-           @click.stop>
+  <div class="curator-actions" x-show="curatorMode" @click.stop>
+    <form hx-post="/curate/tag" hx-swap="none" style="display:inline-flex;gap:6px;align-items:center;">
+      <input type="hidden" name="ci_name" value="{{ rec.ci_name }}">
+      <input type="hidden" name="tag_type" value="label">
+      <input type="text" name="tag_value" placeholder="tag text..."
+             style="background:#1a1f2e;border:1px solid #333;color:#d2d2d2;padding:4px 8px;border-radius:4px;font-size:12px;width:120px;">
+      <button type="submit" class="btn-curator">+ Tag</button>
+    </form>
     <button class="btn-curator secondary"
             hx-post="/curate/flag"
             hx-vals='{"ci_name": "{{ rec.ci_name }}", "needed": "true"}'
-            hx-swap="none"
-            @click.stop>
+            hx-swap="none">
       Flag
     </button>
   </div>

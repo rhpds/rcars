@@ -131,30 +131,32 @@ async def advisor(
 
     # Restore last recommendations if session has them
     last_recs_html = ""
-    if turns and db:
-        # Find last assistant turn with rec_ci_names
+    if turns:
         for t in reversed(turns):
-            if t.get("role") == "assistant" and t.get("rec_ci_names"):
-                ci_names = t["rec_ci_names"]
-                raw_items = [db.get_catalog_item(ci) for ci in ci_names]
-                raw_items = [item for item in raw_items if item]
-                recs = _enrich_recs(
-                    [{"ci_name": item["ci_name"],
-                      "display_name": item.get("display_name", item["ci_name"]),
-                      "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
-                      "fit_score": 0,
-                      "rationale": "(restored from history)",
-                      "suggested_format": item.get("category", ""),
-                      "duration_notes": "",
-                      "caveats": ""} for item in raw_items],
-                    db,
-                )
-                settings = Settings()
-                last_recs_html = templates.get_template("fragments/rec_list.html").render(
-                    recs=recs,
-                    is_curator=settings.is_curator(user),
-                    session_id=sid,
-                )
+            if t.get("role") == "assistant" and (t.get("recs") or t.get("rec_ci_names")):
+                recs = t.get("recs", [])
+                if not recs and db:
+                    ci_names = t.get("rec_ci_names", [])
+                    raw_items = [db.get_catalog_item(ci) for ci in ci_names]
+                    raw_items = [item for item in raw_items if item]
+                    recs = _enrich_recs(
+                        [{"ci_name": item["ci_name"],
+                          "display_name": item.get("display_name", item["ci_name"]),
+                          "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
+                          "fit_score": 0,
+                          "rationale": "(restored from history)",
+                          "suggested_format": item.get("category", ""),
+                          "duration_notes": "",
+                          "caveats": ""} for item in raw_items],
+                        db,
+                    )
+                if recs:
+                    settings = Settings()
+                    last_recs_html = templates.get_template("fragments/rec_list.html").render(
+                        recs=recs,
+                        is_curator=settings.is_curator(user),
+                        session_id=sid,
+                    )
                 break
     ctx["restored_recs_html"] = last_recs_html
 
@@ -219,6 +221,7 @@ async def advisor_query(
         "role": "assistant",
         "content": overall,
         "rec_ci_names": [r["ci_name"] for r in recs],
+        "recs": recs,
         "turn_index": turn_index,
     })
 
@@ -262,20 +265,23 @@ async def advisor_restore(
     if not assistant_turn:
         recs = []
     else:
-        ci_names = assistant_turn.get("rec_ci_names", [])
-        raw_items = [db.get_catalog_item(ci) for ci in ci_names]
-        raw_items = [item for item in raw_items if item]
-        recs = _enrich_recs(
-            [{"ci_name": item["ci_name"],
-              "display_name": item.get("display_name", item["ci_name"]),
-              "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
-              "fit_score": 0,
-              "rationale": "(restored from history)",
-              "suggested_format": item.get("category", ""),
-              "duration_notes": "",
-              "caveats": ""} for item in raw_items],
-            db,
-        )
+        # Use stored full recs if available, fall back to catalog lookup
+        recs = assistant_turn.get("recs", [])
+        if not recs and db:
+            ci_names = assistant_turn.get("rec_ci_names", [])
+            raw_items = [db.get_catalog_item(ci) for ci in ci_names]
+            raw_items = [item for item in raw_items if item]
+            recs = _enrich_recs(
+                [{"ci_name": item["ci_name"],
+                  "display_name": item.get("display_name", item["ci_name"]),
+                  "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
+                  "fit_score": 0,
+                  "rationale": "(restored from history)",
+                  "suggested_format": item.get("category", ""),
+                  "duration_notes": "",
+                  "caveats": ""} for item in raw_items],
+                db,
+            )
 
     is_curator = settings.is_curator(user)
     rec_html = templates.get_template("fragments/rec_list.html").render(

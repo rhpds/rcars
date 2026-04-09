@@ -40,13 +40,15 @@
     </svg>
 
     <div class="header-right">
+      {% if is_curator %}
+        <button class="curator-toggle" @click="curatorMode = !curatorMode" :class="curatorMode ? 'active' : ''">
+          <span x-text="curatorMode ? 'Curator ON' : 'Curator'">Curator</span>
+        </button>
+      {% endif %}
       {% if current_user %}
-        {% if is_curator %}
-          <button class="curator-toggle" @click="curatorMode = !curatorMode" :class="curatorMode ? 'active' : ''">
-            <span x-text="curatorMode ? 'Curator ON' : 'Curator'">Curator</span>
-          </button>
-        {% endif %}
-        <span class="user-email" style="min-width:40px;">{{ current_user }}</span>
+        <span class="user-email">{{ current_user }}</span>
+      {% else %}
+        <span class="user-email" style="color:var(--score-amber);">No user set (RCARS_DEV_USER)</span>
       {% endif %}
     </div>
   </header>
