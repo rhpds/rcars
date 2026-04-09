@@ -1,0 +1,33 @@
+{% set score = rec.fit_score %}
+{% if score >= 80 %}{% set score_class = "score-green" %}
+{% elif score >= 50 %}{% set score_class = "score-amber" %}
+{% else %}{% set score_class = "score-red" %}{% endif %}
+
+<div class="rec-card {{ score_class }}"
+     x-data="{ expanded: false }"
+     @click="expanded = !expanded">
+  <div class="rec-card-header">
+    <div class="rec-score">{{ score }}%</div>
+    <div style="flex:1;min-width:0;">
+      <div class="rec-title">{{ rec.display_name }}</div>
+      <div class="rec-meta">
+        {{ rec.ci_name }} · {{ rec.suggested_format or '—' }} · {{ rec.duration_notes or '—' }}
+      </div>
+    </div>
+    <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
+  </div>
+
+  <div class="rec-rationale">{{ rec.rationale }}</div>
+
+  {% if rec.tags %}
+  <div class="tag-list">
+    {% for tag in rec.tags %}
+    <span class="tag-pill">{{ tag.tag_value }}</span>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div x-show="expanded" style="display:none;" @click.stop>
+    {% include "fragments/rec_card_expanded.html" %}
+  </div>
+</div>

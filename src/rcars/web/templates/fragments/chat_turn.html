@@ -1,0 +1,12 @@
+<div hx-swap-oob="beforeend:#chat-pane">
+  <div class="chat-turn-user">{{ user_message }}</div>
+  <div class="chat-turn-assistant"
+       hx-get="/advisor/restore/{{ session_id }}/{{ turn_index }}"
+       hx-target="#rec-pane"
+       hx-swap="innerHTML"
+       hx-trigger="click">
+    {{ assistant_message }}
+    <div class="chat-turn-restore">click to restore these results</div>
+  </div>
+</div>
+<script>saveSession('{{ session_id }}', {{ first_message | tojson }});</script>

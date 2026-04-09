@@ -1,0 +1,43 @@
+<div class="rec-expanded">
+  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;">
+    <div class="rec-detail-row"><span>Format:</span> {{ rec.suggested_format or '—' }}</div>
+    <div class="rec-detail-row"><span>Duration:</span> {{ rec.duration_notes or '—' }}</div>
+  </div>
+
+  {% if rec.caveats %}
+  <div class="rec-detail-row" style="margin-bottom:6px;"><span>Caveat:</span> {{ rec.caveats }}</div>
+  {% endif %}
+
+  <div style="margin-bottom:6px;">
+    <a href="{{ rec.catalog_link }}" target="_blank" class="rec-catalog-link">View in Catalog</a>
+  </div>
+
+  {% if rec.note %}
+  <div class="rec-detail-row" style="margin-bottom:6px;font-style:italic;color:#888;">{{ rec.note }}</div>
+  {% endif %}
+
+  {% if is_curator %}
+  <div class="curator-actions" x-show="curatorMode">
+    <button class="btn-curator"
+            hx-post="/curate/tag"
+            hx-vals='{"ci_name": "{{ rec.ci_name }}", "tag_type": "label"}'
+            hx-include="[name='_tag_input_{{ rec.ci_name | replace('.', '_') }}']"
+            hx-swap="none"
+            @click.stop>
+      + Tag
+    </button>
+    <input type="text"
+           name="_tag_input_{{ rec.ci_name | replace('.', '_') }}"
+           placeholder="tag text..."
+           style="background:#1a1f2e;border:1px solid #333;color:#d2d2d2;padding:2px 6px;border-radius:3px;font-size:10px;width:100px;"
+           @click.stop>
+    <button class="btn-curator secondary"
+            hx-post="/curate/flag"
+            hx-vals='{"ci_name": "{{ rec.ci_name }}", "needed": "true"}'
+            hx-swap="none"
+            @click.stop>
+      Flag
+    </button>
+  </div>
+  {% endif %}
+</div>

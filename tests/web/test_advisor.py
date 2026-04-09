@@ -1,11 +1,29 @@
 import pytest
+from pathlib import Path
 from unittest.mock import MagicMock
 from starlette.testclient import TestClient
+import jinja2
 from rcars.web.app import app, get_db
 from rcars.web.routes.advisor import _get_db_dependency as advisor_get_db
 from rcars.web.routes.curate import get_db as curate_get_db
 from rcars.web.routes.admin import get_db as admin_get_db
 from rcars.config import Settings
+
+SAMPLE_REC = {
+    "ci_name": "openshift-cnv.lightspeed-workshop.prod",
+    "display_name": "OpenShift Lightspeed Workshop",
+    "fit_score": 92,
+    "rationale": "Strong fit for developer audience.",
+    "suggested_format": "hands_on_lab",
+    "duration_notes": "90 min",
+    "caveats": "Requires OCP 4.16+",
+    "tags": [{"tag_value": "booth demo"}, {"tag_value": "Summit 2026"}],
+    "note": None,
+    "enrichment_review_needed": False,
+    "catalog_link": "https://demo.redhat.com/catalog/openshift-cnv.lightspeed-workshop.prod",
+}
+
+_TEMPLATE_DIR = str(Path(__file__).parent.parent.parent / "src/rcars/web/templates")
 
 
 @pytest.fixture
@@ -66,3 +84,28 @@ def test_advisor_loads_htmx(client):
 def test_advisor_loads_alpinejs(client):
     response = client.get("/advisor")
     assert "alpinejs" in response.text.lower() or "alpine" in response.text.lower()
+
+
+def test_rec_card_renders_score_and_name():
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    tmpl = env.get_template("fragments/rec_card.html")
+    html = tmpl.render(rec=SAMPLE_REC, is_curator=False, session_id="test-123")
+    assert "92" in html
+    assert "OpenShift Lightspeed Workshop" in html
+    assert "booth demo" in html
+
+
+def test_rec_card_expanded_shows_caveats():
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    tmpl = env.get_template("fragments/rec_card_expanded.html")
+    html = tmpl.render(rec=SAMPLE_REC, is_curator=False, session_id="test-123")
+    assert "Requires OCP 4.16+" in html
+    assert "openshift-cnv.lightspeed-workshop.prod" in html
+
+
+def test_rec_card_expanded_shows_curator_controls_for_curator():
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    tmpl = env.get_template("fragments/rec_card_expanded.html")
+    html = tmpl.render(rec=SAMPLE_REC, is_curator=True, session_id="test-123")
+    assert "curator-actions" in html
+    assert "Tag" in html

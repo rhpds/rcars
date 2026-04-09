@@ -1,0 +1,12 @@
+<div class="pane-label">Recommendations</div>
+{% if recs %}
+  {% for rec in recs %}
+    {% include "fragments/rec_card.html" %}
+  {% endfor %}
+{% else %}
+  <p style="color:var(--text-muted);font-size:12px;">No strong matches found. Try rephrasing your query.</p>
+{% endif %}
+<button class="new-session-btn"
+        onclick="window.location.href='/advisor'">
+  + New session
+</button>
