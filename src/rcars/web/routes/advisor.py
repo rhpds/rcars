@@ -70,6 +70,39 @@ async def advisor(
     sid = session_id or str(uuid.uuid4())
     ctx = _base_context(request, db, user, "advisor")
     ctx["session_id"] = sid
+
+    # Restore previous conversation if session exists
+    turns = _sessions.get(sid, [])
+    ctx["turns"] = turns
+
+    # Restore last recommendations if session has them
+    last_recs_html = ""
+    if turns and db:
+        # Find last assistant turn with rec_ci_names
+        for t in reversed(turns):
+            if t.get("role") == "assistant" and t.get("rec_ci_names"):
+                ci_names = t["rec_ci_names"]
+                raw_items = [db.get_catalog_item(ci) for ci in ci_names]
+                raw_items = [item for item in raw_items if item]
+                recs = _enrich_recs(
+                    [{"ci_name": item["ci_name"],
+                      "display_name": item.get("display_name", item["ci_name"]),
+                      "fit_score": 0,
+                      "rationale": "(restored from history)",
+                      "suggested_format": item.get("category", ""),
+                      "duration_notes": "",
+                      "caveats": ""} for item in raw_items],
+                    db,
+                )
+                settings = Settings()
+                last_recs_html = templates.get_template("fragments/rec_list.html").render(
+                    recs=recs,
+                    is_curator=settings.is_curator(user),
+                    session_id=sid,
+                )
+                break
+    ctx["restored_recs_html"] = last_recs_html
+
     return templates.TemplateResponse(request=request, name="advisor.html", context=ctx)
 
 
