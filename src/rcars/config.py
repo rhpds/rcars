@@ -71,10 +71,27 @@ class Settings:
         ]
     )
 
+    # Web UI settings
+    curator_emails: list[str] = field(
+        default_factory=lambda: [
+            e.strip() for e in os.environ.get("RCARS_CURATOR_EMAILS", "").split(",") if e.strip()
+        ]
+    )
+    dev_user: str = field(
+        default_factory=lambda: os.environ.get("RCARS_DEV_USER", "")
+    )
+    stale_days: int = field(
+        default_factory=lambda: int(os.environ.get("RCARS_STALE_DAYS", "3"))
+    )
+
     @property
     def use_vertex(self) -> bool:
         """Whether to use Vertex AI (preferred) or direct Anthropic API."""
         return bool(self.vertex_project_id)
+
+    def is_curator(self, email: str) -> bool:
+        """Return True if email is in the curator list (case-insensitive)."""
+        return email.lower() in {e.lower() for e in self.curator_emails}
 
     def get_anthropic_client(self):
         """Create an Anthropic client based on available credentials.
