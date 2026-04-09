@@ -234,3 +234,93 @@ def test_get_items_needing_analysis(db):
     ci_names = [p["ci_name"] for p in pending]
     assert "pending.item" in ci_names
     assert "analyzed.item" not in ci_names
+
+
+def test_add_and_get_tags(db):
+    db.upsert_catalog_item({
+        "ci_name": "test.lab.prod",
+        "display_name": "Test Lab",
+        "category": "test",
+        "is_prod": True,
+        "stage": "prod",
+    })
+    db.add_enrichment_tag("test.lab.prod", "label", "good for booth demo", "curator@redhat.com")
+    db.add_enrichment_tag("test.lab.prod", "label", "new for Summit 2026", "curator@redhat.com")
+    tags = db.get_enrichment_tags("test.lab.prod")
+    values = [t["tag_value"] for t in tags]
+    assert "good for booth demo" in values
+    assert "new for Summit 2026" in values
+
+
+def test_remove_tag(db):
+    db.upsert_catalog_item({
+        "ci_name": "test.lab.prod",
+        "display_name": "Test Lab",
+        "stage": "prod",
+        "is_prod": True,
+    })
+    db.add_enrichment_tag("test.lab.prod", "label", "retiring Q3 2026", "curator@redhat.com")
+    db.remove_enrichment_tag("test.lab.prod", "label", "retiring Q3 2026")
+    tags = db.get_enrichment_tags("test.lab.prod")
+    assert not any(t["tag_value"] == "retiring Q3 2026" for t in tags)
+
+
+def test_duplicate_tag_is_ignored(db):
+    db.upsert_catalog_item({
+        "ci_name": "test.lab.prod",
+        "display_name": "Test Lab",
+        "stage": "prod",
+        "is_prod": True,
+    })
+    db.add_enrichment_tag("test.lab.prod", "label", "booth demo", "a@redhat.com")
+    db.add_enrichment_tag("test.lab.prod", "label", "booth demo", "b@redhat.com")
+    tags = db.get_enrichment_tags("test.lab.prod")
+    assert len([t for t in tags if t["tag_value"] == "booth demo"]) == 1
+
+
+def test_add_and_get_note(db):
+    db.upsert_catalog_item({
+        "ci_name": "test.lab.prod",
+        "display_name": "Test Lab",
+        "stage": "prod",
+        "is_prod": True,
+    })
+    db.upsert_showroom_analysis({"ci_name": "test.lab.prod"})
+    db.set_enrichment_note("test.lab.prod", "Great for post-Summit follow-ups", "curator@redhat.com")
+    note = db.get_enrichment_note("test.lab.prod")
+    assert note == "Great for post-Summit follow-ups"
+
+
+def test_set_and_clear_review_flag(db):
+    db.upsert_catalog_item({
+        "ci_name": "test.lab.prod",
+        "display_name": "Test Lab",
+        "stage": "prod",
+        "is_prod": True,
+    })
+    db.upsert_showroom_analysis({"ci_name": "test.lab.prod"})
+    db.set_enrichment_review_needed("test.lab.prod", True)
+    analysis = db.get_showroom_analysis("test.lab.prod")
+    assert analysis["enrichment_review_needed"] is True
+    db.set_enrichment_review_needed("test.lab.prod", False)
+    analysis = db.get_showroom_analysis("test.lab.prod")
+    assert analysis["enrichment_review_needed"] is False
+
+
+def test_get_db_currency(db):
+    status = db.get_db_currency(stale_days=3)
+    assert "last_refresh" in status
+    assert "is_stale" in status
+    assert isinstance(status["is_stale"], bool)
+
+
+def test_get_enrichment_tags_for_items(db):
+    db.upsert_catalog_item({"ci_name": "a.prod", "display_name": "A", "stage": "prod", "is_prod": True})
+    db.upsert_catalog_item({"ci_name": "b.prod", "display_name": "B", "stage": "prod", "is_prod": True})
+    db.add_enrichment_tag("a.prod", "label", "tag1", "user@test.com")
+    db.add_enrichment_tag("b.prod", "label", "tag2", "user@test.com")
+    result = db.get_enrichment_tags_for_items(["a.prod", "b.prod"])
+    assert "a.prod" in result
+    assert "b.prod" in result
+    assert len(result["a.prod"]) == 1
+    assert result["a.prod"][0]["tag_value"] == "tag1"

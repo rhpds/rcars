@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
     last_analyzed TIMESTAMPTZ,
     is_stale BOOLEAN DEFAULT FALSE,
     stale_commit TEXT,
-    enrichment_review_needed BOOLEAN DEFAULT FALSE
+    enrichment_review_needed BOOLEAN DEFAULT FALSE,
+    notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS enrichment_tags (
@@ -395,3 +396,99 @@ class Database:
                 ORDER BY ci.ci_name
             """)
             return cur.fetchall()
+
+    def add_enrichment_tag(self, ci_name: str, tag_type: str, tag_value: str, added_by: str | None = None) -> None:
+        """Add a tag to a catalog item. Silently ignores duplicates."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO enrichment_tags (ci_name, tag_type, tag_value, added_by)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (ci_name, tag_type, tag_value) DO NOTHING
+                """,
+                (ci_name, tag_type, tag_value, added_by),
+            )
+        self._conn.commit()
+
+    def remove_enrichment_tag(self, ci_name: str, tag_type: str, tag_value: str) -> None:
+        """Remove a specific tag from a catalog item."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM enrichment_tags WHERE ci_name = %s AND tag_type = %s AND tag_value = %s",
+                (ci_name, tag_type, tag_value),
+            )
+        self._conn.commit()
+
+    def get_enrichment_tags(self, ci_name: str) -> list[dict]:
+        """Return all enrichment tags for a catalog item."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT tag_type, tag_value, added_by, added_at FROM enrichment_tags WHERE ci_name = %s ORDER BY added_at",
+                (ci_name,),
+            )
+            return cur.fetchall()
+
+    def get_enrichment_tags_for_items(self, ci_names: list[str]) -> dict[str, list[dict]]:
+        """Return enrichment tags for multiple items, keyed by ci_name."""
+        if not ci_names:
+            return {}
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "SELECT ci_name, tag_type, tag_value, added_by FROM enrichment_tags WHERE ci_name = ANY(%s) ORDER BY ci_name, added_at",
+                (ci_names,),
+            )
+            result: dict[str, list] = {name: [] for name in ci_names}
+            for row in cur.fetchall():
+                result[row["ci_name"]].append(row)
+            return result
+
+    def set_enrichment_note(self, ci_name: str, note: str, updated_by: str | None = None) -> None:
+        """Set the curator note for a catalog item (requires showroom_analysis row)."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "UPDATE showroom_analysis SET notes = %s WHERE ci_name = %s",
+                (note, ci_name),
+            )
+            if cur.rowcount == 0:
+                cur.execute(
+                    "INSERT INTO showroom_analysis (ci_name, notes) VALUES (%s, %s) ON CONFLICT (ci_name) DO UPDATE SET notes = EXCLUDED.notes",
+                    (ci_name, note),
+                )
+        self._conn.commit()
+
+    def get_enrichment_note(self, ci_name: str) -> str | None:
+        """Return the curator note for a catalog item, or None."""
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT notes FROM showroom_analysis WHERE ci_name = %s", (ci_name,))
+            row = cur.fetchone()
+            return row["notes"] if row else None
+
+    def set_enrichment_review_needed(self, ci_name: str, needed: bool) -> None:
+        """Set or clear the enrichment review flag on showroom_analysis."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                "UPDATE showroom_analysis SET enrichment_review_needed = %s WHERE ci_name = %s",
+                (needed, ci_name),
+            )
+            if cur.rowcount == 0:
+                cur.execute(
+                    "INSERT INTO showroom_analysis (ci_name, enrichment_review_needed) VALUES (%s, %s) ON CONFLICT (ci_name) DO UPDATE SET enrichment_review_needed = EXCLUDED.enrichment_review_needed",
+                    (ci_name, needed),
+                )
+        self._conn.commit()
+
+    def get_db_currency(self, stale_days: int = 3) -> dict:
+        """Return last catalog refresh date and staleness status."""
+        from datetime import timedelta
+        with self._conn.cursor() as cur:
+            cur.execute("SELECT MAX(last_refreshed) as max_refreshed FROM catalog_items")
+            row = cur.fetchone()
+            last_refresh = row["max_refreshed"] if row else None
+        if last_refresh is None:
+            return {"last_refresh": "never", "is_stale": True}
+        now = datetime.now(timezone.utc)
+        is_stale = (now - last_refresh) > timedelta(days=stale_days)
+        return {
+            "last_refresh": last_refresh.strftime("%Y.%m.%d"),
+            "is_stale": is_stale,
+        }
