@@ -30,3 +30,6 @@ data/
 
 # Superpowers brainstorm artifacts
 .superpowers/
+
+# Git worktrees
+.worktrees/
