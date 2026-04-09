@@ -44,17 +44,26 @@
       chatPane.appendChild(userBubble);
       chatPane.scrollTop = chatPane.scrollHeight;
 
-      // 2. Show loading state
-      sendBtn.disabled = true;
-      sendBtn.textContent = 'Sending...';
-      sendBtn.classList.add('sending');
+      // 2. Show thinking indicator in chat
+      var thinking = document.createElement('div');
+      thinking.className = 'chat-turn-thinking';
+      thinking.innerHTML = '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Searching catalog and ranking results';
+      thinking.id = 'thinking-indicator';
+      chatPane.appendChild(thinking);
+      chatPane.scrollTop = chatPane.scrollHeight;
 
-      // 3. Clear input
+      // 3. Show loading state on button + rec pane
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Thinking...';
+      sendBtn.classList.add('sending');
+      recPane.innerHTML = '<div class="pane-label">Recommendations</div><div class="rec-pane-loading"><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Analyzing your request</div>';
+
+      // 4. Clear input
       var sentMsg = msg;
       input.value = '';
       input.focus();
 
-      // 4. Send via HTMX ajax
+      // 5. Send via HTMX ajax
       htmx.ajax('POST', '/advisor/query', {
         target: '#rec-pane',
         swap: 'innerHTML',
@@ -63,7 +72,9 @@
           message: sentMsg
         }
       }).then(function() {
-        // 5. Restore button after response
+        // 6. Remove thinking indicator, restore button
+        var el = document.getElementById('thinking-indicator');
+        if (el) el.remove();
         sendBtn.disabled = false;
         sendBtn.textContent = 'Send';
         sendBtn.classList.remove('sending');

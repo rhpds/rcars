@@ -30,8 +30,45 @@ body {
   overflow: hidden;
 }
 
-/* Loading state */
+/* Loading / thinking states */
 .btn-send.sending { opacity: 0.5; pointer-events: none; }
+
+.chat-turn-thinking {
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--text-muted);
+  border-left: 3px solid var(--lcars-amber);
+  animation: pulse-bg 1.5s ease-in-out infinite;
+}
+
+.rec-pane-loading {
+  color: var(--text-muted);
+  font-size: 15px;
+  padding: 20px 0;
+  animation: pulse-bg 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-bg {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+.thinking-dots span {
+  animation: dot-bounce 1.4s ease-in-out infinite;
+  display: inline-block;
+  font-weight: bold;
+  font-size: 18px;
+  color: var(--lcars-amber);
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+  0%, 80%, 100% { opacity: 0.3; transform: translateY(0); }
+  40% { opacity: 1; transform: translateY(-4px); }
+}
 
 /* Header */
 .rcars-header {
