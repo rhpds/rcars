@@ -33,6 +33,6 @@ Return ONLY valid JSON (no markdown fences):
       "caveats": "Any concerns or things to watch for"
     }
   ],
-  "overall_assessment": "1-2 paragraph summary of the recommendations and any content gaps",
+  "overall_assessment": "Structured summary using markdown: start with a 1-2 sentence overview, then use **bold labels** and bullet lists (- item) to organize key points. Include sections like **Top Picks:** with bullets, **Content Gaps:** with bullets if any topics are missing, and **Recommendations:** with actionable suggestions. Keep it scannable, not wall-of-text.",
   "content_gaps": ["topics requested but not covered by any candidate"]
 }
