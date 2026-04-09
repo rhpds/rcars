@@ -109,8 +109,16 @@ def test_advisor_loads_alpinejs(client):
     assert "alpinejs" in response.text.lower() or "alpine" in response.text.lower()
 
 
-def test_rec_card_renders_score_and_name():
+def _make_template_env():
+    """Create a Jinja2 env with the same filters as the app."""
+    from rcars.web.routes.advisor import _format_message
     env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    env.filters['format_message'] = _format_message
+    return env
+
+
+def test_rec_card_renders_score_and_name():
+    env = _make_template_env()
     tmpl = env.get_template("fragments/rec_card.html")
     html = tmpl.render(rec=SAMPLE_REC, is_curator=False, session_id="test-123")
     assert "92" in html
@@ -119,7 +127,7 @@ def test_rec_card_renders_score_and_name():
 
 
 def test_rec_card_expanded_shows_caveats():
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    env = _make_template_env()
     tmpl = env.get_template("fragments/rec_card_expanded.html")
     html = tmpl.render(rec=SAMPLE_REC, is_curator=False, session_id="test-123")
     assert "Requires OCP 4.16+" in html
@@ -127,7 +135,7 @@ def test_rec_card_expanded_shows_caveats():
 
 
 def test_rec_card_expanded_shows_curator_controls_for_curator():
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(_TEMPLATE_DIR))
+    env = _make_template_env()
     tmpl = env.get_template("fragments/rec_card_expanded.html")
     html = tmpl.render(rec=SAMPLE_REC, is_curator=True, session_id="test-123")
     assert "curator-actions" in html

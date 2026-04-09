@@ -1,8 +1,10 @@
+import re
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+from markupsafe import Markup
 from pathlib import Path
 
 from rcars.web.deps import get_current_user
@@ -12,6 +14,58 @@ from rcars.recommender import recommend
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+
+
+def _format_message(text: str) -> Markup:
+    """Convert plain/markdown-ish text to formatted HTML."""
+    if not text:
+        return Markup("")
+
+    # Split into paragraphs on double newlines
+    paragraphs = re.split(r'\n{2,}', text.strip())
+    html_parts = []
+
+    for para in paragraphs:
+        lines = para.strip().split('\n')
+
+        # Check if this paragraph is a bullet list
+        if all(re.match(r'^[\-\*•]\s', line.strip()) for line in lines if line.strip()):
+            items = []
+            for line in lines:
+                item = re.sub(r'^[\-\*•]\s+', '', line.strip())
+                item = _inline_format(item)
+                items.append(f'<li>{item}</li>')
+            html_parts.append(f'<ul>{"".join(items)}</ul>')
+        # Check if this is a numbered list
+        elif all(re.match(r'^\d+[\.\)]\s', line.strip()) for line in lines if line.strip()):
+            items = []
+            for line in lines:
+                item = re.sub(r'^\d+[\.\)]\s+', '', line.strip())
+                item = _inline_format(item)
+                items.append(f'<li>{item}</li>')
+            html_parts.append(f'<ol>{"".join(items)}</ol>')
+        else:
+            # Regular paragraph — join lines with <br>
+            formatted_lines = [_inline_format(line) for line in lines]
+            html_parts.append(f'<p>{"<br>".join(formatted_lines)}</p>')
+
+    return Markup('\n'.join(html_parts))
+
+
+def _inline_format(text: str) -> str:
+    """Handle bold, italic, and inline code."""
+    # **bold**
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    # *italic* (but not inside URLs or already-processed tags)
+    text = re.sub(r'(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)', r'<em>\1</em>', text)
+    # `code`
+    text = re.sub(r'`(.+?)`', r'<code>\1</code>', text)
+    # Colon-terminated phrases at start of line → bold label
+    text = re.sub(r'^([A-Z][^:]{2,30}:)\s', r'<strong>\1</strong> ', text)
+    return text
+
+
+templates.env.filters['format_message'] = _format_message
 
 _sessions: dict[str, list[dict]] = {}
 

@@ -17,7 +17,7 @@
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
 
-  <div class="rec-rationale">{{ rec.rationale | replace('\n', '<br>') | safe }}</div>
+  <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
 
   {% if rec.tags %}
   <div class="tag-list">

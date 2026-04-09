@@ -16,7 +16,7 @@
                  hx-swap="innerHTML"
                  hx-trigger="click"
                  {% endif %}>
-              <div class="assistant-content">{{ turn.content | replace('\n\n', '</p><p>') | replace('\n', '<br>') | safe }}</div>
+              <div class="assistant-content">{{ turn.content | format_message }}</div>
               {% if turn.turn_index is defined %}
               <div class="chat-turn-restore">click to restore these results</div>
               {% endif %}
