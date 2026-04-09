@@ -57,6 +57,9 @@
   <div class="rcars-body">
     <nav class="rcars-nav">
       <a href="/advisor" class="nav-item {% if active_page == 'advisor' %}active{% endif %}">Advisor</a>
+      {% if active_page == 'advisor' %}
+      <a href="/advisor" class="nav-new-session">+ New Session</a>
+      {% endif %}
       {% if is_curator %}
       <a href="/curate" class="nav-item {% if active_page == 'curate' %}active{% endif %}">Curate</a>
       {% endif %}
@@ -65,7 +68,6 @@
       {% endif %}
 
       {% if active_page == 'advisor' %}
-      <a href="/advisor" class="nav-new-session">+ New Session</a>
       <div class="nav-section-label">HISTORY</div>
       <div id="session-history" x-data="sessionHistory()">
         <template x-for="s in sessions" :key="s.id">

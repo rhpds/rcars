@@ -70,21 +70,29 @@
 
     <div style="display:flex;gap:6px;">
       <button class="btn-curator secondary"
-              hx-post="/curate/flag"
-              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "{{ 'false' if item.enrichment_review_needed else 'true' }}"}'
-              hx-swap="none"
-              onclick="var badge = document.getElementById('badge-{{ item.ci_name | replace('.', '-') }}');
-                       var isFlagging = this.textContent.trim().indexOf('Flag for') === 0;
-                       if (isFlagging) {
-                         badge.style.display = 'inline-block';
-                         this.textContent = 'Clear flag';
-                         this.setAttribute('hx-vals', '{\"ci_name\": \"{{ item.ci_name }}\", \"needed\": \"false\"}');
-                       } else {
-                         badge.style.display = 'none';
-                         this.textContent = 'Flag for review';
-                         this.setAttribute('hx-vals', '{\"ci_name\": \"{{ item.ci_name }}\", \"needed\": \"true\"}');
-                       }
-                       htmx.process(this);">
+              data-ci="{{ item.ci_name }}"
+              data-flagged="{{ 'true' if item.enrichment_review_needed else 'false' }}"
+              onclick="var btn = this;
+                       var ci = btn.dataset.ci;
+                       var isFlagged = btn.dataset.flagged === 'true';
+                       var needed = isFlagged ? 'false' : 'true';
+                       var badge = document.getElementById('badge-' + ci.replace(/\./g, '-'));
+                       var fd = new FormData();
+                       fd.append('ci_name', ci);
+                       fd.append('needed', needed);
+                       fetch('/curate/flag', {method: 'POST', body: fd}).then(function(r) {
+                         if (r.ok) {
+                           if (needed === 'true') {
+                             badge.style.display = 'inline-block';
+                             btn.textContent = 'Clear flag';
+                             btn.dataset.flagged = 'true';
+                           } else {
+                             badge.style.display = 'none';
+                             btn.textContent = 'Flag for review';
+                             btn.dataset.flagged = 'false';
+                           }
+                         }
+                       });">
         {{ 'Clear flag' if item.enrichment_review_needed else 'Flag for review' }}
       </button>
     </div>

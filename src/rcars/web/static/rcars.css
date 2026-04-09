@@ -136,17 +136,14 @@ body {
 
 .nav-new-session {
   display: block;
-  padding: 8px 20px;
-  margin: 4px 10px 2px;
+  padding: 6px 20px 6px 30px;
   color: var(--accent-blue);
   text-decoration: none;
   font-size: 13px;
-  border: 1px dashed #2a3a5a;
-  border-radius: 6px;
-  text-align: center;
   cursor: pointer;
+  opacity: 0.7;
 }
-.nav-new-session:hover { background: #0d1a2d; border-color: var(--accent-blue); }
+.nav-new-session:hover { opacity: 1; }
 
 .nav-section-label {
   padding: 12px 20px 4px;
