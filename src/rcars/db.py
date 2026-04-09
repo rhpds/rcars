@@ -122,10 +122,14 @@ class Database:
         self._conn.close()
 
     def create_schema(self):
-        """Create all tables if they don't exist."""
+        """Create all tables if they don't exist, and apply migrations."""
         with self._conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cur.execute(SCHEMA_SQL)
+            # Migrations for columns added after initial schema
+            cur.execute("""
+                ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS notes TEXT
+            """)
         self._conn.commit()
 
     def drop_schema(self):
