@@ -10,23 +10,44 @@
         <p class="hint">e.g. "https://summit.redhat.com/2026"</p>
       </div>
     </div>
-    <form hx-post="/advisor/query"
+    <form id="query-form"
+          hx-post="/advisor/query"
           hx-target="#rec-pane"
           hx-swap="innerHTML"
-          class="chat-input-row"
-          x-data="{ msg: '' }"
-          @htmx:after-request="msg = ''">
+          hx-indicator="#send-spinner"
+          class="chat-input-row">
       <input type="hidden" name="session_id" value="{{ session_id }}">
-      <textarea name="message" class="chat-input" rows="2"
-                placeholder="Refine or ask anything..."
-                x-model="msg"
-                @keydown.enter.prevent="if (!$event.shiftKey && msg.trim()) $el.closest('form').requestSubmit()"></textarea>
-      <button type="submit" class="btn-send">Send</button>
+      <textarea name="message" id="msg-input" class="chat-input" rows="2"
+                placeholder="Refine or ask anything..."></textarea>
+      <button type="submit" class="btn-send">
+        <span id="send-spinner" class="htmx-indicator">...</span>
+        <span>Send</span>
+      </button>
     </form>
   </div>
   <div class="rec-pane" id="rec-pane">
     <div class="pane-label">Recommendations</div>
-    <p style="color: var(--text-muted); font-size: 12px;">Start a conversation to see results</p>
+    <p style="color: var(--text-muted); font-size: 14px;">Start a conversation to see results</p>
   </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var input = document.getElementById('msg-input');
+  var form = document.getElementById('query-form');
+  if (input && form) {
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        if (input.value.trim()) {
+          form.requestSubmit();
+        }
+      }
+    });
+    form.addEventListener('htmx:afterRequest', function() {
+      input.value = '';
+    });
+  }
+});
+</script>
 {% endblock %}
