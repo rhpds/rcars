@@ -33,3 +33,9 @@ data/
 
 # Git worktrees
 .worktrees/
+
+# Claude Code local settings
+.claude/
+
+# Playwright test artifacts
+.playwright-mcp/

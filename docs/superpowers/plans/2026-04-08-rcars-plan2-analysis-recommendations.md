@@ -1,6 +1,6 @@
 # RCARS Plan 2: Analysis & Recommendations
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Add Showroom content analysis and recommendation capabilities — `rcars scan` clones Showroom repos, analyzes content via Sonnet, stores results + embeddings in PostgreSQL. `rcars recommend` searches by semantic similarity and ranks with Sonnet.
 
@@ -42,7 +42,7 @@ tests/
 - Modify: `src/rcars/config.py`
 - Modify: `tests/test_config.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add to `tests/test_config.py`:
 
@@ -74,12 +74,12 @@ def test_get_anthropic_client_none(monkeypatch):
     assert client is None
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_config.py::test_get_anthropic_client_vertex -v`
 Expected: FAIL — `Settings` has no `get_anthropic_client` method
 
-- [ ] **Step 3: Implement get_anthropic_client**
+- [x] **Step 3: Implement get_anthropic_client**
 
 Add to `src/rcars/config.py` Settings class:
 
@@ -102,12 +102,12 @@ Add to `src/rcars/config.py` Settings class:
         return None
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_config.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rcars/config.py tests/test_config.py
@@ -121,7 +121,7 @@ git commit -m "rcars: Add Anthropic client factory to Settings"
 **Files:**
 - Create: `prompts/analyze_showroom.txt`
 
-- [ ] **Step 1: Create the prompt**
+- [x] **Step 1: Create the prompt**
 
 Create `prompts/analyze_showroom.txt`:
 
@@ -194,7 +194,7 @@ Return ONLY valid JSON (no markdown fences, no explanation):
 {content_files}
 ```
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add prompts/analyze_showroom.txt
@@ -209,7 +209,7 @@ git commit -m "rcars: Add Showroom analysis prompt with boilerplate filtering an
 - Create: `src/rcars/analyzer.py`
 - Create: `tests/test_analyzer.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_analyzer.py`:
 
@@ -344,12 +344,12 @@ def test_truncate_content_short():
     assert result == content
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_analyzer.py -v`
 Expected: FAIL — `ModuleNotFoundError`
 
-- [ ] **Step 3: Implement analyzer.py**
+- [x] **Step 3: Implement analyzer.py**
 
 Create `src/rcars/analyzer.py`:
 
@@ -702,12 +702,12 @@ def analyze_showroom(
             shutil.rmtree(clone_path, ignore_errors=True)
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_analyzer.py -v`
 Expected: All tests PASS (tests only cover pure functions, not the full pipeline)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rcars/analyzer.py tests/test_analyzer.py
@@ -722,7 +722,7 @@ git commit -m "rcars: Add Showroom analyzer with boilerplate filtering and embed
 - Modify: `src/rcars/db.py`
 - Modify: `tests/test_db.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `tests/test_db.py`:
 
@@ -824,12 +824,12 @@ def test_get_items_needing_analysis(db):
     assert "analyzed.item" not in ci_names
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest tests/test_db.py::test_upsert_showroom_analysis -v`
 Expected: FAIL — `Database` has no `upsert_showroom_analysis` method
 
-- [ ] **Step 3: Add analysis and embedding methods to db.py**
+- [x] **Step 3: Add analysis and embedding methods to db.py**
 
 Add these methods to the `Database` class in `src/rcars/db.py`:
 
@@ -966,12 +966,12 @@ Add these methods to the `Database` class in `src/rcars/db.py`:
             return cur.fetchall()
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/test_db.py -v`
 Expected: All tests PASS
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/rcars/db.py tests/test_db.py
@@ -989,7 +989,7 @@ git commit -m "rcars: Add showroom analysis and embedding CRUD to database layer
 - Create: `src/rcars/event_parser.py`
 - Create: `tests/test_recommender.py`
 
-- [ ] **Step 1: Create recommendation prompt**
+- [x] **Step 1: Create recommendation prompt**
 
 Create `prompts/recommend.txt`:
 
@@ -1034,7 +1034,7 @@ Return ONLY valid JSON (no markdown fences):
 }}
 ```
 
-- [ ] **Step 2: Create event parser prompt**
+- [x] **Step 2: Create event parser prompt**
 
 Create `prompts/match_event.txt`:
 
@@ -1074,7 +1074,7 @@ Return ONLY valid JSON (no markdown fences):
 }}
 ```
 
-- [ ] **Step 3: Implement recommender.py**
+- [x] **Step 3: Implement recommender.py**
 
 Create `src/rcars/recommender.py`:
 
@@ -1196,7 +1196,7 @@ def recommend(
     return result
 ```
 
-- [ ] **Step 4: Implement event_parser.py**
+- [x] **Step 4: Implement event_parser.py**
 
 Create `src/rcars/event_parser.py`:
 
@@ -1263,7 +1263,7 @@ def parse_event_url(
     return parse_analysis_response(response.content[0].text)
 ```
 
-- [ ] **Step 5: Write recommender tests**
+- [x] **Step 5: Write recommender tests**
 
 Create `tests/test_recommender.py`:
 
@@ -1334,12 +1334,12 @@ def test_format_candidate_published_vci():
     assert "Virtual CI" in result
 ```
 
-- [ ] **Step 6: Run all tests**
+- [x] **Step 6: Run all tests**
 
 Run: `python -m pytest tests/ -v -m "not integration"`
 Expected: All tests PASS
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add prompts/recommend.txt prompts/match_event.txt src/rcars/recommender.py src/rcars/event_parser.py tests/test_recommender.py
@@ -1353,7 +1353,7 @@ git commit -m "rcars: Add recommendation engine with pgvector search and Sonnet 
 **Files:**
 - Modify: `src/rcars/cli.py`
 
-- [ ] **Step 1: Add scan command**
+- [x] **Step 1: Add scan command**
 
 Add to `src/rcars/cli.py`:
 
@@ -1541,12 +1541,12 @@ def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, 
     db.close()
 ```
 
-- [ ] **Step 2: Run all tests to verify nothing broke**
+- [x] **Step 2: Run all tests to verify nothing broke**
 
 Run: `python -m pytest tests/ -v -m "not integration"`
 Expected: All tests PASS
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/rcars/cli.py
@@ -1560,7 +1560,7 @@ git commit -m "rcars: Add scan and recommend CLI commands"
 **Files:**
 - No new files — manual testing
 
-- [ ] **Step 1: Run a small scan**
+- [x] **Step 1: Run a small scan**
 
 ```bash
 rcars scan --max 3
@@ -1568,7 +1568,7 @@ rcars scan --max 3
 
 Verify: 3 items analyzed, embeddings stored, no errors.
 
-- [ ] **Step 2: Check status**
+- [x] **Step 2: Check status**
 
 ```bash
 rcars status
@@ -1576,7 +1576,7 @@ rcars status
 
 Verify: "Analyzed" count is 3.
 
-- [ ] **Step 3: Run a recommendation**
+- [x] **Step 3: Run a recommendation**
 
 ```bash
 rcars recommend "OpenShift demos for a developer audience at a Kubernetes conference"
@@ -1584,7 +1584,7 @@ rcars recommend "OpenShift demos for a developer audience at a Kubernetes confer
 
 Verify: Returns ranked results with scores, rationale, and content gaps.
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 ```bash
 python -m pytest tests/ -v -m "not integration"
@@ -1592,7 +1592,7 @@ python -m pytest tests/ -v -m "not integration"
 
 Expected: All tests PASS.
 
-- [ ] **Step 5: Commit any fixes from testing**
+- [x] **Step 5: Commit any fixes from testing**
 
 ---
 
