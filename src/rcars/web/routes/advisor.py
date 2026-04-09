@@ -76,8 +76,8 @@ def _get_db_dependency() -> Database | None:
     return get_db()
 
 
-def _catalog_url(ci_name: str) -> str:
-    return f"https://demo.redhat.com/catalog/{ci_name}"
+def _catalog_url(ci_name: str, namespace: str = "babylon-catalog-prod") -> str:
+    return f"https://catalog.demo.redhat.com/catalog?item={namespace}/{ci_name}"
 
 
 def _enrich_recs(recs: list[dict], db: Database) -> list[dict]:
@@ -92,7 +92,7 @@ def _enrich_recs(recs: list[dict], db: Database) -> list[dict]:
             **rec,
             "tags": tags_by_ci.get(ci, []),
             "note": note,
-            "catalog_link": _catalog_url(ci),
+            "catalog_link": _catalog_url(ci, rec.get("catalog_namespace", "babylon-catalog-prod")),
             "enrichment_review_needed": False,
         })
     return enriched
@@ -141,6 +141,7 @@ async def advisor(
                 recs = _enrich_recs(
                     [{"ci_name": item["ci_name"],
                       "display_name": item.get("display_name", item["ci_name"]),
+                      "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
                       "fit_score": 0,
                       "rationale": "(restored from history)",
                       "suggested_format": item.get("category", ""),
@@ -267,6 +268,7 @@ async def advisor_restore(
         recs = _enrich_recs(
             [{"ci_name": item["ci_name"],
               "display_name": item.get("display_name", item["ci_name"]),
+              "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
               "fit_score": 0,
               "rationale": "(restored from history)",
               "suggested_format": item.get("category", ""),
