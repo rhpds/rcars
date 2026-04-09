@@ -75,11 +75,8 @@ async def trigger_rescan(
     )
 
 
-@router.post("/admin/refresh", response_class=HTMLResponse)
-async def trigger_refresh(
-    user: str = Depends(require_curator),
-    db: Database = Depends(_get_db_dependency),
-):
+def _run_refresh() -> tuple[str, str]:
+    """Run rcars refresh in a thread-safe way."""
     result = subprocess.run(
         ["rcars", "refresh"],
         capture_output=True,
@@ -87,9 +84,16 @@ async def trigger_refresh(
         timeout=300,
     )
     if result.returncode == 0:
-        msg = "Catalog refresh complete."
-        color = "var(--score-green)"
-    else:
-        msg = f"Refresh failed: {result.stderr[:200]}"
-        color = "var(--score-red)"
+        return "Catalog refresh complete.", "var(--score-green)"
+    return f"Refresh failed: {result.stderr[:200]}", "var(--score-red)"
+
+
+@router.post("/admin/refresh", response_class=HTMLResponse)
+async def trigger_refresh(
+    user: str = Depends(require_curator),
+    db: Database = Depends(_get_db_dependency),
+):
+    import asyncio
+    loop = asyncio.get_event_loop()
+    msg, color = await loop.run_in_executor(None, _run_refresh)
     return HTMLResponse(f'<div style="color:{color};font-size:12px;">{msg}</div>')

@@ -21,13 +21,13 @@
     <button class="btn-curator"
             hx-post="/curate/tag"
             hx-vals='{"ci_name": "{{ rec.ci_name }}", "tag_type": "label"}'
-            hx-include="[name='_tag_input_{{ rec.ci_name | replace('.', '_') }}']"
+            hx-include="closest .curator-actions [name=tag_value]"
             hx-swap="none"
             @click.stop>
       + Tag
     </button>
     <input type="text"
-           name="_tag_input_{{ rec.ci_name | replace('.', '_') }}"
+           name="tag_value"
            placeholder="tag text..."
            style="background:#1a1f2e;border:1px solid #333;color:#d2d2d2;padding:2px 6px;border-radius:3px;font-size:10px;width:100px;"
            @click.stop>
