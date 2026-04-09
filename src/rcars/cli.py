@@ -375,3 +375,13 @@ def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, 
             console.print(f"\n[dim]{result['overall_assessment']}[/dim]")
 
     db.close()
+
+
+@cli.command()
+@click.option("--host", default="127.0.0.1", show_default=True, help="Host to bind")
+@click.option("--port", default=8000, show_default=True, type=int, help="Port to listen on")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+def serve(host: str, port: int, reload: bool):
+    """Start the RCARS web UI."""
+    import uvicorn
+    uvicorn.run("rcars.web.app:app", host=host, port=port, reload=reload)
