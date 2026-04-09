@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="curate-layout">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:2px;">Content Enrichment</div>
+      <div style="font-size:11px;color:var(--text-muted);">{{ total }} catalog items</div>
+    </div>
+  </div>
+
+  <form method="get" action="/curate" class="filter-bar">
+    <input type="text" name="q" value="{{ q }}" class="filter-input" placeholder="Search by name or CI...">
+    <select name="status_filter" class="filter-select" onchange="this.form.submit()">
+      <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All items</option>
+      <option value="needs_review" {% if status_filter == 'needs_review' %}selected{% endif %}>Needs review</option>
+      <option value="untagged" {% if status_filter == 'untagged' %}selected{% endif %}>Untagged</option>
+    </select>
+    <button type="submit" class="btn-action" style="padding:6px 12px;font-size:12px;">Filter</button>
+  </form>
+
+  {% for item in items %}
+  <div class="curate-item" id="item-{{ item.ci_name | replace('.', '-') }}">
+    <div style="display:flex;align-items:center;margin-bottom:4px;">
+      <span class="curate-item-title">{{ item.display_name or item.ci_name }}</span>
+      {% if item.enrichment_review_needed %}
+      <span class="review-badge">needs review</span>
+      {% endif %}
+    </div>
+    <div class="curate-item-ci">{{ item.ci_name }}</div>
+
+    <div class="tag-list" style="margin-bottom:8px;">
+      {% for tag in item.tags %}
+      <span class="tag-pill-removable"
+            hx-delete="/curate/tag?ci_name={{ item.ci_name | urlencode }}&tag_type={{ tag.tag_type }}&tag_value={{ tag.tag_value | urlencode }}"
+            hx-swap="none"
+            hx-on::after-request="this.remove()"
+            title="Click to remove">
+        {{ tag.tag_value }} x
+      </span>
+      {% endfor %}
+      <form hx-post="/curate/tag"
+            hx-swap="none"
+            hx-on::after-request="this.reset()"
+            style="display:inline-flex;gap:4px;align-items:center;">
+        <input type="hidden" name="ci_name" value="{{ item.ci_name }}">
+        <input type="hidden" name="tag_type" value="label">
+        <input type="text" name="tag_value" placeholder="+ add tag"
+               style="background:transparent;border:1px dashed #3a5a3a;color:var(--score-green);padding:1px 7px;border-radius:10px;font-size:10px;width:90px;">
+      </form>
+    </div>
+
+    <form hx-post="/curate/note" hx-swap="none" style="margin-bottom:6px;">
+      <input type="hidden" name="ci_name" value="{{ item.ci_name }}">
+      <input type="text" name="note"
+             value="{{ item.note or '' }}"
+             placeholder="Add a note..."
+             style="background:var(--bg-card);border:1px solid #333;color:#aaa;padding:4px 8px;border-radius:3px;font-size:11px;width:100%;font-style:italic;"
+             onchange="this.form.requestSubmit()">
+    </form>
+
+    <div style="display:flex;gap:6px;">
+      {% if item.enrichment_review_needed %}
+      <button class="btn-curator secondary"
+              hx-post="/curate/flag"
+              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "false"}'
+              hx-swap="none">
+        Clear flag
+      </button>
+      {% else %}
+      <button class="btn-curator secondary"
+              hx-post="/curate/flag"
+              hx-vals='{"ci_name": "{{ item.ci_name }}", "needed": "true"}'
+              hx-swap="none">
+        Flag for review
+      </button>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+
+  {% if total > page_size %}
+  <div style="display:flex;gap:8px;margin-top:16px;justify-content:center;">
+    {% if page > 1 %}
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page - 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Prev</a>
+    {% endif %}
+    <span style="color:var(--text-muted);font-size:12px;padding:5px 0;">Page {{ page }}</span>
+    {% if (page * page_size) < total %}
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page + 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Next</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

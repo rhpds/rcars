@@ -5,7 +5,7 @@ from starlette.testclient import TestClient
 import jinja2
 from rcars.web.app import app, get_db
 from rcars.web.routes.advisor import _get_db_dependency as advisor_get_db
-from rcars.web.routes.curate import get_db as curate_get_db
+from rcars.web.routes.curate import _get_db_dependency as curate_get_db
 from rcars.web.routes.admin import get_db as admin_get_db
 from rcars.config import Settings
 
