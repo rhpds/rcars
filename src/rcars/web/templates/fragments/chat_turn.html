@@ -4,7 +4,7 @@
        hx-target="#rec-pane"
        hx-swap="innerHTML"
        hx-trigger="click">
-    {{ assistant_message }}
+    <div class="assistant-content">{{ assistant_message | replace('\n\n', '</p><p>') | replace('\n', '<br>') | safe }}</div>
     <div class="chat-turn-restore">click to restore these results</div>
   </div>
 </div>

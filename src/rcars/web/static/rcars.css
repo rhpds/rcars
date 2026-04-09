@@ -187,7 +187,19 @@ body {
   border: 1px solid transparent;
 }
 .chat-turn-assistant:hover { border-color: #333; }
-.chat-turn-restore { font-size: 13px; color: #555; margin-top: 4px; }
+
+.assistant-content {
+  line-height: 1.7;
+  font-size: 15px;
+}
+.assistant-content p {
+  margin-bottom: 10px;
+}
+.assistant-content p:last-child {
+  margin-bottom: 0;
+}
+
+.chat-turn-restore { font-size: 13px; color: #555; margin-top: 8px; border-top: 1px solid #252530; padding-top: 6px; }
 
 .chat-welcome {
   background: var(--bg-card);
