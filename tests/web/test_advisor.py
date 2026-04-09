@@ -51,6 +51,11 @@ def client(monkeypatch):
     mock_db.get_db_currency.return_value = {"last_refresh": "2026.04.08", "is_stale": False}
     mock_db.get_enrichment_tags_for_items.return_value = {}
     mock_db.get_enrichment_note.return_value = None
+    mock_db.get_catalog_item.return_value = {
+        "ci_name": "openshift-cnv.lightspeed-workshop.prod",
+        "display_name": "OpenShift Lightspeed Workshop",
+        "category": "hands_on_lab",
+    }
     # Override all get_db dependencies
     app.dependency_overrides[get_db] = lambda: mock_db
     app.dependency_overrides[advisor_get_db] = lambda: mock_db
@@ -171,3 +176,24 @@ def test_advisor_query_handles_recommend_none(client):
         })
     assert response.status_code == 200
     assert "No strong matches" in response.text
+
+
+def test_rollback_restores_previous_results(client):
+    from rcars.web.routes.advisor import _sessions
+    _sessions["rollback-test"] = [
+        {"role": "user", "content": "OpenShift labs"},
+        {
+            "role": "assistant",
+            "content": "Found 1 match.",
+            "rec_ci_names": ["openshift-cnv.lightspeed-workshop.prod"],
+            "turn_index": 1,
+        },
+    ]
+    response = client.get("/advisor/restore/rollback-test/1")
+    assert response.status_code == 200
+
+
+def test_rollback_invalid_session_returns_empty(client):
+    response = client.get("/advisor/restore/nonexistent-session/0")
+    assert response.status_code == 200
+    assert "No strong matches" in response.text or response.text

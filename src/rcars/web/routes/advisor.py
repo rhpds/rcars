@@ -123,3 +123,47 @@ async def advisor_query(
     )
 
     return HTMLResponse(content=rec_html + "\n" + chat_html)
+
+
+@router.get("/advisor/restore/{session_id}/{turn_index}", response_class=HTMLResponse)
+async def advisor_restore(
+    request: Request,
+    session_id: str,
+    turn_index: int,
+    user: str = Depends(get_current_user),
+    db: Database = Depends(_get_db_dependency),
+):
+    """Restore the recommendation set from a previous conversation turn."""
+    settings = Settings()
+    turns = _sessions.get(session_id, [])
+
+    assistant_turn = None
+    for t in turns:
+        if t.get("role") == "assistant" and t.get("turn_index") == turn_index:
+            assistant_turn = t
+            break
+
+    if not assistant_turn:
+        recs = []
+    else:
+        ci_names = assistant_turn.get("rec_ci_names", [])
+        raw_items = [db.get_catalog_item(ci) for ci in ci_names]
+        raw_items = [item for item in raw_items if item]
+        recs = _enrich_recs(
+            [{"ci_name": item["ci_name"],
+              "display_name": item.get("display_name", item["ci_name"]),
+              "fit_score": 0,
+              "rationale": "(restored from history)",
+              "suggested_format": item.get("category", ""),
+              "duration_notes": "",
+              "caveats": ""} for item in raw_items],
+            db,
+        )
+
+    is_curator = settings.is_curator(user)
+    rec_html = templates.get_template("fragments/rec_list.html").render(
+        recs=recs,
+        is_curator=is_curator,
+        session_id=session_id,
+    )
+    return HTMLResponse(content=rec_html)
