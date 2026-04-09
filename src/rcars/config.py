@@ -77,6 +77,11 @@ class Settings:
             e.strip() for e in os.environ.get("RCARS_CURATOR_EMAILS", "").split(",") if e.strip()
         ]
     )
+    admin_emails: list[str] = field(
+        default_factory=lambda: [
+            e.strip() for e in os.environ.get("RCARS_ADMIN_EMAILS", "").split(",") if e.strip()
+        ]
+    )
     dev_user: str = field(
         default_factory=lambda: os.environ.get("RCARS_DEV_USER", "")
     )
@@ -92,6 +97,10 @@ class Settings:
     def is_curator(self, email: str) -> bool:
         """Return True if email is in the curator list (case-insensitive)."""
         return email.lower() in {e.lower() for e in self.curator_emails}
+
+    def is_admin(self, email: str) -> bool:
+        """Return True if email is in the admin list (case-insensitive)."""
+        return email.lower() in {e.lower() for e in self.admin_emails}
 
     def get_anthropic_client(self):
         """Create an Anthropic client based on available credentials.

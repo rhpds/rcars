@@ -17,3 +17,11 @@ def require_curator(user: str = Depends(get_current_user)) -> str:
     if not settings.is_curator(user):
         raise HTTPException(status_code=403, detail="Curator access required")
     return user
+
+
+def require_admin(user: str = Depends(get_current_user)) -> str:
+    """Raise 403 if user is not an admin."""
+    settings = Settings()
+    if not settings.is_admin(user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user

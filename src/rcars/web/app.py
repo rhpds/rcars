@@ -10,9 +10,7 @@ from rcars.web.routes import advisor, curate, admin
 _db: Database | None = None
 
 
-def get_db() -> Database:
-    if _db is None:
-        raise RuntimeError("Database not initialized — is the app running?")
+def get_db() -> Database | None:
     return _db
 
 

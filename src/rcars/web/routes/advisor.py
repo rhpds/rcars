@@ -16,7 +16,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 _sessions: dict[str, list[dict]] = {}
 
 
-def _get_db_dependency() -> Database:
+def _get_db_dependency() -> Database | None:
     """Import get_db at runtime to avoid circular import."""
     from rcars.web.app import get_db
     return get_db()
@@ -44,14 +44,19 @@ def _enrich_recs(recs: list[dict], db: Database) -> list[dict]:
     return enriched
 
 
-def _base_context(request: Request, db: Database, user: str, active_page: str) -> dict:
+def _base_context(request: Request, db: Database | None, user: str, active_page: str) -> dict:
     settings = Settings()
+    if db:
+        db_status = db.get_db_currency(stale_days=settings.stale_days)
+    else:
+        db_status = {"last_refresh": "no database", "is_stale": True}
     return {
         "request": request,
         "current_user": user,
         "is_curator": settings.is_curator(user),
+        "is_admin": settings.is_admin(user),
         "active_page": active_page,
-        "db_status": db.get_db_currency(stale_days=settings.stale_days),
+        "db_status": db_status,
     }
 
 
@@ -60,7 +65,7 @@ async def advisor(
     request: Request,
     session_id: str | None = None,
     user: str = Depends(get_current_user),
-    db: Database = Depends(_get_db_dependency),
+    db: Database | None = Depends(_get_db_dependency),
 ):
     sid = session_id or str(uuid.uuid4())
     ctx = _base_context(request, db, user, "advisor")
@@ -74,24 +79,48 @@ async def advisor_query(
     session_id: Annotated[str, Form()],
     message: Annotated[str, Form()],
     user: str = Depends(get_current_user),
-    db: Database = Depends(_get_db_dependency),
+    db: Database | None = Depends(_get_db_dependency),
 ):
     settings = Settings()
-    client = settings.get_anthropic_client()
-
     turns = _sessions.setdefault(session_id, [])
     turns.append({"role": "user", "content": message})
+    first_message = turns[0]["content"] if turns else message
+
+    def _error_response(error_msg: str) -> HTMLResponse:
+        turn_index = len(turns)
+        turns.append({"role": "assistant", "content": error_msg, "rec_ci_names": [], "turn_index": turn_index})
+        rec_html = (
+            '<div class="pane-label">Recommendations</div>'
+            f'<p style="color:var(--score-red);font-size:14px;">{error_msg}</p>'
+        )
+        chat_html = templates.get_template("fragments/chat_turn.html").render(
+            user_message=message, assistant_message=error_msg,
+            session_id=session_id, turn_index=turn_index, first_message=first_message,
+        )
+        return HTMLResponse(content=rec_html + "\n" + chat_html)
+
+    if not db:
+        return _error_response("Database not configured. Set RCARS_DATABASE_URL.")
+
+    client = settings.get_anthropic_client()
+    if not client:
+        return _error_response("No Anthropic credentials configured. Set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY.")
 
     description = " ".join(t["content"] for t in turns if t["role"] == "user")
 
-    result = recommend(
-        query=description,
-        db=db,
-        anthropic_client=client,
-        model=settings.model,
-        limit=10,
-        prod_only=True,
-    )
+    try:
+        result = recommend(
+            query=description,
+            db=db,
+            anthropic_client=client,
+            model=settings.model,
+            limit=10,
+            prod_only=True,
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger("rcars.web").exception("Recommendation failed")
+        result = None
 
     raw_recs = result.get("recommendations", []) if result else []
     recs = _enrich_recs(raw_recs, db)
@@ -106,7 +135,6 @@ async def advisor_query(
     })
 
     is_curator = settings.is_curator(user)
-    first_message = turns[0]["content"] if turns else message
 
     rec_html = templates.get_template("fragments/rec_list.html").render(
         recs=recs,
@@ -131,7 +159,7 @@ async def advisor_restore(
     session_id: str,
     turn_index: int,
     user: str = Depends(get_current_user),
-    db: Database = Depends(_get_db_dependency),
+    db: Database | None = Depends(_get_db_dependency),
 ):
     """Restore the recommendation set from a previous conversation turn."""
     settings = Settings()

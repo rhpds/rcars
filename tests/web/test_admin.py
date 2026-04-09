@@ -7,7 +7,7 @@ from rcars.web.app import app, get_db
 @pytest.fixture
 def admin_client(monkeypatch):
     monkeypatch.setenv("RCARS_DEV_USER", "admin@redhat.com")
-    monkeypatch.setenv("RCARS_CURATOR_EMAILS", "admin@redhat.com")
+    monkeypatch.setenv("RCARS_ADMIN_EMAILS", "admin@redhat.com")
     mock_db = MagicMock()
     mock_db.get_db_currency.return_value = {"last_refresh": "2026.04.08", "is_stale": False}
     mock_db.get_status_summary.return_value = {

@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 
-from rcars.web.deps import require_curator
+from rcars.web.deps import require_admin
 from rcars.db import Database
 from rcars.config import Settings
 
@@ -15,7 +15,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 _rescan_status: dict = {"running": False, "last_output": ""}
 
 
-def _get_db_dependency() -> Database:
+def _get_db_dependency() -> Database | None:
     from rcars.web.app import get_db
     return get_db()
 
@@ -41,7 +41,7 @@ def _run_rescan(settings):
 @router.get("/admin", response_class=HTMLResponse)
 async def admin(
     request: Request,
-    user: str = Depends(require_curator),
+    user: str = Depends(require_admin),
     db: Database = Depends(_get_db_dependency),
 ):
     settings = Settings()
@@ -50,7 +50,8 @@ async def admin(
     ctx = {
         "request": request,
         "current_user": user,
-        "is_curator": True,
+        "is_curator": settings.is_curator(user),
+        "is_admin": True,
         "active_page": "admin",
         "db_status": currency,
         "status": status,
@@ -63,7 +64,7 @@ async def admin(
 
 @router.post("/admin/rescan", response_class=HTMLResponse)
 async def trigger_rescan(
-    user: str = Depends(require_curator),
+    user: str = Depends(require_admin),
     db: Database = Depends(_get_db_dependency),
 ):
     if not _rescan_status["running"]:
@@ -90,7 +91,7 @@ def _run_refresh() -> tuple[str, str]:
 
 @router.post("/admin/refresh", response_class=HTMLResponse)
 async def trigger_refresh(
-    user: str = Depends(require_curator),
+    user: str = Depends(require_admin),
     db: Database = Depends(_get_db_dependency),
 ):
     import asyncio

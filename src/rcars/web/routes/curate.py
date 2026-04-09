@@ -14,7 +14,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 PAGE_SIZE = 25
 
 
-def _get_db_dependency() -> Database:
+def _get_db_dependency() -> Database | None:
     from rcars.web.app import get_db
     return get_db()
 
@@ -25,6 +25,7 @@ def _base_context(request: Request, db: Database, user: str) -> dict:
         "request": request,
         "current_user": user,
         "is_curator": True,
+        "is_admin": settings.is_admin(user),
         "active_page": "curate",
         "db_status": db.get_db_currency(stale_days=settings.stale_days),
     }
