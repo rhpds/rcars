@@ -10,20 +10,12 @@
         <p class="hint">e.g. "https://summit.redhat.com/2026"</p>
       </div>
     </div>
-    <form id="query-form"
-          hx-post="/advisor/query"
-          hx-target="#rec-pane"
-          hx-swap="innerHTML"
-          hx-indicator="#send-spinner"
-          class="chat-input-row">
-      <input type="hidden" name="session_id" value="{{ session_id }}">
-      <textarea name="message" id="msg-input" class="chat-input" rows="2"
+    <div class="chat-input-row">
+      <input type="hidden" id="session-id" value="{{ session_id }}">
+      <textarea id="msg-input" class="chat-input" rows="2"
                 placeholder="Refine or ask anything..."></textarea>
-      <button type="submit" class="btn-send">
-        <span id="send-spinner" class="htmx-indicator">...</span>
-        <span>Send</span>
-      </button>
-    </form>
+      <button type="button" id="send-btn" class="btn-send">Send</button>
+    </div>
   </div>
   <div class="rec-pane" id="rec-pane">
     <div class="pane-label">Recommendations</div>
@@ -32,22 +24,73 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-  var input = document.getElementById('msg-input');
-  var form = document.getElementById('query-form');
-  if (input && form) {
+(function() {
+  // Wait for HTMX to be available (loaded with defer)
+  function init() {
+    var input = document.getElementById('msg-input');
+    var sendBtn = document.getElementById('send-btn');
+    var chatPane = document.getElementById('chat-pane');
+    var recPane = document.getElementById('rec-pane');
+    var sessionId = document.getElementById('session-id').value;
+
+    function sendMessage() {
+      var msg = input.value.trim();
+      if (!msg) return;
+
+      // 1. Show user message immediately
+      var userBubble = document.createElement('div');
+      userBubble.className = 'chat-turn-user';
+      userBubble.textContent = msg;
+      chatPane.appendChild(userBubble);
+      chatPane.scrollTop = chatPane.scrollHeight;
+
+      // 2. Show loading state
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending...';
+      sendBtn.classList.add('sending');
+
+      // 3. Clear input
+      var sentMsg = msg;
+      input.value = '';
+      input.focus();
+
+      // 4. Send via HTMX ajax
+      htmx.ajax('POST', '/advisor/query', {
+        target: '#rec-pane',
+        swap: 'innerHTML',
+        values: {
+          session_id: sessionId,
+          message: sentMsg
+        }
+      }).then(function() {
+        // 5. Restore button after response
+        sendBtn.disabled = false;
+        sendBtn.textContent = 'Send';
+        sendBtn.classList.remove('sending');
+      });
+    }
+
+    // Enter key sends (Shift+Enter for newline)
     input.addEventListener('keydown', function(e) {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        if (input.value.trim()) {
-          form.requestSubmit();
-        }
+        sendMessage();
       }
     });
-    form.addEventListener('htmx:afterRequest', function() {
-      input.value = '';
+
+    // Click sends
+    sendBtn.addEventListener('click', sendMessage);
+  }
+
+  // HTMX loads with defer, so wait for it
+  if (typeof htmx !== 'undefined') {
+    init();
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      // Small delay to ensure htmx is initialized after defer
+      setTimeout(init, 50);
     });
   }
-});
+})();
 </script>
 {% endblock %}

@@ -1,5 +1,4 @@
 <div hx-swap-oob="beforeend:#chat-pane">
-  <div class="chat-turn-user">{{ user_message }}</div>
   <div class="chat-turn-assistant"
        hx-get="/advisor/restore/{{ session_id }}/{{ turn_index }}"
        hx-target="#rec-pane"

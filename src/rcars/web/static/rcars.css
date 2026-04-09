@@ -30,10 +30,8 @@ body {
   overflow: hidden;
 }
 
-/* HTMX loading indicator */
-.htmx-indicator { display: none; }
-.htmx-request .htmx-indicator { display: inline; }
-.htmx-request .btn-send { opacity: 0.6; pointer-events: none; }
+/* Loading state */
+.btn-send.sending { opacity: 0.5; pointer-events: none; }
 
 /* Header */
 .rcars-header {
