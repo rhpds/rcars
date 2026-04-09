@@ -72,7 +72,7 @@
       // 2. Show thinking indicator in chat
       var thinking = document.createElement('div');
       thinking.className = 'chat-turn-thinking';
-      thinking.innerHTML = '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Searching catalog and ranking results';
+      thinking.innerHTML = '<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Searching catalog and ranking results <span style="color:#555;">(this may take a minute)</span>';
       thinking.id = 'thinking-indicator';
       chatPane.appendChild(thinking);
       chatPane.scrollTop = chatPane.scrollHeight;
@@ -81,7 +81,7 @@
       sendBtn.disabled = true;
       sendBtn.textContent = 'Thinking...';
       sendBtn.classList.add('sending');
-      recPane.innerHTML = '<div class="pane-label">Recommendations</div><div class="rec-pane-loading"><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Analyzing your request</div>';
+      recPane.innerHTML = '<div class="pane-label">Recommendations</div><div class="rec-pane-loading"><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Analyzing your request <span style="color:#555;">(this may take a minute)</span></div>';
 
       // 4. Clear input
       var sentMsg = msg;
