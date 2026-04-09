@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from starlette.testclient import TestClient
 import jinja2
 from rcars.web.app import app, get_db
@@ -25,6 +25,22 @@ SAMPLE_REC = {
 
 _TEMPLATE_DIR = str(Path(__file__).parent.parent.parent / "src/rcars/web/templates")
 
+MOCK_RECOMMEND_RESULT = {
+    "recommendations": [
+        {
+            "ci_name": "openshift-cnv.lightspeed-workshop.prod",
+            "display_name": "OpenShift Lightspeed Workshop",
+            "fit_score": 92,
+            "rationale": "Strong fit.",
+            "suggested_format": "hands_on_lab",
+            "duration_notes": "90 min",
+            "caveats": "",
+        }
+    ],
+    "overall_assessment": "Good matches found.",
+    "content_gaps": [],
+}
+
 
 @pytest.fixture
 def client(monkeypatch):
@@ -33,6 +49,8 @@ def client(monkeypatch):
     monkeypatch.delenv("RCARS_DATABASE_URL", raising=False)
     mock_db = MagicMock()
     mock_db.get_db_currency.return_value = {"last_refresh": "2026.04.08", "is_stale": False}
+    mock_db.get_enrichment_tags_for_items.return_value = {}
+    mock_db.get_enrichment_note.return_value = None
     # Override all get_db dependencies
     app.dependency_overrides[get_db] = lambda: mock_db
     app.dependency_overrides[advisor_get_db] = lambda: mock_db
@@ -109,3 +127,47 @@ def test_rec_card_expanded_shows_curator_controls_for_curator():
     html = tmpl.render(rec=SAMPLE_REC, is_curator=True, session_id="test-123")
     assert "curator-actions" in html
     assert "Tag" in html
+
+
+def test_advisor_query_returns_rec_cards(client):
+    with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
+        response = client.post("/advisor/query", data={
+            "session_id": "test-session-abc",
+            "message": "OpenShift labs for developers",
+        })
+    assert response.status_code == 200
+    assert "OpenShift Lightspeed Workshop" in response.text
+    assert "92" in response.text
+
+
+def test_advisor_query_appends_chat_turn(client):
+    with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
+        response = client.post("/advisor/query", data={
+            "session_id": "test-session-def",
+            "message": "Show me OpenShift labs",
+        })
+    assert response.status_code == 200
+    assert "chat-pane" in response.text
+
+
+def test_advisor_query_accumulates_context(client):
+    calls = []
+    def capture_recommend(query, **kwargs):
+        calls.append(query)
+        return MOCK_RECOMMEND_RESULT
+    with patch("rcars.web.routes.advisor.recommend", side_effect=capture_recommend):
+        client.post("/advisor/query", data={"session_id": "acc-test", "message": "OpenShift labs"})
+        client.post("/advisor/query", data={"session_id": "acc-test", "message": "shorter ones only"})
+    assert len(calls) == 2
+    assert "OpenShift labs" in calls[1]
+    assert "shorter ones only" in calls[1]
+
+
+def test_advisor_query_handles_recommend_none(client):
+    with patch("rcars.web.routes.advisor.recommend", return_value=None):
+        response = client.post("/advisor/query", data={
+            "session_id": "fail-test",
+            "message": "something",
+        })
+    assert response.status_code == 200
+    assert "No strong matches" in response.text
