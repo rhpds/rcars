@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
@@ -32,6 +33,10 @@ def create_app() -> FastAPI:
     static_dir = Path(__file__).parent / "static"
     static_dir.mkdir(exist_ok=True)
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    @app.get("/")
+    async def root():
+        return RedirectResponse(url="/advisor")
+
     app.include_router(advisor.router)
     app.include_router(curate.router)
     app.include_router(admin.router)
