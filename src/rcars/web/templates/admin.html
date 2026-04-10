@@ -5,7 +5,7 @@
 
   <div class="admin-section">
     <h3>Catalog Status</h3>
-    <table class="status-table">
+    <table id="catalog-status-table" class="status-table">
       <tr><th>Metric</th><th>Count</th></tr>
       <tr><td>Total catalog items</td><td>{{ status.total }}</td></tr>
       <tr><td>Production items</td><td>{{ status.prod }}</td></tr>
@@ -16,40 +16,32 @@
   </div>
 
   <div class="admin-section">
-    <h3>Catalog Refresh</h3>
+    <h3>Catalog Sync</h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
       Pull latest catalog metadata from Babylon CRDs into the database. Fast (~30 seconds).
     </p>
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <div id="refresh-section">
       <button class="btn-action"
               hx-post="/admin/refresh"
-              hx-target="#refresh-status"
-              hx-swap="innerHTML">
-        Refresh Catalog
+              hx-target="#refresh-section"
+              hx-swap="outerHTML">
+        Sync Catalog
       </button>
-      <div id="refresh-status" style="font-size:12px;"></div>
     </div>
   </div>
 
   <div class="admin-section">
-    <h3>Content Rescan</h3>
+    <h3>Showroom Analysis</h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
-      Clone and re-analyze Showroom repos via Sonnet. Runs in background.
+      Clone and re-analyze Showroom repos via Sonnet. Runs in background (~30–60 min).
     </p>
-    {% if rescan_running %}
-    <div style="color:var(--score-amber);font-size:12px;margin-bottom:8px;">Rescan in progress...</div>
-    {% endif %}
-    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+    <div id="rescan-section">
       <button class="btn-action"
               hx-post="/admin/rescan"
-              hx-target="#rescan-status"
-              hx-swap="innerHTML"
-              {% if rescan_running %}disabled{% endif %}>
-        {% if rescan_running %}Rescan Running...{% else %}Trigger Rescan{% endif %}
+              hx-target="#rescan-section"
+              hx-swap="outerHTML">
+        Analyze Showroom Content
       </button>
-      <div id="rescan-status" style="font-size:12px;">
-        {% if rescan_output %}<pre style="font-size:10px;color:var(--text-muted);white-space:pre-wrap;">{{ rescan_output }}</pre>{% endif %}
-      </div>
     </div>
   </div>
 

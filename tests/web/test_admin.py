@@ -36,6 +36,16 @@ def test_admin_shows_scan_status(admin_client):
     assert "342" in response.text
 
 
+def test_admin_shows_new_labels(admin_client):
+    client, _ = admin_client
+    response = client.get("/admin")
+    assert "Catalog Sync" in response.text
+    assert "Sync Catalog" in response.text
+    assert "Showroom Analysis" in response.text
+    assert "Analyze Showroom Content" in response.text
+    assert "catalog-status-table" in response.text
+
+
 def test_admin_rescan_triggers_background_job(admin_client):
     client, mock_db = admin_client
     with patch("rcars.web.routes.admin.threading.Thread") as mock_thread:
