@@ -61,7 +61,7 @@ BOILERPLATE_FILENAMES = [
     "_attributes.adoc",
 ]
 
-PROMPT_TEMPLATE_PATH = Path(__file__).parent.parent.parent / "prompts" / "analyze_showroom.txt"
+PROMPT_TEMPLATE_PATH = Path(__file__).parent / "prompts" / "analyze_showroom.txt"
 
 
 def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
