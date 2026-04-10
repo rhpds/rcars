@@ -38,7 +38,7 @@ SAMPLE_CATALOG_ITEM = {
         },
         "owners": {
             "maintainer": [
-                {"email": "your-email@redhat.com", "name": "Test User"},
+                {"email": "testuser@example.com", "name": "Test User"},
             ]
         },
         "lastUpdate": {

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- `oc` CLI logged into the target cluster (`your-cluster`)
+- `oc` CLI logged into the target OpenShift cluster
 - `ansible` with `kubernetes.core` collection
 - Read-only kubeconfig for the Babylon cluster
 - Vertex AI service account JSON key
@@ -56,7 +56,7 @@ The playbook prints a webhook URL at the end. Add it to your GitHub repo:
 
 ### 4. Verify
 
-Open `https://rcars-dev.apps.your-cluster.example.com`
+Open `https://rcars-dev.<your-cluster-domain>` (the `frontend_host` from your vars file)
 
 You should see the OpenShift SSO login page. After authenticating, RCARS loads with your email in the header.
 

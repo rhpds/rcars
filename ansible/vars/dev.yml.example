@@ -7,7 +7,7 @@ env: dev
 target_namespace: rcars-dev
 git_ref: main
 
-# Kubeconfig for the target cluster (your-cluster)
+# Kubeconfig for the target cluster
 kubeconfig: ~/.kube/your-cluster
 
 # Hostname for the route
