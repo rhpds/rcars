@@ -234,6 +234,9 @@ metadata:
   labels:
     app: {{ app_name }}
     component: app
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}\")].image"}]
 spec:
   replicas: 1
   selector:
