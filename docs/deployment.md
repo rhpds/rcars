@@ -50,7 +50,7 @@ Edit `ansible/vars/dev.yml` and fill in all `CHANGEME` values:
 | `babylon_kubeconfig_path` | path to your Babylon read-only kubeconfig |
 | `vertex_credentials_path` | path to your GCP service account JSON key (e.g. `~/devel/secrets/gcp-vertex-key.json`) — project ID is read from the file automatically |
 | `github_token` | GitHub PAT with `repo` scope |
-| `curator_emails` / `admin_emails` | YAML lists of email addresses |
+| `curator_emails` / `admin_emails` | YAML lists of email addresses (must match OpenShift SSO email, e.g. `nstephan@redhat.com`) |
 
 Leave `kubeconfig` as-is (`~/devel/secrets/rcars-mgmt.kubeconfig`) — the next step creates that file.
 
@@ -93,25 +93,35 @@ This uses the mgmt kubeconfig from your `dev.yml` and will:
 1. Apply all secrets, deployments, services, routes, ImageStream, and BuildConfig
 2. Trigger the first Docker build from GitHub (~3–5 minutes)
 3. Wait for the build to complete and roll out the new image
-4. Run Alembic database migrations
+4. Run database schema setup (`rcars status`)
 5. Display the GitHub webhook URL
 
 ### Step 5. Configure GitHub webhook
 
-The playbook prints the webhook URL at the end. Add it to your GitHub repo:
+After `--tags apply` runs, get the webhook URL:
 
-1. Go to `https://github.com/<your-repo>/settings/hooks`
-2. Click "Add webhook"
-3. Paste the URL from the playbook output
-4. Content type: `application/json`
-5. Secret: the `webhook_secret` value from your vars file
-6. Events: "Just the push event"
+```bash
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc describe bc/rcars -n rcars-dev | grep -A2 "Webhook GitHub"
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get secret rcars-webhook -n rcars-dev -o jsonpath='{.data.WebHookSecretKey}' | base64 -d
+```
+
+Add it to your GitHub repo at `https://github.com/<your-repo>/settings/hooks`:
+
+1. Click "Add webhook"
+2. **Payload URL:** replace `<secret>` in the URL from the describe output with the decoded secret value
+3. **Content type:** `application/json`
+4. **Secret:** the decoded `WebHookSecretKey` value
+5. **Events:** Just the push event
+
+The `webhook-access-unauthenticated` RoleBinding (applied automatically by the playbook) grants GitHub the permission to reach the BuildConfig webhook endpoint.
 
 ### Step 6. Verify
 
 Open the URL from `frontend_host` in your vars file (e.g. `https://rcars-dev.apps.<cluster-domain>`).
 
-You should see the OpenShift SSO login page. After authenticating, RCARS loads with your email in the header.
+You should see the OpenShift SSO login page. After authenticating, RCARS loads with your email in the header. If your email is in `curator_emails` or `admin_emails`, the Curator/Admin sections will appear.
+
+> **Identity note:** The OAuth proxy passes your full SSO email address via `X-Forwarded-Email` (e.g. `nstephan@redhat.com`). Use this format in `curator_emails` and `admin_emails`, not the short username.
 
 ---
 
@@ -127,7 +137,7 @@ Or prefix each command inline: `KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig
 
 ### Code update (after push to main)
 
-Webhooks trigger builds automatically. Once the build completes, to run migrations and confirm rollout:
+Webhooks trigger builds automatically. Once the build completes, to run schema setup and confirm rollout:
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
@@ -135,16 +145,22 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags update
 
 ### Apply config/secret changes only (no build)
 
-Re-applies manifests, runs migrations, shows webhook URL — skips the build entirely:
+Re-applies manifests and runs schema setup — skips the build entirely:
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 ```
 
-### Just run migrations
+### Just run schema setup
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
+```
+
+### Trigger a build only
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags builds
 ```
 
 ### Restart the app
@@ -163,10 +179,29 @@ KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars-oauth-
 ### Run a command on the pod
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec deployment/rcars -n rcars-dev -- rcars status
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec deployment/rcars -n rcars-dev -- rcars refresh
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec deployment/rcars -n rcars-dev -- rcars scan --max 5
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars status
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars refresh
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars scan --max 5
 ```
+
+---
+
+## Initial Data Load
+
+After the app is running, load data via the Admin UI or pod exec:
+
+1. **Refresh catalog** — pulls CatalogItems from Babylon CRDs into the database.
+   Use the **Refresh** button in the Admin UI, or:
+   ```bash
+   KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars refresh
+   ```
+
+2. **Scan Showroom content** — runs AI analysis on items with Showroom URLs.
+   Start small to verify it's working before running the full catalog:
+   ```bash
+   KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars scan --max 3
+   ```
+   Once satisfied, use the **Rescan** button in the Admin UI for the full catalog.
 
 ---
 
@@ -212,6 +247,15 @@ KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc describe pod -l app=rcars,co
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars -n rcars-dev
 ```
 
+### Multiple pods / stuck rollout
+
+```bash
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get pods -n rcars-dev -l app=rcars,component=app
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc rollout status deployment/rcars -n rcars-dev
+```
+
+If a rollout is stuck due to a crashing new pod, check logs on the new pod and fix the underlying issue. Once fixed, apply again — the new pod will replace the broken one.
+
 ### Database connection issues
 
 ```bash
@@ -224,6 +268,16 @@ KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec deployment/rcars -n rca
 ```bash
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars-oauth-proxy -n rcars-dev
 ```
+
+### Webhook returns 403
+
+The `webhook-access-unauthenticated` RoleBinding may be missing. Run:
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply
+```
+
+Then redeliver the webhook from GitHub.
 
 ### Re-run RBAC bootstrap (e.g. token expired or kubeconfig lost)
 
