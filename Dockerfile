@@ -31,7 +31,6 @@ COPY --from=builder /opt/app-root/lib /opt/app-root/lib
 COPY --from=builder /opt/app-root/bin /opt/app-root/bin
 COPY --from=builder /opt/app-root/.cache/huggingface /opt/app-root/.cache/huggingface
 COPY src/ src/
-COPY prompts/ prompts/
 COPY alembic.ini alembic.ini
 COPY alembic/ alembic/
 
