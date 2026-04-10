@@ -1,6 +1,6 @@
 import subprocess
 import threading
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
@@ -14,7 +14,6 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 _rescan_status: dict = {"running": False, "lines": [], "exit_ok": None}
 _refresh_status: dict = {"running": False, "result": None, "color": None}
-_item_analyze_status: dict = {}
 
 
 def _get_db_dependency() -> Database | None:
