@@ -79,23 +79,59 @@ def _run_refresh():
         _refresh_status["running"] = False
 
 
-def _run_rescan(settings):
+def _rescan_section_running(lines: list) -> str:
+    recent = lines[-20:] if lines else []
+    log_html = "\n".join(f'<div>{line}</div>' for line in recent) if recent else ""
+    log_block = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_html}</div>""" if log_html else ""
+    return f"""<div id="rescan-section"
+     hx-get="/admin/rescan/status"
+     hx-trigger="every 2s"
+     hx-target="this"
+     hx-swap="outerHTML">
+  <button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Analyze Showroom Content</button>
+  <span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Analysis running\u2026</span>
+  {log_block}
+</div>"""
+
+
+def _rescan_section_idle(msg: str = "", color: str = "", lines=None) -> str:
+    status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{msg}</span>' if msg else ""
+    log_html = ""
+    if lines:
+        recent = lines[-20:]
+        log_content = "\n".join(f'<div>{line}</div>' for line in recent)
+        log_html = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_content}</div>"""
+    return f"""<div id="rescan-section">
+  <button class="btn-action"
+          hx-post="/admin/rescan"
+          hx-target="#rescan-section"
+          hx-swap="outerHTML">Analyze Showroom Content</button>
+  {status_span}
+  {log_html}
+</div>"""
+
+
+def _run_rescan():
     global _rescan_status
-    _rescan_status["running"] = True
-    _rescan_status["lines"] = ["Rescan started..."]
+    _rescan_status["lines"] = ["Starting analysis\u2026"]
     _rescan_status["exit_ok"] = None
     try:
-        result = subprocess.run(
+        proc = subprocess.Popen(
             ["rcars", "scan"],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=3600,
         )
-        output = result.stdout[-2000:] if result.stdout else result.stderr[-2000:]
-        _rescan_status["lines"] = output.splitlines()
-        _rescan_status["exit_ok"] = result.returncode == 0
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if line:
+                _rescan_status["lines"].append(line)
+                if len(_rescan_status["lines"]) > 500:
+                    _rescan_status["lines"] = _rescan_status["lines"][-500:]
+        proc.wait(timeout=3600)
+        _rescan_status["exit_ok"] = proc.returncode == 0
     except Exception as e:
-        _rescan_status["lines"] = [f"Error: {e}"]
+        _rescan_status["lines"].append(f"Error: {e}")
         _rescan_status["exit_ok"] = False
     finally:
         _rescan_status["running"] = False
@@ -118,8 +154,6 @@ async def admin(
         "active_page": "admin",
         "db_status": currency,
         "status": status,
-        "rescan_running": _rescan_status["running"],
-        "rescan_output": "\n".join(_rescan_status["lines"]),
         "curator_emails": settings.curator_emails,
     }
     return templates.TemplateResponse(request=request, name="admin.html", context=ctx)
@@ -130,13 +164,31 @@ async def trigger_rescan(
     user: str = Depends(require_admin),
     db: Database = Depends(_get_db_dependency),
 ):
-    if not _rescan_status["running"]:
-        settings = Settings()
-        t = threading.Thread(target=_run_rescan, args=(settings,), daemon=True)
-        t.start()
-    return HTMLResponse(
-        '<div style="color:var(--score-green);font-size:12px;">Rescan started in background. Refresh this page to check status.</div>'
-    )
+    if _rescan_status["running"]:
+        return HTMLResponse(_rescan_section_running(_rescan_status["lines"]))
+    _rescan_status["running"] = True
+    _rescan_status["lines"] = []
+    _rescan_status["exit_ok"] = None
+    t = threading.Thread(target=_run_rescan, daemon=True)
+    t.start()
+    return HTMLResponse(_rescan_section_running([]))
+
+
+@router.get("/admin/rescan/status", response_class=HTMLResponse)
+async def rescan_status(
+    user: str = Depends(require_admin),
+    db: Database = Depends(_get_db_dependency),
+):
+    if _rescan_status["running"]:
+        return HTMLResponse(_rescan_section_running(_rescan_status["lines"]))
+    if _rescan_status["exit_ok"] is not None:
+        exit_ok = _rescan_status["exit_ok"]
+        lines = list(_rescan_status["lines"])
+        _rescan_status["exit_ok"] = None
+        msg = "Analysis complete." if exit_ok else "Analysis failed."
+        color = "var(--score-green)" if exit_ok else "var(--score-red)"
+        return HTMLResponse(_rescan_section_idle(msg, color, lines) + _status_table_oob(db))
+    return HTMLResponse(_rescan_section_idle())
 
 
 @router.post("/admin/refresh", response_class=HTMLResponse)
