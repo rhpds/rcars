@@ -1,0 +1,28 @@
+---
+- name: Get webhook URL from BuildConfig
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    kind: BuildConfig
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}"
+  register: bc_info
+
+- name: Extract GitHub webhook URL
+  ansible.builtin.set_fact:
+    webhook_url: >-
+      {{ bc_info.resources[0].spec.triggers
+         | selectattr('type', 'equalto', 'GitHub')
+         | map(attribute='github.secret')
+         | first | default('') }}
+  when: bc_info.resources | length > 0
+
+- name: Display webhook configuration
+  ansible.builtin.debug:
+    msg: |
+      GitHub webhook URL for {{ app_name }}:
+      https://api.{{ cluster_domain | regex_replace('^apps\\.', '') }}:6443/apis/build.openshift.io/v1/namespaces/{{ target_namespace }}/buildconfigs/{{ app_name }}/webhooks/{{ webhook_secret }}/github
+
+      Configure this in your GitHub repo settings:
+      {{ github_repo }} → Settings → Webhooks → Add webhook
+      Content type: application/json
+      Secret: {{ webhook_secret }}

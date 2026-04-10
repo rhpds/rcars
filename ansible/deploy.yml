@@ -1,0 +1,144 @@
+---
+# RCARS OCP Deployment Playbook
+#
+# Automates the full setup from empty namespace to running instance.
+# All tasks are idempotent — running the playbook twice produces the same result.
+#
+# Usage:
+#   ansible-playbook ansible/deploy.yml -e env=dev                  # Full deploy
+#   ansible-playbook ansible/deploy.yml -e env=prod                 # Full prod deploy
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Apply + build + migrate + webhooks
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds    # Just wait for builds + rollout
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate   # Just run Alembic migrations
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags webhooks  # Show webhook URLs
+#
+# Prerequisites:
+#   - ansible-galaxy collection install -r ansible/requirements.yml
+#   - cp ansible/vars/dev.yml.example ansible/vars/dev.yml  (fill in secrets)
+#   - kubeconfig for target cluster
+
+- name: Deploy RCARS to OpenShift
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - kubernetes.core
+
+  vars_files:
+    - vars/common.yml
+    - "vars/{{ env }}.yml"
+
+  pre_tasks:
+    - name: Validate required variables
+      ansible.builtin.assert:
+        that:
+          - env is defined
+          - target_namespace is defined
+          - kubeconfig is defined
+          - pg_password is defined
+        fail_msg: >
+          Missing required variables. Create ansible/vars/{{ env | default('dev') }}.yml
+          from the corresponding .example file.
+      tags: [always]
+
+    - name: Verify kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig }}"
+      register: kubeconfig_file
+      tags: [always]
+
+    - name: Fail if kubeconfig not found
+      ansible.builtin.fail:
+        msg: "Kubeconfig not found at {{ kubeconfig }}"
+      when: not kubeconfig_file.stat.exists
+      tags: [always]
+
+    - name: Verify cluster connectivity
+      kubernetes.core.k8s_cluster_info:
+        kubeconfig: "{{ kubeconfig }}"
+      register: cluster_info
+      tags: [always]
+
+    - name: Load Babylon kubeconfig contents
+      ansible.builtin.set_fact:
+        babylon_kubeconfig_content: "{{ lookup('file', babylon_kubeconfig_path) }}"
+      when: babylon_kubeconfig_path is defined and babylon_kubeconfig_path != ''
+      tags: [apply, update]
+
+  tasks:
+    - name: Create namespace
+      ansible.builtin.include_tasks:
+        file: tasks/namespace.yml
+        apply:
+          tags: [namespace, apply, update]
+      tags: [namespace, apply, update]
+
+    - name: Apply manifests
+      ansible.builtin.include_tasks:
+        file: tasks/apply-manifests.yml
+        apply:
+          tags: [apply, update]
+      tags: [apply, update]
+
+    - name: Wait for builds
+      ansible.builtin.include_tasks:
+        file: tasks/wait-for-builds.yml
+        apply:
+          tags: [builds, apply, update]
+      tags: [builds, apply, update]
+
+    - name: Run database migrations
+      block:
+        - name: Get app pod name
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig }}"
+            kind: Pod
+            namespace: "{{ target_namespace }}"
+            label_selectors:
+              - "app={{ app_name }}"
+              - "component=app"
+            field_selectors:
+              - status.phase=Running
+          register: app_pods
+
+        - name: Run Alembic migrations
+          kubernetes.core.k8s_exec:
+            kubeconfig: "{{ kubeconfig }}"
+            namespace: "{{ target_namespace }}"
+            pod: "{{ app_pods.resources[0].metadata.name }}"
+            command: python -m alembic upgrade head
+          register: migrate_result
+          changed_when: "'Running upgrade' in (migrate_result.stderr | default(''))"
+      tags: [migrate, apply, update]
+
+    - name: Show webhook configuration
+      ansible.builtin.include_tasks:
+        file: tasks/webhooks.yml
+        apply:
+          tags: [webhooks, apply, update]
+      tags: [webhooks, apply, update]
+
+  post_tasks:
+    - name: Get pod status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: "{{ target_namespace }}"
+        label_selectors:
+          - "app={{ app_name }}"
+      register: final_pods
+      tags: [always]
+
+    - name: Deployment summary
+      ansible.builtin.debug:
+        msg: |
+          === RCARS {{ env }} deployment complete ===
+
+          Namespace: {{ target_namespace }}
+          URL:       https://{{ frontend_host }}
+
+          Pods:
+          {% for pod in final_pods.resources | sort(attribute='metadata.name') %}
+            {{ pod.metadata.name }}  {{ pod.status.phase }}
+          {% endfor %}
+      tags: [always]
