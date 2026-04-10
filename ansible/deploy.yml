@@ -131,7 +131,7 @@
           delay: 15
           failed_when: app_pods.resources | default([]) | length == 0
 
-        - name: Run Alembic migrations
+        - name: Run database schema setup
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
@@ -140,9 +140,9 @@
                   | selectattr('status.phase', 'eq', 'Running')
                   | selectattr('status.containerStatuses', 'defined')
                   | first).metadata.name }}
-            command: python -m alembic upgrade head
+            command: rcars status
           register: migrate_result
-          changed_when: "'Running upgrade' in (migrate_result.stderr | default(''))"
+          changed_when: false
       tags: [migrate, apply, update]
 
     - name: Show webhook configuration
