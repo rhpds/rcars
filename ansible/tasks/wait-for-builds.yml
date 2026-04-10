@@ -15,7 +15,7 @@
     label_selectors:
       - "buildconfig={{ app_name }}"
   register: builds
-  ignore_errors: true
+  failed_when: false
   until: >-
     builds.resources | default([]) | length > 0 and
     builds.resources | default([]) | sort(attribute='metadata.creationTimestamp') | last |

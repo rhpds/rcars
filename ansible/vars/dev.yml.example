@@ -7,6 +7,9 @@ env: dev
 target_namespace: rcars-dev
 git_ref: main
 
+# Cluster domain — get with: oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
+cluster_domain: apps.your-cluster.example.com
+
 # Kubeconfig for the target cluster.
 # After running --tags mgmt-rbac with your personal kubeconfig, switch to:
 #   kubeconfig: ~/secrets/rcars-mgmt.kubeconfig

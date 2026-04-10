@@ -38,9 +38,19 @@
           - target_namespace is defined
           - kubeconfig is defined
           - pg_password is defined
+          - pg_password != 'CHANGEME'
+          - oauth_client_secret is defined
+          - oauth_client_secret != 'CHANGEME'
+          - oauth_cookie_secret is defined
+          - oauth_cookie_secret != 'CHANGEME'
+          - webhook_secret is defined
+          - webhook_secret != 'CHANGEME'
+          - cluster_domain is defined
+          - "'your-cluster' not in cluster_domain"
         fail_msg: >
-          Missing required variables. Create ansible/vars/{{ env | default('dev') }}.yml
-          from the corresponding .example file.
+          Missing or placeholder variables detected. Fill in all CHANGEME values
+          in ansible/vars/{{ env | default('dev') }}.yml and set cluster_domain
+          to your actual cluster domain.
       tags: [always]
 
     - name: Verify kubeconfig exists
@@ -98,7 +108,7 @@
 
     - name: Run database migrations
       block:
-        - name: Get app pod name
+        - name: Wait for running app pod
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig }}"
             kind: Pod
@@ -109,6 +119,10 @@
             field_selectors:
               - status.phase=Running
           register: app_pods
+          until: app_pods.resources | length > 0
+          retries: 20
+          delay: 15
+          failed_when: app_pods.resources | length == 0
 
         - name: Run Alembic migrations
           kubernetes.core.k8s_exec:

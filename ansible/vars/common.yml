@@ -27,8 +27,8 @@ pg_storage_class: ocs-storagecluster-ceph-rbd
 # Vertex AI
 vertex_region: us-east5
 
-# Cluster
-cluster_domain: apps.your-cluster.example.com
+# Cluster — must be set in env vars file (e.g. apps.ocpv-infra01.dal12.infra.demo.redhat.com)
+# cluster_domain:
 
 # App config defaults
 stale_days: 3
