@@ -63,7 +63,7 @@ metadata:
     component: app
 type: Opaque
 stringData:
-  credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | from_json | to_json }}
+  credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | to_json }}
 {% endif %}
 ---
 # GitHub webhook secret for BuildConfig
