@@ -12,7 +12,7 @@ from rcars.db import Database
 
 log = logging.getLogger(__name__)
 
-RECOMMEND_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "recommend.txt"
+RECOMMEND_PROMPT_PATH = Path(__file__).parent / "prompts" / "recommend.txt"
 
 
 def format_candidate(item: dict[str, Any], analysis: dict[str, Any] | None) -> str:

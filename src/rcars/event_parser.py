@@ -14,7 +14,7 @@ from rcars.analyzer import parse_analysis_response
 
 log = logging.getLogger(__name__)
 
-EVENT_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "match_event.txt"
+EVENT_PROMPT_PATH = Path(__file__).parent / "prompts" / "match_event.txt"
 
 
 def fetch_and_strip_html(url: str, max_chars: int = 50000) -> str | None:
