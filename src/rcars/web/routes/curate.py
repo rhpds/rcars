@@ -1,3 +1,5 @@
+import html as _html
+import threading
 from typing import Annotated
 from fastapi import APIRouter, Request, Depends, Form, Query
 from fastapi.responses import HTMLResponse
@@ -12,6 +14,9 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
 PAGE_SIZE = 25
+
+_item_analyze_status: dict = {}
+# key: ci_name → {"running": bool, "result": str | None, "color": str | None}
 
 
 def _get_db_dependency() -> Database | None:
@@ -29,6 +34,112 @@ def _base_context(request: Request, db: Database, user: str) -> dict:
         "active_page": "curate",
         "db_status": db.get_db_currency(stale_days=settings.stale_days),
     }
+
+
+def _ci_safe(ci_name: str) -> str:
+    """Convert ci_name to a safe HTML id fragment."""
+    return ci_name.replace(".", "-").replace("/", "-")
+
+
+def _analyze_section_running(ci_name: str) -> str:
+    ci_safe = _ci_safe(ci_name)
+    return f"""<div id="analyze-section-{ci_safe}"
+     hx-get="/curate/analyze/status?ci_name={ci_name}"
+     hx-trigger="every 2s"
+     hx-target="this"
+     hx-swap="outerHTML"
+     style="display:flex;flex-direction:column;gap:4px;">
+  <button style="background:#2a1a40;color:#b794f4;border:1px solid #4a2a70;padding:5px 12px;border-radius:4px;font-size:12px;opacity:0.5;cursor:not-allowed;" disabled>Re-analyze &#8635;</button>
+  <span style="font-size:11px;color:#b794f4;">&#8635; Analyzing\u2026</span>
+</div>"""
+
+
+def _analyze_section_idle(ci_name: str, msg: str = "", color: str = "") -> str:
+    ci_safe = _ci_safe(ci_name)
+    status_span = f'<span style="font-size:11px;color:{color};">{_html.escape(msg)}</span>' if msg else ""
+    return f"""<div id="analyze-section-{ci_safe}" style="display:flex;flex-direction:column;gap:4px;">
+  <button style="background:#2a1a40;color:#b794f4;border:1px solid #4a2a70;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;"
+          hx-post="/curate/analyze"
+          hx-vals='{{"ci_name": "{ci_name}"}}'
+          hx-target="#analyze-section-{ci_safe}"
+          hx-swap="outerHTML">Re-analyze &#8635;</button>
+  {status_span}
+</div>"""
+
+
+def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings):
+    global _item_analyze_status
+    try:
+        from rcars.analyzer import analyze_showroom
+        anthropic_client = settings.get_anthropic_client()
+        if not anthropic_client:
+            _item_analyze_status[ci_name] = {
+                "running": False,
+                "result": "No Anthropic credentials configured.",
+                "color": "var(--score-red)",
+            }
+            return
+        result = analyze_showroom(
+            ci_name=ci_name,
+            display_name=item.get("display_name", ""),
+            category=item.get("category", ""),
+            product=item.get("product", ""),
+            showroom_url=item["showroom_url"],
+            showroom_ref=item.get("showroom_ref"),
+            anthropic_client=anthropic_client,
+            model=settings.model,
+            clone_dir=settings.clone_dir,
+        )
+        if result:
+            analysis = result["analysis"]
+            db.upsert_showroom_analysis({
+                "ci_name": result["ci_name"],
+                "content_type": analysis.get("content_type"),
+                "summary": analysis.get("summary"),
+                "products_json": analysis.get("products"),
+                "audience_json": analysis.get("audience"),
+                "topics_json": analysis.get("topics"),
+                "modules_json": analysis.get("modules"),
+                "learning_objectives_json": analysis.get("learning_objectives"),
+                "difficulty": analysis.get("difficulty"),
+                "estimated_duration_min": analysis.get("estimated_duration_min"),
+                "event_fit_json": analysis.get("event_fit"),
+                "use_cases_json": analysis.get("use_cases"),
+                "last_repo_commit": result.get("last_repo_commit"),
+                "last_repo_updated": result.get("last_repo_updated"),
+            })
+            if result.get("ci_embedding"):
+                db.store_embedding(
+                    ci_name=ci_name,
+                    embed_type="ci_summary",
+                    content_text=result.get("ci_embedding_text", ""),
+                    embedding=result["ci_embedding"],
+                )
+            for mod_emb in result.get("module_embeddings", []):
+                db.store_embedding(
+                    ci_name=ci_name,
+                    embed_type="module",
+                    module_title=mod_emb["module_title"],
+                    content_text=mod_emb["content_text"],
+                    embedding=mod_emb["embedding"],
+                )
+            _item_analyze_status[ci_name] = {
+                "running": False,
+                "result": "Analysis complete.",
+                "color": "var(--score-green)",
+            }
+        else:
+            _item_analyze_status[ci_name] = {
+                "running": False,
+                "result": "Analysis failed.",
+                "color": "var(--score-red)",
+            }
+    except Exception as e:
+        _item_analyze_status[ci_name] = {
+            "running": False,
+            "result": f"Error: {str(e)[:200]}",
+            "color": "var(--score-red)",
+        }
 
 
 @router.get("/curate", response_class=HTMLResponse)
@@ -130,3 +241,49 @@ async def flag_item(
 ):
     db.set_enrichment_review_needed(ci_name, needed.lower() == "true")
     return HTMLResponse("", status_code=200)
+
+
+@router.post("/curate/analyze", response_class=HTMLResponse)
+async def trigger_item_analyze(
+    ci_name: Annotated[str, Form()],
+    user: str = Depends(require_curator),
+    db: Database = Depends(_get_db_dependency),
+):
+    status = _item_analyze_status.get(ci_name, {})
+    if status.get("running"):
+        return HTMLResponse(_analyze_section_running(ci_name))
+
+    # Look up the item for its metadata
+    items = [i for i in db.list_catalog_items() if i["ci_name"] == ci_name]
+    if not items or not items[0].get("showroom_url"):
+        return HTMLResponse(_analyze_section_idle(
+            ci_name,
+            msg="No Showroom URL for this item.",
+            color="var(--score-red)",
+        ))
+
+    _item_analyze_status[ci_name] = {"running": True, "result": None, "color": None}
+    settings = Settings()
+    t = threading.Thread(
+        target=_run_item_analyze,
+        args=(ci_name, items[0], db, settings),
+        daemon=True,
+    )
+    t.start()
+    return HTMLResponse(_analyze_section_running(ci_name))
+
+
+@router.get("/curate/analyze/status", response_class=HTMLResponse)
+async def item_analyze_status(
+    ci_name: str = Query(...),
+    user: str = Depends(require_curator),
+):
+    status = _item_analyze_status.get(ci_name, {})
+    if status.get("running"):
+        return HTMLResponse(_analyze_section_running(ci_name))
+    if status.get("result") is not None:
+        msg = status["result"]
+        color = status["color"]
+        del _item_analyze_status[ci_name]
+        return HTMLResponse(_analyze_section_idle(ci_name, msg=msg, color=color))
+    return HTMLResponse(_analyze_section_idle(ci_name))

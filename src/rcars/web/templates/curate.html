@@ -68,7 +68,7 @@
              onchange="this.form.requestSubmit()">
     </form>
 
-    <div style="display:flex;gap:6px;">
+    <div style="display:flex;gap:6px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;">
       <button class="btn-curator secondary"
               data-ci="{{ item.ci_name }}"
               data-flagged="{{ 'true' if item.enrichment_review_needed else 'false' }}"
@@ -95,6 +95,14 @@
                        });">
         {{ 'Clear flag' if item.enrichment_review_needed else 'Flag for review' }}
       </button>
+      <div id="analyze-section-{{ item.ci_name | replace('.', '-') | replace('/', '-') }}"
+           style="display:flex;flex-direction:column;gap:4px;">
+        <button style="background:#2a1a40;color:#b794f4;border:1px solid #4a2a70;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;"
+                hx-post="/curate/analyze"
+                hx-vals='{"ci_name": "{{ item.ci_name }}"}'
+                hx-target="#analyze-section-{{ item.ci_name | replace('.', '-') | replace('/', '-') }}"
+                hx-swap="outerHTML">Re-analyze &#8635;</button>
+      </div>
     </div>
   </div>
   {% endfor %}

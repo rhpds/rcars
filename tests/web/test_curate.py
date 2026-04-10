@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from starlette.testclient import TestClient
 from rcars.web.app import app, get_db
 
@@ -98,3 +98,74 @@ def test_curate_flag(curator_client):
     })
     assert response.status_code == 200
     mock_db.set_enrichment_review_needed.assert_called_once_with("test.lab.prod", True)
+
+
+def test_curate_page_shows_reanalyze_button(curator_client):
+    """Each curate item card includes a Re-analyze button."""
+    client, _ = curator_client
+    response = client.get("/curate")
+    assert response.status_code == 200
+    assert "Re-analyze" in response.text
+    assert "/curate/analyze" in response.text
+
+
+def test_curate_analyze_returns_running_fragment(curator_client):
+    """POST /curate/analyze returns running fragment with polling."""
+    client, mock_db = curator_client
+    mock_db.list_catalog_items.return_value = [
+        {
+            "ci_name": "test.lab.prod",
+            "display_name": "Test Lab",
+            "is_prod": True,
+            "showroom_url": "https://github.com/rhpds/test-lab",
+            "showroom_ref": None,
+            "category": "OpenShift",
+            "product": "OCP",
+        }
+    ]
+    with patch("rcars.web.routes.curate.threading.Thread") as mock_thread:
+        mock_thread.return_value.start = MagicMock()
+        response = client.post("/curate/analyze", data={"ci_name": "test.lab.prod"})
+    assert response.status_code == 200
+    assert "every 2s" in response.text
+    assert "/curate/analyze/status" in response.text
+
+
+def test_curate_analyze_status_idle(curator_client):
+    """GET /curate/analyze/status for unknown ci_name returns idle div."""
+    client, _ = curator_client
+    import rcars.web.routes.curate as curate_mod
+    curate_mod._item_analyze_status = {}
+    response = client.get("/curate/analyze/status?ci_name=test.lab.prod")
+    assert response.status_code == 200
+    assert "every 2s" not in response.text
+
+
+def test_curate_analyze_status_running(curator_client):
+    """GET /curate/analyze/status while running returns polling fragment."""
+    client, _ = curator_client
+    import rcars.web.routes.curate as curate_mod
+    curate_mod._item_analyze_status["test.lab.prod"] = {
+        "running": True, "result": None, "color": None,
+    }
+    response = client.get("/curate/analyze/status?ci_name=test.lab.prod")
+    assert response.status_code == 200
+    assert "every 2s" in response.text
+    assert "Analyzing" in response.text
+    curate_mod._item_analyze_status = {}
+
+
+def test_curate_analyze_status_done(curator_client):
+    """GET /curate/analyze/status when done shows result and resets state."""
+    client, _ = curator_client
+    import rcars.web.routes.curate as curate_mod
+    curate_mod._item_analyze_status["test.lab.prod"] = {
+        "running": False,
+        "result": "Analysis complete.",
+        "color": "var(--score-green)",
+    }
+    response = client.get("/curate/analyze/status?ci_name=test.lab.prod")
+    assert response.status_code == 200
+    assert "Analysis complete." in response.text
+    assert "every 2s" not in response.text
+    assert "test.lab.prod" not in curate_mod._item_analyze_status
