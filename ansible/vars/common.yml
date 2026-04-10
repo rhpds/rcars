@@ -1,0 +1,29 @@
+---
+# RCARS shared deployment variables
+# Environment-specific vars override these in dev.yml / prod.yml
+
+app_name: rcars
+app_port: 8080
+
+# Container images
+pg_image: pgvector/pgvector:pg16
+oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:latest"
+
+# PostgreSQL
+pg_port: 5432
+pg_user: rcars
+pg_database: rcars
+pg_pvc_size: 5Gi
+pg_storage_class: ocs-storagecluster-ceph-rbd
+
+# Vertex AI
+vertex_project_id: ""
+vertex_region: us-east5
+
+# Cluster
+cluster_domain: apps.your-cluster.example.com
+
+# App config defaults
+stale_days: 3
+curator_emails: ""
+admin_emails: ""

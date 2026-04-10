@@ -39,3 +39,7 @@ data/
 
 # Playwright test artifacts
 .playwright-mcp/
+
+# Ansible vars with secrets (use .example files as templates)
+ansible/vars/dev.yml
+ansible/vars/prod.yml

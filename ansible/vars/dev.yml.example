@@ -1,0 +1,44 @@
+---
+# RCARS Dev environment variables
+# Copy to dev.yml and fill in secrets:
+#   cp dev.yml.example dev.yml
+
+env: dev
+target_namespace: rcars-dev
+git_ref: main
+
+# Kubeconfig for the target cluster (your-cluster)
+kubeconfig: ~/.kube/your-cluster
+
+# Hostname for the route
+frontend_host: "rcars-dev.{{ cluster_domain }}"
+
+# PostgreSQL password (generate with: openssl rand -hex 16)
+pg_password: CHANGEME
+
+# Read-only kubeconfig for Babylon cluster
+# Path to the file on your local machine — contents will be loaded into a Secret
+babylon_kubeconfig_path: ~/.kube/babylon-readonly
+
+# Vertex AI credentials
+# Set to true and provide the JSON key contents
+vertex_enabled: true
+vertex_project_id: "your-gcp-project-id"
+vertex_credentials_json: |
+  {
+    "type": "service_account",
+    "project_id": "CHANGEME"
+  }
+
+# OAuth proxy secrets (generate with: openssl rand -hex 16)
+oauth_client_secret: CHANGEME
+oauth_cookie_secret: CHANGEME
+
+# Curator and admin email lists (comma-separated)
+curator_emails: "your-email@redhat.com"
+admin_emails: "your-email@redhat.com"
+
+# GitHub repo for BuildConfig
+github_repo: rhpds/rcars-advisory
+github_token: CHANGEME
+webhook_secret: CHANGEME
