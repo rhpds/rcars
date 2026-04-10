@@ -1,13 +1,31 @@
 ---
-- name: Start build for {{ app_name }} and wait for completion
+- name: Start build for {{ app_name }}
   ansible.builtin.command:
     cmd: >-
       oc start-build {{ app_name }}
       -n {{ target_namespace }}
-      --follow
-      --wait
+      --output=name
       --kubeconfig={{ kubeconfig | expanduser }}
+  register: build_ref
   changed_when: true
+
+- name: Wait for {{ app_name }} build to complete
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: build.openshift.io/v1
+    kind: Build
+    namespace: "{{ target_namespace }}"
+    name: "{{ build_ref.stdout | regex_replace('^build\\.openshift\\.io/', '') }}"
+  register: build_poll
+  until: >-
+    build_poll.resources | length > 0 and
+    build_poll.resources[0].status.phase in ['Complete', 'Failed', 'Error', 'Cancelled']
+  retries: 60
+  delay: 15
+  failed_when: >-
+    build_poll.resources | length > 0 and
+    build_poll.resources[0].status.phase in ['Failed', 'Error', 'Cancelled']
+  changed_when: false
 
 - name: Rollout restart {{ app_name }} deployment
   ansible.builtin.command:
