@@ -1,33 +1,13 @@
 ---
-- name: Start build for {{ app_name }}
+- name: Start build for {{ app_name }} and wait for completion
   ansible.builtin.command:
     cmd: >-
       oc start-build {{ app_name }}
       -n {{ target_namespace }}
+      --follow
+      --wait
       --kubeconfig={{ kubeconfig | expanduser }}
   changed_when: true
-
-- name: Wait for {{ app_name }} build to complete
-  kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
-    kind: Build
-    namespace: "{{ target_namespace }}"
-    label_selectors:
-      - "buildconfig={{ app_name }}"
-  register: builds
-  failed_when: false
-  until: >-
-    builds.resources | default([]) | length > 0 and
-    (builds.resources | default([]) | sort(attribute='metadata.creationTimestamp') | last).status.phase
-    in ['Complete', 'Failed', 'Cancelled']
-  retries: 60
-  delay: 15
-
-- name: Check build result
-  ansible.builtin.fail:
-    msg: "Build failed: {{ (builds.resources | sort(attribute='metadata.creationTimestamp') | last).status.phase }}"
-  when: >-
-    (builds.resources | sort(attribute='metadata.creationTimestamp') | last).status.phase != 'Complete'
 
 - name: Rollout restart {{ app_name }} deployment
   ansible.builtin.command:

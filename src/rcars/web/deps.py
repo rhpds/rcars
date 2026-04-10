@@ -4,11 +4,16 @@ from rcars.config import Settings
 
 
 def get_current_user(request: Request) -> str:
-    """Return user identity. In Plan 3a: RCARS_DEV_USER or X-Forwarded-User header."""
+    """Return user identity. In Plan 3a: RCARS_DEV_USER or OAuth proxy headers."""
     settings = Settings()
     if settings.dev_user:
         return settings.dev_user
-    return request.headers.get("X-Forwarded-User", "")
+    # X-Forwarded-Email contains the full email address (e.g. nstephan@redhat.com)
+    # X-Forwarded-User contains just the username (e.g. nstephan) — use as fallback
+    return (
+        request.headers.get("X-Forwarded-Email")
+        or request.headers.get("X-Forwarded-User", "")
+    )
 
 
 def require_curator(user: str = Depends(get_current_user)) -> str:
