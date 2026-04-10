@@ -1,0 +1,20 @@
+---
+- name: Render infra manifests template
+  ansible.builtin.template:
+    src: manifests-infra.yaml.j2
+    dest: "/tmp/rcars-{{ env }}-infra.yaml"
+  changed_when: false
+
+- name: Apply infra manifests
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    src: "/tmp/rcars-{{ env }}-infra.yaml"
+    state: present
+    apply: true
+
+- name: Clean up rendered infra manifests
+  ansible.builtin.file:
+    path: "/tmp/rcars-{{ env }}-infra.yaml"
+    state: absent
+  changed_when: false

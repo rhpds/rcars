@@ -1,20 +1,20 @@
 ---
-- name: Render manifests template
+- name: Render app manifests template
   ansible.builtin.template:
-    src: manifests.yaml.j2
-    dest: "/tmp/rcars-{{ env }}-manifests.yaml"
+    src: manifests-app.yaml.j2
+    dest: "/tmp/rcars-{{ env }}-app.yaml"
   changed_when: false
 
-- name: Apply rendered manifests
+- name: Apply app manifests
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     namespace: "{{ target_namespace }}"
-    src: "/tmp/rcars-{{ env }}-manifests.yaml"
+    src: "/tmp/rcars-{{ env }}-app.yaml"
     state: present
     apply: true
 
-- name: Clean up rendered manifests
+- name: Clean up rendered app manifests
   ansible.builtin.file:
-    path: "/tmp/rcars-{{ env }}-manifests.yaml"
+    path: "/tmp/rcars-{{ env }}-app.yaml"
     state: absent
   changed_when: false
