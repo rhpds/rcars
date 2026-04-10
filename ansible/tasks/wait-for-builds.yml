@@ -18,17 +18,16 @@
   failed_when: false
   until: >-
     builds.resources | default([]) | length > 0 and
-    builds.resources | default([]) | sort(attribute='metadata.creationTimestamp') | last |
-    json_query('status.phase') in ['Complete', 'Failed', 'Cancelled']
+    (builds.resources | default([]) | sort(attribute='metadata.creationTimestamp') | last).status.phase
+    in ['Complete', 'Failed', 'Cancelled']
   retries: 60
   delay: 15
 
 - name: Check build result
   ansible.builtin.fail:
-    msg: "Build failed: {{ builds.resources | sort(attribute='metadata.creationTimestamp') | last | json_query('status.phase') }}"
+    msg: "Build failed: {{ (builds.resources | sort(attribute='metadata.creationTimestamp') | last).status.phase }}"
   when: >-
-    builds.resources | sort(attribute='metadata.creationTimestamp') | last |
-    json_query('status.phase') != 'Complete'
+    (builds.resources | sort(attribute='metadata.creationTimestamp') | last).status.phase != 'Complete'
 
 - name: Rollout restart {{ app_name }} deployment
   ansible.builtin.command:
