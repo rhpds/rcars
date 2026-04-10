@@ -57,7 +57,65 @@ def test_admin_rescan_triggers_background_job(admin_client):
 
 def test_admin_refresh_triggers(admin_client):
     client, mock_db = admin_client
-    with patch("rcars.web.routes.admin.subprocess.run") as mock_run:
-        mock_run.return_value.returncode = 0
+    with patch("rcars.web.routes.admin.threading.Thread") as mock_thread:
+        mock_thread.return_value.start = MagicMock()
         response = client.post("/admin/refresh")
     assert response.status_code == 200
+    mock_thread.return_value.start.assert_called_once()
+
+
+def test_sync_catalog_returns_running_fragment(admin_client):
+    """POST /admin/refresh returns immediately with HTMX polling markup."""
+    client, mock_db = admin_client
+    with patch("rcars.web.routes.admin.threading.Thread") as mock_thread:
+        mock_thread.return_value.start = MagicMock()
+        response = client.post("/admin/refresh")
+    assert response.status_code == 200
+    assert "every 2s" in response.text
+    assert "/admin/refresh/status" in response.text
+    assert "Syncing" in response.text
+
+
+def test_sync_catalog_status_idle(admin_client):
+    """GET /admin/refresh/status while idle returns empty div."""
+    client, mock_db = admin_client
+    import rcars.web.routes.admin as admin_mod
+    admin_mod._refresh_status = {"running": False, "result": None, "color": None}
+    response = client.get("/admin/refresh/status")
+    assert response.status_code == 200
+    assert "refresh-section" in response.text
+    assert "every 2s" not in response.text
+
+
+def test_sync_catalog_status_running(admin_client):
+    """GET /admin/refresh/status while running returns polling fragment."""
+    client, mock_db = admin_client
+    import rcars.web.routes.admin as admin_mod
+    admin_mod._refresh_status = {"running": True, "result": None, "color": None}
+    response = client.get("/admin/refresh/status")
+    assert response.status_code == 200
+    assert "every 2s" in response.text
+    assert "Syncing" in response.text
+    admin_mod._refresh_status = {"running": False, "result": None, "color": None}
+
+
+def test_sync_catalog_status_done(admin_client):
+    """GET /admin/refresh/status when done returns result + OOB table."""
+    client, mock_db = admin_client
+    mock_db.get_status_summary.return_value = {
+        "total": 350, "prod": 250, "with_showroom": 130, "analyzed": 125, "stale": 0,
+    }
+    import rcars.web.routes.admin as admin_mod
+    admin_mod._refresh_status = {
+        "running": False,
+        "result": "Catalog sync complete.",
+        "color": "var(--score-green)",
+    }
+    response = client.get("/admin/refresh/status")
+    assert response.status_code == 200
+    assert "Catalog sync complete." in response.text
+    assert "catalog-status-table" in response.text
+    assert "hx-swap-oob" in response.text
+    assert "350" in response.text
+    # State should be reset after serving
+    assert admin_mod._refresh_status["result"] is None
