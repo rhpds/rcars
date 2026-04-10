@@ -173,6 +173,12 @@ async def curate(
             "tags": tags,
             "note": note,
             "enrichment_review_needed": analysis.get("enrichment_review_needed", False),
+            "summary": analysis.get("summary"),
+            "difficulty": analysis.get("difficulty"),
+            "content_type": analysis.get("content_type"),
+            "estimated_duration_min": analysis.get("estimated_duration_min"),
+            "analysis_topics": analysis.get("topics_json") or [],
+            "analysis_products": analysis.get("products_json") or [],
         })
 
     if status_filter == "needs_review":

@@ -27,6 +27,24 @@
     </div>
     <div class="curate-item-ci">{{ item.ci_name }}</div>
 
+    {% if item.summary or item.difficulty or item.content_type %}
+    <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;">
+      {% if item.content_type %}<span style="color:var(--accent-blue);">{{ item.content_type }}</span>{% endif %}
+      {% if item.difficulty %}<span>{{ item.difficulty }}</span>{% endif %}
+      {% if item.estimated_duration_min %}<span>~{{ item.estimated_duration_min }} min</span>{% endif %}
+    </div>
+    {% if item.summary %}
+    <div style="font-size:12px;color:#aaa;margin-bottom:8px;line-height:1.5;">{{ item.summary }}</div>
+    {% endif %}
+    {% if item.analysis_topics %}
+    <div style="margin-bottom:6px;">
+      {% for topic in item.analysis_topics %}
+      <span style="display:inline-block;background:#1a2a3a;color:var(--accent-blue);border:1px solid #2a4a6a;border-radius:10px;padding:2px 8px;font-size:11px;margin-right:4px;margin-bottom:4px;">{{ topic }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+
     <div class="tag-list" id="tags-{{ item.ci_name | replace('.', '-') }}" style="margin-bottom:8px;">
       {% for tag in item.tags %}
       <span class="tag-pill-removable"
