@@ -4,7 +4,7 @@
     cmd: >-
       oc start-build {{ app_name }}
       -n {{ target_namespace }}
-      --kubeconfig={{ kubeconfig }}
+      --kubeconfig={{ kubeconfig | expanduser }}
   changed_when: true
 
 - name: Wait for {{ app_name }} build to complete
@@ -34,7 +34,7 @@
     cmd: >-
       oc rollout restart deployment/{{ app_name }}
       -n {{ target_namespace }}
-      --kubeconfig={{ kubeconfig }}
+      --kubeconfig={{ kubeconfig | expanduser }}
   changed_when: true
 
 - name: Wait for {{ app_name }} rollout to complete
@@ -42,6 +42,6 @@
     cmd: >-
       oc rollout status deployment/{{ app_name }}
       -n {{ target_namespace }}
-      --kubeconfig={{ kubeconfig }}
+      --kubeconfig={{ kubeconfig | expanduser }}
       --timeout=120s
   changed_when: false
