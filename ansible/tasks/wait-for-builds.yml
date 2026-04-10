@@ -15,9 +15,10 @@
     label_selectors:
       - "buildconfig={{ app_name }}"
   register: builds
+  ignore_errors: true
   until: >-
-    builds.resources | length > 0 and
-    builds.resources | sort(attribute='metadata.creationTimestamp') | last |
+    builds.resources | default([]) | length > 0 and
+    builds.resources | default([]) | sort(attribute='metadata.creationTimestamp') | last |
     json_query('status.phase') in ['Complete', 'Failed', 'Cancelled']
   retries: 60
   delay: 15
