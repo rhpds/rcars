@@ -63,7 +63,7 @@ metadata:
     component: app
 type: Opaque
 stringData:
-  credentials.json: {{ vertex_credentials_json | string | to_json }}
+  credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | from_json | to_json }}
 {% endif %}
 ---
 # GitHub webhook secret for BuildConfig
@@ -262,16 +262,16 @@ spec:
 {% endif %}
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
-              value: "{{ vertex_project_id }}"
+              value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
             - name: CLOUD_ML_REGION
               value: "{{ vertex_region }}"
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /etc/rcars/vertex-credentials.json
 {% endif %}
             - name: RCARS_CURATOR_EMAILS
-              value: "{{ curator_emails }}"
+              value: "{{ curator_emails | join(',') }}"
             - name: RCARS_ADMIN_EMAILS
-              value: "{{ admin_emails }}"
+              value: "{{ admin_emails | join(',') }}"
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
             - name: RCARS_CLONE_DIR

@@ -7,8 +7,10 @@ env: dev
 target_namespace: rcars-dev
 git_ref: main
 
-# Kubeconfig for the target cluster
-kubeconfig: ~/.kube/your-cluster
+# Kubeconfig for the target cluster.
+# After running --tags mgmt-rbac with your personal kubeconfig, switch to:
+#   kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
+kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
 
 # Hostname for the route
 frontend_host: "rcars-dev.{{ cluster_domain }}"
@@ -21,22 +23,19 @@ pg_password: CHANGEME
 babylon_kubeconfig_path: ~/.kube/babylon-readonly
 
 # Vertex AI credentials
-# Set to true and provide the JSON key contents
 vertex_enabled: true
-vertex_project_id: "your-gcp-project-id"
-vertex_credentials_json: |
-  {
-    "type": "service_account",
-    "project_id": "CHANGEME"
-  }
+vertex_credentials_path: ~/devel/secrets/gcp-vertex-key.json
 
 # OAuth proxy secrets (generate with: openssl rand -hex 16)
 oauth_client_secret: CHANGEME
 oauth_cookie_secret: CHANGEME
 
-# Curator and admin email lists (comma-separated)
-curator_emails: "your-email@redhat.com"
-admin_emails: "your-email@redhat.com"
+# Curator and admin email lists
+curator_emails:
+  - your-email@redhat.com
+
+admin_emails:
+  - your-email@redhat.com
 
 # GitHub repo for BuildConfig
 github_repo: rhpds/rcars-advisory

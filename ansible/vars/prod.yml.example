@@ -7,7 +7,10 @@ env: prod
 target_namespace: rcars-prod
 git_ref: production
 
-kubeconfig: ~/.kube/your-cluster
+# Kubeconfig for the target cluster.
+# After running --tags mgmt-rbac with your personal kubeconfig, switch to:
+#   kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
+kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
 
 frontend_host: "rcars.{{ cluster_domain }}"
 
@@ -16,18 +19,16 @@ pg_password: CHANGEME
 babylon_kubeconfig_path: ~/.kube/babylon-readonly
 
 vertex_enabled: true
-vertex_project_id: "your-gcp-project-id"
-vertex_credentials_json: |
-  {
-    "type": "service_account",
-    "project_id": "CHANGEME"
-  }
+vertex_credentials_path: ~/devel/secrets/gcp-vertex-key.json
 
 oauth_client_secret: CHANGEME
 oauth_cookie_secret: CHANGEME
 
-curator_emails: "your-email@redhat.com"
-admin_emails: "your-email@redhat.com"
+curator_emails:
+  - your-email@redhat.com
+
+admin_emails:
+  - your-email@redhat.com
 
 github_repo: rhpds/rcars-advisory
 github_token: CHANGEME

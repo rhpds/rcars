@@ -5,6 +5,8 @@
 # All tasks are idempotent — running the playbook twice produces the same result.
 #
 # Usage:
+#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/ocpv-infra01 --tags mgmt-rbac
+#                                                        # One-time bootstrap: create SA, RBAC, kubeconfig
 #   ansible-playbook ansible/deploy.yml -e env=dev                  # Full deploy
 #   ansible-playbook ansible/deploy.yml -e env=prod                 # Full prod deploy
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Apply + build + migrate + webhooks
@@ -15,7 +17,7 @@
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
 #   - cp ansible/vars/dev.yml.example ansible/vars/dev.yml  (fill in secrets)
-#   - kubeconfig for target cluster
+#   - Run mgmt-rbac tag once with personal kubeconfig, then set kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
 
 - name: Deploy RCARS to OpenShift
   hosts: localhost
@@ -66,6 +68,13 @@
       tags: [apply, update]
 
   tasks:
+    - name: Bootstrap management RBAC
+      ansible.builtin.include_tasks:
+        file: tasks/mgmt-rbac.yml
+        apply:
+          tags: [mgmt-rbac]
+      tags: [mgmt-rbac]
+
     - name: Create namespace
       ansible.builtin.include_tasks:
         file: tasks/namespace.yml

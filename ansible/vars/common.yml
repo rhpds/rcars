@@ -5,6 +5,14 @@
 app_name: rcars
 app_port: 8080
 
+# Management service account (permanent home in rcars-dev, manages both envs)
+mgmt_service_account:
+  name: rcars-mgmt-sa
+  namespace: rcars-dev
+
+# Output path for the generated mgmt kubeconfig (written by mgmt-rbac task)
+mgmt_kubeconfig_output: ~/devel/secrets/rcars-mgmt.kubeconfig
+
 # Container images
 pg_image: pgvector/pgvector:pg16
 oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:latest"
@@ -17,7 +25,6 @@ pg_pvc_size: 5Gi
 pg_storage_class: ocs-storagecluster-ceph-rbd
 
 # Vertex AI
-vertex_project_id: ""
 vertex_region: us-east5
 
 # Cluster
@@ -25,5 +32,5 @@ cluster_domain: apps.your-cluster.example.com
 
 # App config defaults
 stale_days: 3
-curator_emails: ""
-admin_emails: ""
+curator_emails: []
+admin_emails: []
