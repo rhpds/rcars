@@ -1,5 +1,6 @@
 import subprocess
 import threading
+import html as _html
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -79,9 +80,9 @@ def _run_refresh():
         _refresh_status["running"] = False
 
 
-def _rescan_section_running(lines: list) -> str:
+def _rescan_section_running(lines: list[str]) -> str:
     recent = lines[-20:] if lines else []
-    log_html = "\n".join(f'<div>{line}</div>' for line in recent) if recent else ""
+    log_html = "\n".join(f'<div>{_html.escape(line)}</div>' for line in recent) if recent else ""
     log_block = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_html}</div>""" if log_html else ""
     return f"""<div id="rescan-section"
      hx-get="/admin/rescan/status"
@@ -94,12 +95,12 @@ def _rescan_section_running(lines: list) -> str:
 </div>"""
 
 
-def _rescan_section_idle(msg: str = "", color: str = "", lines=None) -> str:
+def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
     status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{msg}</span>' if msg else ""
     log_html = ""
     if lines:
         recent = lines[-20:]
-        log_content = "\n".join(f'<div>{line}</div>' for line in recent)
+        log_content = "\n".join(f'<div>{_html.escape(line)}</div>' for line in recent)
         log_html = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_content}</div>"""
     return f"""<div id="rescan-section">
   <button class="btn-action"
