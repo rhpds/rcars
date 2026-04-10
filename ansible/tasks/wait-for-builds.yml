@@ -1,14 +1,11 @@
 ---
 - name: Start build for {{ app_name }}
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    namespace: "{{ target_namespace }}"
-    state: present
-    definition:
-      apiVersion: build.openshift.io/v1
-      kind: BuildRequest
-      metadata:
-        name: "{{ app_name }}"
+  ansible.builtin.command:
+    cmd: >-
+      oc start-build {{ app_name }}
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig }}
+  changed_when: true
 
 - name: Wait for {{ app_name }} build to complete
   kubernetes.core.k8s_info:
