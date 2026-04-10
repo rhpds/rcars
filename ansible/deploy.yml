@@ -7,10 +7,10 @@
 # Usage:
 #   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
 #                                                        # One-time bootstrap: create SA, RBAC, kubeconfig
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply     # Full deploy (normal)
-#   ansible-playbook ansible/deploy.yml -e env=prod --tags apply    # Full prod deploy
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Apply + build + migrate + webhooks
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds    # Just wait for builds + rollout
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply     # Apply manifests + migrate + webhooks (no build)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Full update: apply + build + migrate + webhooks
+#   ansible-playbook ansible/deploy.yml -e env=prod --tags update   # Full prod update
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds    # Just trigger build + rollout
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate   # Just run Alembic migrations
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags webhooks  # Show webhook URLs
 #
@@ -103,8 +103,8 @@
       ansible.builtin.include_tasks:
         file: tasks/wait-for-builds.yml
         apply:
-          tags: [builds, apply, update]
-      tags: [builds, apply, update]
+          tags: [builds, update]
+      tags: [builds, update]
 
     - name: Run database migrations
       block:
