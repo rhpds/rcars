@@ -12,9 +12,15 @@
 #
 # Prerequisites: the user running this must have cluster-admin or equivalent.
 # One-time setup:
-#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/ocpv-infra01 --tags mgmt-rbac
+#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
+# Override output path with: -e mgmt_kubeconfig_output=~/somewhere/else.kubeconfig
 # Subsequent deploys use the generated kubeconfig:
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags apply
+
+- name: Set mgmt kubeconfig output path default
+  ansible.builtin.set_fact:
+    mgmt_kubeconfig_output: "~/devel/secrets/rcars-mgmt.kubeconfig"
+  when: mgmt_kubeconfig_output is not defined
 
 - name: Ensure rcars-dev namespace exists
   kubernetes.core.k8s:
