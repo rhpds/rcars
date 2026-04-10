@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir ".[web,analysis]"
 
 # Pre-download sentence-transformers model so it's baked into the image
+ENV HF_HOME=/opt/app-root/.cache/huggingface
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
 
 FROM registry.access.redhat.com/ubi9/python-311:latest AS runtime
