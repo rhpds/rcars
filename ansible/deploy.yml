@@ -108,7 +108,7 @@
 
     - name: Run database migrations
       block:
-        - name: Wait for running app pod
+        - name: Wait for ready app pod
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig }}"
             kind: Pod
@@ -116,19 +116,30 @@
             label_selectors:
               - "app={{ app_name }}"
               - "component=app"
-            field_selectors:
-              - status.phase=Running
           register: app_pods
-          until: app_pods.resources | length > 0
+          until: >-
+            app_pods.resources | default([]) | length > 0 and
+            (app_pods.resources
+             | selectattr('status.phase', 'eq', 'Running')
+             | selectattr('status.containerStatuses', 'defined')
+             | list | length > 0) and
+            (app_pods.resources
+             | selectattr('status.phase', 'eq', 'Running')
+             | selectattr('status.containerStatuses', 'defined')
+             | first).status.containerStatuses[0].ready | bool
           retries: 20
           delay: 15
-          failed_when: app_pods.resources | length == 0
+          failed_when: app_pods.resources | default([]) | length == 0
 
         - name: Run Alembic migrations
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
-            pod: "{{ app_pods.resources[0].metadata.name }}"
+            pod: >-
+              {{ (app_pods.resources
+                  | selectattr('status.phase', 'eq', 'Running')
+                  | selectattr('status.containerStatuses', 'defined')
+                  | first).metadata.name }}
             command: python -m alembic upgrade head
           register: migrate_result
           changed_when: "'Running upgrade' in (migrate_result.stderr | default(''))"
