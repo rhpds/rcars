@@ -1,4 +1,5 @@
 import html as _html
+import json
 import threading
 from typing import Annotated
 from fastapi import APIRouter, Request, Depends, Form, Query
@@ -60,7 +61,7 @@ def _analyze_section_idle(ci_name: str, msg: str = "", color: str = "") -> str:
     return f"""<div id="analyze-section-{ci_safe}" style="display:flex;flex-direction:column;gap:4px;">
   <button style="background:#2a1a40;color:#b794f4;border:1px solid #4a2a70;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;"
           hx-post="/curate/analyze"
-          hx-vals='{{"ci_name": "{ci_name}"}}'
+          hx-vals='{{"ci_name": {json.dumps(ci_name)}}}'
           hx-target="#analyze-section-{ci_safe}"
           hx-swap="outerHTML">Re-analyze &#8635;</button>
   {status_span}
@@ -254,7 +255,7 @@ async def trigger_item_analyze(
         return HTMLResponse(_analyze_section_running(ci_name))
 
     # Look up the item for its metadata
-    items = [i for i in db.list_catalog_items() if i["ci_name"] == ci_name]
+    items = [i for i in db.list_catalog_items(prod_only=False) if i["ci_name"] == ci_name]
     if not items or not items[0].get("showroom_url"):
         return HTMLResponse(_analyze_section_idle(
             ci_name,

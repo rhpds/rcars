@@ -99,7 +99,7 @@
            style="display:flex;flex-direction:column;gap:4px;">
         <button style="background:#2a1a40;color:#b794f4;border:1px solid #4a2a70;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;"
                 hx-post="/curate/analyze"
-                hx-vals='{"ci_name": "{{ item.ci_name }}"}'
+                hx-vals='{"ci_name": {{ item.ci_name | tojson }}}'
                 hx-target="#analyze-section-{{ item.ci_name | replace('.', '-') | replace('/', '-') }}"
                 hx-swap="outerHTML">Re-analyze &#8635;</button>
       </div>
