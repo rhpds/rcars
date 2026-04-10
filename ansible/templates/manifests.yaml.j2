@@ -239,8 +239,6 @@ spec:
           ports:
             - containerPort: {{ app_port }}
           env:
-            - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: PG_USER
               valueFrom:
                 secretKeyRef:
@@ -256,6 +254,8 @@ spec:
                 secretKeyRef:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
+            - name: RCARS_DATABASE_URL
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG
               value: /etc/rcars/kubeconfig
