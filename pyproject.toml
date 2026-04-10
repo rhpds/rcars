@@ -40,6 +40,9 @@ rcars = "rcars.cli:cli"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+"rcars" = ["web/static/*", "web/templates/**/*"]
+
 [tool.pytest.ini_options]
 markers = [
     "integration: tests requiring live Babylon cluster (deselect with '-m not integration')",
