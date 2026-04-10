@@ -1,3 +1,4 @@
+import logging
 import re
 import uuid
 from typing import Annotated
@@ -14,6 +15,7 @@ from rcars.recommender import recommend
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
+log = logging.getLogger(__name__)
 
 
 def _format_message(text: str) -> Markup:
@@ -198,8 +200,10 @@ async def advisor_query(
         return _error_response("No Anthropic credentials configured. Set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY.")
 
     description = " ".join(t["content"] for t in turns if t["role"] == "user")
+    log.info("advisor query user=%s query=%r", user, description[:120])
 
     try:
+        log.info("advisor: generating embedding and searching candidates")
         result = recommend(
             query=description,
             db=db,
@@ -208,9 +212,10 @@ async def advisor_query(
             limit=10,
             prod_only=True,
         )
-    except Exception as e:
-        import logging
-        logging.getLogger("rcars.web").exception("Recommendation failed")
+        recs_count = len((result or {}).get("recommendations", []))
+        log.info("advisor: recommend() returned %d recommendations", recs_count)
+    except Exception:
+        log.exception("advisor: recommend() failed")
         result = None
 
     raw_recs = result.get("recommendations", []) if result else []
