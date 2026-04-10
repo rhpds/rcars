@@ -122,14 +122,33 @@ class Database:
         self._conn.close()
 
     def create_schema(self):
-        """Create all tables if they don't exist, and apply migrations."""
+        """Create all tables if they don't exist, and apply migrations.
+
+        For local dev convenience. On OpenShift, Alembic is run by
+        the Ansible playbook via k8s_exec.
+        """
         with self._conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-            cur.execute(SCHEMA_SQL)
-            # Migrations for columns added after initial schema
+            # Check if alembic_version table exists
             cur.execute("""
-                ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS notes TEXT
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'alembic_version'
+                ) as exists
             """)
+            result = cur.fetchone()
+            alembic_exists = result["exists"]
+
+            if not alembic_exists:
+                # Fresh database — run full schema via SQL then stamp
+                cur.execute(SCHEMA_SQL)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS alembic_version (
+                        version_num VARCHAR(32) NOT NULL,
+                        CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+                    )
+                """)
+                cur.execute("INSERT INTO alembic_version (version_num) VALUES ('001')")
         self._conn.commit()
 
     def drop_schema(self):
@@ -137,7 +156,7 @@ class Database:
         # Table names are hardcoded literals, not user input — safe for f-string SQL
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
-            "analysis_log", "jobs", "catalog_items",
+            "analysis_log", "jobs", "catalog_items", "alembic_version",
         ]
         with self._conn.cursor() as cur:
             for table in tables:
