@@ -86,7 +86,7 @@ KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get ns rcars-dev rcars-prod
 ### Step 4. Run the full deploy
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 ```
 
 This uses the mgmt kubeconfig from your `dev.yml` and will:
@@ -133,7 +133,7 @@ Webhooks trigger builds automatically. Once the build completes, to run migratio
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
 
-### Apply config/secret changes only (no build)
+### Apply config/secret changes (re-deploy secrets, routes, deployments)
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
@@ -188,7 +188,7 @@ cp ansible/vars/prod.yml.example ansible/vars/prod.yml
 ### Deploy to prod
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=prod
+ansible-playbook ansible/deploy.yml -e env=prod --tags apply
 ```
 
 Production builds from the `production` branch. Promote by merging `main → production` — the webhook triggers the build automatically.

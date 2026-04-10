@@ -5,10 +5,10 @@
 # All tasks are idempotent — running the playbook twice produces the same result.
 #
 # Usage:
-#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/ocpv-infra01 --tags mgmt-rbac
+#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
 #                                                        # One-time bootstrap: create SA, RBAC, kubeconfig
-#   ansible-playbook ansible/deploy.yml -e env=dev                  # Full deploy
-#   ansible-playbook ansible/deploy.yml -e env=prod                 # Full prod deploy
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply     # Full deploy (normal)
+#   ansible-playbook ansible/deploy.yml -e env=prod --tags apply    # Full prod deploy
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Apply + build + migrate + webhooks
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags builds    # Just wait for builds + rollout
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate   # Just run Alembic migrations
