@@ -273,7 +273,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql+psycopg://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG
               value: /etc/rcars/kubeconfig
