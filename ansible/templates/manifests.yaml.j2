@@ -1,0 +1,498 @@
+{# RCARS OpenShift manifests — Jinja2 template rendered by Ansible #}
+---
+# ServiceAccount for OAuth proxy
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ app_name }}-oauth
+  annotations:
+    serviceaccounts.openshift.io/oauth-redirecturi.primary: "https://{{ frontend_host }}/oauth/callback"
+  labels:
+    app: {{ app_name }}
+---
+# PostgreSQL credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-postgresql
+  labels:
+    app: {{ app_name }}
+    component: postgresql
+type: Opaque
+stringData:
+  POSTGRESQL_USER: "{{ pg_user }}"
+  POSTGRESQL_PASSWORD: "{{ pg_password }}"
+  POSTGRESQL_DATABASE: "{{ pg_database }}"
+---
+# OAuth proxy credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-oauth-proxy-secret
+  labels:
+    app: {{ app_name }}
+    component: oauth-proxy
+type: Opaque
+stringData:
+  client-id: "{{ app_name }}-{{ env }}"
+  client-secret: "{{ oauth_client_secret }}"
+  session_secret: "{{ oauth_cookie_secret }}"
+{% if babylon_kubeconfig_content is defined %}
+---
+# Read-only kubeconfig for Babylon cluster
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-babylon-kubeconfig
+  labels:
+    app: {{ app_name }}
+    component: app
+type: Opaque
+stringData:
+  kubeconfig: {{ babylon_kubeconfig_content | to_json }}
+{% endif %}
+{% if vertex_enabled | default(false) %}
+---
+# Vertex AI credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-vertex-credentials
+  labels:
+    app: {{ app_name }}
+    component: app
+type: Opaque
+stringData:
+  credentials.json: {{ vertex_credentials_json | string | to_json }}
+{% endif %}
+---
+# GitHub webhook secret for BuildConfig
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-webhook
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  WebHookSecretKey: "{{ webhook_secret }}"
+{% if github_token is defined and github_token != 'CHANGEME' %}
+---
+# GitHub source secret for private repo access
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-github-source
+  labels:
+    app: {{ app_name }}
+type: kubernetes.io/basic-auth
+stringData:
+  username: "{{ github_token }}"
+  password: ""
+{% endif %}
+---
+# PostgreSQL PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ app_name }}-postgresql-data
+  labels:
+    app: {{ app_name }}
+    component: postgresql
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ pg_storage_class }}
+  resources:
+    requests:
+      storage: {{ pg_pvc_size }}
+---
+# PostgreSQL Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-postgresql
+  labels:
+    app: {{ app_name }}
+    component: postgresql
+spec:
+  selector:
+    app: {{ app_name }}
+    component: postgresql
+  ports:
+    - port: {{ pg_port }}
+      targetPort: {{ pg_port }}
+  type: ClusterIP
+---
+# PostgreSQL StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ app_name }}-postgresql
+  labels:
+    app: {{ app_name }}
+    component: postgresql
+spec:
+  replicas: 1
+  serviceName: {{ app_name }}-postgresql
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: postgresql
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: postgresql
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgresql
+          image: {{ pg_image }}
+          ports:
+            - containerPort: {{ pg_port }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_DATABASE
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ app_name }}-postgresql-data
+---
+# App Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-service
+  labels:
+    app: {{ app_name }}
+    component: app
+spec:
+  selector:
+    app: {{ app_name }}
+    component: app
+  ports:
+    - port: {{ app_port }}
+      targetPort: {{ app_port }}
+  type: ClusterIP
+---
+# App Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+    component: app
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: app
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: app
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}
+          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ app_port }}
+          env:
+            - name: RCARS_DATABASE_URL
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_USER
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_PASSWORD
+            - name: PG_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_DATABASE
+{% if babylon_kubeconfig_content is defined %}
+            - name: RCARS_KUBECONFIG
+              value: /etc/rcars/kubeconfig
+{% endif %}
+{% if vertex_enabled | default(false) %}
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "{{ vertex_project_id }}"
+            - name: CLOUD_ML_REGION
+              value: "{{ vertex_region }}"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/rcars/vertex-credentials.json
+{% endif %}
+            - name: RCARS_CURATOR_EMAILS
+              value: "{{ curator_emails }}"
+            - name: RCARS_ADMIN_EMAILS
+              value: "{{ admin_emails }}"
+            - name: RCARS_STALE_DAYS
+              value: "{{ stale_days }}"
+            - name: RCARS_CLONE_DIR
+              value: /tmp
+            - name: HF_HOME
+              value: /opt/app-root/.cache/huggingface
+          volumeMounts:
+{% if babylon_kubeconfig_content is defined %}
+            - name: babylon-kubeconfig
+              mountPath: /etc/rcars/kubeconfig
+              subPath: kubeconfig
+              readOnly: true
+{% endif %}
+{% if vertex_enabled | default(false) %}
+            - name: vertex-credentials
+              mountPath: /etc/rcars/vertex-credentials.json
+              subPath: credentials.json
+              readOnly: true
+{% endif %}
+          livenessProbe:
+            httpGet:
+              path: /advisor
+              port: {{ app_port }}
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /advisor
+              port: {{ app_port }}
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+{% if babylon_kubeconfig_content is defined %}
+        - name: babylon-kubeconfig
+          secret:
+            secretName: {{ app_name }}-babylon-kubeconfig
+{% endif %}
+{% if vertex_enabled | default(false) %}
+        - name: vertex-credentials
+          secret:
+            secretName: {{ app_name }}-vertex-credentials
+{% endif %}
+---
+# OAuth Proxy Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-oauth-proxy-service
+  labels:
+    app: {{ app_name }}
+    component: oauth-proxy
+spec:
+  selector:
+    app: {{ app_name }}
+    component: oauth-proxy
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+# OAuth Proxy Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-oauth-proxy
+  labels:
+    app: {{ app_name }}
+    component: oauth-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: oauth-proxy
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: oauth-proxy
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: {{ app_name }}-oauth
+      containers:
+        - name: oauth-proxy
+          image: {{ oauth_proxy_image }}
+          args:
+            - -provider=openshift
+            - -http-address=:8080
+            - -https-address=
+            - -email-domain=*
+            - "-upstream=http://{{ app_name }}-service:{{ app_port }}/"
+            - -client-id=$(OAUTH_CLIENT_ID)
+            - -client-secret-file=/etc/proxy/secrets/client-secret
+            - -cookie-secret-file=/etc/proxy/secrets/session_secret
+            - "-openshift-service-account={{ app_name }}-oauth"
+            - -openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+            - "-skip-auth-regex=^/static/"
+            - -upstream-timeout=180s
+            - -pass-user-headers=true
+          env:
+            - name: OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-oauth-proxy-secret
+                  key: client-id
+          ports:
+            - containerPort: 8080
+              name: http
+          livenessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /oauth/healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - mountPath: /etc/proxy/secrets
+              name: oauth-proxy-secret
+              readOnly: true
+      volumes:
+        - name: oauth-proxy-secret
+          secret:
+            secretName: {{ app_name }}-oauth-proxy-secret
+---
+# Route
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+spec:
+  host: "{{ frontend_host }}"
+  to:
+    kind: Service
+    name: {{ app_name }}-oauth-proxy-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+# ImageStream
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+---
+# BuildConfig
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ app_name }}
+  labels:
+    app: {{ app_name }}
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: "{{ app_name }}:latest"
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/{{ github_repo }}.git"
+      ref: "{{ git_ref }}"
+{% if github_token is defined and github_token != 'CHANGEME' %}
+    sourceSecret:
+      name: {{ app_name }}-github-source
+{% endif %}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Dockerfile
+  triggers:
+    - type: ConfigChange
+    - type: GitHub
+      github:
+        secretReference:
+          name: {{ app_name }}-webhook
+---
+# OAuthClient registration
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: "{{ app_name }}-{{ env }}"
+grantMethod: auto
+secret: "{{ oauth_client_secret }}"
+redirectURIs:
+  - "https://{{ frontend_host }}/oauth/callback"
