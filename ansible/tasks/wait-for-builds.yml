@@ -18,7 +18,7 @@
     api_version: build.openshift.io/v1
     kind: Build
     namespace: "{{ target_namespace }}"
-    name: "{{ build_ref.stdout | regex_replace('^build\\.openshift\\.io/', '') }}"
+    name: "{{ build_ref.stdout | trim | regex_replace('^build\\.openshift\\.io/', '') }}"
   register: build_poll
   # Guard with 'is defined' — k8s_info may return a dict without 'resources'
   # on transient errors even with failed_when: false, causing an AttributeError
