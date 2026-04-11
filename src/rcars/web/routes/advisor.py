@@ -304,75 +304,53 @@ async def advisor_query(
     turns.append({"role": "user", "content": message})
     first_message = turns[0]["content"] if turns else message
 
-    def _error_response(error_msg: str) -> HTMLResponse:
-        turn_index = len(turns)
-        turns.append({"role": "assistant", "content": error_msg, "rec_ci_names": [], "turn_index": turn_index})
-        rec_html = (
-            '<div class="pane-label">Recommendations</div>'
-            f'<p style="color:var(--score-red);font-size:14px;">{escape(error_msg)}</p>'
-        )
-        chat_html = templates.get_template("fragments/chat_turn.html").render(
-            user_message=message, assistant_message=error_msg,
-            session_id=session_id, turn_index=turn_index, first_message=first_message,
-        )
-        return HTMLResponse(content=rec_html + "\n" + chat_html)
-
     if not db:
-        return _error_response("Database not configured. Set RCARS_DATABASE_URL.")
+        return HTMLResponse(_query_error_fragment(
+            "Database not configured. Set RCARS_DATABASE_URL.",
+            message, session_id, first_message, turns,
+        ))
 
     client = settings.get_anthropic_client()
     if not client:
-        return _error_response("No Anthropic credentials configured. Set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY.")
+        return HTMLResponse(_query_error_fragment(
+            "No Anthropic credentials configured. Set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY.",
+            message, session_id, first_message, turns,
+        ))
 
     description = " ".join(t["content"] for t in turns if t["role"] == "user")
-    log.info("advisor query user=%s query=%r", user, description[:120])
+    log.info("advisor: spawning background query user=%s session=%s query=%r", user, session_id, description[:120])
 
-    try:
-        log.info("advisor: generating embedding and searching candidates")
-        result = recommend(
-            query=description,
-            db=db,
-            anthropic_client=client,
-            model=settings.model,
-            limit=10,
-            prod_only=True,
+    _query_status[session_id] = {"running": True, "rec_html": None, "chat_html": None, "error": None}
+    t = threading.Thread(
+        target=_run_advisor_query,
+        args=(session_id, message, description, first_message, db, client, settings, user),
+        daemon=True,
+    )
+    t.start()
+
+    return HTMLResponse(_query_spinner_fragment(session_id))
+
+
+@router.get("/advisor/query/status", response_class=HTMLResponse)
+async def advisor_query_status(
+    session_id: str,
+    user: str = Depends(get_current_user),
+):
+    status = _query_status.get(session_id)
+    if status is None or status["running"]:
+        return HTMLResponse(_query_spinner_fragment(session_id))
+
+    # Done — pop and return result
+    _query_status.pop(session_id, None)
+
+    if status.get("error"):
+        rec_html = (
+            '<div class="pane-label">Recommendations</div>'
+            f'<p style="color:var(--score-red);font-size:14px;">{escape(status["error"])}</p>'
         )
-        recs_count = len((result or {}).get("recommendations", []))
-        log.info("advisor: recommend() returned %d recommendations", recs_count)
-    except Exception:
-        log.exception("advisor: recommend() failed")
-        result = None
+        return HTMLResponse(_query_done_fragment(rec_html, ""))
 
-    raw_recs = result.get("recommendations", []) if result else []
-    recs = _enrich_recs(raw_recs, db)
-
-    turn_index = len(turns)
-    overall = (result or {}).get("overall_assessment", f"Found {len(recs)} matches.")
-    turns.append({
-        "role": "assistant",
-        "content": overall,
-        "rec_ci_names": [r["ci_name"] for r in recs],
-        "recs": recs,
-        "turn_index": turn_index,
-    })
-
-    is_curator = settings.is_curator(user)
-
-    rec_html = templates.get_template("fragments/rec_list.html").render(
-        recs=recs,
-        is_curator=is_curator,
-        session_id=session_id,
-    )
-
-    chat_html = templates.get_template("fragments/chat_turn.html").render(
-        user_message=message,
-        assistant_message=overall,
-        session_id=session_id,
-        turn_index=turn_index,
-        first_message=first_message,
-    )
-
-    return HTMLResponse(content=rec_html + "\n" + chat_html)
+    return HTMLResponse(_query_done_fragment(status["rec_html"], status["chat_html"]))
 
 
 @router.get("/advisor/restore/{session_id}/{turn_index}", response_class=HTMLResponse)
