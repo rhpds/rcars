@@ -94,21 +94,25 @@
       input.value = '';
       input.focus();
 
-      // 5. Send via HTMX ajax
+      // 5. Send via HTMX ajax; restore button state after swap via event
+      document.body.addEventListener('htmx:afterSwap', function restoreBtn(e) {
+        if (document.getElementById('advisor-result-ready')) {
+          document.body.removeEventListener('htmx:afterSwap', restoreBtn);
+          var el = document.getElementById('thinking-indicator');
+          if (el) el.remove();
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+          sendBtn.classList.remove('sending');
+          chatPane.scrollTop = chatPane.scrollHeight;
+        }
+      });
       htmx.ajax('POST', '/advisor/query', {
         target: '#rec-pane',
-        swap: 'innerHTML',
+        swap: 'outerHTML',
         values: {
           session_id: sessionId,
           message: sentMsg
         }
-      }).then(function() {
-        // 6. Remove thinking indicator, restore button
-        var el = document.getElementById('thinking-indicator');
-        if (el) el.remove();
-        sendBtn.disabled = false;
-        sendBtn.textContent = 'Send';
-        sendBtn.classList.remove('sending');
       });
     }
 
