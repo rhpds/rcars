@@ -366,7 +366,7 @@ In local development, the `RCARS_DEV_USER` environment variable fakes the `X-For
 
 ## Deployment
 
-RCARS runs as a single pod in the `rcars-dev` namespace on the RHDP infrastructure cluster (`ocpv-infra01`). The pod runs the FastAPI application via Uvicorn. The PostgreSQL database runs as a separate service in the same namespace.
+RCARS runs as a single pod on an OpenShift cluster. The pod runs the FastAPI application via Uvicorn. The PostgreSQL database runs as a separate pod in the same namespace.
 
 ### Build and Deploy
 
