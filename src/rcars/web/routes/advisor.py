@@ -199,7 +199,7 @@ def _query_spinner_fragment(session_id: str) -> str:
     """HTMX polling spinner that replaces #rec-pane while query runs."""
     return (
         f'<div id="rec-pane" class="rec-pane"'
-        f' hx-get="/advisor/query/status?session_id={session_id}"'
+        f' hx-get="/advisor/query/status?session_id={escape(session_id)}"'
         f' hx-trigger="every 2s"'
         f' hx-swap="outerHTML">'
         f'<div class="pane-label">Recommendations</div>'
