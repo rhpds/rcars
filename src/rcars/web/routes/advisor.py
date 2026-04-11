@@ -195,6 +195,52 @@ def _run_advisor_query(
         }
 
 
+def _query_spinner_fragment(session_id: str) -> str:
+    """HTMX polling spinner that replaces #rec-pane while query runs."""
+    return (
+        f'<div id="rec-pane"'
+        f' hx-get="/advisor/query/status?session_id={session_id}"'
+        f' hx-trigger="every 2s"'
+        f' hx-swap="outerHTML">'
+        f'<div class="pane-label">Recommendations</div>'
+        f'<div class="rec-pane-loading">'
+        f'<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>'
+        f' Analyzing your request'
+        f' <span style="color:#555;">(this may take a minute)</span>'
+        f'</div>'
+        f'</div>'
+    )
+
+
+def _query_done_fragment(rec_html: str, chat_html: str) -> str:
+    """Done response: rec pane content + OOB chat turn. Sentinel stops JS polling detection."""
+    return (
+        f'<div id="rec-pane">'
+        f'{rec_html}'
+        f'<span id="advisor-result-ready" hidden></span>'
+        f'</div>'
+        f'\n{chat_html}'
+    )
+
+
+def _query_error_fragment(error_msg: str, message: str, session_id: str, first_message: str, turns: list) -> str:
+    """Immediate error response (no thread). Same shape as done fragment."""
+    turn_index = len(turns)
+    turns.append({"role": "assistant", "content": error_msg, "rec_ci_names": [], "turn_index": turn_index})
+    rec_html = (
+        '<div class="pane-label">Recommendations</div>'
+        f'<p style="color:var(--score-red);font-size:14px;">{error_msg}</p>'
+    )
+    chat_html = templates.get_template("fragments/chat_turn.html").render(
+        user_message=message,
+        assistant_message=error_msg,
+        session_id=session_id,
+        turn_index=turn_index,
+        first_message=first_message,
+    )
+    return _query_done_fragment(rec_html, chat_html)
+
+
 @router.get("/advisor", response_class=HTMLResponse)
 async def advisor(
     request: Request,
