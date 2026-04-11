@@ -35,6 +35,23 @@ class Settings:
         default_factory=lambda: os.environ.get("RCARS_CLONE_DIR", "/tmp")
     )
 
+    # Recommender pipeline
+    vector_cutoff: float = field(
+        default_factory=lambda: float(os.environ.get("RCARS_VECTOR_CUTOFF", "0.55"))
+    )
+    triage_model: str = field(
+        default_factory=lambda: os.environ.get("RCARS_TRIAGE_MODEL", "claude-haiku-4-5")
+    )
+    triage_cutoff: int = field(
+        default_factory=lambda: int(os.environ.get("RCARS_TRIAGE_CUTOFF", "30"))
+    )
+    rationale_model: str = field(
+        default_factory=lambda: os.environ.get("RCARS_RATIONALE_MODEL", "claude-sonnet-4-6")
+    )
+    rationale_top_n: int = field(
+        default_factory=lambda: int(os.environ.get("RCARS_RATIONALE_TOP_N", "5"))
+    )
+
     # Babylon K8s
     kubeconfig_path: str = field(
         default_factory=lambda: os.environ.get("RCARS_KUBECONFIG", "")
