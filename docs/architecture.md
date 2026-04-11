@@ -391,7 +391,7 @@ Deployments are managed by an Ansible playbook (`ansible/deploy.yml`). The playb
 | `builds` | Trigger an OpenShift image build only |
 | `migrate` | Run `rcars status` to initialize/update the schema |
 
-A GitHub Actions workflow (`.github/workflows/build.yml`) triggers an OpenShift image build on every push to `main` that touches application code. Pushes that only change documentation files are ignored and do not trigger a build. The workflow calls an OpenShift BuildConfig webhook URL stored as a GitHub Actions secret. Builds do not roll out automatically — the `update` tag must be run to deploy a new image.
+A GitHub webhook configured in the repository triggers an OpenShift image build on every push to `main`. Builds do not roll out automatically — the `update` tag must be run to deploy a new image.
 
 ### Schema Management
 

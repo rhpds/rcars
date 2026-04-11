@@ -6,33 +6,28 @@ Internal notes on how the deployment and CI are wired up. Not published.
 
 ## GitHub Actions Workflows
 
-Two workflows in `.github/workflows/`:
+One workflow in `.github/workflows/`:
 
 ### `docs.yml` — Documentation site
 Triggers on push to `main` when any of these change: `docs/**`, `mkdocs.yml`, `requirements-docs.txt`.
 Builds the MkDocs site and deploys to GitHub Pages via the Actions-native Pages deploy.
 Can also be triggered manually from the Actions tab (workflow_dispatch).
 
-### `build.yml` — OpenShift application build
-Triggers on push to `main`, **except** when the only changes are docs files.
-Calls the OpenShift BuildConfig webhook URL stored in `OPENSHIFT_BUILD_WEBHOOK_URL` (GitHub secret).
-Does not deploy — it only triggers the OpenShift image build. Deploy still requires the Ansible playbook.
-
 ---
 
 ## OpenShift Build Webhook
 
-The webhook URL that triggers an OpenShift image build is stored as a GitHub Actions secret:
+Pushes to `main` trigger an OpenShift image build via a direct GitHub webhook configured in the repo:
 
-**Settings → Secrets and variables → Actions → `OPENSHIFT_BUILD_WEBHOOK_URL`**
+**Settings → Webhooks**
 
-To find or rotate the URL:
+To find or rotate the webhook URL:
 ```bash
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
   oc describe bc/rcars -n rcars-dev | grep -A2 "Generic"
 ```
 
-The old direct GitHub → OpenShift webhook (previously in repo Settings → Webhooks) was removed when `build.yml` was added. All builds now go through GitHub Actions.
+Builds do not roll out automatically. Deploy still requires the Ansible playbook.
 
 ---
 
