@@ -17,4 +17,8 @@ jobs:
     steps:
       - name: Trigger OpenShift build webhook
         run: |
-          curl -s -X POST "${{ secrets.OPENSHIFT_BUILD_WEBHOOK_URL }}"
+          curl -sk -X POST \
+            -H "Content-Type: application/json" \
+            -d '{}' \
+            --fail-with-body \
+            "${{ secrets.OPENSHIFT_BUILD_WEBHOOK_URL }}"
