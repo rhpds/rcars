@@ -433,3 +433,30 @@ body {
 .status-table { width: 100%; border-collapse: collapse; font-size: 15px; }
 .status-table td, .status-table th { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; }
 .status-table th { color: var(--text-muted); font-weight: normal; }
+
+/* Phase status line */
+.rec-status-line {
+  font-size: 13px;
+  color: var(--score-amber);
+  padding: 8px 0;
+  margin-bottom: 4px;
+}
+
+/* Card phase: analyzing — subtle pulse */
+.rec-analyzing {
+  color: var(--score-amber) !important;
+  font-style: italic;
+}
+
+/* Summary preview in vector phase — dimmer than full rationale */
+.rec-summary-preview {
+  color: #777 !important;
+  font-style: italic;
+}
+
+/* Card fade-out transition for removed cards */
+.rec-card[data-phase="removed"] {
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+  pointer-events: none;
+}

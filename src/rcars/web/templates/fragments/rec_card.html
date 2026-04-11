@@ -1,9 +1,11 @@
 {% set score = rec.fit_score %}
+{% set card_phase = rec.card_phase|default("complete") %}
 {% if score >= 80 %}{% set score_class = "score-green" %}
 {% elif score >= 50 %}{% set score_class = "score-amber" %}
 {% else %}{% set score_class = "score-red" %}{% endif %}
 
 <div class="rec-card {{ score_class }}"
+     data-phase="{{ card_phase }}"
      x-data="{ expanded: false }"
      @click="expanded = !expanded">
   <div class="rec-card-header">
@@ -11,6 +13,13 @@
     <div style="flex:1;min-width:0;">
       <div class="rec-title">{{ rec.display_name }}</div>
       <div class="rec-meta">{{ rec.ci_name }}</div>
+      {% if card_phase == "vector" %}
+        <div class="rec-meta">{{ rec.content_type }} · {{ rec.difficulty }} · {{ rec.duration_min or '?' }} min</div>
+        <div class="rec-meta">{{ rec.topics | join(', ') }}</div>
+      {% endif %}
+      {% if card_phase in ["triaged", "analyzing", "complete"] and rec.one_line_reason %}
+        <div class="rec-meta">{{ rec.one_line_reason }}</div>
+      {% endif %}
       {% if rec.suggested_format %}
       <div class="rec-meta">Format: {{ rec.suggested_format }}</div>
       {% endif %}
@@ -21,7 +30,16 @@
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
 
-  <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
+  {% if card_phase == "analyzing" %}
+    <div class="rec-rationale rec-analyzing">
+      <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>
+      Preparing detailed analysis...
+    </div>
+  {% elif card_phase == "complete" and rec.rationale %}
+    <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
+  {% elif card_phase == "vector" and rec.summary %}
+    <div class="rec-rationale rec-summary-preview">{{ rec.summary }}</div>
+  {% endif %}
 
   {% if rec.caveats %}
   <div class="rec-meta" style="color:var(--score-amber);">⚠ {{ rec.caveats }}</div>
