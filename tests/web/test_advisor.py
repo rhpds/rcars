@@ -142,48 +142,143 @@ def test_rec_card_expanded_shows_curator_controls_for_curator():
     assert "Tag" in html
 
 
-def test_advisor_query_returns_rec_cards(client):
+def test_advisor_query_returns_spinner_then_rec_cards(client):
+    """POST returns spinner immediately; status endpoint returns rec cards when done."""
+    from rcars.web.routes.advisor import _query_status
+    import time
+
     with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
         response = client.post("/advisor/query", data={
-            "session_id": "test-session-abc",
+            "session_id": "async-test-1",
             "message": "OpenShift labs for developers",
         })
     assert response.status_code == 200
-    assert "OpenShift Lightspeed Workshop" in response.text
-    assert "92" in response.text
+    assert "rec-pane" in response.text
+    assert "every 2s" in response.text  # spinner has polling trigger
+    assert "OpenShift Lightspeed Workshop" not in response.text  # not yet
+
+    # Wait for background thread to finish
+    for _ in range(20):
+        if "async-test-1" in _query_status and not _query_status["async-test-1"]["running"]:
+            break
+        time.sleep(0.1)
+
+    status_resp = client.get("/advisor/query/status?session_id=async-test-1")
+    assert status_resp.status_code == 200
+    assert "OpenShift Lightspeed Workshop" in status_resp.text
+    assert "92" in status_resp.text
+    assert "every 2s" not in status_resp.text  # done, no more polling
+    assert "advisor-result-ready" in status_resp.text  # sentinel present
 
 
 def test_advisor_query_appends_chat_turn(client):
+    """Status endpoint done response includes OOB chat-pane swap."""
+    from rcars.web.routes.advisor import _query_status
+    import time
+
     with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
-        response = client.post("/advisor/query", data={
-            "session_id": "test-session-def",
+        client.post("/advisor/query", data={
+            "session_id": "chat-turn-test",
             "message": "Show me OpenShift labs",
         })
-    assert response.status_code == 200
-    assert "chat-pane" in response.text
+
+    for _ in range(20):
+        if "chat-turn-test" in _query_status and not _query_status["chat-turn-test"]["running"]:
+            break
+        time.sleep(0.1)
+
+    status_resp = client.get("/advisor/query/status?session_id=chat-turn-test")
+    assert status_resp.status_code == 200
+    assert "chat-pane" in status_resp.text
+    assert "hx-swap-oob" in status_resp.text
 
 
 def test_advisor_query_accumulates_context(client):
+    import time
+    from rcars.web.routes.advisor import _query_status
+
     calls = []
     def capture_recommend(query, **kwargs):
         calls.append(query)
         return MOCK_RECOMMEND_RESULT
+
     with patch("rcars.web.routes.advisor.recommend", side_effect=capture_recommend):
-        client.post("/advisor/query", data={"session_id": "acc-test", "message": "OpenShift labs"})
-        client.post("/advisor/query", data={"session_id": "acc-test", "message": "shorter ones only"})
+        client.post("/advisor/query", data={"session_id": "acc-test2", "message": "OpenShift labs"})
+        for _ in range(20):
+            if "acc-test2" in _query_status and not _query_status["acc-test2"]["running"]:
+                break
+            time.sleep(0.1)
+        client.get("/advisor/query/status?session_id=acc-test2")  # consume done state
+
+        client.post("/advisor/query", data={"session_id": "acc-test2", "message": "shorter ones only"})
+        for _ in range(20):
+            if "acc-test2" in _query_status and not _query_status["acc-test2"]["running"]:
+                break
+            time.sleep(0.1)
+
     assert len(calls) == 2
     assert "OpenShift labs" in calls[1]
     assert "shorter ones only" in calls[1]
 
 
 def test_advisor_query_handles_recommend_none(client):
+    import time
+    from rcars.web.routes.advisor import _query_status
+
     with patch("rcars.web.routes.advisor.recommend", return_value=None):
-        response = client.post("/advisor/query", data={
-            "session_id": "fail-test",
+        client.post("/advisor/query", data={
+            "session_id": "fail-test2",
             "message": "something",
         })
-    assert response.status_code == 200
-    assert "No strong matches" in response.text
+
+    for _ in range(20):
+        if "fail-test2" in _query_status and not _query_status["fail-test2"]["running"]:
+            break
+        time.sleep(0.1)
+
+    status_resp = client.get("/advisor/query/status?session_id=fail-test2")
+    assert status_resp.status_code == 200
+    # recommend() returning None → 0 recs, overall_assessment default text
+    assert "Found 0 matches" in status_resp.text or "No strong matches" in status_resp.text
+
+
+def test_advisor_query_status_while_running(client):
+    """Status endpoint returns spinner while thread is running."""
+    from rcars.web.routes.advisor import _query_status
+    _query_status["running-session"] = {"running": True, "rec_html": None, "chat_html": None, "error": None}
+
+    resp = client.get("/advisor/query/status?session_id=running-session")
+    assert resp.status_code == 200
+    assert "every 2s" in resp.text
+    assert "rec-pane" in resp.text
+
+    del _query_status["running-session"]  # cleanup
+
+
+def test_advisor_query_status_when_done(client):
+    """Status endpoint returns done fragment and clears state."""
+    from rcars.web.routes.advisor import _query_status
+    _query_status["done-session"] = {
+        "running": False,
+        "rec_html": '<div class="pane-label">Recommendations</div><p>Result content</p>',
+        "chat_html": '<div hx-swap-oob="beforeend:#chat-pane"><div class="chat-turn-assistant">Good match.</div></div>',
+        "error": None,
+    }
+
+    resp = client.get("/advisor/query/status?session_id=done-session")
+    assert resp.status_code == 200
+    assert "Result content" in resp.text
+    assert "advisor-result-ready" in resp.text  # sentinel present
+    assert "chat-pane" in resp.text
+    assert "every 2s" not in resp.text  # no polling
+    assert "done-session" not in _query_status  # state cleared
+
+
+def test_advisor_query_status_unknown_session(client):
+    """Unknown session_id returns spinner gracefully (no crash)."""
+    resp = client.get("/advisor/query/status?session_id=does-not-exist")
+    assert resp.status_code == 200
+    assert "rec-pane" in resp.text
 
 
 def test_rollback_restores_previous_results(client):
@@ -205,3 +300,28 @@ def test_rollback_invalid_session_returns_empty(client):
     response = client.get("/advisor/restore/nonexistent-session/0")
     assert response.status_code == 200
     assert "No strong matches" in response.text or response.text
+
+
+def test_spinner_fragment_contains_polling_trigger():
+    from rcars.web.routes.advisor import _query_spinner_fragment
+    html = _query_spinner_fragment("test-sid")
+    assert 'hx-trigger="every 2s"' in html
+    assert "session_id=test-sid" in html
+    assert 'id="rec-pane"' in html
+
+
+def test_done_fragment_contains_sentinel():
+    from rcars.web.routes.advisor import _query_done_fragment
+    html = _query_done_fragment("<p>recs</p>", "<div>chat</div>")
+    assert 'id="advisor-result-ready"' in html
+    assert "<p>recs</p>" in html
+    assert "<div>chat</div>" in html
+
+
+def test_error_fragment_appends_to_turns(client):
+    from rcars.web.routes.advisor import _query_error_fragment
+    turns = [{"role": "user", "content": "hello"}]
+    _query_error_fragment("DB error", "hello", "sid", "hello", turns)
+    assert len(turns) == 2
+    assert turns[1]["role"] == "assistant"
+    assert turns[1]["turn_index"] == 1
