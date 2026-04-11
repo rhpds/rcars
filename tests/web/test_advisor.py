@@ -42,6 +42,15 @@ MOCK_RECOMMEND_RESULT = {
 }
 
 
+@pytest.fixture(autouse=True)
+def clear_advisor_state():
+    """Clear module-level advisor state between tests to prevent bleed-through."""
+    from rcars.web.routes.advisor import _sessions, _query_status
+    yield
+    _sessions.clear()
+    _query_status.clear()
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setenv("RCARS_DEV_USER", "test@redhat.com")
@@ -152,23 +161,22 @@ def test_advisor_query_returns_spinner_then_rec_cards(client):
             "session_id": "async-test-1",
             "message": "OpenShift labs for developers",
         })
-    assert response.status_code == 200
-    assert "rec-pane" in response.text
-    assert "every 2s" in response.text  # spinner has polling trigger
-    assert "OpenShift Lightspeed Workshop" not in response.text  # not yet
+        assert response.status_code == 200
+        assert "rec-pane" in response.text
+        assert "every 2s" in response.text
+        assert "OpenShift Lightspeed Workshop" not in response.text
 
-    # Wait for background thread to finish
-    for _ in range(20):
-        if "async-test-1" in _query_status and not _query_status["async-test-1"]["running"]:
-            break
-        time.sleep(0.1)
+        for _ in range(20):
+            if "async-test-1" in _query_status and not _query_status["async-test-1"]["running"]:
+                break
+            time.sleep(0.1)
 
     status_resp = client.get("/advisor/query/status?session_id=async-test-1")
     assert status_resp.status_code == 200
     assert "OpenShift Lightspeed Workshop" in status_resp.text
     assert "92" in status_resp.text
-    assert "every 2s" not in status_resp.text  # done, no more polling
-    assert "advisor-result-ready" in status_resp.text  # sentinel present
+    assert "every 2s" not in status_resp.text
+    assert "advisor-result-ready" in status_resp.text
 
 
 def test_advisor_query_appends_chat_turn(client):
@@ -182,15 +190,16 @@ def test_advisor_query_appends_chat_turn(client):
             "message": "Show me OpenShift labs",
         })
 
-    for _ in range(20):
-        if "chat-turn-test" in _query_status and not _query_status["chat-turn-test"]["running"]:
-            break
-        time.sleep(0.1)
+        for _ in range(20):
+            if "chat-turn-test" in _query_status and not _query_status["chat-turn-test"]["running"]:
+                break
+            time.sleep(0.1)
 
     status_resp = client.get("/advisor/query/status?session_id=chat-turn-test")
     assert status_resp.status_code == 200
     assert "chat-pane" in status_resp.text
     assert "hx-swap-oob" in status_resp.text
+    assert "Good matches found." in status_resp.text
 
 
 def test_advisor_query_accumulates_context(client):
@@ -222,8 +231,8 @@ def test_advisor_query_accumulates_context(client):
 
 
 def test_advisor_query_handles_recommend_none(client):
-    import time
     from rcars.web.routes.advisor import _query_status
+    import time
 
     with patch("rcars.web.routes.advisor.recommend", return_value=None):
         client.post("/advisor/query", data={
@@ -231,14 +240,13 @@ def test_advisor_query_handles_recommend_none(client):
             "message": "something",
         })
 
-    for _ in range(20):
-        if "fail-test2" in _query_status and not _query_status["fail-test2"]["running"]:
-            break
-        time.sleep(0.1)
+        for _ in range(20):
+            if "fail-test2" in _query_status and not _query_status["fail-test2"]["running"]:
+                break
+            time.sleep(0.1)
 
     status_resp = client.get("/advisor/query/status?session_id=fail-test2")
     assert status_resp.status_code == 200
-    # recommend() returning None → 0 recs, overall_assessment default text
     assert "Found 0 matches" in status_resp.text or "No strong matches" in status_resp.text
 
 
@@ -251,8 +259,6 @@ def test_advisor_query_status_while_running(client):
     assert resp.status_code == 200
     assert "every 2s" in resp.text
     assert "rec-pane" in resp.text
-
-    del _query_status["running-session"]  # cleanup
 
 
 def test_advisor_query_status_when_done(client):
@@ -272,6 +278,24 @@ def test_advisor_query_status_when_done(client):
     assert "chat-pane" in resp.text
     assert "every 2s" not in resp.text  # no polling
     assert "done-session" not in _query_status  # state cleared
+
+
+def test_advisor_query_status_with_error(client):
+    """Status endpoint renders error message when thread failed during rendering."""
+    from rcars.web.routes.advisor import _query_status
+    _query_status["error-session"] = {
+        "running": False,
+        "rec_html": None,
+        "chat_html": None,
+        "error": "An internal error occurred rendering results.",
+    }
+
+    resp = client.get("/advisor/query/status?session_id=error-session")
+    assert resp.status_code == 200
+    assert "An internal error occurred rendering results." in resp.text
+    assert "advisor-result-ready" in resp.text
+    assert "every 2s" not in resp.text
+    assert "error-session" not in _query_status
 
 
 def test_advisor_query_status_unknown_session(client):
