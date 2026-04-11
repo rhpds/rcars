@@ -321,6 +321,9 @@ async def advisor_query(
     log.info("advisor: spawning background query user=%s session=%s query=%r", user, session_id, description[:120])
 
     _query_status[session_id] = {"running": True, "rec_html": None, "chat_html": None, "error": None}
+    # daemon=True: thread is killed on process exit. If shutdown occurs mid-query the
+    # exception handler in _run_advisor_query will catch any OperationalError from the
+    # closing DB connection and produce a graceful "Found 0 matches." result.
     t = threading.Thread(
         target=_run_advisor_query,
         args=(session_id, message, description, first_message, db, client, settings, user),
