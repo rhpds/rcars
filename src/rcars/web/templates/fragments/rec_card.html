@@ -10,14 +10,22 @@
     <div class="rec-score">{{ score }}%</div>
     <div style="flex:1;min-width:0;">
       <div class="rec-title">{{ rec.display_name }}</div>
-      <div class="rec-meta">
-        {{ rec.ci_name }} · {{ rec.suggested_format or '—' }} · {{ rec.duration_notes or '—' }}
-      </div>
+      <div class="rec-meta">{{ rec.ci_name }}</div>
+      {% if rec.suggested_format %}
+      <div class="rec-meta">Format: {{ rec.suggested_format }}</div>
+      {% endif %}
+      {% if rec.duration_notes %}
+      <div class="rec-meta">Duration: {{ rec.duration_notes }}</div>
+      {% endif %}
     </div>
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
 
   <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
+
+  {% if rec.caveats %}
+  <div class="rec-meta" style="color:var(--score-amber);">⚠ {{ rec.caveats }}</div>
+  {% endif %}
 
   {% if rec.tags %}
   <div class="tag-list">

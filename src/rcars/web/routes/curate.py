@@ -292,5 +292,9 @@ async def item_analyze_status(
         msg = status["result"]
         color = status["color"]
         del _item_analyze_status[ci_name]
-        return HTMLResponse(_analyze_section_idle(ci_name, msg=msg, color=color))
+        # HX-Refresh reloads the page so updated summary/topics/duration become visible
+        return HTMLResponse(
+            _analyze_section_idle(ci_name, msg=msg, color=color),
+            headers={"HX-Refresh": "true"},
+        )
     return HTMLResponse(_analyze_section_idle(ci_name))
