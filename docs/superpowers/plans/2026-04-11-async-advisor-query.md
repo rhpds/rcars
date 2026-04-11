@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+**Status:** Implemented (2026-04-11) — 8 commits, 48 tests passing.
+
 **Goal:** Refactor `POST /advisor/query` from a blocking synchronous call into a fire-and-forget + HTMX polling pattern so it survives OpenShift HAProxy's ~60s connection timeout.
 
 **Architecture:** The POST handler validates inputs, stores a "running" entry in a module-level dict keyed by `session_id`, spawns a daemon thread to call `recommend()`, and returns an HTMX spinner fragment immediately. A new `GET /advisor/query/status` endpoint polls every 2 seconds and returns either another spinner (running) or the final results (done). The JS in `advisor.html` is updated to use `outerHTML` swap and detect completion via a hidden sentinel element.

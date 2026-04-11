@@ -1,7 +1,7 @@
 # Async Advisor Query — Design Spec
 
 **Date:** 2026-04-11
-**Status:** Approved
+**Status:** Implemented (2026-04-11)
 
 ## Problem
 
