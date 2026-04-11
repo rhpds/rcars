@@ -1,5 +1,6 @@
 import logging
 import re
+import threading
 import uuid
 from typing import Annotated
 from fastapi import APIRouter, Request, Depends, Form
@@ -70,6 +71,8 @@ def _inline_format(text: str) -> str:
 templates.env.filters['format_message'] = _format_message
 
 _sessions: dict[str, list[dict]] = {}
+_query_status: dict[str, dict] = {}
+# shape: session_id → {"running": bool, "rec_html": str|None, "chat_html": str|None, "error": str|None}
 
 
 def _get_db_dependency() -> Database | None:
@@ -113,6 +116,70 @@ def _base_context(request: Request, db: Database | None, user: str, active_page:
         "is_admin": settings.is_admin(user),
         "active_page": active_page,
         "db_status": db_status,
+    }
+
+
+def _run_advisor_query(
+    session_id: str,
+    message: str,
+    description: str,
+    first_message: str,
+    db,
+    client,
+    settings,
+    user: str,
+) -> None:
+    """Background thread: call recommend(), render fragments, store in _query_status."""
+    turn_index = len(_sessions.get(session_id, []))
+    try:
+        log.info("advisor bg: generating embedding and searching candidates session=%s", session_id)
+        result = recommend(
+            query=description,
+            db=db,
+            anthropic_client=client,
+            model=settings.model,
+            limit=10,
+            prod_only=True,
+        )
+        recs_count = len((result or {}).get("recommendations", []))
+        log.info("advisor bg: recommend() returned %d recommendations session=%s", recs_count, session_id)
+    except Exception:
+        log.exception("advisor bg: recommend() failed session=%s", session_id)
+        result = None
+
+    raw_recs = result.get("recommendations", []) if result else []
+    recs = _enrich_recs(raw_recs, db)
+
+    overall = (result or {}).get("overall_assessment", f"Found {len(recs)} matches.")
+    turns = _sessions.setdefault(session_id, [])
+    turns.append({
+        "role": "assistant",
+        "content": overall,
+        "rec_ci_names": [r["ci_name"] for r in recs],
+        "recs": recs,
+        "turn_index": turn_index,
+    })
+
+    is_curator = settings.is_curator(user)
+
+    rec_html = templates.get_template("fragments/rec_list.html").render(
+        recs=recs,
+        is_curator=is_curator,
+        session_id=session_id,
+    )
+    chat_html = templates.get_template("fragments/chat_turn.html").render(
+        user_message=message,
+        assistant_message=overall,
+        session_id=session_id,
+        turn_index=turn_index,
+        first_message=first_message,
+    )
+
+    _query_status[session_id] = {
+        "running": False,
+        "rec_html": rec_html,
+        "chat_html": chat_html,
+        "error": None,
     }
 
 
