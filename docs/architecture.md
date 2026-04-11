@@ -113,7 +113,7 @@ The catalog reader is stateless. Each call to `rcars refresh` performs a full re
 
 ## PostgreSQL Schema
 
-RCARS uses PostgreSQL with the pgvector extension. All schema management uses `IF NOT EXISTS` DDL — there are no migration files. The schema is initialized or updated by running `rcars status`.
+RCARS uses PostgreSQL with the pgvector extension. Schema is managed with **Alembic** — the baseline migration (`alembic/versions/001_initial_schema.py`) defines the complete initial schema. On OpenShift, the Ansible playbook runs Alembic via `k8s_exec` as the `migrate` deploy tag. For local development, `rcars status` (via `db.create_schema()`) applies the same schema directly and stamps the Alembic version table so the two paths stay in sync.
 
 ### Understanding Vector Embeddings
 
@@ -139,24 +139,29 @@ One row per catalog item. The primary source of truth for everything read from t
 | `display_name` | TEXT | Human-readable name shown in the UI and catalog |
 | `category` | TEXT | Catalog category (e.g. "Workshops", "Demos") |
 | `product` | TEXT | Primary Red Hat product |
-| `description` | TEXT | Full description from the CRD |
-| `keywords` | TEXT[] | Array of keyword tags |
+| `product_family` | TEXT | Red Hat product family grouping |
+| `primary_bu` | TEXT | Primary business unit |
+| `secondary_bu` | TEXT | Secondary business unit |
 | `stage` | TEXT | `prod`, `dev`, or `event` |
 | `catalog_namespace` | TEXT | Babylon namespace this item came from |
-| `is_prod` | BOOLEAN | True if stage is prod |
+| `keywords` | TEXT[] | Array of keyword tags |
+| `description` | TEXT | Full description from the CRD |
+| `icon_url` | TEXT | URL to the catalog item's icon image |
+| `owners_json` | JSONB | List of owner contacts from the CRD |
 | `showroom_url` | TEXT | Git repository URL for the Showroom lab content |
 | `showroom_ref` | TEXT | Git branch or tag for the Showroom repo |
+| `last_crd_update` | TIMESTAMPTZ | Timestamp of the last CRD change in Babylon |
+| `last_refreshed` | TIMESTAMPTZ | Timestamp of the last `rcars refresh` for this item |
+| `is_prod` | BOOLEAN | True if stage is prod |
 | `is_published` | BOOLEAN | True if this is a Published Virtual CI |
-| `base_ci_name` | TEXT | For Published VCIs: the Base CI they reference |
 | `published_ci_name` | TEXT | For Base CIs: the Published VCI that references them (if any) |
-| `updated_at` | TIMESTAMPTZ | Timestamp of last refresh |
-| `created_at` | TIMESTAMPTZ | Timestamp of first insertion |
+| `base_ci_name` | TEXT | For Published VCIs: the Base CI they reference |
 
 ---
 
 ### `showroom_analysis`
 
-One row per analyzed catalog item. Stores the full structured output from the Sonnet analysis, plus staleness tracking fields.
+One row per analyzed catalog item. Stores the full structured output from the Sonnet analysis, plus staleness tracking and curator notes.
 
 | Column | Type | Description |
 |---|---|---|
@@ -178,6 +183,7 @@ One row per analyzed catalog item. Stores the full structured output from the So
 | `is_stale` | BOOLEAN | True if the Showroom repo has new commits since `last_repo_commit` |
 | `stale_commit` | TEXT | The commit that pushed the repo past the analyzed state |
 | `enrichment_review_needed` | BOOLEAN | Curator-set flag indicating this item needs manual review |
+| `notes` | TEXT | Free-text curator note — visible only to curators on the Curate page |
 
 JSONB columns are stored as native PostgreSQL JSON and can be queried with JSON operators, though RCARS currently reads them as Python objects rather than querying inside them at the SQL level.
 
@@ -207,36 +213,22 @@ The `embedding` column uses pgvector's native `vector(384)` type. An IVFFlat ind
 
 ### `enrichment_tags`
 
-Curator-applied short labels attached to catalog items. Tags are visible to all users on recommendation cards.
+Curator-applied labels attached to catalog items. Tags have a type and a value, allowing structured labeling. Tags are visible to all users on recommendation cards.
 
 | Column | Type | Description |
 |---|---|---|
 | `id` | SERIAL (PK) | Auto-incrementing row ID |
 | `ci_name` | TEXT (FK) | References `catalog_items.ci_name` |
-| `tag` | TEXT | Short label text, e.g. `"booth-tested"`, `"flagship"`, `"needs-update"` |
+| `tag_type` | TEXT | Label category, e.g. `"lifecycle"`, `"event"`, `"quality"` |
+| `tag_value` | TEXT | Label value, e.g. `"retiring"`, `"kubecon-2026"`, `"flagship"` |
 | `added_by` | TEXT | Email address of the curator who added the tag |
 | `added_at` | TIMESTAMPTZ | When the tag was added |
 
-A unique constraint on `(ci_name, tag)` prevents duplicate tags. Tags are additive — multiple curators can tag the same item and all tags are retained.
+A unique constraint on `(ci_name, tag_type, tag_value)` prevents duplicates. Tags are additive — multiple curators can tag the same item and all tags are retained.
 
 ---
 
-### `enrichment_notes`
-
-Free-text notes per catalog item, added by curators. Unlike tags, notes are only visible to other curators via the Curate page.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `ci_name` | TEXT (FK) | References `catalog_items.ci_name` |
-| `note` | TEXT | Free-text note content |
-| `added_by` | TEXT | Email address of the curator who wrote the note |
-| `added_at` | TIMESTAMPTZ | When the note was created |
-| `updated_at` | TIMESTAMPTZ | When the note was last edited |
-
----
-
-### `action_log`
+### `analysis_log`
 
 An append-only audit trail of every operation RCARS performs. Used by the Admin UI for scan status and by engineers debugging failed items.
 
@@ -245,10 +237,30 @@ An append-only audit trail of every operation RCARS performs. Used by the Admin 
 | `id` | SERIAL (PK) | Auto-incrementing row ID |
 | `ci_name` | TEXT | The catalog item involved (not a FK — preserved even if the item is removed) |
 | `action` | TEXT | `"refresh"`, `"analyze"`, or `"error"` |
+| `user_id` | TEXT | Identity of who or what triggered the action (SSO email or system) |
 | `details` | TEXT | Optional extra context — error messages, commit SHAs, etc. |
 | `created_at` | TIMESTAMPTZ | When the action was recorded |
 
 Nothing is deleted from this table. It grows with every `rcars refresh` and `rcars scan` run.
+
+---
+
+### `jobs`
+
+Tracks background async jobs — primarily catalog scans triggered from the Admin UI. Allows the UI to show live progress and retrieve results after completion.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | UUID (PK) | Auto-generated job ID, passed to the client to poll for status |
+| `job_type` | TEXT | Type of job, e.g. `"scan"` |
+| `status` | TEXT | `"queued"`, `"running"`, `"complete"`, or `"failed"` |
+| `triggered_by` | TEXT | SSO email of the user who triggered the job |
+| `progress_current` | INTEGER | Items processed so far |
+| `progress_total` | INTEGER | Total items to process |
+| `result_json` | JSONB | Final result payload once the job completes |
+| `created_at` | TIMESTAMPTZ | When the job was queued |
+| `started_at` | TIMESTAMPTZ | When execution began |
+| `completed_at` | TIMESTAMPTZ | When the job finished (success or failure) |
 
 ---
 
