@@ -146,7 +146,7 @@ def search(query: str, db: Database, limit: int = 10,
            prod_only: bool = True, distance_cutoff: float = 0.55) -> QueryState
 
 # triage.py
-def triage(state: QueryState, anthropic_client, model: str = "claude-haiku-4-5-20251001") -> QueryState
+def triage(state: QueryState, anthropic_client, model: str = "claude-haiku-4-5") -> QueryState
 
 # rationale.py
 def generate_rationale(state: QueryState, db: Database, anthropic_client,
@@ -247,7 +247,7 @@ Return ONLY valid JSON (no markdown fences):
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `RCARS_VECTOR_CUTOFF` | `0.55` | Cosine distance threshold for Phase 1. Higher = more permissive. |
-| `RCARS_TRIAGE_MODEL` | `claude-haiku-4-5-20251001` | Model for Phase 2 triage. |
+| `RCARS_TRIAGE_MODEL` | `claude-haiku-4-5` | Model for Phase 2 triage. |
 | `RCARS_TRIAGE_CUTOFF` | `30` | Minimum Haiku relevance score to survive triage. |
 | `RCARS_RATIONALE_MODEL` | `claude-sonnet-4-6` | Model for Phase 3 rationale. |
 | `RCARS_RATIONALE_TOP_N` | `5` | Maximum candidates sent to Sonnet for rationale. |
