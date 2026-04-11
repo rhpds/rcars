@@ -12,7 +12,7 @@ from pathlib import Path
 from rcars.web.deps import get_current_user
 from rcars.db import Database
 from rcars.config import Settings
-from rcars.recommender import recommend
+from rcars.recommender import run_query, Candidate
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
@@ -76,7 +76,14 @@ templates.env.filters['format_message'] = _format_message
 # scaled beyond one replica, replace with a shared store (Redis or DB-backed job table).
 _sessions: dict[str, list[dict]] = {}
 _query_status: dict[str, dict] = {}
-# shape: session_id → {"running": bool, "rec_html": str|None, "chat_html": str|None, "error": str|None}
+# shape: session_id → {
+#   "phase": str,           # "searching" | "vector_done" | "triaging" | "triage_done" | "rationale" | "complete" | "no_matches" | "error"
+#   "running": bool,
+#   "rec_html": str|None,
+#   "chat_html": str|None,
+#   "error": str|None,
+#   "candidates": list[dict],  # serialized candidates for session storage
+# }
 
 
 def _get_db_dependency() -> Database | None:
@@ -123,6 +130,30 @@ def _base_context(request: Request, db: Database | None, user: str, active_page:
     }
 
 
+def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
+    """Convert Candidate dataclasses to rec dicts for templates."""
+    recs = []
+    for c in candidates:
+        rec = {
+            "ci_name": c.ci_name,
+            "display_name": c.display_name,
+            "fit_score": c.relevance_score if c.relevance_score is not None else c.vector_similarity_pct,
+            "rationale": c.rationale or "",
+            "suggested_format": c.suggested_format or "",
+            "duration_notes": c.duration_notes or "",
+            "caveats": c.caveats or "",
+            "one_line_reason": c.one_line_reason or "",
+            "card_phase": "complete" if c.rationale else card_phase,
+            "summary": c.summary,
+            "topics": c.topics,
+            "difficulty": c.difficulty,
+            "duration_min": c.duration_min,
+            "content_type": c.content_type,
+        }
+        recs.append(rec)
+    return recs
+
+
 def _run_advisor_query(
     session_id: str,
     message: str,
@@ -133,65 +164,104 @@ def _run_advisor_query(
     settings,
     user: str,
 ) -> None:
-    """Background thread: call recommend(), render fragments, store in _query_status."""
+    """Background thread: run three-phase pipeline, update _query_status at each phase."""
     turn_index = len(_sessions.get(session_id, []))
-    try:
-        log.info("advisor bg: generating embedding and searching candidates session=%s", session_id)
-        result = recommend(
-            query=description,
-            db=db,
-            anthropic_client=client,
-            model=settings.model,
-            limit=10,
-            prod_only=True,
-        )
-        recs_count = len((result or {}).get("recommendations", []))
-        log.info("advisor bg: recommend() returned %d recommendations session=%s", recs_count, session_id)
-    except Exception:
-        log.exception("advisor bg: recommend() failed session=%s", session_id)
-        result = None
-
-    raw_recs = result.get("recommendations", []) if result else []
-    recs = _enrich_recs(raw_recs, db)
-
-    overall = (result or {}).get("overall_assessment", f"Found {len(recs)} matches.")
-    turns = _sessions.setdefault(session_id, [])
-    turns.append({
-        "role": "assistant",
-        "content": overall,
-        "rec_ci_names": [r["ci_name"] for r in recs],
-        "recs": recs,
-        "turn_index": turn_index,
-    })
-
     is_curator = settings.is_curator(user)
 
     try:
-        rec_html = templates.get_template("fragments/rec_list.html").render(
-            recs=recs,
-            is_curator=is_curator,
-            session_id=session_id,
-        )
-        chat_html = templates.get_template("fragments/chat_turn.html").render(
-            user_message=message,
-            assistant_message=overall,
-            session_id=session_id,
-            turn_index=turn_index,
-            first_message=first_message,
-        )
-        _query_status[session_id] = {
-            "running": False,
-            "rec_html": rec_html,
-            "chat_html": chat_html,
-            "error": None,
-        }
+        for state in run_query(
+            query=description,
+            db=db,
+            anthropic_client=client,
+            settings=settings,
+            prod_only=True,
+        ):
+            if state.phase == "VECTOR_DONE":
+                recs = _candidates_to_recs(state.candidates, "vector")
+                recs = _enrich_recs(recs, db)
+                rec_html = templates.get_template("fragments/rec_list.html").render(
+                    recs=recs, is_curator=is_curator, session_id=session_id,
+                    phase="triaging", status_message="Evaluating relevance...",
+                )
+                _query_status[session_id] = {
+                    "phase": "vector_done", "running": True,
+                    "rec_html": rec_html, "chat_html": None, "error": None,
+                    "candidates": recs,
+                }
+
+            elif state.phase == "TRIAGE_DONE":
+                recs = _candidates_to_recs(state.candidates, "triaged")
+                recs = _enrich_recs(recs, db)
+                # Mark top N for rationale
+                for i, rec in enumerate(recs):
+                    if i < settings.rationale_top_n and (rec.get("relevance_score", 0) or rec.get("fit_score", 0)) >= 70:
+                        rec["card_phase"] = "analyzing"
+                rec_html = templates.get_template("fragments/rec_list.html").render(
+                    recs=recs, is_curator=is_curator, session_id=session_id,
+                    phase="rationale", status_message="Preparing detailed analysis...",
+                )
+                _query_status[session_id] = {
+                    "phase": "triage_done", "running": True,
+                    "rec_html": rec_html, "chat_html": None, "error": None,
+                    "candidates": recs,
+                }
+
+            elif state.phase == "COMPLETE":
+                recs = _candidates_to_recs(state.candidates, "complete")
+                recs = _enrich_recs(recs, db)
+                overall = state.overall_assessment or f"Found {len(recs)} matches."
+
+                turns = _sessions.setdefault(session_id, [])
+                turns.append({
+                    "role": "assistant", "content": overall,
+                    "rec_ci_names": [r["ci_name"] for r in recs],
+                    "recs": recs, "turn_index": turn_index,
+                })
+
+                rec_html = templates.get_template("fragments/rec_list.html").render(
+                    recs=recs, is_curator=is_curator, session_id=session_id,
+                    phase="complete", status_message=None,
+                )
+                chat_html = templates.get_template("fragments/chat_turn.html").render(
+                    user_message=message, assistant_message=overall,
+                    session_id=session_id, turn_index=turn_index,
+                    first_message=first_message,
+                )
+                _query_status[session_id] = {
+                    "phase": "complete", "running": False,
+                    "rec_html": rec_html, "chat_html": chat_html, "error": None,
+                    "candidates": recs,
+                }
+
+            elif state.phase == "NO_MATCHES":
+                no_match_msg = "Nothing in the catalog is a strong fit for this query. Try broadening your terms or describing what you need differently."
+                turns = _sessions.setdefault(session_id, [])
+                turns.append({
+                    "role": "assistant", "content": no_match_msg,
+                    "rec_ci_names": [], "recs": [], "turn_index": turn_index,
+                })
+                rec_html = (
+                    '<div class="pane-label">Recommendations</div>'
+                    f'<p style="color:var(--text-muted);font-size:14px;">{no_match_msg}</p>'
+                )
+                chat_html = templates.get_template("fragments/chat_turn.html").render(
+                    user_message=message, assistant_message=no_match_msg,
+                    session_id=session_id, turn_index=turn_index,
+                    first_message=first_message,
+                )
+                _query_status[session_id] = {
+                    "phase": "no_matches", "running": False,
+                    "rec_html": rec_html, "chat_html": chat_html, "error": None,
+                    "candidates": [],
+                }
+
     except Exception:
-        log.exception("advisor bg: fragment rendering failed session=%s", session_id)
+        log.exception("advisor bg: pipeline failed session=%s", session_id)
         _query_status[session_id] = {
-            "running": False,
-            "rec_html": None,
-            "chat_html": None,
-            "error": "An internal error occurred rendering results.",
+            "phase": "error", "running": False,
+            "rec_html": None, "chat_html": None,
+            "error": "An internal error occurred. Please try again.",
+            "candidates": [],
         }
 
 
@@ -205,8 +275,8 @@ def _query_spinner_fragment(session_id: str) -> str:
         f'<div class="pane-label">Recommendations</div>'
         f'<div class="rec-pane-loading">'
         f'<span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>'
-        f' Analyzing your request'
-        f' <span style="color:#555;">(this may take a minute)</span>'
+        f' Searching the catalog'
+        f' <span style="color:#555;">(results appear as they\'re ready)</span>'
         f'</div>'
         f'</div>'
     )
@@ -340,10 +410,26 @@ async def advisor_query_status(
     user: str = Depends(get_current_user),
 ):
     status = _query_status.get(session_id)
-    if status is None or status["running"]:
+
+    if status is None:
         return HTMLResponse(_query_spinner_fragment(session_id))
 
-    # Done — pop and return result
+    # Still running — return latest rec_html with polling trigger
+    if status["running"]:
+        if status.get("rec_html"):
+            # We have intermediate results (vector or triage phase) — show them with continued polling
+            html = (
+                f'<div id="rec-pane" class="rec-pane"'
+                f' hx-get="/advisor/query/status?session_id={escape(session_id)}"'
+                f' hx-trigger="every 2s"'
+                f' hx-swap="outerHTML">'
+                f'{status["rec_html"]}'
+                f'</div>'
+            )
+            return HTMLResponse(html)
+        return HTMLResponse(_query_spinner_fragment(session_id))
+
+    # Done — pop and return final result
     _query_status.pop(session_id, None)
 
     if status.get("error"):
@@ -353,7 +439,7 @@ async def advisor_query_status(
         )
         return HTMLResponse(_query_done_fragment(rec_html, ""))
 
-    return HTMLResponse(_query_done_fragment(status["rec_html"], status["chat_html"]))
+    return HTMLResponse(_query_done_fragment(status["rec_html"], status.get("chat_html", "")))
 
 
 @router.get("/advisor/restore/{session_id}/{turn_index}", response_class=HTMLResponse)
