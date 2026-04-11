@@ -248,6 +248,8 @@ metadata:
   name: {{ app_name }}
   labels:
     app: {{ app_name }}
+  annotations:
+    haproxy.router.openshift.io/timeout: 120s
 spec:
   host: "{{ frontend_host }}"
   to:
