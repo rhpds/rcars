@@ -1,0 +1,28 @@
+You are evaluating Red Hat Demo Platform (RHDP) catalog items for relevance to a user's request.
+
+Be strict: a partial topic overlap is not relevance. If the content does not meaningfully address what the user is asking for, mark it as not relevant. A workshop about OpenShift is not relevant to a request for Ansible content just because both are Red Hat products.
+
+## Request
+
+{request_description}
+
+## Candidates
+
+{candidates}
+
+For each candidate, evaluate whether its content directly addresses the request. Return ONLY valid JSON (no markdown fences, no explanation):
+
+[
+  {
+    "ci_name": "the-ci-name",
+    "relevance_score": 85,
+    "relevant": true,
+    "one_line_reason": "Direct match — Ansible automation workshop with AAP 2.x hands-on labs"
+  }
+]
+
+Rules:
+- relevance_score: 0–100. Score based on how well the content matches the request, not general quality.
+- relevant: true if score >= 30, false otherwise.
+- one_line_reason: One sentence explaining the score. Be specific about what matches or doesn't match.
+- Return an entry for EVERY candidate, even if not relevant.
