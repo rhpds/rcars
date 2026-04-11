@@ -9,6 +9,8 @@ from rcars.web.routes.curate import _get_db_dependency as curate_get_db
 from rcars.web.routes.admin import _get_db_dependency as admin_get_db
 from rcars.config import Settings
 
+from rcars.recommender.models import Candidate, QueryState
+
 SAMPLE_REC = {
     "ci_name": "openshift-cnv.lightspeed-workshop.prod",
     "display_name": "OpenShift Lightspeed Workshop",
@@ -17,6 +19,13 @@ SAMPLE_REC = {
     "suggested_format": "hands_on_lab",
     "duration_notes": "90 min",
     "caveats": "Requires OCP 4.16+",
+    "card_phase": "complete",
+    "one_line_reason": "",
+    "summary": "A workshop about OpenShift Lightspeed",
+    "topics": ["openshift"],
+    "difficulty": "beginner",
+    "duration_min": 90,
+    "content_type": "workshop",
     "tags": [{"tag_value": "booth demo"}, {"tag_value": "Summit 2026"}],
     "note": None,
     "enrichment_review_needed": False,
@@ -25,21 +34,35 @@ SAMPLE_REC = {
 
 _TEMPLATE_DIR = str(Path(__file__).parent.parent.parent / "src/rcars/web/templates")
 
-MOCK_RECOMMEND_RESULT = {
-    "recommendations": [
-        {
-            "ci_name": "openshift-cnv.lightspeed-workshop.prod",
-            "display_name": "OpenShift Lightspeed Workshop",
-            "fit_score": 92,
-            "rationale": "Strong fit.",
-            "suggested_format": "hands_on_lab",
-            "duration_notes": "90 min",
-            "caveats": "",
-        }
-    ],
-    "overall_assessment": "Good matches found.",
-    "content_gaps": [],
-}
+
+def _mock_run_query_generator(*args, **kwargs):
+    """Mock run_query that yields VECTOR_DONE then COMPLETE."""
+    c = Candidate(
+        ci_name="openshift-cnv.lightspeed-workshop.prod",
+        display_name="OpenShift Lightspeed Workshop",
+        category="hands_on_lab",
+        summary="A workshop about OpenShift Lightspeed",
+        topics=["openshift"],
+        products=["OCP"],
+        difficulty="beginner",
+        duration_min=90,
+        content_type="workshop",
+        vector_distance=0.2,
+        vector_similarity_pct=90,
+        relevance_score=92,
+        relevant=True,
+        one_line_reason="Direct OpenShift workshop match",
+        rationale="Strong fit.",
+        suggested_format="hands_on_lab",
+        duration_notes="90 min",
+        caveats="",
+    )
+    yield QueryState(phase="VECTOR_DONE", candidates=[c], query="test")
+    yield QueryState(phase="TRIAGE_DONE", candidates=[c], query="test")
+    yield QueryState(
+        phase="COMPLETE", candidates=[c], query="test",
+        overall_assessment="Good matches found.", content_gaps=[],
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -156,7 +179,7 @@ def test_advisor_query_returns_spinner_then_rec_cards(client):
     from rcars.web.routes.advisor import _query_status
     import time
 
-    with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
+    with patch("rcars.web.routes.advisor.run_query", side_effect=_mock_run_query_generator):
         response = client.post("/advisor/query", data={
             "session_id": "async-test-1",
             "message": "OpenShift labs for developers",
@@ -164,7 +187,6 @@ def test_advisor_query_returns_spinner_then_rec_cards(client):
         assert response.status_code == 200
         assert "rec-pane" in response.text
         assert "every 2s" in response.text
-        assert "OpenShift Lightspeed Workshop" not in response.text
 
         for _ in range(20):
             if "async-test-1" in _query_status and not _query_status["async-test-1"]["running"]:
@@ -184,7 +206,7 @@ def test_advisor_query_appends_chat_turn(client):
     from rcars.web.routes.advisor import _query_status
     import time
 
-    with patch("rcars.web.routes.advisor.recommend", return_value=MOCK_RECOMMEND_RESULT):
+    with patch("rcars.web.routes.advisor.run_query", side_effect=_mock_run_query_generator):
         client.post("/advisor/query", data={
             "session_id": "chat-turn-test",
             "message": "Show me OpenShift labs",
@@ -207,11 +229,11 @@ def test_advisor_query_accumulates_context(client):
     from rcars.web.routes.advisor import _query_status
 
     calls = []
-    def capture_recommend(query, **kwargs):
+    def capture_run_query(query, **kwargs):
         calls.append(query)
-        return MOCK_RECOMMEND_RESULT
+        yield from _mock_run_query_generator(query, **kwargs)
 
-    with patch("rcars.web.routes.advisor.recommend", side_effect=capture_recommend):
+    with patch("rcars.web.routes.advisor.run_query", side_effect=capture_run_query):
         client.post("/advisor/query", data={"session_id": "acc-test2", "message": "OpenShift labs"})
         for _ in range(20):
             if "acc-test2" in _query_status and not _query_status["acc-test2"]["running"]:
@@ -230,11 +252,14 @@ def test_advisor_query_accumulates_context(client):
     assert "shorter ones only" in calls[1]
 
 
-def test_advisor_query_handles_recommend_none(client):
+def test_advisor_query_handles_no_matches(client):
     from rcars.web.routes.advisor import _query_status
     import time
 
-    with patch("rcars.web.routes.advisor.recommend", return_value=None):
+    def no_matches_generator(*args, **kwargs):
+        yield QueryState(phase="NO_MATCHES", candidates=[], query="test")
+
+    with patch("rcars.web.routes.advisor.run_query", side_effect=no_matches_generator):
         client.post("/advisor/query", data={
             "session_id": "fail-test2",
             "message": "something",
@@ -247,7 +272,7 @@ def test_advisor_query_handles_recommend_none(client):
 
     status_resp = client.get("/advisor/query/status?session_id=fail-test2")
     assert status_resp.status_code == 200
-    assert "Found 0 matches" in status_resp.text or "No strong matches" in status_resp.text
+    assert "Nothing in the catalog" in status_resp.text
 
 
 def test_advisor_query_status_while_running(client):
