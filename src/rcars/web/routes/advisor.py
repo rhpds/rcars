@@ -70,6 +70,10 @@ def _inline_format(text: str) -> str:
 
 templates.env.filters['format_message'] = _format_message
 
+# Session and query state — module-level, in-process only.
+# CPython's GIL makes individual dict/list operations safe under concurrent requests,
+# but these dicts are NOT safe for multi-replica deployments. If OpenShift is ever
+# scaled beyond one replica, replace with a shared store (Redis or DB-backed job table).
 _sessions: dict[str, list[dict]] = {}
 _query_status: dict[str, dict] = {}
 # shape: session_id → {"running": bool, "rec_html": str|None, "chat_html": str|None, "error": str|None}
@@ -162,25 +166,33 @@ def _run_advisor_query(
 
     is_curator = settings.is_curator(user)
 
-    rec_html = templates.get_template("fragments/rec_list.html").render(
-        recs=recs,
-        is_curator=is_curator,
-        session_id=session_id,
-    )
-    chat_html = templates.get_template("fragments/chat_turn.html").render(
-        user_message=message,
-        assistant_message=overall,
-        session_id=session_id,
-        turn_index=turn_index,
-        first_message=first_message,
-    )
-
-    _query_status[session_id] = {
-        "running": False,
-        "rec_html": rec_html,
-        "chat_html": chat_html,
-        "error": None,
-    }
+    try:
+        rec_html = templates.get_template("fragments/rec_list.html").render(
+            recs=recs,
+            is_curator=is_curator,
+            session_id=session_id,
+        )
+        chat_html = templates.get_template("fragments/chat_turn.html").render(
+            user_message=message,
+            assistant_message=overall,
+            session_id=session_id,
+            turn_index=turn_index,
+            first_message=first_message,
+        )
+        _query_status[session_id] = {
+            "running": False,
+            "rec_html": rec_html,
+            "chat_html": chat_html,
+            "error": None,
+        }
+    except Exception:
+        log.exception("advisor bg: fragment rendering failed session=%s", session_id)
+        _query_status[session_id] = {
+            "running": False,
+            "rec_html": None,
+            "chat_html": None,
+            "error": "An internal error occurred rendering results.",
+        }
 
 
 @router.get("/advisor", response_class=HTMLResponse)
