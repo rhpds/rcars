@@ -305,12 +305,14 @@ def scan(max_analyze: int | None, force: bool):
 @click.argument("query")
 @click.option("--url", "event_url", type=str, default=None, help="Event URL to analyze")
 @click.option("--include-dev", is_flag=True, default=False, help="Include dev items")
-@click.option("--limit", type=int, default=15, help="Max candidates to consider")
+@click.option("--limit", type=int, default=10, help="Max candidates to consider")
+@click.option("--cutoff", type=float, default=None, help="Vector distance cutoff (default: from RCARS_VECTOR_CUTOFF)")
+@click.option("--triage-cutoff", type=int, default=None, help="Min Haiku relevance score (default: from RCARS_TRIAGE_CUTOFF)")
 @click.option("--json-output", is_flag=True, default=False, help="Output raw JSON")
-def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, json_output: bool):
+def recommend(query, event_url, include_dev, limit, cutoff, triage_cutoff, json_output):
     """Get content recommendations for an event or use case."""
     import json as json_mod
-    from rcars.recommender import recommend as run_recommend
+    from rcars.recommender import run_query
     from rcars.event_parser import parse_event_url
 
     settings = Settings()
@@ -321,6 +323,12 @@ def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, 
         console.print("[red]Error:[/red] No Anthropic credentials")
         db.close()
         sys.exit(1)
+
+    # Apply CLI overrides
+    if cutoff is not None:
+        settings.vector_cutoff = cutoff
+    if triage_cutoff is not None:
+        settings.triage_cutoff = triage_cutoff
 
     # If event URL provided, parse it and enhance query
     if event_url:
@@ -334,45 +342,76 @@ def recommend(query: str, event_url: str | None, include_dev: bool, limit: int, 
 
     console.print("[bold]Searching for recommendations...[/bold]")
 
-    result = run_recommend(
+    final_state = None
+    for state in run_query(
         query=query,
         db=db,
         anthropic_client=anthropic_client,
-        model=settings.model,
-        limit=limit,
+        settings=settings,
         prod_only=not include_dev,
-    )
+    ):
+        final_state = state
+        if state.phase == "VECTOR_DONE":
+            console.print(f"  Phase 1: {len(state.candidates)} candidates from vector search ({state.timings.get('vector_search', 0):.1f}s)")
+        elif state.phase == "TRIAGE_DONE":
+            console.print(f"  Phase 2: {len(state.candidates)} candidates survived triage ({state.timings.get('triage', 0):.1f}s)")
+        elif state.phase == "COMPLETE":
+            console.print(f"  Phase 3: Rationale generated ({state.timings.get('rationale', 0):.1f}s)")
+        elif state.phase == "NO_MATCHES":
+            console.print("[yellow]No relevant matches found.[/yellow]")
+            db.close()
+            return
 
-    if not result:
+    if not final_state or not final_state.candidates:
         console.print("[yellow]No recommendations found.[/yellow]")
         db.close()
         return
 
     if json_output:
-        console.print(json_mod.dumps(result, indent=2))
+        output = {
+            "recommendations": [
+                {
+                    "ci_name": c.ci_name,
+                    "display_name": c.display_name,
+                    "relevance_score": c.relevance_score,
+                    "rationale": c.rationale,
+                    "suggested_format": c.suggested_format,
+                    "duration_notes": c.duration_notes,
+                    "caveats": c.caveats,
+                }
+                for c in final_state.candidates
+            ],
+            "overall_assessment": final_state.overall_assessment,
+            "content_gaps": final_state.content_gaps,
+            "timings": final_state.timings,
+        }
+        console.print(json_mod.dumps(output, indent=2))
     else:
         console.print("\n[bold]Recommendations[/bold]\n")
-        for rec in result.get("recommendations", []):
-            score = rec.get("fit_score", 0)
+        for c in final_state.candidates:
+            score = c.relevance_score or c.vector_similarity_pct
             color = "green" if score >= 80 else "yellow" if score >= 60 else "red"
-            console.print(f"  [{color}]{score}%[/{color}] [bold]{rec.get('display_name', rec.get('ci_name'))}[/bold]")
-            ci_name = rec.get('ci_name', '')
+            console.print(f"  [{color}]{score}%[/{color}] [bold]{c.display_name}[/bold]")
+            ci_name = c.ci_name
             catalog_ns = "babylon-catalog-prod" if not include_dev else "babylon-catalog-dev"
             catalog_link = _catalog_url(ci_name, catalog_ns)
             console.print(f"       [dim]CI:[/dim] {ci_name}  [dim]→[/dim] {catalog_link}")
-            console.print(f"       {rec.get('rationale', '')}")
-            console.print(f"       Format: {rec.get('suggested_format', '-')} | {rec.get('duration_notes', '')}")
-            if rec.get("caveats"):
-                console.print(f"       [dim]Caveat: {rec['caveats']}[/dim]")
+            if c.rationale:
+                console.print(f"       {c.rationale}")
+            elif c.one_line_reason:
+                console.print(f"       {c.one_line_reason}")
+            console.print(f"       Format: {c.suggested_format or '-'} | {c.duration_notes or ''}")
+            if c.caveats:
+                console.print(f"       [dim]Caveat: {c.caveats}[/dim]")
             console.print()
 
-        if result.get("content_gaps"):
+        if final_state.content_gaps:
             console.print("[bold]Content Gaps[/bold]")
-            for gap in result["content_gaps"]:
+            for gap in final_state.content_gaps:
                 console.print(f"  • {gap}")
 
-        if result.get("overall_assessment"):
-            console.print(f"\n[dim]{result['overall_assessment']}[/dim]")
+        if final_state.overall_assessment:
+            console.print(f"\n[dim]{final_state.overall_assessment}[/dim]")
 
     db.close()
 
