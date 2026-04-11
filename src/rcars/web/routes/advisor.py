@@ -139,6 +139,8 @@ def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
             "display_name": c.display_name,
             "fit_score": c.relevance_score if c.relevance_score is not None else c.vector_similarity_pct,
             "rationale": c.rationale or "",
+            "why_it_fits": c.why_it_fits or "",
+            "how_to_use": c.how_to_use or "",
             "suggested_format": c.suggested_format or "",
             "duration_notes": c.duration_notes or "",
             "caveats": c.caveats or "",

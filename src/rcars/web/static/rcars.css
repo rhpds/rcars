@@ -334,9 +334,11 @@ body {
 
 .rec-rationale { font-size: 15px; color: #aaa; line-height: 1.6; margin-bottom: 8px; }
 
-/* Inline detail within card body */
-.rec-detail-inline { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-.rec-detail-inline span { color: #888; font-weight: 500; }
+/* Structured analysis section */
+.rec-analysis { margin-top: 8px; margin-bottom: 4px; }
+.rec-analysis-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 13px; line-height: 1.5; }
+.rec-analysis-label { color: var(--text-muted); font-weight: 500; min-width: 85px; flex-shrink: 0; }
+.rec-analysis-value { color: #bbb; }
 
 /* Caveat with visual distinction */
 .rec-caveat { font-size: 12px; color: var(--score-amber); margin-top: 6px; margin-bottom: 4px; padding: 4px 0; }

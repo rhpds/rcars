@@ -28,6 +28,8 @@ class Candidate:
 
     # Populated after Phase 3 (Sonnet rationale)
     rationale: str | None = None
+    why_it_fits: str | None = None
+    how_to_use: str | None = None
     suggested_format: str | None = None
     duration_notes: str | None = None
     caveats: str | None = None

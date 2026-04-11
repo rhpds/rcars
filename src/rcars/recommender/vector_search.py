@@ -31,32 +31,53 @@ def search(
         prod_only=prod_only,
     )
 
-    # Deduplicate published/base CI pairs — keep the one with better distance.
-    # A published CI and its base CI share the same Showroom content, so
-    # showing both is misleading.  Track which base CIs we've already seen.
-    seen_bases: set[str] = set()
-
-    candidates = []
+    # Deduplicate published/base CI pairs.  Published CIs are the orderable
+    # items — if one exists, show it instead of the base CI.  Base CIs that
+    # have a published counterpart should never appear in results because
+    # users cannot order them directly.
+    #
+    # Strategy: collect all rows that pass the cutoff, then for each content
+    # group (keyed by base CI name), pick the published CI if present,
+    # otherwise keep the base CI.
+    rows_by_content: dict[str, dict] = {}
     for row in rows:
-        distance = row["distance"]
-        if distance > distance_cutoff:
+        if row["distance"] > distance_cutoff:
             continue
 
         ci_name = row["ci_name"]
 
-        # Determine the "content key" — base CI name if this is a published
-        # CI, or the CI's own name if it IS the base.  Skip if we already
-        # have a candidate for this content.
-        base = row.get("base_ci_name") or ci_name
-        if row.get("published_ci_name"):
-            # This is a base CI that has a published counterpart
-            base = ci_name
-        if base in seen_bases:
-            log.debug("vector search: skipping duplicate %s (base=%s)", ci_name, base)
-            continue
-        seen_bases.add(base)
+        # Content key: the base CI name that owns the Showroom content.
+        if row.get("is_published") and row.get("base_ci_name"):
+            content_key = row["base_ci_name"]
+        else:
+            content_key = ci_name
 
-        # For published CIs, fetch analysis from the base CI (where it's stored)
+        existing = rows_by_content.get(content_key)
+        if existing is None:
+            rows_by_content[content_key] = row
+        else:
+            # Prefer the published CI — it's what users can order
+            if row.get("is_published") and not existing.get("is_published"):
+                rows_by_content[content_key] = row
+            # If both are published (shouldn't happen) or both base, keep
+            # the one with better distance
+            elif row.get("is_published") == existing.get("is_published"):
+                if row["distance"] < existing["distance"]:
+                    rows_by_content[content_key] = row
+
+    candidates = []
+    for row in rows_by_content.values():
+        ci_name = row["ci_name"]
+
+        # If this is a base CI that has a published_ci_name, skip it —
+        # the published CI should have been picked above, but if it wasn't
+        # in the search results at all, still don't recommend an unorderable item.
+        if row.get("published_ci_name") and not row.get("is_published"):
+            log.debug("vector search: skipping base CI %s (published=%s not in results)",
+                       ci_name, row["published_ci_name"])
+            continue
+
+        # Analysis is stored on the base CI — look it up there
         analysis_ci = row.get("base_ci_name") if row.get("is_published") else ci_name
         analysis = db.get_showroom_analysis(analysis_ci or ci_name)
 
@@ -70,9 +91,12 @@ def search(
             difficulty=(analysis or {}).get("difficulty", ""),
             duration_min=(analysis or {}).get("estimated_duration_min"),
             content_type=(analysis or {}).get("content_type", ""),
-            vector_distance=distance,
-            vector_similarity_pct=Candidate.similarity_pct(distance),
+            vector_distance=row["distance"],
+            vector_similarity_pct=Candidate.similarity_pct(row["distance"]),
         ))
+
+    # Sort by vector distance (rows_by_content loses ordering)
+    candidates.sort(key=lambda c: c.vector_distance)
 
     elapsed = time.monotonic() - t0
     phase = "VECTOR_DONE" if candidates else "NO_MATCHES"

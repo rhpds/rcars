@@ -9,7 +9,7 @@
      x-data="{ expanded: false }"
      @click="expanded = !expanded">
 
-  {# ── Header: Score + Title ── #}
+  {# ── Header: Score + Title + Pills ── #}
   <div class="rec-card-header">
     <div class="rec-score">{{ score }}%</div>
     <div style="flex:1;min-width:0;">
@@ -32,18 +32,32 @@
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
 
-  {# ── Body: Phase-dependent content ── #}
+  {# ── Body: Structured analysis or phase placeholder ── #}
   {% if card_phase == "analyzing" %}
-    <div class="rec-rationale rec-analyzing">
+    <div class="rec-analysis rec-analyzing">
       <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>
       Preparing detailed analysis...
     </div>
-  {% elif card_phase == "complete" and rec.rationale %}
-    <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
+
+  {% elif card_phase == "complete" and (rec.why_it_fits or rec.rationale) %}
+    <div class="rec-analysis">
+      <div class="rec-analysis-row">
+        <span class="rec-analysis-label">Why it fits</span>
+        <span class="rec-analysis-value">{{ rec.why_it_fits or rec.rationale }}</span>
+      </div>
+      {% if rec.how_to_use %}
+      <div class="rec-analysis-row">
+        <span class="rec-analysis-label">How to use</span>
+        <span class="rec-analysis-value">{{ rec.how_to_use }}</span>
+      </div>
+      {% endif %}
+    </div>
+
   {% elif card_phase in ["triaged", "analyzing"] and rec.one_line_reason %}
-    <div class="rec-rationale rec-summary-preview">{{ rec.one_line_reason }}</div>
+    <div class="rec-analysis rec-summary-preview">{{ rec.one_line_reason }}</div>
+
   {% elif card_phase == "vector" and rec.summary %}
-    <div class="rec-rationale rec-summary-preview">{{ rec.summary }}</div>
+    <div class="rec-analysis rec-summary-preview">{{ rec.summary }}</div>
   {% endif %}
 
   {# ── Tags ── #}

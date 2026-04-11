@@ -116,7 +116,10 @@ def generate_rationale(
         }
         for c in top_candidates:
             rec = recs_by_ci.get(c.ci_name, {})
-            c.rationale = rec.get("rationale")
+            c.why_it_fits = rec.get("why_it_fits")
+            c.how_to_use = rec.get("how_to_use")
+            # Build rationale from structured fields for backward compat
+            c.rationale = c.why_it_fits or rec.get("rationale")
             c.suggested_format = rec.get("suggested_format")
             c.duration_notes = rec.get("duration_notes")
             c.caveats = rec.get("caveats")
