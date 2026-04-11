@@ -1,0 +1,347 @@
+/* RCARS — LCARS-inspired theme for MkDocs Material
+ *
+ * Color palette derived from the RCARS web app (LCARS homage):
+ *   Amber:  #e8a838  — primary accent, headers, active nav
+ *   Dark:   #0f1117  — page background
+ *   Elevated: #161b26 — sidebar, cards, table backgrounds
+ *   Code:   #1a1d27  — code block backgrounds
+ *   Green:  #5cb85c  — good / success indicators
+ *   Red:    #c9190b  — alert / stale indicators
+ */
+
+:root,
+[data-md-color-scheme="slate"] {
+
+  /* Named palette tokens */
+  --rcars-amber:         #e8a838;
+  --rcars-amber-light:   #f0c060;
+  --rcars-amber-dark:    #c88020;
+  --rcars-amber-subtle:  rgba(232, 168, 56, 0.08);
+  --rcars-amber-border:  rgba(232, 168, 56, 0.22);
+  --rcars-bg:            #0f1117;
+  --rcars-bg-elevated:   #161b26;
+  --rcars-bg-code:       #1a1d27;
+  --rcars-text:          #d4d4d4;
+  --rcars-text-muted:    #888888;
+  --rcars-green:         #5cb85c;
+  --rcars-red:           #c9190b;
+
+  /* Material overrides — primary / accent */
+  --md-primary-fg-color:              var(--rcars-amber);
+  --md-primary-fg-color--light:       var(--rcars-amber-light);
+  --md-primary-fg-color--dark:        var(--rcars-amber-dark);
+  --md-accent-fg-color:               var(--rcars-amber);
+  --md-accent-fg-color--transparent:  rgba(232, 168, 56, 0.1);
+
+  /* Material overrides — backgrounds */
+  --md-default-bg-color:              var(--rcars-bg);
+  --md-default-bg-color--light:       var(--rcars-bg-elevated);
+  --md-code-bg-color:                 var(--rcars-bg-code);
+
+  /* Material overrides — foregrounds */
+  --md-default-fg-color:              var(--rcars-text);
+  --md-default-fg-color--light:       rgba(212, 212, 212, 0.72);
+  --md-default-fg-color--lighter:     rgba(212, 212, 212, 0.48);
+  --md-default-fg-color--lightest:    rgba(212, 212, 212, 0.12);
+  --md-code-fg-color:                 #c9d1d9;
+  --md-typeset-color:                 var(--rcars-text);
+  --md-typeset-a-color:               var(--rcars-amber);
+
+  /* Footer */
+  --md-footer-bg-color:               #080b10;
+  --md-footer-bg-color--dark:         #050810;
+  --md-footer-fg-color:               var(--rcars-text-muted);
+  --md-footer-fg-color--light:        rgba(136, 136, 136, 0.7);
+}
+
+/* ─── Header ──────────────────────────────────────────────────────────── */
+
+.md-header {
+  background-color: #080b10;
+  border-bottom: 2px solid var(--rcars-amber);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+.md-header__title {
+  color: var(--rcars-amber);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Search box in header */
+.md-search__input {
+  background-color: rgba(22, 27, 38, 0.9);
+  border: 1px solid var(--rcars-amber-border);
+  color: var(--rcars-text);
+  border-radius: 4px;
+}
+
+.md-search__input::placeholder {
+  color: var(--rcars-text-muted);
+}
+
+.md-search__input:focus {
+  border-color: var(--rcars-amber);
+}
+
+/* ─── Navigation sidebar ──────────────────────────────────────────────── */
+
+.md-sidebar {
+  background-color: var(--rcars-bg);
+  border-right: 1px solid var(--rcars-amber-border);
+}
+
+.md-sidebar--secondary {
+  border-right: none;
+  border-left: 1px solid var(--rcars-amber-border);
+}
+
+.md-nav__title {
+  color: var(--rcars-amber);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background-color: var(--rcars-bg);
+  border-bottom: 1px solid var(--rcars-amber-border);
+  padding: 0.6rem 0.8rem;
+}
+
+.md-nav__link {
+  color: var(--rcars-text);
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.md-nav__link:hover,
+.md-nav__link:focus {
+  color: var(--rcars-amber) !important;
+}
+
+.md-nav__item--active > .md-nav__link,
+.md-nav__link--active {
+  color: var(--rcars-amber) !important;
+  border-left: 3px solid var(--rcars-amber);
+  padding-left: 9px;
+  font-weight: 600;
+}
+
+/* ─── Page content ────────────────────────────────────────────────────── */
+
+.md-main {
+  background-color: var(--rcars-bg);
+}
+
+.md-content {
+  background-color: var(--rcars-bg);
+}
+
+/* Headings */
+.md-typeset h1 {
+  color: var(--rcars-amber);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rcars-amber-border);
+  padding-bottom: 0.35em;
+  margin-bottom: 1em;
+}
+
+.md-typeset h2 {
+  color: var(--rcars-amber);
+  font-weight: 600;
+  border-bottom: 1px solid rgba(232, 168, 56, 0.12);
+  padding-bottom: 0.2em;
+}
+
+.md-typeset h3 {
+  color: var(--rcars-amber-light);
+  font-weight: 600;
+}
+
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  color: var(--rcars-amber-light);
+}
+
+/* Links */
+.md-typeset a {
+  color: var(--rcars-amber);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.md-typeset a:hover {
+  color: var(--rcars-amber-light);
+  border-bottom-color: var(--rcars-amber-light);
+}
+
+/* ─── Tables ──────────────────────────────────────────────────────────── */
+
+.md-typeset table:not([class]) {
+  background-color: var(--rcars-bg-elevated);
+  border: 1px solid var(--rcars-amber-border);
+  border-radius: 4px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: rgba(232, 168, 56, 0.12);
+  color: var(--rcars-amber);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rcars-amber-border);
+}
+
+.md-typeset table:not([class]) td {
+  border-bottom: 1px solid rgba(232, 168, 56, 0.08);
+  color: var(--rcars-text);
+}
+
+.md-typeset table:not([class]) tr:last-child td {
+  border-bottom: none;
+}
+
+.md-typeset table:not([class]) tr:hover td {
+  background-color: var(--rcars-amber-subtle);
+}
+
+/* ─── Code ────────────────────────────────────────────────────────────── */
+
+/* Inline code */
+.md-typeset code {
+  background-color: var(--rcars-bg-code);
+  color: #c9d1d9;
+  border: 1px solid var(--rcars-amber-border);
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  font-size: 0.85em;
+}
+
+/* Code blocks */
+.md-typeset pre {
+  background-color: var(--rcars-bg-code);
+  border: 1px solid var(--rcars-amber-border);
+  border-radius: 4px;
+}
+
+.md-typeset pre > code {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+}
+
+/* Syntax highlight container */
+.highlight {
+  background-color: var(--rcars-bg-code) !important;
+  border: 1px solid var(--rcars-amber-border);
+  border-radius: 4px;
+}
+
+.highlight code {
+  background-color: transparent;
+  border: none;
+}
+
+/* Copy button */
+.md-clipboard {
+  color: var(--rcars-text-muted);
+}
+
+.md-clipboard:hover {
+  color: var(--rcars-amber);
+}
+
+/* ─── Blockquotes (used for callout notes in docs) ────────────────────── */
+
+.md-typeset blockquote {
+  border-left: 4px solid var(--rcars-amber);
+  background-color: var(--rcars-amber-subtle);
+  padding: 0.6em 1em;
+  color: var(--rcars-text-muted);
+  border-radius: 0 4px 4px 0;
+}
+
+.md-typeset blockquote p {
+  color: var(--rcars-text-muted);
+}
+
+/* ─── Table of contents (right sidebar) ──────────────────────────────── */
+
+.md-nav--secondary .md-nav__link--active {
+  color: var(--rcars-amber) !important;
+}
+
+.md-nav--secondary .md-nav__link:hover {
+  color: var(--rcars-amber) !important;
+}
+
+/* ─── Footer ──────────────────────────────────────────────────────────── */
+
+.md-footer {
+  background-color: #080b10;
+  border-top: 2px solid var(--rcars-amber);
+}
+
+.md-footer-meta {
+  background-color: #050810;
+}
+
+.md-footer__link {
+  color: var(--rcars-text-muted);
+}
+
+.md-footer__link:hover {
+  color: var(--rcars-amber);
+}
+
+/* ─── Mobile nav ──────────────────────────────────────────────────────── */
+
+@media screen and (max-width: 76.1875em) {
+  .md-nav--primary .md-nav__title {
+    background-color: #080b10;
+    color: var(--rcars-amber);
+    border-bottom: 1px solid var(--rcars-amber-border);
+  }
+
+  .md-nav--primary .md-nav__title ~ .md-nav__list {
+    background-color: var(--rcars-bg);
+  }
+}
+
+/* ─── Back-to-top button ──────────────────────────────────────────────── */
+
+.md-top {
+  background-color: var(--rcars-amber);
+  color: #080b10;
+  font-weight: 700;
+}
+
+.md-top:hover {
+  background-color: var(--rcars-amber-light);
+}
+
+/* ─── Scrollbar (Chromium) ────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--rcars-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(232, 168, 56, 0.3);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--rcars-amber);
+}

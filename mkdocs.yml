@@ -1,0 +1,45 @@
+site_name: RCARS
+site_description: RHDP Content Advisory & Recommendation System
+site_author: Red Hat Demo Platform Team
+repo_url: https://github.com/rhpds/rcars
+repo_name: rhpds/rcars
+site_url: https://rhpds.github.io/rcars/
+
+docs_dir: docs
+site_dir: site
+exclude_docs: |
+  superpowers/
+  deployment.md
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: custom
+    accent: custom
+  font: false
+  features:
+    - navigation.top
+    - navigation.sections
+    - search.highlight
+    - search.suggest
+    - content.code.copy
+    - toc.follow
+
+extra_css:
+  - stylesheets/rcars.css
+
+nav:
+  - Home: index.md
+  - Overview: overview.md
+  - Web UI Guide: guide-web.md
+  - CLI Admin Guide: guide-cli.md
+  - Architecture: architecture.md
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.superfences
