@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Request, Depends, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from markupsafe import Markup
+from markupsafe import Markup, escape
 from pathlib import Path
 
 from rcars.web.deps import get_current_user
@@ -213,7 +213,7 @@ def _query_spinner_fragment(session_id: str) -> str:
 
 
 def _query_done_fragment(rec_html: str, chat_html: str) -> str:
-    """Done response: rec pane content + OOB chat turn. Sentinel stops JS polling detection."""
+    """Done response: rec pane content + OOB chat turn. Sentinel lets JS detect completion."""
     return (
         f'<div id="rec-pane">'
         f'{rec_html}'
@@ -229,7 +229,7 @@ def _query_error_fragment(error_msg: str, message: str, session_id: str, first_m
     turns.append({"role": "assistant", "content": error_msg, "rec_ci_names": [], "turn_index": turn_index})
     rec_html = (
         '<div class="pane-label">Recommendations</div>'
-        f'<p style="color:var(--score-red);font-size:14px;">{error_msg}</p>'
+        f'<p style="color:var(--score-red);font-size:14px;">{escape(error_msg)}</p>'
     )
     chat_html = templates.get_template("fragments/chat_turn.html").render(
         user_message=message,
@@ -309,7 +309,7 @@ async def advisor_query(
         turns.append({"role": "assistant", "content": error_msg, "rec_ci_names": [], "turn_index": turn_index})
         rec_html = (
             '<div class="pane-label">Recommendations</div>'
-            f'<p style="color:var(--score-red);font-size:14px;">{error_msg}</p>'
+            f'<p style="color:var(--score-red);font-size:14px;">{escape(error_msg)}</p>'
         )
         chat_html = templates.get_template("fragments/chat_turn.html").render(
             user_message=message, assistant_message=error_msg,
