@@ -87,14 +87,14 @@ def test_recommend_no_credentials(runner, monkeypatch):
 def test_recommend_no_results(runner, monkeypatch):
     """Recommend should handle no candidates gracefully."""
     monkeypatch.setenv("ANTHROPIC_VERTEX_PROJECT_ID", "test-project")
-    # Empty DB → no embeddings → recommend returns None
-    # We need to mock the recommend function to return None
     import unittest.mock as mock
-    with mock.patch("rcars.recommender.recommend") as mock_rec:
-        mock_rec.return_value = None
-        # Also mock generate_embedding to avoid loading sentence-transformers
-        with mock.patch("rcars.recommender.generate_embedding") as mock_emb:
-            mock_emb.return_value = [0.0] * 384
-            result = runner.invoke(cli, ["recommend", "OpenShift demos for developers"])
+    from rcars.recommender.models import QueryState
+
+    # Mock run_query to yield NO_MATCHES
+    def no_matches_generator(*args, **kwargs):
+        yield QueryState(phase="NO_MATCHES", candidates=[], query="test")
+
+    with mock.patch("rcars.recommender.pipeline.run_query", side_effect=no_matches_generator):
+        result = runner.invoke(cli, ["recommend", "OpenShift demos for developers"])
     assert result.exit_code == 0
-    assert "no recommendations" in result.output.lower()
+    assert "no relevant matches" in result.output.lower()
