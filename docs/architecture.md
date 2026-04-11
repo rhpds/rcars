@@ -275,6 +275,7 @@ This filtering step is important for analysis quality. Without it, the LLM would
 The filtered file contents are concatenated with file-level headers and truncated to a maximum of 150,000 characters. This text, along with the catalog item's metadata (CI name, display name, category, product), is inserted into the analysis prompt template.
 
 The prompt instructs Sonnet to:
+
 - Identify what the lab covers and who it's for
 - Extract **stated** learning objectives (what the Showroom text explicitly claims)
 - Infer **additional** learning objectives from the actual exercises (what a learner will genuinely learn even if it's never stated)
