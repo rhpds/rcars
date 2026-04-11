@@ -147,7 +147,7 @@ def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings
 async def curate(
     request: Request,
     q: str = "",
-    status_filter: str = "all",
+    status_filter: str = "has_showroom",
     page: int = 1,
     user: str = Depends(require_curator),
     db: Database = Depends(_get_db_dependency),
@@ -181,7 +181,9 @@ async def curate(
             "analysis_products": analysis.get("products_json") or [],
         })
 
-    if status_filter == "needs_review":
+    if status_filter == "has_showroom":
+        enriched = [i for i in enriched if i.get("showroom_url")]
+    elif status_filter == "needs_review":
         enriched = [i for i in enriched if i["enrichment_review_needed"]]
     elif status_filter == "untagged":
         enriched = [i for i in enriched if not i["tags"]]

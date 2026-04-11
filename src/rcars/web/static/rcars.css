@@ -314,10 +314,32 @@ body {
 .score-red .rec-score { color: var(--score-red); }
 
 .rec-title { font-weight: 600; font-size: 16px; }
+.rec-subtitle { font-size: 13px; color: #999; margin-top: 2px; font-style: italic; }
 .rec-meta { font-size: 13px; color: var(--text-muted); margin-top: 3px; }
 .rec-expand-hint { font-size: 13px; color: #444; margin-left: auto; flex-shrink: 0; }
 
+/* Metadata pills row */
+.rec-pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.rec-pill {
+  display: inline-block;
+  background: #151822;
+  border: 1px solid #2a2f3e;
+  color: #999;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.rec-pill.pill-format { color: var(--accent-blue); border-color: #1a3a5a; }
+
 .rec-rationale { font-size: 15px; color: #aaa; line-height: 1.6; margin-bottom: 8px; }
+
+/* Inline detail within card body */
+.rec-detail-inline { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+.rec-detail-inline span { color: #888; font-weight: 500; }
+
+/* Caveat with visual distinction */
+.rec-caveat { font-size: 12px; color: var(--score-amber); margin-top: 6px; margin-bottom: 4px; padding: 4px 0; }
 
 .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tag-pill {

@@ -11,6 +11,7 @@
   <form method="get" action="/curate" class="filter-bar">
     <input type="text" name="q" value="{{ q }}" class="filter-input" placeholder="Search by name or CI...">
     <select name="status_filter" class="filter-select" onchange="this.form.submit()">
+      <option value="has_showroom" {% if status_filter == 'has_showroom' %}selected{% endif %}>Has Showroom</option>
       <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All items</option>
       <option value="needs_review" {% if status_filter == 'needs_review' %}selected{% endif %}>Needs review</option>
       <option value="untagged" {% if status_filter == 'untagged' %}selected{% endif %}>Untagged</option>

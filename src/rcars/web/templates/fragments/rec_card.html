@@ -8,28 +8,36 @@
      data-phase="{{ card_phase }}"
      x-data="{ expanded: false }"
      @click="expanded = !expanded">
+
+  {# ── Row 1: Score + Title ── #}
   <div class="rec-card-header">
     <div class="rec-score">{{ score }}%</div>
     <div style="flex:1;min-width:0;">
       <div class="rec-title">{{ rec.display_name }}</div>
-      <div class="rec-meta">{{ rec.ci_name }}</div>
-      {% if card_phase == "vector" %}
-        <div class="rec-meta">{{ rec.content_type }} · {{ rec.difficulty }} · {{ rec.duration_min or '?' }} min</div>
-        <div class="rec-meta">{{ rec.topics | join(', ') }}</div>
-      {% endif %}
-      {% if card_phase in ["triaged", "analyzing", "complete"] and rec.one_line_reason %}
-        <div class="rec-meta">{{ rec.one_line_reason }}</div>
-      {% endif %}
-      {% if rec.suggested_format %}
-      <div class="rec-meta">Format: {{ rec.suggested_format }}</div>
-      {% endif %}
-      {% if rec.duration_notes %}
-      <div class="rec-meta">Duration: {{ rec.duration_notes }}</div>
+      {% if card_phase in ["triaged", "analyzing", "complete"] and rec.one_line_reason and not rec.rationale %}
+        <div class="rec-subtitle">{{ rec.one_line_reason }}</div>
       {% endif %}
     </div>
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
 
+  {# ── Row 2: Metadata pills ── #}
+  <div class="rec-pill-row">
+    {% if rec.content_type %}
+      <span class="rec-pill">{{ rec.content_type | replace('_', ' ') }}</span>
+    {% endif %}
+    {% if rec.suggested_format and card_phase == "complete" %}
+      <span class="rec-pill pill-format">{{ rec.suggested_format | replace('_', ' ') }}</span>
+    {% endif %}
+    {% if rec.difficulty %}
+      <span class="rec-pill">{{ rec.difficulty }}</span>
+    {% endif %}
+    {% if rec.duration_min %}
+      <span class="rec-pill">~{{ rec.duration_min }} min</span>
+    {% endif %}
+  </div>
+
+  {# ── Row 3: Rationale or summary ── #}
   {% if card_phase == "analyzing" %}
     <div class="rec-rationale rec-analyzing">
       <span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span>
@@ -37,14 +45,19 @@
     </div>
   {% elif card_phase == "complete" and rec.rationale %}
     <div class="rec-rationale">{{ rec.rationale | format_message }}</div>
+    {% if rec.duration_notes %}
+      <div class="rec-detail-inline"><span>Duration:</span> {{ rec.duration_notes }}</div>
+    {% endif %}
   {% elif card_phase == "vector" and rec.summary %}
     <div class="rec-rationale rec-summary-preview">{{ rec.summary }}</div>
   {% endif %}
 
+  {# ── Row 4: Caveats ── #}
   {% if rec.caveats %}
-  <div class="rec-meta" style="color:var(--score-amber);">⚠ {{ rec.caveats }}</div>
+  <div class="rec-caveat">⚠ {{ rec.caveats }}</div>
   {% endif %}
 
+  {# ── Row 5: Tags ── #}
   {% if rec.tags %}
   <div class="tag-list">
     {% for tag in rec.tags %}
@@ -53,6 +66,7 @@
   </div>
   {% endif %}
 
+  {# ── Expandable: CI name, catalog link, curator controls ── #}
   <div x-show="expanded" style="display:none;" @click.stop>
     {% include "fragments/rec_card_expanded.html" %}
   </div>

@@ -11,7 +11,7 @@ def curator_client(monkeypatch):
     mock_db = MagicMock()
     mock_db.get_db_currency.return_value = {"last_refresh": "2026.04.08", "is_stale": False}
     mock_db.list_catalog_items.return_value = [
-        {"ci_name": "test.lab.prod", "display_name": "Test Lab", "is_prod": True},
+        {"ci_name": "test.lab.prod", "display_name": "Test Lab", "is_prod": True, "showroom_url": "https://github.com/rhpds/test-lab"},
     ]
     mock_db.get_enrichment_tags.return_value = [{"tag_value": "booth demo", "tag_type": "label"}]
     mock_db.get_enrichment_note.return_value = None
