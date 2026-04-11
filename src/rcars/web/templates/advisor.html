@@ -61,12 +61,16 @@
     var input = document.getElementById('msg-input');
     var sendBtn = document.getElementById('send-btn');
     var chatPane = document.getElementById('chat-pane');
-    var recPane = document.getElementById('rec-pane');
+    var recPane;
     var sessionId = document.getElementById('session-id').value;
 
     function sendMessage() {
       var msg = input.value.trim();
       if (!msg) return;
+
+      // Clear any leftover sentinel from a previous completed query
+      var oldSentinel = document.getElementById('advisor-result-ready');
+      if (oldSentinel) oldSentinel.remove();
 
       // 1. Show user message immediately
       var userBubble = document.createElement('div');
@@ -87,7 +91,7 @@
       sendBtn.disabled = true;
       sendBtn.textContent = 'Thinking...';
       sendBtn.classList.add('sending');
-      recPane.innerHTML = '<div class="pane-label">Recommendations</div><div class="rec-pane-loading"><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Analyzing your request <span style="color:#555;">(this may take a minute)</span></div>';
+      document.getElementById('rec-pane').innerHTML = '<div class="pane-label">Recommendations</div><div class="rec-pane-loading"><span class="thinking-dots"><span>.</span><span>.</span><span>.</span></span> Analyzing your request <span style="color:#555;">(this may take a minute)</span></div>';
 
       // 4. Clear input
       var sentMsg = msg;

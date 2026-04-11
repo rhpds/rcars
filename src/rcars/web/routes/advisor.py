@@ -198,7 +198,7 @@ def _run_advisor_query(
 def _query_spinner_fragment(session_id: str) -> str:
     """HTMX polling spinner that replaces #rec-pane while query runs."""
     return (
-        f'<div id="rec-pane"'
+        f'<div id="rec-pane" class="rec-pane"'
         f' hx-get="/advisor/query/status?session_id={session_id}"'
         f' hx-trigger="every 2s"'
         f' hx-swap="outerHTML">'
@@ -215,7 +215,7 @@ def _query_spinner_fragment(session_id: str) -> str:
 def _query_done_fragment(rec_html: str, chat_html: str) -> str:
     """Done response: rec pane content + OOB chat turn. Sentinel lets JS detect completion."""
     return (
-        f'<div id="rec-pane">'
+        f'<div id="rec-pane" class="rec-pane">'
         f'{rec_html}'
         f'<span id="advisor-result-ready" hidden></span>'
         f'</div>'
