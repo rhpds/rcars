@@ -31,6 +31,11 @@ def search(
         prod_only=prod_only,
     )
 
+    # Deduplicate published/base CI pairs — keep the one with better distance.
+    # A published CI and its base CI share the same Showroom content, so
+    # showing both is misleading.  Track which base CIs we've already seen.
+    seen_bases: set[str] = set()
+
     candidates = []
     for row in rows:
         distance = row["distance"]
@@ -38,7 +43,22 @@ def search(
             continue
 
         ci_name = row["ci_name"]
-        analysis = db.get_showroom_analysis(ci_name)
+
+        # Determine the "content key" — base CI name if this is a published
+        # CI, or the CI's own name if it IS the base.  Skip if we already
+        # have a candidate for this content.
+        base = row.get("base_ci_name") or ci_name
+        if row.get("published_ci_name"):
+            # This is a base CI that has a published counterpart
+            base = ci_name
+        if base in seen_bases:
+            log.debug("vector search: skipping duplicate %s (base=%s)", ci_name, base)
+            continue
+        seen_bases.add(base)
+
+        # For published CIs, fetch analysis from the base CI (where it's stored)
+        analysis_ci = row.get("base_ci_name") if row.get("is_published") else ci_name
+        analysis = db.get_showroom_analysis(analysis_ci or ci_name)
 
         candidates.append(Candidate(
             ci_name=ci_name,

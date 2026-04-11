@@ -319,7 +319,7 @@ body {
 .rec-expand-hint { font-size: 13px; color: #444; margin-left: auto; flex-shrink: 0; }
 
 /* Metadata pills row */
-.rec-pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.rec-pill-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .rec-pill {
   display: inline-block;
   background: #151822;

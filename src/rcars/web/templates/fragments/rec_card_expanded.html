@@ -1,11 +1,15 @@
 <div class="rec-expanded">
-  <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:6px;">
-    <div class="rec-detail-row"><span>Format:</span> {{ rec.suggested_format or '—' }}</div>
-    <div class="rec-detail-row"><span>Duration:</span> {{ rec.duration_notes or '—' }}</div>
+  {# CI name and catalog link — reference info #}
+  <div class="rec-detail-row" style="margin-bottom:6px;">
+    <span>CI:</span> {{ rec.ci_name }}
   </div>
 
+  {% if rec.duration_notes %}
+  <div class="rec-detail-row" style="margin-bottom:6px;"><span>Duration:</span> {{ rec.duration_notes }}</div>
+  {% endif %}
+
   {% if rec.caveats %}
-  <div class="rec-detail-row" style="margin-bottom:6px;"><span>Caveat:</span> {{ rec.caveats }}</div>
+  <div class="rec-caveat" style="margin-bottom:6px;">⚠ {{ rec.caveats }}</div>
   {% endif %}
 
   <div style="margin-bottom:6px;">
