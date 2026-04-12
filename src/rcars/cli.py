@@ -33,6 +33,23 @@ def cli(verbose: bool):
     logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
 
 
+@cli.command("init-db")
+@click.option("--drop", is_flag=True, default=False, help="Drop all tables before creating schema")
+def init_db(drop: bool):
+    """Initialize or reset the database schema."""
+    db = get_db()  # creates schema if missing
+
+    if drop:
+        console.print("[yellow]Dropping all tables...[/yellow]")
+        db.drop_schema()
+        db.create_schema()
+        console.print("[green]Schema recreated.[/green]")
+    else:
+        console.print("[green]Schema is up to date.[/green]")
+
+    db.close()
+
+
 @cli.command()
 @click.option(
     "--include-dev",
