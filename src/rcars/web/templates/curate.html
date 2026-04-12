@@ -126,14 +126,21 @@
   </div>
   {% endfor %}
 
-  {% if total > page_size %}
-  <div style="display:flex;gap:8px;margin-top:16px;justify-content:center;">
+  {% set total_pages = (total + page_size - 1) // page_size %}
+  {% if total_pages > 1 %}
+  <div style="display:flex;gap:6px;margin-top:16px;justify-content:center;align-items:center;flex-wrap:wrap;">
     {% if page > 1 %}
-    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page - 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Prev</a>
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page - 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">&laquo; Prev</a>
     {% endif %}
-    <span style="color:var(--text-muted);font-size:12px;padding:5px 0;">Page {{ page }}</span>
-    {% if (page * page_size) < total %}
-    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page + 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Next</a>
+    {% for p in range(1, total_pages + 1) %}
+      {% if p == page %}
+      <span style="color:var(--accent-blue);font-size:12px;padding:5px 8px;background:var(--bg-card);border-radius:4px;font-weight:600;">{{ p }}</span>
+      {% else %}
+      <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ p }}" style="color:var(--text-muted);font-size:12px;padding:5px 8px;text-decoration:none;">{{ p }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if page < total_pages %}
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page + 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Next &raquo;</a>
     {% endif %}
   </div>
   {% endif %}

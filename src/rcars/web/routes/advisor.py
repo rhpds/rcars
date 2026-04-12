@@ -171,6 +171,22 @@ def _run_advisor_query(
     is_curator = settings.is_curator(user)
 
     try:
+        # Detect URLs in the query and enhance with event context
+        urls = re.findall(r'https?://[^\s<>"]+', description)
+        if urls:
+            from rcars.event_parser import parse_event_url
+            for url in urls[:1]:  # Only parse the first URL
+                log.info("advisor: detected URL %s, fetching event profile", url)
+                event_profile = parse_event_url(url, client, settings.model)
+                if event_profile:
+                    themes = event_profile.get("themes", [])
+                    queries = event_profile.get("search_queries", [])
+                    event_name = event_profile.get("event_name", "")
+                    log.info("advisor: event=%s themes=%s", event_name, themes)
+                    description = f"{description}. Event: {event_name}. Themes: {', '.join(themes)}. {' '.join(queries)}"
+                else:
+                    log.warning("advisor: failed to parse event URL %s", url)
+
         for state in run_query(
             query=description,
             db=db,
