@@ -408,6 +408,8 @@ def analyze_showroom(
         log.info("analyze %s: %d content files (%d chars), %d filtered as boilerplate",
                  ci_name, len(content_files), total_chars, len(raw_files) - len(content_files))
 
+        content_hash = hash_showroom_content(content_files)
+
         # Build prompt and call Sonnet
         prompt = build_analysis_prompt(
             ci_name, display_name, category, product, content_files
@@ -461,6 +463,7 @@ def analyze_showroom(
             "module_embeddings": module_embeddings,
             "last_repo_commit": head_sha,
             "last_repo_updated": head_date,
+            "content_hash": content_hash,
         }
 
     except Exception:

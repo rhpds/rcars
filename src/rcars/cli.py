@@ -303,6 +303,9 @@ def scan(max_analyze: int | None, force: bool):
                         "use_cases_json": analysis.get("use_cases"),
                         "last_repo_commit": result.get("last_repo_commit"),
                         "last_repo_updated": result.get("last_repo_updated"),
+                        "content_hash": result.get("content_hash"),
+                        "is_stale": False,
+                        "stale_commit": None,
                     })
 
                     # Store embeddings
