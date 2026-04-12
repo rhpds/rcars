@@ -152,13 +152,20 @@ class Database:
         self._conn.commit()
 
     def drop_schema(self):
-        """Drop all tables. Only for testing."""
+        """Drop all tables, terminating other connections first."""
         # Table names are hardcoded literals, not user input — safe for f-string SQL
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "catalog_items", "alembic_version",
         ]
         with self._conn.cursor() as cur:
+            # Terminate other connections so DROP TABLE can acquire locks
+            cur.execute("""
+                SELECT pg_terminate_backend(pid)
+                FROM pg_stat_activity
+                WHERE datname = current_database()
+                  AND pid != pg_backend_pid()
+            """)
             for table in tables:
                 cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
         self._conn.commit()
