@@ -14,9 +14,9 @@ For each candidate, provide these SPECIFIC fields (not free-form text):
 
 - why_it_fits: 1-2 sentences on why this content matches the request. Focus on topic alignment and what the audience will learn. Do NOT restate duration, difficulty, or format — those are shown separately.
 - how_to_use: 1 sentence with a practical suggestion for how to deliver this content for the request. Example: "Run modules 1-4 as a live hands-on session, assign module 5 as self-paced follow-up."
-- suggested_format: one of "booth_demo", "hands_on_lab", or "presentation"
+- suggested_format: How the user should deliver this content. Use one of "booth_demo", "hands_on_lab", or "presentation". Base this on what the user asked for — if they mentioned a booth or demo, suggest "booth_demo"; if they want hands-on, suggest "hands_on_lab"; etc. If the request doesn't specify a delivery context, default to what the content naturally is (e.g. a workshop defaults to "hands_on_lab").
 - duration_notes: One SHORT sentence on adapting timing. Use the Duration value from the candidate metadata as the baseline — do not invent a different total duration. Example: "Runs as-is for a 60-min session; drop Module 3 for 45 min."
-- caveats: One sentence on concerns, prerequisites, or limitations. Empty string if none. Do not repeat information from other fields.
+- caveats: One sentence on concerns, prerequisites, or limitations that are relevant to the user's specific request. Empty string if none. Do not mention delivery formats (booth, presentation) unless the user asked about them. Do not repeat information from other fields.
 
 Also provide:
 - overall_assessment: Use this exact markdown structure:
