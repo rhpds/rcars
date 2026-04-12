@@ -28,6 +28,9 @@ data/
 # OS
 .DS_Store
 
+# MkDocs build output
+site/
+
 # Superpowers brainstorm artifacts
 .superpowers/
 
