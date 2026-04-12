@@ -14,6 +14,11 @@ console = Console()
 log = logging.getLogger("rcars")
 
 
+def _print(msg: str):
+    """Print and immediately flush so subprocess output is captured in real time."""
+    print(msg, flush=True)
+
+
 def get_db() -> Database:
     """Get database connection from settings. Creates schema if needed."""
     settings = Settings()
@@ -221,33 +226,47 @@ def scan(max_analyze: int | None, force: bool):
 
     anthropic_client = settings.get_anthropic_client()
     if not anthropic_client:
-        console.print("[red]Error:[/red] No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+        _print("ERROR: No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
         db.close()
         sys.exit(1)
 
+    # Gather candidates and log filtering decisions
     if force:
-        items = db.list_catalog_items()
-        items = [i for i in items if i.get("showroom_url")]
+        all_items = db.list_catalog_items()
+        with_showroom = [i for i in all_items if i.get("showroom_url")]
+        _print(f"Force mode: {len(all_items)} total items, {len(with_showroom)} with Showroom URLs")
+        items = with_showroom
     else:
         items = db.get_items_needing_analysis()
+        _print(f"Found {len(items)} items needing analysis")
 
-    # Filter to non-published items (analyze base CIs, not published VCIs)
+    # Filter out published CIs — base CIs own the Showroom content
+    published = [i for i in items if i.get("is_published")]
     items = [i for i in items if not i.get("is_published")]
+    if published:
+        _print(f"Skipped {len(published)} published CIs (analysis stored on base CI):")
+        for p in published:
+            _print(f"  skip: {p['ci_name']} (published, base={p.get('base_ci_name', '?')})")
 
     if max_analyze:
+        _print(f"Limiting to first {max_analyze} items (--max)")
         items = items[:max_analyze]
 
     if not items:
-        console.print("[green]Nothing to analyze.[/green] All items are up to date.")
+        _print("Nothing to analyze. All items are up to date.")
         db.close()
         return
 
-    console.print(f"[bold]Analyzing {len(items)} Showroom(s)...[/bold]")
+    _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
+    for item in items:
+        _print(f"  queued: {item['ci_name']}")
 
     completed = 0
     errors = 0
+    total = len(items)
 
     def process_item(item):
+        _print(f"  start: {item['ci_name']}")
         return analyze_showroom(
             ci_name=item["ci_name"],
             display_name=item.get("display_name", ""),
@@ -304,17 +323,17 @@ def scan(max_analyze: int | None, force: bool):
 
                     db.log_action(result["ci_name"], "analyze")
                     completed += 1
-                    console.print(f"  [green]✓[/green] {item['ci_name']}")
+                    _print(f"  done: [{completed}/{total}] {item['ci_name']}")
                 else:
                     errors += 1
                     db.log_action(item["ci_name"], "error", details="Analysis returned None")
-                    console.print(f"  [red]✗[/red] {item['ci_name']}")
+                    _print(f"  FAIL: {item['ci_name']} — analysis returned None")
             except Exception as e:
                 errors += 1
                 db.log_action(item["ci_name"], "error", details=str(e)[:200])
-                console.print(f"  [red]✗[/red] {item['ci_name']}: {e}")
+                _print(f"  FAIL: {item['ci_name']} — {e}")
 
-    console.print(f"\n[bold]Done.[/bold] {completed} analyzed, {errors} errors")
+    _print(f"Done. {completed}/{total} analyzed, {errors} errors")
     db.close()
 
 

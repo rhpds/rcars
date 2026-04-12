@@ -177,7 +177,8 @@ def test_analyze_status_done_success(admin_client):
     assert "Analysis complete" in response.text
     assert "catalog-status-table" in response.text
     assert "hx-swap-oob" in response.text
-    assert admin_mod._rescan_status["exit_ok"] is None
+    # exit_ok stays set so the result remains visible until the next scan
+    assert admin_mod._rescan_status["exit_ok"] is True
 
 
 def test_analyze_status_done_failure(admin_client):
@@ -195,4 +196,4 @@ def test_analyze_status_done_failure(admin_client):
     response = client.get("/admin/rescan/status")
     assert response.status_code == 200
     assert "failed" in response.text.lower()
-    assert admin_mod._rescan_status["exit_ok"] is None
+    assert admin_mod._rescan_status["exit_ok"] is False

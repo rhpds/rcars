@@ -320,32 +320,42 @@ def analyze_showroom(
 
     Returns None on failure.
     """
+    import time
+    t0 = time.monotonic()
     clone_path = None
     try:
         # Clone
+        log.info("analyze %s: cloning %s (ref=%s)", ci_name, showroom_url, showroom_ref or "default")
         clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir)
         if not clone_path:
+            log.error("analyze %s: clone failed", ci_name)
             return None
 
         # Get repo HEAD info
         head_sha, head_date = get_repo_head(clone_path)
+        log.info("analyze %s: cloned (HEAD=%s)", ci_name, head_sha[:8] if head_sha else "?")
 
         # Read content
         raw_files = read_showroom_content(clone_path)
         if not raw_files:
-            log.warning("No .adoc files found in %s", showroom_url)
+            log.warning("analyze %s: no .adoc files found in %s", ci_name, showroom_url)
             return None
 
         # Filter boilerplate
         content_files = filter_boilerplate_files(raw_files)
         if not content_files:
-            log.warning("All files filtered as boilerplate in %s", showroom_url)
-            content_files = raw_files  # Fall back to unfiltered
+            log.warning("analyze %s: all files filtered as boilerplate, using unfiltered", ci_name)
+            content_files = raw_files
+
+        total_chars = sum(len(v) for v in content_files.values())
+        log.info("analyze %s: %d content files (%d chars), %d filtered as boilerplate",
+                 ci_name, len(content_files), total_chars, len(raw_files) - len(content_files))
 
         # Build prompt and call Sonnet
         prompt = build_analysis_prompt(
             ci_name, display_name, category, product, content_files
         )
+        log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(prompt))
 
         response = anthropic_client.messages.create(
             model=model,
@@ -354,10 +364,15 @@ def analyze_showroom(
             messages=[{"role": "user", "content": prompt}],
         )
 
+        input_tokens = getattr(response.usage, 'input_tokens', 0)
+        output_tokens = getattr(response.usage, 'output_tokens', 0)
+        log.info("analyze %s: Sonnet response received (in=%d out=%d tokens)",
+                 ci_name, input_tokens, output_tokens)
+
         response_text = response.content[0].text
         analysis = parse_analysis_response(response_text)
         if not analysis:
-            log.error("Failed to parse analysis for %s", ci_name)
+            log.error("analyze %s: failed to parse Sonnet response", ci_name)
             return None
 
         # Generate embeddings
@@ -365,7 +380,8 @@ def analyze_showroom(
         ci_embedding = generate_embedding(ci_embedding_text)
 
         module_embeddings = []
-        for module in analysis.get("modules", []):
+        modules = analysis.get("modules", [])
+        for module in modules:
             mod_text = build_module_embedding_text(module)
             if mod_text.strip():
                 mod_embedding = generate_embedding(mod_text)
@@ -374,6 +390,10 @@ def analyze_showroom(
                     "content_text": mod_text,
                     "embedding": mod_embedding,
                 })
+
+        elapsed = time.monotonic() - t0
+        log.info("analyze %s: complete (%.1fs, %d modules, %d embeddings)",
+                 ci_name, elapsed, len(modules), 1 + len(module_embeddings))
 
         # Assemble result
         return {
@@ -385,6 +405,11 @@ def analyze_showroom(
             "last_repo_commit": head_sha,
             "last_repo_updated": head_date,
         }
+
+    except Exception:
+        elapsed = time.monotonic() - t0
+        log.exception("analyze %s: failed after %.1fs", ci_name, elapsed)
+        raise
 
     finally:
         # Always clean up clone

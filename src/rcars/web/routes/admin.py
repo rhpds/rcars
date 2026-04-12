@@ -185,8 +185,8 @@ async def rescan_status(
     if _rescan_status["exit_ok"] is not None:
         exit_ok = _rescan_status["exit_ok"]
         lines = list(_rescan_status["lines"])
-        _rescan_status["exit_ok"] = None
-        msg = "Analysis complete." if exit_ok else "Analysis failed."
+        # Don't clear exit_ok here — keep the result visible until the next scan starts.
+        msg = "Analysis complete." if exit_ok else "Analysis failed — check logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
         return HTMLResponse(_rescan_section_idle(msg, color, lines) + _status_table_oob(db))
     return HTMLResponse(_rescan_section_idle())
