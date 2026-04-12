@@ -340,6 +340,113 @@ def scan(max_analyze: int | None, force: bool):
     db.close()
 
 
+@cli.command("check-stale")
+@click.option("--threshold", type=float, default=0.05,
+              help="Minimum change ratio to mark stale (0.0-1.0, default 0.05 = 5%%)")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Report changes without marking anything stale")
+def check_stale(threshold: float, dry_run: bool):
+    """Check analyzed Showrooms for content changes since last scan."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from rcars.analyzer import (
+        clone_showroom, read_showroom_content, filter_boilerplate_files,
+        hash_showroom_content, get_repo_head,
+    )
+
+    settings = Settings()
+    db = get_db()
+
+    analyzed = db.get_analyzed_items()
+    # Only check base CIs (published CIs don't have their own showrooms)
+    analyzed = [a for a in analyzed if not a.get("is_published")]
+    _print(f"Checking {len(analyzed)} analyzed Showrooms for content changes (threshold={threshold:.0%})...")
+
+    stale_count = 0
+    unchanged_count = 0
+    error_count = 0
+    total = len(analyzed)
+
+    def check_item(item):
+        ci_name = item["ci_name"]
+        clone_path = clone_showroom(item["showroom_url"], item.get("showroom_ref"), settings.clone_dir)
+        if not clone_path:
+            return {"ci_name": ci_name, "status": "error", "reason": "clone failed"}
+
+        try:
+            head_sha, _ = get_repo_head(clone_path)
+            raw_files = read_showroom_content(clone_path)
+            if not raw_files:
+                return {"ci_name": ci_name, "status": "error", "reason": "no .adoc files"}
+
+            content_files = filter_boilerplate_files(raw_files)
+            if not content_files:
+                content_files = raw_files
+
+            new_hash = hash_showroom_content(content_files)
+            old_hash = item.get("content_hash")
+
+            if old_hash and new_hash == old_hash:
+                return {"ci_name": ci_name, "status": "unchanged", "head_sha": head_sha}
+
+            # No old hash — backfill without marking stale
+            if old_hash is None:
+                return {
+                    "ci_name": ci_name, "status": "backfill",
+                    "head_sha": head_sha, "new_hash": new_hash,
+                }
+
+            # Hash differs and old hash existed — content changed
+            new_content = "\n".join(content_files[f] for f in sorted(content_files))
+            total_chars = len(new_content)
+            return {
+                "ci_name": ci_name, "status": "stale",
+                "head_sha": head_sha, "new_hash": new_hash,
+                "total_chars": total_chars,
+            }
+        finally:
+            import shutil
+            if clone_path and clone_path.exists():
+                shutil.rmtree(clone_path, ignore_errors=True)
+
+    with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
+        futures = {executor.submit(check_item, item): item for item in analyzed}
+
+        for future in as_completed(futures):
+            item = futures[future]
+            ci_name = item["ci_name"]
+            try:
+                result = future.result()
+                status = result["status"]
+
+                if status == "unchanged":
+                    unchanged_count += 1
+                    _print(f"  unchanged: {ci_name}")
+                elif status == "backfill":
+                    if not dry_run:
+                        db.upsert_showroom_analysis({
+                            "ci_name": ci_name,
+                            "content_hash": result["new_hash"],
+                        })
+                    _print(f"  backfill:  {ci_name} (hash stored, not marked stale)")
+                elif status == "stale":
+                    stale_count += 1
+                    if not dry_run:
+                        db.mark_stale(ci_name, new_commit=result.get("head_sha"))
+                    prefix = "STALE" if not dry_run else "would-mark"
+                    _print(f"  {prefix}:    {ci_name} (content changed, {result.get('total_chars', '?')} chars)")
+                elif status == "error":
+                    error_count += 1
+                    _print(f"  ERROR:     {ci_name} — {result.get('reason', '?')}")
+            except Exception as e:
+                error_count += 1
+                _print(f"  ERROR:     {ci_name} — {e}")
+
+    _print(f"\nDone. {unchanged_count} unchanged, {stale_count} stale, {error_count} errors (of {total})")
+    if stale_count > 0 and not dry_run:
+        _print(f"Run 'rcars scan' to re-analyze stale items.")
+    db.close()
+
+
 @cli.command()
 @click.argument("query")
 @click.option("--url", "event_url", type=str, default=None, help="Event URL to analyze")
