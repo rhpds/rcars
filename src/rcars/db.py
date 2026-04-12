@@ -297,9 +297,13 @@ class Database:
             cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE")
             prod = cur.fetchone()["count"]
 
-            cur.execute(
-                "SELECT COUNT(*) as count FROM catalog_items WHERE showroom_url IS NOT NULL AND showroom_url != ''"
-            )
+            # Scannable = has Showroom URL AND is not a published CI
+            # (published CIs inherit the URL but base CIs own the content)
+            cur.execute("""
+                SELECT COUNT(*) as count FROM catalog_items
+                WHERE showroom_url IS NOT NULL AND showroom_url != ''
+                  AND (is_published IS NULL OR is_published = FALSE)
+            """)
             with_showroom = cur.fetchone()["count"]
 
             cur.execute("SELECT COUNT(*) as count FROM showroom_analysis")

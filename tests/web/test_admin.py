@@ -71,7 +71,7 @@ def test_sync_catalog_returns_running_fragment(admin_client):
         mock_thread.return_value.start = MagicMock()
         response = client.post("/admin/refresh")
     assert response.status_code == 200
-    assert "every 2s" in response.text
+    assert "every 3s" in response.text
     assert "/admin/refresh/status" in response.text
     assert "Syncing" in response.text
 
@@ -94,7 +94,7 @@ def test_sync_catalog_status_running(admin_client):
     admin_mod._refresh_status = {"running": True, "result": None, "color": None}
     response = client.get("/admin/refresh/status")
     assert response.status_code == 200
-    assert "every 2s" in response.text
+    assert "every 3s" in response.text
     assert "Syncing" in response.text
     admin_mod._refresh_status = {"running": False, "result": None, "color": None}
 
@@ -128,7 +128,7 @@ def test_analyze_returns_running_fragment(admin_client):
         mock_thread.return_value.start = MagicMock()
         response = client.post("/admin/rescan")
     assert response.status_code == 200
-    assert "every 2s" in response.text
+    assert "every 3s" in response.text
     assert "/admin/rescan/status" in response.text
     assert "Analysis" in response.text
 
@@ -155,7 +155,7 @@ def test_analyze_status_running_shows_lines(admin_client):
     }
     response = client.get("/admin/rescan/status")
     assert response.status_code == 200
-    assert "every 2s" in response.text
+    assert "every 3s" in response.text
     assert "Cloning lb1024" in response.text
     admin_mod._rescan_status = {"running": False, "lines": [], "exit_ok": None}
 

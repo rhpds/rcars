@@ -9,7 +9,7 @@
       <tr><th>Metric</th><th>Count</th></tr>
       <tr><td>Total catalog items</td><td>{{ status.total }}</td></tr>
       <tr><td>Production items</td><td>{{ status.prod }}</td></tr>
-      <tr><td>With Showroom content</td><td>{{ status.with_showroom }}</td></tr>
+      <tr><td>With Showroom (scannable)</td><td>{{ status.with_showroom }}</td></tr>
       <tr><td>Analyzed</td><td>{{ status.analyzed }}</td></tr>
       <tr><td>Stale (needs rescan)</td><td style="color:{% if status.stale > 0 %}var(--score-amber){% else %}var(--score-green){% endif %};">{{ status.stale }}</td></tr>
     </table>
@@ -20,14 +20,7 @@
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
       Pull latest catalog metadata from Babylon CRDs into the database. Fast (~30 seconds).
     </p>
-    <div id="refresh-section">
-      <button class="btn-action"
-              hx-post="/admin/refresh"
-              hx-target="#refresh-section"
-              hx-swap="outerHTML">
-        Sync Catalog
-      </button>
-    </div>
+    {{ refresh_html }}
   </div>
 
   <div class="admin-section">
@@ -35,14 +28,7 @@
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
       Clone and re-analyze Showroom repos via Sonnet. Runs in background (~30–60 min).
     </p>
-    <div id="rescan-section">
-      <button class="btn-action"
-              hx-post="/admin/rescan"
-              hx-target="#rescan-section"
-              hx-swap="outerHTML">
-        Analyze Showroom Content
-      </button>
-    </div>
+    {{ rescan_html }}
   </div>
 
   <div class="admin-section">
@@ -50,14 +36,7 @@
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
       Check if any analyzed Showrooms have changed since last scan. Marks changed items as stale for re-analysis.
     </p>
-    <div id="stale-section">
-      <button class="btn-action"
-              hx-post="/admin/check-stale"
-              hx-target="#stale-section"
-              hx-swap="outerHTML">
-        Check for Updates
-      </button>
-    </div>
+    {{ stale_html }}
   </div>
 
   <div class="admin-section">

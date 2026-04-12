@@ -15,8 +15,10 @@ log = logging.getLogger("rcars")
 
 
 def _print(msg: str):
-    """Print and immediately flush so subprocess output is captured in real time."""
-    print(msg, flush=True)
+    """Print with timestamp and immediately flush for subprocess capture."""
+    from datetime import datetime
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"{ts} {msg}", flush=True)
 
 
 def get_db() -> Database:
@@ -35,7 +37,11 @@ def get_db() -> Database:
 def cli(verbose: bool):
     """RCARS — RHDP Content Advisory & Recommendation System."""
     level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(level=level, format="%(levelname)s: %(message)s")
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
 
 @cli.command("init-db")
