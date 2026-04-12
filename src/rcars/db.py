@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
     last_analyzed TIMESTAMPTZ,
     is_stale BOOLEAN DEFAULT FALSE,
     stale_commit TEXT,
+    content_hash TEXT,
     enrichment_review_needed BOOLEAN DEFAULT FALSE,
     notes TEXT
 );
@@ -162,6 +163,14 @@ class Database:
                     )
                 """)
                 cur.execute("INSERT INTO alembic_version (version_num) VALUES ('001')")
+
+            # Migration 002: add content_hash column
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_name = 'showroom_analysis' AND column_name = 'content_hash'
+            """)
+            if not cur.fetchone():
+                cur.execute("ALTER TABLE showroom_analysis ADD COLUMN content_hash TEXT")
         self._conn.commit()
 
     def drop_schema(self):
@@ -318,7 +327,7 @@ class Database:
             "difficulty", "estimated_duration_min",
             "event_fit_json", "use_cases_json",
             "last_repo_commit", "last_repo_updated",
-            "last_analyzed", "is_stale", "stale_commit",
+            "last_analyzed", "is_stale", "stale_commit", "content_hash",
             "enrichment_review_needed",
         ]
         present = {k: analysis.get(k) for k in fields if k in analysis}
@@ -428,17 +437,52 @@ class Database:
             return cur.fetchall()
 
     def get_items_needing_analysis(self) -> list[dict[str, Any]]:
-        """Get catalog items with Showroom URLs but no analysis."""
+        """Get catalog items that need analysis: unanalyzed or stale."""
         with self._conn.cursor() as cur:
             cur.execute("""
                 SELECT ci.* FROM catalog_items ci
                 LEFT JOIN showroom_analysis sa ON ci.ci_name = sa.ci_name
                 WHERE ci.showroom_url IS NOT NULL
-                AND ci.showroom_url != ''
-                AND sa.ci_name IS NULL
+                  AND ci.showroom_url != ''
+                  AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
                 ORDER BY ci.ci_name
             """)
             return cur.fetchall()
+
+    def get_analyzed_items(self) -> list[dict[str, Any]]:
+        """Get all analyzed catalog items with their Showroom metadata."""
+        with self._conn.cursor() as cur:
+            cur.execute("""
+                SELECT ci.ci_name, ci.showroom_url, ci.showroom_ref,
+                       ci.is_published, ci.base_ci_name,
+                       sa.last_repo_commit, sa.content_hash
+                FROM showroom_analysis sa
+                JOIN catalog_items ci ON sa.ci_name = ci.ci_name
+                WHERE ci.showroom_url IS NOT NULL
+                  AND ci.showroom_url != ''
+                ORDER BY ci.ci_name
+            """)
+            return cur.fetchall()
+
+    def mark_stale(self, ci_name: str, new_commit: str | None = None) -> None:
+        """Mark a showroom analysis as stale."""
+        with self._conn.cursor() as cur:
+            cur.execute("""
+                UPDATE showroom_analysis
+                SET is_stale = TRUE, stale_commit = %(commit)s
+                WHERE ci_name = %(ci_name)s
+            """, {"ci_name": ci_name, "commit": new_commit})
+        self._conn.commit()
+
+    def clear_stale(self, ci_name: str) -> None:
+        """Clear the stale flag after a successful rescan."""
+        with self._conn.cursor() as cur:
+            cur.execute("""
+                UPDATE showroom_analysis
+                SET is_stale = FALSE, stale_commit = NULL
+                WHERE ci_name = %(ci_name)s
+            """, {"ci_name": ci_name})
+        self._conn.commit()
 
     def add_enrichment_tag(self, ci_name: str, tag_type: str, tag_value: str, added_by: str | None = None) -> None:
         """Add a tag to a catalog item. Silently ignores duplicates."""
