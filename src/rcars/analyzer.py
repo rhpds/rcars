@@ -4,6 +4,7 @@ Clones Showroom repos, reads AsciiDoc content, sends to Sonnet for
 structured analysis, generates embeddings, and stores results.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -113,6 +114,62 @@ def filter_boilerplate_files(files: dict[str, str]) -> dict[str, str]:
             filtered[filename] = content
 
     return filtered
+
+
+def hash_showroom_content(files: dict[str, str]) -> str:
+    """Produce a deterministic SHA-256 hash of showroom content files.
+
+    Normalizes whitespace so that trailing spaces, blank line differences,
+    and line ending changes don't produce a different hash. Files are
+    sorted by name for stable ordering.
+    """
+    h = hashlib.sha256()
+    for filename in sorted(files.keys()):
+        content = files[filename]
+        # Normalize: strip trailing whitespace per line, collapse blank lines
+        lines = [line.rstrip() for line in content.splitlines()]
+        normalized = "\n".join(line for line in lines if line or (lines and lines[-1]))
+        normalized = re.sub(r'\n{3,}', '\n\n', normalized).strip()
+        h.update(filename.encode())
+        h.update(b"\x00")
+        h.update(normalized.encode())
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+def check_showroom_stale(
+    clone_path: Path,
+    old_content_hash: str | None,
+) -> dict[str, Any]:
+    """Check if a cloned showroom has materially changed since last analysis.
+
+    Returns dict with:
+        is_stale: bool — True if content hash differs from old_content_hash
+        content_hash: str — current content hash
+        head_sha: str | None — current HEAD commit
+        content_chars: int — total characters in filtered content
+    """
+    head_sha, _ = get_repo_head(clone_path)
+
+    raw_files = read_showroom_content(clone_path)
+    if not raw_files:
+        return {"is_stale": False, "content_hash": None, "head_sha": head_sha, "content_chars": 0}
+
+    content_files = filter_boilerplate_files(raw_files)
+    if not content_files:
+        content_files = raw_files
+
+    content_hash = hash_showroom_content(content_files)
+    content_chars = sum(len(v) for v in content_files.values())
+
+    is_stale = old_content_hash is None or content_hash != old_content_hash
+
+    return {
+        "is_stale": is_stale,
+        "content_hash": content_hash,
+        "head_sha": head_sha,
+        "content_chars": content_chars,
+    }
 
 
 def truncate_content(content: str, max_chars: int = 150000) -> str:

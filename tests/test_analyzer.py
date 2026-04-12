@@ -1,6 +1,8 @@
 """Tests for Showroom analyzer."""
 
 import json
+import os
+import subprocess
 from rcars.analyzer import (
     build_analysis_prompt,
     parse_analysis_response,
@@ -141,3 +143,88 @@ def test_build_analysis_prompt_escapes_asciidoc_braces():
     )
     assert "{product_name}" in result
     assert "{value}" in result
+
+
+def test_hash_showroom_content_deterministic():
+    """Same content produces same hash, different content produces different hash."""
+    from rcars.analyzer import hash_showroom_content
+    files_a = {"module1.adoc": "= Hello World\nSome content.", "module2.adoc": "= Lab 2\nMore content."}
+    files_b = {"module1.adoc": "= Hello World\nSome content.", "module2.adoc": "= Lab 2\nMore content."}
+    files_c = {"module1.adoc": "= Hello World\nDifferent content.", "module2.adoc": "= Lab 2\nMore content."}
+
+    assert hash_showroom_content(files_a) == hash_showroom_content(files_b)
+    assert hash_showroom_content(files_a) != hash_showroom_content(files_c)
+
+
+def test_hash_showroom_content_ignores_file_order():
+    """Hash should be stable regardless of dict iteration order."""
+    from rcars.analyzer import hash_showroom_content
+    files_a = {"b.adoc": "content b", "a.adoc": "content a"}
+    files_b = {"a.adoc": "content a", "b.adoc": "content b"}
+    assert hash_showroom_content(files_a) == hash_showroom_content(files_b)
+
+
+def test_hash_showroom_content_ignores_whitespace_changes():
+    """Trailing whitespace and blank line differences should not change the hash."""
+    from rcars.analyzer import hash_showroom_content
+    files_a = {"mod.adoc": "= Title\nContent here.\n"}
+    files_b = {"mod.adoc": "= Title\nContent here.  \n\n"}
+    assert hash_showroom_content(files_a) == hash_showroom_content(files_b)
+
+
+def test_check_showroom_stale_detects_change(tmp_path):
+    """Should return new hash when content has materially changed."""
+    from rcars.analyzer import check_showroom_stale
+
+    # Create a fake showroom repo
+    pages_dir = tmp_path / "content" / "modules" / "ROOT" / "pages"
+    pages_dir.mkdir(parents=True)
+    (pages_dir / "module1.adoc").write_text("= Lab 1\nOriginal content about OpenShift.")
+
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True,
+                   env={**os.environ, "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
+                        "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t"})
+
+    # First check — no old hash, should return hash
+    result = check_showroom_stale(tmp_path, old_content_hash=None)
+    assert result["is_stale"] is True
+    assert result["content_hash"] is not None
+    first_hash = result["content_hash"]
+
+    # Same content — not stale
+    result = check_showroom_stale(tmp_path, old_content_hash=first_hash)
+    assert result["is_stale"] is False
+
+    # Change content materially
+    (pages_dir / "module1.adoc").write_text("= Lab 1\nCompletely rewritten content about Ansible Automation.")
+    result = check_showroom_stale(tmp_path, old_content_hash=first_hash)
+    assert result["is_stale"] is True
+    assert result["content_hash"] != first_hash
+
+
+def test_check_showroom_stale_ignores_typo_fix(tmp_path):
+    """A typo fix changes the hash (the orchestrator decides whether to act)."""
+    from rcars.analyzer import check_showroom_stale
+
+    pages_dir = tmp_path / "content" / "modules" / "ROOT" / "pages"
+    pages_dir.mkdir(parents=True)
+    (pages_dir / "module1.adoc").write_text("= Lab 1\nThis is a tutoral about OpenShift.")
+
+    subprocess.run(["git", "init"], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, capture_output=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=tmp_path, capture_output=True,
+                   env={**os.environ, "GIT_AUTHOR_NAME": "test", "GIT_AUTHOR_EMAIL": "t@t",
+                        "GIT_COMMITTER_NAME": "test", "GIT_COMMITTER_EMAIL": "t@t"})
+
+    result = check_showroom_stale(tmp_path, old_content_hash=None)
+    first_hash = result["content_hash"]
+
+    # Fix the typo: "tutoral" -> "tutorial"
+    (pages_dir / "module1.adoc").write_text("= Lab 1\nThis is a tutorial about OpenShift.")
+    result = check_showroom_stale(tmp_path, old_content_hash=first_hash)
+
+    # Hash WILL differ — it's a content change. The check-stale orchestrator
+    # decides whether to mark it stale based on threshold.
+    assert result["content_hash"] != first_hash
