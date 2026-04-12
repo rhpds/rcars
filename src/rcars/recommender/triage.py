@@ -74,20 +74,23 @@ def triage(
     for candidate in state.candidates:
         score_data = scores_by_ci.get(candidate.ci_name)
         if not score_data:
-            log.debug("triage: %s not in Haiku response, treating as irrelevant", candidate.ci_name)
+            log.info("  triage: dropped %s — not in Haiku response", candidate.ci_name)
             continue
 
         relevance = score_data.get("relevance_score", 0)
         relevant = score_data.get("relevant", False)
+        reason = score_data.get("one_line_reason", "")
 
         if not relevant or relevance < triage_cutoff:
-            log.debug("triage: %s filtered (score=%d, relevant=%s)", candidate.ci_name, relevance, relevant)
+            log.info("  triage: dropped %s — score=%d relevant=%s (%s)",
+                     candidate.ci_name, relevance, relevant, reason)
             continue
 
         candidate.relevance_score = relevance
         candidate.relevant = True
-        candidate.one_line_reason = score_data.get("one_line_reason", "")
+        candidate.one_line_reason = reason
         survivors.append(candidate)
+        log.info("  triage: kept %s — score=%d (%s)", candidate.ci_name, relevance, reason)
 
     survivors.sort(key=lambda c: c.relevance_score or 0, reverse=True)
 

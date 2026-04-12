@@ -117,6 +117,9 @@ def search(
         "vector search: %d candidates (cutoff=%.2f, elapsed=%.3fs)",
         len(candidates), distance_cutoff, elapsed,
     )
+    for c in candidates:
+        log.info("  vector: %s (%s) dist=%.3f sim=%d%%",
+                 c.ci_name, c.display_name, c.vector_distance, c.vector_similarity_pct)
 
     return QueryState(
         phase=phase,
