@@ -110,16 +110,29 @@ CREATE INDEX IF NOT EXISTS idx_analysis_log_created_at ON analysis_log(created_a
 
 
 class Database:
-    """PostgreSQL database connection and operations."""
+    """PostgreSQL database connection and operations.
+
+    Automatically reconnects if the connection is lost (e.g. server
+    restart, admin termination via pg_terminate_backend, idle timeout).
+    """
 
     def __init__(self, database_url: str):
         self._url = database_url
-        self._conn = psycopg.connect(database_url, row_factory=dict_row)
-        self._conn.autocommit = False
+        self.__conn = psycopg.connect(database_url, row_factory=dict_row)
+        self.__conn.autocommit = False
+
+    @property
+    def _conn(self):
+        """Return the connection, reconnecting if it was closed or terminated."""
+        if self.__conn.closed:
+            log.info("database connection lost, reconnecting")
+            self.__conn = psycopg.connect(self._url, row_factory=dict_row)
+            self.__conn.autocommit = False
+        return self.__conn
 
     def close(self):
         """Close the database connection."""
-        self._conn.close()
+        self.__conn.close()
 
     def create_schema(self):
         """Create all tables if they don't exist, and apply migrations.
