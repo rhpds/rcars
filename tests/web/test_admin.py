@@ -197,3 +197,13 @@ def test_analyze_status_done_failure(admin_client):
     assert response.status_code == 200
     assert "failed" in response.text.lower()
     assert admin_mod._rescan_status["exit_ok"] is False
+
+
+def test_check_stale_starts(admin_client):
+    """POST /admin/check-stale should start the check and return running state."""
+    client, mock_db = admin_client
+    import rcars.web.routes.admin as admin_mod
+    admin_mod._stale_check_status = {"running": False, "lines": [], "exit_ok": None}
+    response = client.post("/admin/check-stale")
+    assert response.status_code == 200
+    assert "Checking Showrooms" in response.text

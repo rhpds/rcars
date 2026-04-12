@@ -46,6 +46,21 @@
   </div>
 
   <div class="admin-section">
+    <h3>Content Updates</h3>
+    <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
+      Check if any analyzed Showrooms have changed since last scan. Marks changed items as stale for re-analysis.
+    </p>
+    <div id="stale-section">
+      <button class="btn-action"
+              hx-post="/admin/check-stale"
+              hx-target="#stale-section"
+              hx-swap="outerHTML">
+        Check for Updates
+      </button>
+    </div>
+  </div>
+
+  <div class="admin-section">
     <h3>Curator Access</h3>
     <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">
       Set via <code>RCARS_CURATOR_EMAILS</code> environment variable (comma-separated).

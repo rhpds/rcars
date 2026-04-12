@@ -15,6 +15,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 _rescan_status: dict = {"running": False, "lines": [], "exit_ok": None}
 _refresh_status: dict = {"running": False, "result": None, "color": None}
+_stale_check_status: dict = {"running": False, "lines": [], "exit_ok": None}
 
 
 def _get_db_dependency() -> Database | None:
@@ -112,6 +113,38 @@ def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None
 </div>"""
 
 
+def _stale_section_running(lines: list[str]) -> str:
+    recent = lines[-20:] if lines else []
+    log_html = "\n".join(f'<div>{_html.escape(line)}</div>' for line in recent) if recent else ""
+    log_block = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_html}</div>""" if log_html else ""
+    return f"""<div id="stale-section"
+     hx-get="/admin/check-stale/status"
+     hx-trigger="every 2s"
+     hx-target="this"
+     hx-swap="outerHTML">
+  <button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Check for Updates</button>
+  <span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Checking Showrooms…</span>
+  {log_block}
+</div>"""
+
+
+def _stale_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
+    status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{msg}</span>' if msg else ""
+    log_html = ""
+    if lines:
+        recent = lines[-20:]
+        log_content = "\n".join(f'<div>{_html.escape(line)}</div>' for line in recent)
+        log_html = f"""<div style="margin-top:10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;padding:8px 10px;font-size:10px;font-family:monospace;color:var(--text-muted);white-space:pre-wrap;max-height:200px;overflow-y:auto;">{log_content}</div>"""
+    return f"""<div id="stale-section">
+  <button class="btn-action"
+          hx-post="/admin/check-stale"
+          hx-target="#stale-section"
+          hx-swap="outerHTML">Check for Updates</button>
+  {status_span}
+  {log_html}
+</div>"""
+
+
 def _run_rescan():
     global _rescan_status
     _rescan_status["lines"] = ["Starting analysis\u2026"]
@@ -138,6 +171,32 @@ def _run_rescan():
         _rescan_status["running"] = False
 
 
+def _run_stale_check():
+    global _stale_check_status
+    _stale_check_status["lines"] = ["Starting stale check\u2026"]
+    _stale_check_status["exit_ok"] = None
+    try:
+        proc = subprocess.Popen(
+            ["rcars", "check-stale"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        for line in proc.stdout:
+            line = line.rstrip("\n")
+            if line:
+                _stale_check_status["lines"].append(line)
+                if len(_stale_check_status["lines"]) > 500:
+                    _stale_check_status["lines"] = _stale_check_status["lines"][-500:]
+        proc.wait(timeout=3600)
+        _stale_check_status["exit_ok"] = proc.returncode == 0
+    except Exception as e:
+        _stale_check_status["lines"].append(f"Error: {e}")
+        _stale_check_status["exit_ok"] = False
+    finally:
+        _stale_check_status["running"] = False
+
+
 @router.get("/admin", response_class=HTMLResponse)
 async def admin(
     request: Request,
@@ -158,6 +217,36 @@ async def admin(
         "curator_emails": settings.curator_emails,
     }
     return templates.TemplateResponse(request=request, name="admin.html", context=ctx)
+
+
+@router.post("/admin/check-stale", response_class=HTMLResponse)
+async def trigger_stale_check(
+    user: str = Depends(require_admin),
+):
+    if _stale_check_status["running"]:
+        return HTMLResponse(_stale_section_running(_stale_check_status["lines"]))
+    _stale_check_status["running"] = True
+    _stale_check_status["lines"] = []
+    _stale_check_status["exit_ok"] = None
+    t = threading.Thread(target=_run_stale_check, daemon=True)
+    t.start()
+    return HTMLResponse(_stale_section_running([]))
+
+
+@router.get("/admin/check-stale/status", response_class=HTMLResponse)
+async def stale_check_status(
+    user: str = Depends(require_admin),
+    db: Database = Depends(_get_db_dependency),
+):
+    if _stale_check_status["running"]:
+        return HTMLResponse(_stale_section_running(_stale_check_status["lines"]))
+    if _stale_check_status["exit_ok"] is not None:
+        exit_ok = _stale_check_status["exit_ok"]
+        lines = list(_stale_check_status["lines"])
+        msg = "Check complete." if exit_ok else "Check failed — see logs above."
+        color = "var(--score-green)" if exit_ok else "var(--score-red)"
+        return HTMLResponse(_stale_section_idle(msg, color, lines) + _status_table_oob(db))
+    return HTMLResponse(_stale_section_idle())
 
 
 @router.post("/admin/rescan", response_class=HTMLResponse)
