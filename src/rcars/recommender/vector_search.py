@@ -69,13 +69,25 @@ def search(
     for row in rows_by_content.values():
         ci_name = row["ci_name"]
 
-        # If this is a base CI that has a published_ci_name, skip it —
-        # the published CI should have been picked above, but if it wasn't
-        # in the search results at all, still don't recommend an unorderable item.
+        # Base CI with a published counterpart: promote to the published CI.
+        # Embeddings live on the base CI (it owns the Showroom), but users
+        # can only order the published CI, so present that identity instead.
         if row.get("published_ci_name") and not row.get("is_published"):
-            log.debug("vector search: skipping base CI %s (published=%s not in results)",
-                       ci_name, row["published_ci_name"])
-            continue
+            published_item = db.get_catalog_item(row["published_ci_name"])
+            if published_item:
+                log.debug("vector search: promoting base CI %s → published %s",
+                           ci_name, row["published_ci_name"])
+                base_ci_name = ci_name
+                ci_name = published_item["ci_name"]
+                row = {**row,
+                       "ci_name": ci_name,
+                       "display_name": published_item.get("display_name", ci_name),
+                       "category": published_item.get("category", row.get("category", "")),
+                       "is_published": True,
+                       "base_ci_name": base_ci_name}
+            else:
+                log.debug("vector search: base CI %s has published_ci_name=%s but not in DB, keeping base",
+                           ci_name, row["published_ci_name"])
 
         # Analysis is stored on the base CI — look it up there
         analysis_ci = row.get("base_ci_name") if row.get("is_published") else ci_name

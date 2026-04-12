@@ -69,6 +69,13 @@ def _analyze_section_idle(ci_name: str, msg: str = "", color: str = "") -> str:
 
 
 def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings):
+    """Run Showroom analysis in a background thread.
+
+    If the item is a published CI with a base_ci_name, the analysis and
+    embeddings are stored under the base CI's name (the base CI owns the
+    Showroom content).  The advisor's vector search will promote base → published
+    at recommendation time.
+    """
     global _item_analyze_status
     try:
         from rcars.analyzer import analyze_showroom
@@ -80,8 +87,16 @@ def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings
                 "color": "var(--score-red)",
             }
             return
+
+        # Published CIs don't own Showroom content — their base CI does.
+        # Store analysis/embeddings under the base CI so there's one
+        # canonical copy that vector search can find.
+        store_ci = ci_name
+        if item.get("is_published") and item.get("base_ci_name"):
+            store_ci = item["base_ci_name"]
+
         result = analyze_showroom(
-            ci_name=ci_name,
+            ci_name=store_ci,
             display_name=item.get("display_name", ""),
             category=item.get("category", ""),
             product=item.get("product", ""),
@@ -94,7 +109,7 @@ def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings
         if result:
             analysis = result["analysis"]
             db.upsert_showroom_analysis({
-                "ci_name": result["ci_name"],
+                "ci_name": store_ci,
                 "content_type": analysis.get("content_type"),
                 "summary": analysis.get("summary"),
                 "products_json": analysis.get("products"),
@@ -111,22 +126,23 @@ def _run_item_analyze(ci_name: str, item: dict, db: Database, settings: Settings
             })
             if result.get("ci_embedding"):
                 db.store_embedding(
-                    ci_name=ci_name,
+                    ci_name=store_ci,
                     embed_type="ci_summary",
                     content_text=result.get("ci_embedding_text", ""),
                     embedding=result["ci_embedding"],
                 )
             for mod_emb in result.get("module_embeddings", []):
                 db.store_embedding(
-                    ci_name=ci_name,
+                    ci_name=store_ci,
                     embed_type="module",
                     module_title=mod_emb["module_title"],
                     content_text=mod_emb["content_text"],
                     embedding=mod_emb["embedding"],
                 )
+            suffix = f" (stored on base CI {store_ci})" if store_ci != ci_name else ""
             _item_analyze_status[ci_name] = {
                 "running": False,
-                "result": "Analysis complete.",
+                "result": f"Analysis complete.{suffix}",
                 "color": "var(--score-green)",
             }
         else:
