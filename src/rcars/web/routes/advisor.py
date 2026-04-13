@@ -229,6 +229,12 @@ def _run_advisor_query(
                 recs = _enrich_recs(recs, db)
                 overall = state.overall_assessment or f"Found {len(recs)} matches."
 
+                # Ensure content gaps are surfaced even if Sonnet
+                # omitted them from the overall_assessment text
+                if state.content_gaps and "Content Gaps" not in (overall or ""):
+                    gaps_text = "\n".join(f"- {g}" for g in state.content_gaps)
+                    overall += f"\n\n**Content Gaps:**\n{gaps_text}"
+
                 turns = _sessions.setdefault(session_id, [])
                 turns.append({
                     "role": "assistant", "content": overall,
