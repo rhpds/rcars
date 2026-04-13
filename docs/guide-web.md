@@ -38,13 +38,21 @@ RCARS understands natural language. Write what you actually need, not a keyword 
 - *"We have a 3-hour hands-on lab slot at an AAP-focused event. The audience is IT operations people, mostly Windows admins moving to Linux. What fits?"*
 - *"I need something for a financial services customer who wants to see how Red Hat handles compliance and security in OpenShift."*
 
+**Pasting an event URL:**
+
+You can paste a conference or event URL directly into the chat. RCARS will fetch the event page and follow links to schedule, program, tracks, and talks pages on the same site. It sends that content to Claude Sonnet to extract the event's themes, audience, and format details, then uses that context to find matching catalog content.
+
+- *`https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/`*
+
+For broad multi-track events, use a follow-up message to narrow results to a specific area — for example: *"Focus on platform and infrastructure content"*.
+
 **What makes a query effective:**
 
 - **Audience** — developers, ops, architects, executives, mixed
 - **Format** — booth demo, hands-on lab, presentation support
 - **Duration** — 20 minutes, half-day, 90 minutes
 - **Topic or product** — if you already know the focus area
-- **Event context** — conference name, industry, theme
+- **Event context** — conference name, industry, theme, or just paste the URL
 
 You do not need all of these. Even a short query like *"OpenShift demos for a developer audience"* returns useful results. More context narrows the ranking.
 
@@ -60,20 +68,23 @@ Each result appears as a card in the right pane. Cards are ranked by fit score.
 
 Each card shows:
 
+- **Score** — the fit percentage, color-coded green/amber/red
 - **Name** — the display name of the catalog item
-- **CI Name** — the internal identifier (useful when ordering through the catalog)
-- **Format** — whether the content suits a booth demo, hands-on lab, or presentation
-- **Duration** — estimated time to complete
-- **Difficulty** — beginner, intermediate, or advanced
-- **Rationale** — a plain-language explanation of why this item fits your request. Read this. It tells you whether the fit is genuine or a stretch.
+- **Metadata pills** — content type (workshop, demo), suggested format, difficulty, and estimated duration
+- **Why it fits** — a structured explanation of why this content matches your request, focused on topic alignment and learning outcomes
+- **How to use** — a practical delivery suggestion (e.g., "Run modules 1-4 as a live session, assign module 5 as self-paced follow-up")
 - **Tags** — any curator-applied labels that add context beyond the AI analysis
+
+Cards appear progressively as the system works through its pipeline. Initial candidates appear quickly with basic information, then the detailed analysis fills in once the AI completes its evaluation.
 
 ## Expanding a Card
 
 Click anywhere on a card to expand it. The expanded view adds:
 
-- **Caveats** — anything the system flags as a potential issue (content gaps, timing concerns, audience mismatches)
-- **Module list** — the individual sections of the lab, with estimated time per module
+- **CI Name** — the internal identifier (useful when ordering through the catalog)
+- **Duration notes** — timing adaptation suggestions
+- **Caveats** — anything the system flags as a potential concern relevant to your request
+- **Curator notes** — any notes curators have added
 - **Catalog link** — a direct link to order the demo on `catalog.demo.redhat.com`
 
 Click the card again to collapse it.
@@ -110,13 +121,21 @@ Curator changes are saved immediately when submitted. Tags can be removed from t
 
 ## The Curate Page
 
-The Curate page (`/curate`) shows the full catalog — not just current recommendations — in a paginated list. Use the filter bar to search by name, filter by product, or show only flagged or untagged items.
+The Curate page (`/curate`) shows the full catalog — not just current recommendations — in a paginated list with numbered page navigation. The default filter shows only items with Showroom content. Use the filter bar to search by name, or switch between "Has Showroom", "All items", "Needs review", and "Untagged" views.
 
-Per-item controls on this page are the same as in the expanded card view: add/remove tags, edit notes, flag or unflag. This page is the right place to do bulk enrichment work, not something you'd use during an event conversation.
+Per-item controls on this page are the same as in the expanded card view: add/remove tags, edit notes, flag or unflag. Each item also has a **Re-analyze** button that triggers an individual Showroom scan for that item. This page is the right place to do bulk enrichment work, not something you'd use during an event conversation.
 
 ## The Admin Page
 
-The Admin page (`/admin`) is visible to curators and admins. It shows the current scan status (how many items are pending analysis, when the last scan ran), lets you trigger a new scan, and shows the current DB currency. Ops-level operations — forcing a full rescan, reading scan logs — are handled via the CLI.
+The Admin page (`/admin`) is visible to curators and admins. It shows:
+
+- **Catalog Status** — total items, production items, scannable Showrooms (excluding published CIs), analyzed count, and stale count
+- **Catalog Sync** — triggers `rcars refresh` to pull the latest catalog metadata from Babylon
+- **Showroom Analysis** — triggers `rcars scan` to analyze unscanned and stale items. Shows a live scrolling log of the scan progress.
+- **Content Updates** — triggers `rcars check-stale` to detect which analyzed Showrooms have changed since the last scan. Items with content changes are marked stale and picked up by the next scan.
+- **Curator Access** — lists configured curator email addresses
+
+All background operations (scan, check-stale, catalog sync) run in background threads. You can navigate away from the admin page and come back — the current state of any running operation is preserved and the live log resumes from where it is.
 
 ---
 

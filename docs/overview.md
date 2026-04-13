@@ -23,9 +23,11 @@ RCARS runs in three stages that happen automatically:
 
 2. **Content analysis.** For every catalog item that has associated lab content (a Showroom), RCARS clones the content repository and reads it. It sends that content to Claude Sonnet, which produces a structured analysis: what the lab covers, what skills it teaches, who the intended audience is, how long it takes, and whether it's suitable for a booth demo, a hands-on session, or a presentation. These analyses are stored alongside 384-dimensional vector embeddings that capture the semantic meaning of each piece of content.
 
-3. **Recommendations.** When someone asks a question, RCARS converts that question into the same kind of vector embedding and runs a similarity search against the stored embeddings to find the most relevant candidate content. It then asks Claude Sonnet to rank those candidates against the actual request and explain its reasoning. The result is a scored, ranked list with a rationale for each item.
+3. **Recommendations.** When someone asks a question, RCARS runs a three-phase pipeline. First, the query is converted into a vector embedding and run against stored content embeddings to find semantically similar candidates. Second, a fast AI model (Claude Haiku) triages those candidates — scoring each one for relevance and filtering out poor matches. Third, the top-scoring candidates are sent to Claude Sonnet, which generates a structured analysis for each: why it fits, how to use it, and any caveats. The result is a scored, ranked list with a rationale for each item.
 
-Each of these stages is independent. The catalog can be refreshed without re-analyzing content. Content can be re-analyzed without clearing existing recommendations. Nothing is hardwired.
+4. **Stale detection.** RCARS can check whether analyzed Showroom content has changed since the last scan. It clones each Showroom, hashes the content files, and compares against the stored hash. Items whose content has materially changed are marked stale and picked up automatically by the next scan.
+
+Each of these stages is independent. The catalog can be refreshed without re-analyzing content. Content can be re-analyzed without clearing existing recommendations. Stale detection can run without triggering a rescan. Nothing is hardwired.
 
 ## Who Uses It and How
 

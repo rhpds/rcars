@@ -29,9 +29,14 @@ All configuration is via environment variables. No config files.
 | `ANTHROPIC_VERTEX_PROJECT_ID` | For `scan`/`recommend` | GCP project ID for Vertex AI (preferred). |
 | `CLOUD_ML_REGION` | For Vertex AI | GCP region (default: `us-east5`). |
 | `ANTHROPIC_API_KEY` | For `scan`/`recommend` | Direct Anthropic API key (fallback if Vertex not set). |
-| `RCARS_MODEL` | No | Claude model to use (default: `claude-sonnet-4-6`). |
+| `RCARS_MODEL` | No | Claude model for analysis (default: `claude-sonnet-4-6`). |
 | `RCARS_MAX_PARALLEL` | No | Threads for parallel Showroom scanning (default: `5`). |
 | `RCARS_CLONE_DIR` | No | Directory for temporary Showroom clones (default: `/tmp`). |
+| `RCARS_VECTOR_CUTOFF` | No | Maximum vector distance to include in results (default: `0.55`). Lower = stricter. |
+| `RCARS_TRIAGE_MODEL` | No | Model for fast relevance triage (default: `claude-haiku-4-5`). |
+| `RCARS_TRIAGE_CUTOFF` | No | Minimum Haiku relevance score to keep a candidate (default: `30`). |
+| `RCARS_RATIONALE_MODEL` | No | Model for detailed rationale generation (default: `claude-sonnet-4-6`). |
+| `RCARS_RATIONALE_TOP_N` | No | Number of top candidates to generate full rationale for (default: `5`). |
 | `RCARS_CURATOR_EMAILS` | No | Comma-separated list of curator email addresses. |
 | `RCARS_ADMIN_EMAILS` | No | Comma-separated list of admin email addresses. |
 | `RCARS_DEV_USER` | Local dev only | Fakes the SSO email header for local testing. |
@@ -40,6 +45,19 @@ All configuration is via environment variables. No config files.
 LLM credentials: RCARS prefers `ANTHROPIC_VERTEX_PROJECT_ID`. If that is not set, it falls back to `ANTHROPIC_API_KEY`. If neither is set, `scan` and `recommend` will refuse to run.
 
 ## Commands
+
+### `rcars init-db`
+
+Initializes or resets the database schema. Safe to run repeatedly — all DDL uses `IF NOT EXISTS`.
+
+```bash
+rcars init-db             # Create schema if it doesn't exist
+rcars init-db --drop      # Drop all tables and recreate from scratch
+```
+
+The `--drop` flag terminates other database connections before dropping tables, so it works even when the web app is running. Use this for a fresh start — after dropping, you will need to run `refresh` and `scan` again to repopulate the catalog.
+
+---
 
 ### `rcars status`
 
@@ -134,6 +152,24 @@ rcars scan --force          # Re-analyze everything, even already-analyzed items
 
 ---
 
+### `rcars check-stale`
+
+Checks whether analyzed Showroom content has changed since the last scan. This clones each analyzed Showroom, hashes the filtered content files, and compares against the stored hash. Items with content changes are marked stale and will be re-analyzed on the next `rcars scan`.
+
+```bash
+rcars check-stale              # Check all analyzed items, mark stale ones
+rcars check-stale --dry-run    # Report changes without marking anything
+rcars check-stale --threshold 0.10   # (Reserved for future use)
+```
+
+**First run behavior:** Items analyzed before stale detection was added will have no stored content hash. The first `check-stale` run stores the current hash for each item ("backfill") without marking anything stale. Subsequent runs compare against the stored hash to detect real changes.
+
+**What counts as a change:** The hash is computed from the filtered `.adoc` content files — the same files that feed the AI analysis. Changes to non-content files (READMEs, images, CI configs) do not trigger staleness. Whitespace-only changes (trailing spaces, blank line differences) are normalized away and do not change the hash.
+
+**Cost:** Each item requires a shallow git clone, but no API calls. A full check of ~100 items takes a few minutes depending on clone speed.
+
+---
+
 ### `rcars recommend`
 
 Runs a recommendation query from the command line. This is the same engine the web UI uses.
@@ -159,7 +195,9 @@ When `--url` is provided, RCARS fetches the event page, strips it to plain text,
 |---|---|
 | `--url` | Event URL to parse for context |
 | `--include-dev` | Include dev-stage catalog items (default: prod only) |
-| `--limit N` | Number of candidates to retrieve before ranking (default: 15) |
+| `--limit N` | Number of candidates to retrieve before ranking (default: 10) |
+| `--cutoff FLOAT` | Vector distance cutoff (overrides `RCARS_VECTOR_CUTOFF`) |
+| `--triage-cutoff INT` | Minimum Haiku relevance score (overrides `RCARS_TRIAGE_CUTOFF`) |
 | `--json-output` | Print raw JSON instead of formatted output |
 
 Output shows ranked results with scores, rationale, suggested format, duration notes, and any caveats. Content gaps (topics you asked for that nothing in the catalog covers) are listed at the end.
@@ -185,11 +223,19 @@ In production this is managed by the OpenShift deployment — you would not typi
 ### Initial Setup (first deployment)
 
 1. Ensure PostgreSQL is running and `RCARS_DATABASE_URL` is set.
-2. Run `rcars status` — this initializes the schema.
+2. Run `rcars init-db` — this creates the schema.
 3. Run `rcars refresh` — this populates the catalog.
 4. Run `rcars scan --max 5` — verify the AI pipeline works end to end with a small batch.
 5. Check output with `rcars status` — confirm analyzed count increased.
 6. Run `rcars scan` — full scan (may take 30–60 minutes depending on catalog size and parallelism).
+
+### Fresh Start (reset everything)
+
+```bash
+rcars init-db --drop    # Wipe and recreate schema
+rcars refresh           # Re-populate catalog from Babylon
+rcars scan              # Full scan
+```
 
 ### Incremental Catalog Sync (routine)
 
@@ -198,7 +244,16 @@ rcars refresh
 rcars scan
 ```
 
-`refresh` picks up new and changed items. `scan` analyzes anything new or stale. Items that were already analyzed and whose Showroom repos have not changed are skipped automatically.
+`refresh` picks up new and changed items. `scan` analyzes anything new or stale. Items that were already analyzed and whose content has not changed are skipped automatically.
+
+### Checking for Content Updates
+
+```bash
+rcars check-stale
+rcars scan              # Re-analyzes only stale items
+```
+
+`check-stale` clones each analyzed Showroom and compares content hashes. Items whose content has changed are marked stale. The subsequent `scan` picks up stale items automatically alongside any new ones.
 
 ### Force Full Rescan
 

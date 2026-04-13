@@ -34,8 +34,8 @@ RCARS is a Python application that pulls from the RHDP catalog, analyzes lab con
 │  │  └─────────────────┘  │  + ST model)    │ │                     │
 │  │                        └─────────────────┘ │                     │
 │  │  ┌───────────────────────────────────────┐ │                     │
-│  │  │  Recommender                          │ │                     │
-│  │  │  (pgvector search + Sonnet ranking)   │ │                     │
+│  │  │  Recommender (3-phase pipeline)       │ │                     │
+│  │  │  Vector → Haiku triage → Sonnet       │ │                     │
 │  │  └───────────────────────────────────────┘ │                     │
 │  │  ┌───────────────────────────────────────┐ │                     │
 │  │  │  FastAPI Web App                      │ │                     │
@@ -180,8 +180,9 @@ One row per analyzed catalog item. Stores the full structured output from the So
 | `last_repo_commit` | TEXT | Git HEAD SHA at the time of analysis — used for staleness detection |
 | `last_repo_updated` | TIMESTAMPTZ | Commit date of the HEAD at time of analysis |
 | `last_analyzed` | TIMESTAMPTZ | When RCARS last ran the analysis pipeline for this item |
-| `is_stale` | BOOLEAN | True if the Showroom repo has new commits since `last_repo_commit` |
-| `stale_commit` | TEXT | The commit that pushed the repo past the analyzed state |
+| `is_stale` | BOOLEAN | True if the Showroom content has changed since last analysis |
+| `stale_commit` | TEXT | HEAD commit SHA at the time staleness was detected |
+| `content_hash` | TEXT | SHA-256 hash of the filtered .adoc content — used for change detection |
 | `enrichment_review_needed` | BOOLEAN | Curator-set flag indicating this item needs manual review |
 | `notes` | TEXT | Free-text curator note — visible only to curators on the Curate page |
 
@@ -315,30 +316,39 @@ The analysis and embeddings are written to the database. The temporary clone dir
 
 ---
 
-## The Recommendation Engine (`recommender.py`)
+## The Recommendation Engine (`recommender/`)
 
-Recommendation is a two-stage process: vector similarity search narrows the field, LLM ranking explains the results.
+Recommendation is a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results.
 
-### Stage 1 — Embedding and Similarity Search
+### Phase 1 — Vector Search
 
-The user's query text is embedded using the same sentence-transformers model used during scanning. This produces a 384-dimensional vector in the same semantic space as the stored content embeddings.
+The user's query text is embedded using the same sentence-transformers model used during scanning. A pgvector cosine similarity search (`<=>` operator) finds the top candidates within a configurable distance cutoff (default: 0.55). Results beyond the cutoff are discarded — this prevents low-relevance items from reaching later phases.
 
-A pgvector cosine similarity search (`<=>` operator) finds the top N most semantically similar CI-level embeddings. The result set is joined against `catalog_items` to apply filters (e.g., `is_prod = TRUE`). The default candidate pool is 15 items. This operation is fast — pgvector uses an IVFFlat index on the embedding column.
+**Published/base CI deduplication:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data. Base CIs that have a published counterpart are never shown directly.
 
-### Stage 2 — LLM Ranking
+### Phase 2 — Haiku Triage
 
-The top candidates from the similarity search are formatted into a structured prompt. Each candidate includes its catalog metadata and its stored analysis results (summary, difficulty, duration, topics, products, audience, learning objectives). The prompt is sent to Claude Sonnet with a request to rank the candidates against the original query and explain the ranking.
+The vector search candidates are sent to Claude Haiku for fast relevance scoring. For each candidate, Haiku assigns a relevance score (0-100), a boolean relevant/not-relevant flag, and a one-line reason. Candidates below the triage cutoff (default: 30) are removed. Survivors are sorted by relevance score.
 
-Sonnet returns a JSON object with:
-- A ranked list of recommendations, each with a fit score (0–100), rationale, suggested format, duration notes, and caveats
-- An overall assessment of how well the catalog covers the request
-- A list of content gaps — topics the query asked for that no candidate addresses well
+This phase is fast (~1-3 seconds) and inexpensive. It filters out items that are semantically similar but not actually relevant to the request — something embedding similarity alone cannot do.
 
-The LLM ranking step is what separates RCARS from a pure similarity search. Embedding similarity finds semantically related content; Sonnet ranking applies judgment about format fit, audience appropriateness, and nuanced relevance that embeddings alone cannot capture.
+### Phase 3 — Sonnet Rationale
+
+The top candidates from triage (default: 5) are sent to Claude Sonnet with their full analysis data for structured rationale generation. For each candidate, Sonnet returns:
+
+- **Why it fits** — topic alignment and learning outcomes
+- **How to use** — practical delivery suggestion
+- **Suggested format** — booth demo, hands-on lab, or presentation (based on the user's request context)
+- **Duration notes** — timing adaptation suggestions
+- **Caveats** — concerns or limitations relevant to the request
+
+Sonnet also returns an overall assessment (response, top picks, adapting suggestions, content gaps) and a structured list of content gaps — topics the query asked for that no candidate addresses well. Content gaps are always surfaced in the chat response.
 
 ### Event URL Mode
 
-When a URL is provided alongside a query, RCARS fetches the event page, strips HTML tags and scripts to plain text, and sends that text to Sonnet with a separate prompt requesting a structured event profile. The profile includes the event name, audience description, themes, format opportunities (booth slots, lab slots, talk slots), and 3–5 suggested search queries. These search queries and themes are concatenated with the user's original query before the embedding and similarity search run, enriching the semantic search with event-specific vocabulary.
+When a URL is detected in the user's query (in both the web UI and CLI), RCARS automatically fetches the event page and follows links to schedule, program, tracks, talks, and similar subpages on the same domain (up to 3 subpages, 80,000 characters combined). This content is sent to Sonnet with a prompt requesting a structured event profile: event name, audience, themes, format opportunities, and suggested search queries. The profile is merged with the user's query before vector search runs.
+
+For broad multi-track events, follow-up queries can narrow results to specific areas (e.g., "focus on platform and infrastructure content").
 
 ---
 
@@ -349,12 +359,14 @@ The web application is built on FastAPI with Jinja2 templates and HTMX for dynam
 ### Routes
 
 - **`/advisor`** — Main recommendation interface. Serves the two-pane layout and handles query submissions.
-- **`/advisor/query`** (POST) — Receives a query from the chat input, runs the recommendation engine, and returns two HTML fragments: a new chat turn (appended to the conversation pane) and a new recommendation list (swapped into the results pane).
+- **`/advisor/query`** (POST) — Receives a query, detects URLs and fetches event context if present, spawns a background thread to run the three-phase pipeline, and returns an HTMX polling spinner.
+- **`/advisor/query/status`** (GET) — HTMX polling endpoint. Returns progressive results as each pipeline phase completes (vector candidates, triaged set, final rationale).
 - **`/advisor/restore/{session_id}/{turn_index}`** (GET) — Re-renders the recommendation set from a stored conversation turn. No LLM call — retrieves CI names from the stored turn and re-fetches their catalog records from the database.
-- **`/curate`** — Enrichment management page. Lists all catalog items with filtering and inline tag/note/flag controls.
-- **`/curate/tag`**, **`/curate/note`**, **`/curate/flag`** — HTMX endpoints that handle curator enrichment operations and return updated card fragments.
-- **`/admin`** — Admin controls: scan status, rescan trigger, DB currency.
-- **`/admin/rescan`** (POST) — Triggers a background scan thread and streams progress via Server-Sent Events.
+- **`/curate`** — Enrichment management page. Lists all catalog items with filtering, paginated navigation, and inline tag/note/flag/re-analyze controls.
+- **`/curate/tag`**, **`/curate/note`**, **`/curate/flag`**, **`/curate/analyze`** — HTMX endpoints that handle curator enrichment and per-item analysis operations.
+- **`/admin`** — Admin controls: catalog status, sync trigger, scan trigger, stale check trigger. All background operations preserve state across page navigation.
+- **`/admin/rescan`** (POST) — Triggers a background `rcars scan` subprocess. Output is streamed to both the admin log window and the pod's stdout.
+- **`/admin/check-stale`** (POST) — Triggers a background `rcars check-stale` subprocess for content change detection.
 
 ### Conversation Store
 
@@ -395,4 +407,4 @@ A GitHub webhook configured in the repository triggers an OpenShift image build 
 
 ### Schema Management
 
-There is no migration framework. All schema DDL uses `CREATE TABLE IF NOT EXISTS` and `CREATE INDEX IF NOT EXISTS`. Adding a new column requires an `ALTER TABLE` statement run once manually or via the `migrate` tag. The approach trades migration safety for operational simplicity — acceptable for a single-instance internal tool, but worth revisiting if the schema diverges across environments.
+Schema is managed through `rcars init-db`, which creates tables with `IF NOT EXISTS` and runs numbered migrations for adding new columns (e.g., `content_hash`). The `--drop` flag performs a full reset — it terminates other database connections, drops all tables, and recreates the schema from scratch. The database connection auto-reconnects if terminated, so the web app recovers without a pod restart.
