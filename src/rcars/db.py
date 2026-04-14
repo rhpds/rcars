@@ -171,6 +171,34 @@ class Database:
             """)
             if not cur.fetchone():
                 cur.execute("ALTER TABLE showroom_analysis ADD COLUMN content_hash TEXT")
+
+            # Migration 003: add token_usage table
+            cur.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'token_usage'
+                ) as exists
+            """)
+            result = cur.fetchone()
+            if not result["exists"]:
+                cur.execute("""
+                    CREATE TABLE token_usage (
+                        id            SERIAL PRIMARY KEY,
+                        operation     TEXT NOT NULL,
+                        model         TEXT NOT NULL,
+                        ci_name       TEXT,
+                        query_text    TEXT,
+                        input_tokens  INTEGER NOT NULL DEFAULT 0,
+                        output_tokens INTEGER NOT NULL DEFAULT 0,
+                        created_at    TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """)
+                cur.execute(
+                    "CREATE INDEX idx_token_usage_created_at ON token_usage(created_at)"
+                )
+                cur.execute(
+                    "CREATE INDEX idx_token_usage_operation ON token_usage(operation)"
+                )
         self._conn.commit()
 
     def drop_schema(self):
@@ -178,7 +206,7 @@ class Database:
         # Table names are hardcoded literals, not user input — safe for f-string SQL
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
-            "analysis_log", "jobs", "catalog_items", "alembic_version",
+            "analysis_log", "jobs", "token_usage", "catalog_items", "alembic_version",
         ]
         with self._conn.cursor() as cur:
             # Terminate other connections so DROP TABLE can acquire locks
@@ -286,6 +314,100 @@ class Database:
                 "SELECT * FROM analysis_log ORDER BY created_at DESC LIMIT %(limit)s",
                 {"limit": limit},
             )
+            return cur.fetchall()
+
+    def log_token_usage(
+        self,
+        operation: str,
+        model: str,
+        input_tokens: int,
+        output_tokens: int,
+        ci_name: str | None = None,
+        query_text: str | None = None,
+    ) -> None:
+        """Log a single API token usage event."""
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO token_usage
+                   (operation, model, input_tokens, output_tokens, ci_name, query_text)
+                   VALUES (%(operation)s, %(model)s, %(input_tokens)s, %(output_tokens)s,
+                           %(ci_name)s, %(query_text)s)""",
+                {
+                    "operation": operation,
+                    "model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "ci_name": ci_name,
+                    "query_text": query_text,
+                },
+            )
+        self._conn.commit()
+
+    def get_token_stats(self, days: int | None = 30) -> list[dict[str, Any]]:
+        """Return token usage aggregated by (operation, model).
+
+        days=None means all-time; otherwise limits to the last N days.
+        """
+        if days is not None:
+            where = "WHERE created_at >= NOW() - %(days)s * INTERVAL '1 day'"
+            params: dict[str, Any] = {"days": days}
+        else:
+            where = ""
+            params = {}
+
+        sql = f"""
+            SELECT operation, model,
+                   COUNT(*) AS calls,
+                   SUM(input_tokens) AS input_tokens,
+                   SUM(output_tokens) AS output_tokens,
+                   SUM(input_tokens + output_tokens) AS total_tokens
+            FROM token_usage
+            {where}
+            GROUP BY operation, model
+            ORDER BY total_tokens DESC
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+
+    def get_recent_queries(
+        self, days: int | None = 30, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """Return per-query token usage for triage + rationale ops.
+
+        Groups triage and rationale rows from the same pipeline run by
+        query_text + 1-minute time bucket. Returns most recent first.
+        """
+        if days is not None:
+            time_filter = "AND created_at >= NOW() - %(days)s * INTERVAL '1 day'"
+            params: dict[str, Any] = {"days": days, "limit": limit}
+        else:
+            time_filter = ""
+            params = {"limit": limit}
+
+        sql = f"""
+            SELECT
+                query_text,
+                date_trunc('minute', created_at) AS query_time,
+                SUM(CASE WHEN operation = 'triage' THEN input_tokens ELSE 0 END)
+                    AS triage_input,
+                SUM(CASE WHEN operation = 'triage' THEN output_tokens ELSE 0 END)
+                    AS triage_output,
+                SUM(CASE WHEN operation = 'rationale' THEN input_tokens ELSE 0 END)
+                    AS rationale_input,
+                SUM(CASE WHEN operation = 'rationale' THEN output_tokens ELSE 0 END)
+                    AS rationale_output,
+                SUM(input_tokens + output_tokens) AS total_tokens
+            FROM token_usage
+            WHERE operation IN ('triage', 'rationale')
+              AND query_text IS NOT NULL
+              {time_filter}
+            GROUP BY query_text, date_trunc('minute', created_at)
+            ORDER BY query_time DESC
+            LIMIT %(limit)s
+        """
+        with self._conn.cursor() as cur:
+            cur.execute(sql, params)
             return cur.fetchall()
 
     def get_status_summary(self) -> dict[str, int]:

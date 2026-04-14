@@ -30,6 +30,7 @@ def test_create_schema(db):
     assert "embeddings" in tables
     assert "analysis_log" in tables
     assert "jobs" in tables
+    assert "token_usage" in tables  # migration 003
 
 
 def test_upsert_catalog_item(db):
@@ -324,3 +325,97 @@ def test_get_enrichment_tags_for_items(db):
     assert "b.prod" in result
     assert len(result["a.prod"]) == 1
     assert result["a.prod"][0]["tag_value"] == "tag1"
+
+
+def test_log_token_usage(db):
+    """Should insert a token usage row."""
+    db.log_token_usage(
+        operation="scan",
+        model="claude-sonnet-4-6",
+        input_tokens=5000,
+        output_tokens=800,
+        ci_name="test.lab.prod",
+    )
+    with db._conn.cursor() as cur:
+        cur.execute("SELECT * FROM token_usage")
+        rows = cur.fetchall()
+    assert len(rows) == 1
+    assert rows[0]["operation"] == "scan"
+    assert rows[0]["model"] == "claude-sonnet-4-6"
+    assert rows[0]["input_tokens"] == 5000
+    assert rows[0]["output_tokens"] == 800
+    assert rows[0]["ci_name"] == "test.lab.prod"
+    assert rows[0]["query_text"] is None
+
+
+def test_log_token_usage_query(db):
+    """Should insert a query token usage row with query_text."""
+    db.log_token_usage(
+        operation="triage",
+        model="claude-haiku-4-5",
+        input_tokens=1200,
+        output_tokens=300,
+        query_text="openshift booth demo",
+    )
+    with db._conn.cursor() as cur:
+        cur.execute("SELECT * FROM token_usage WHERE operation = 'triage'")
+        row = cur.fetchone()
+    assert row is not None
+    assert row["query_text"] == "openshift booth demo"
+    assert row["ci_name"] is None
+
+
+def test_get_token_stats_empty(db):
+    """Should return empty list when no usage data."""
+    stats = db.get_token_stats(days=30)
+    assert stats == []
+
+
+def test_get_token_stats_aggregates(db):
+    """Should aggregate tokens by operation and model."""
+    db.log_token_usage("scan", "claude-sonnet-4-6", 10000, 1000)
+    db.log_token_usage("scan", "claude-sonnet-4-6", 8000, 900)
+    db.log_token_usage("triage", "claude-haiku-4-5", 2000, 400)
+
+    stats = db.get_token_stats(days=30)
+    by_op = {(r["operation"], r["model"]): r for r in stats}
+
+    scan_row = by_op[("scan", "claude-sonnet-4-6")]
+    assert scan_row["calls"] == 2
+    assert scan_row["input_tokens"] == 18000
+    assert scan_row["output_tokens"] == 1900
+    assert scan_row["total_tokens"] == 19900
+
+    triage_row = by_op[("triage", "claude-haiku-4-5")]
+    assert triage_row["calls"] == 1
+    assert triage_row["total_tokens"] == 2400
+
+
+def test_get_token_stats_all_time(db):
+    """days=None should return all records regardless of age."""
+    db.log_token_usage("rationale", "claude-sonnet-4-6", 50000, 4000)
+    stats = db.get_token_stats(days=None)
+    assert len(stats) >= 1
+
+
+def test_get_recent_queries(db):
+    """Should return per-query grouped rows."""
+    db.log_token_usage("triage", "claude-haiku-4-5", 1200, 300, query_text="ansible demo booth")
+    db.log_token_usage("rationale", "claude-sonnet-4-6", 45000, 3800, query_text="ansible demo booth")
+
+    queries = db.get_recent_queries(days=30)
+    assert len(queries) == 1
+    row = queries[0]
+    assert row["query_text"] == "ansible demo booth"
+    assert row["triage_input"] == 1200
+    assert row["triage_output"] == 300
+    assert row["rationale_input"] == 45000
+    assert row["rationale_output"] == 3800
+    assert row["total_tokens"] == 50300
+
+
+def test_get_recent_queries_excludes_scan(db):
+    """Scan ops should not appear in get_recent_queries."""
+    db.log_token_usage("scan", "claude-sonnet-4-6", 10000, 1000, ci_name="test.ci")
+    queries = db.get_recent_queries(days=30)
+    assert queries == []
