@@ -364,6 +364,7 @@ def analyze_showroom(
     anthropic_client,
     model: str = "claude-sonnet-4-6",
     clone_dir: str = "/tmp",
+    db=None,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -427,6 +428,15 @@ def analyze_showroom(
         output_tokens = getattr(response.usage, 'output_tokens', 0)
         log.info("analyze %s: Sonnet response received (in=%d out=%d tokens)",
                  ci_name, input_tokens, output_tokens)
+
+        if db is not None:
+            db.log_token_usage(
+                operation="scan",
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                ci_name=ci_name,
+            )
 
         response_text = response.content[0].text
         analysis = parse_analysis_response(response_text)

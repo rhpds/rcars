@@ -228,3 +228,85 @@ def test_check_showroom_stale_ignores_typo_fix(tmp_path):
     # Hash WILL differ — it's a content change. The check-stale orchestrator
     # decides whether to mark it stale based on threshold.
     assert result["content_hash"] != first_hash
+
+
+def test_analyze_showroom_logs_scan_tokens(monkeypatch):
+    """analyze_showroom should call db.log_token_usage with scan tokens when db provided."""
+    from unittest.mock import MagicMock, patch
+    from rcars.analyzer import analyze_showroom
+
+    mock_db = MagicMock()
+    mock_client = MagicMock()
+
+    mock_response = MagicMock()
+    mock_response.content[0].text = '{"content_type": "workshop", "summary": "Test", "products": [], "audience": [], "topics": [], "modules": [], "learning_objectives": {}, "difficulty": "beginner", "estimated_duration_min": 60, "event_fit": {}, "use_cases": []}'
+    mock_response.usage.input_tokens = 12000
+    mock_response.usage.output_tokens = 900
+    mock_client.messages.create.return_value = mock_response
+
+    with patch("rcars.analyzer.clone_showroom") as mock_clone, \
+         patch("rcars.analyzer.read_showroom_content") as mock_read, \
+         patch("rcars.analyzer.get_repo_head") as mock_head, \
+         patch("rcars.analyzer.generate_embedding") as mock_embed:
+
+        mock_clone.return_value = MagicMock()
+        mock_read.return_value = {"module1.adoc": "= OpenShift Workshop\nLearn OpenShift basics here."}
+        mock_head.return_value = ("abc123def", "2026-04-01T10:00:00+00:00")
+        mock_embed.return_value = [0.1] * 384
+
+        result = analyze_showroom(
+            ci_name="test.ci.prod",
+            display_name="Test CI",
+            category="workshop",
+            product="OCP",
+            showroom_url="https://github.com/example/test.git",
+            showroom_ref="main",
+            anthropic_client=mock_client,
+            model="claude-sonnet-4-6",
+            db=mock_db,
+        )
+
+    assert result is not None
+    mock_db.log_token_usage.assert_called_once_with(
+        operation="scan",
+        model="claude-sonnet-4-6",
+        input_tokens=12000,
+        output_tokens=900,
+        ci_name="test.ci.prod",
+    )
+
+
+def test_analyze_showroom_no_db_does_not_fail():
+    """analyze_showroom should work fine when db=None (no token logging)."""
+    from unittest.mock import MagicMock, patch
+    from rcars.analyzer import analyze_showroom
+
+    mock_client = MagicMock()
+    mock_response = MagicMock()
+    mock_response.content[0].text = '{"content_type": "demo", "summary": "Demo", "products": [], "audience": [], "topics": [], "modules": [], "learning_objectives": {}, "difficulty": "intermediate", "estimated_duration_min": 30, "event_fit": {}, "use_cases": []}'
+    mock_response.usage.input_tokens = 5000
+    mock_response.usage.output_tokens = 400
+    mock_client.messages.create.return_value = mock_response
+
+    with patch("rcars.analyzer.clone_showroom") as mock_clone, \
+         patch("rcars.analyzer.read_showroom_content") as mock_read, \
+         patch("rcars.analyzer.get_repo_head") as mock_head, \
+         patch("rcars.analyzer.generate_embedding") as mock_embed:
+
+        mock_clone.return_value = MagicMock()
+        mock_read.return_value = {"module1.adoc": "= Demo\nContent here."}
+        mock_head.return_value = ("abc123", "2026-04-01T10:00:00+00:00")
+        mock_embed.return_value = [0.1] * 384
+
+        result = analyze_showroom(
+            ci_name="test.ci",
+            display_name="Test",
+            category="demo",
+            product="OCP",
+            showroom_url="https://github.com/example/test.git",
+            showroom_ref=None,
+            anthropic_client=mock_client,
+            model="claude-sonnet-4-6",
+            db=None,
+        )
+    assert result is not None

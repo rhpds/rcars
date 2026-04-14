@@ -283,6 +283,7 @@ def scan(max_analyze: int | None, force: bool):
             anthropic_client=anthropic_client,
             model=settings.model,
             clone_dir=settings.clone_dir,
+            db=db,
         )
 
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
