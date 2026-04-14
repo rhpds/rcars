@@ -48,7 +48,7 @@ def _token_usage_html(stats: list, queries: list, days: int) -> str:
     # Summary table
     if stats:
         rows = "".join(
-            f'<tr><td>{row["model"]}</td><td>{row["operation"]}</td>'
+            f'<tr><td>{_html.escape(row["model"])}</td><td>{_html.escape(row["operation"])}</td>'
             f'<td>{row["calls"]}</td>'
             f'<td>{_fmt_tokens(row["input_tokens"])}</td>'
             f'<td>{_fmt_tokens(row["output_tokens"])}</td>'
