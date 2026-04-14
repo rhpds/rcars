@@ -63,3 +63,10 @@ def run_query(
         top_n=settings.rationale_top_n,
     )
     yield state
+
+    # Write query token usage to DB
+    for entry in state.token_usage:
+        db.log_token_usage(
+            query_text=state.query[:200],
+            **entry,
+        )
