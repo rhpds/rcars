@@ -128,9 +128,32 @@ def test_pipeline_writes_query_tokens_to_db(mock_vs, mock_triage, mock_rationale
 
 @patch("rcars.recommender.pipeline.vector_search")
 def test_pipeline_no_token_write_on_no_matches(mock_vs):
-    """If pipeline stops early (NO_MATCHES), no token writes should occur."""
+    """If vector search returns NO_MATCHES (phase 1), no token writes should occur."""
     mock_vs.return_value = QueryState(phase="NO_MATCHES", candidates=[], query="test")
     mock_db = MagicMock()
     settings = _mock_settings()
     list(run_query("test", mock_db, MagicMock(), settings))
     mock_db.log_token_usage.assert_not_called()
+
+
+@patch("rcars.recommender.pipeline.triage_phase")
+@patch("rcars.recommender.pipeline.vector_search")
+def test_pipeline_writes_triage_tokens_on_phase2_no_matches(mock_vs, mock_triage):
+    """When triage returns NO_MATCHES, its token usage should still be written to DB."""
+    mock_vs.return_value = _make_vector_state(2)
+    mock_triage.return_value = QueryState(
+        phase="NO_MATCHES", candidates=[], query="filtered query",
+        token_usage=[
+            {"operation": "triage", "model": "claude-haiku-4-5",
+             "input_tokens": 1200, "output_tokens": 300},
+        ],
+    )
+    mock_db = MagicMock()
+    settings = _mock_settings()
+    list(run_query("filtered query", mock_db, MagicMock(), settings))
+
+    mock_db.log_token_usage.assert_called_once()
+    call = mock_db.log_token_usage.call_args
+    assert call.kwargs["operation"] == "triage"
+    assert call.kwargs["query_text"] == "filtered query"
+    assert call.kwargs["input_tokens"] == 1200

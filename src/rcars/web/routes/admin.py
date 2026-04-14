@@ -85,7 +85,7 @@ def _token_usage_html(stats: list, queries: list, days: int) -> str:
                 f'<td>{row.get("rationale_input", 0):,}</td>'
                 f'<td>{row.get("rationale_output", 0):,}</td>'
                 f'<td>{total:,}</td>'
-                f'<td style="font-size:10px;color:var(--text-muted);">{qt}</td>'
+                f'<td style="font-size:10px;color:var(--text-muted);">{_html.escape(qt)}</td>'
                 f"</tr>"
             )
         query_html = (
