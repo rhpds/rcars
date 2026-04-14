@@ -53,3 +53,22 @@ def test_query_state_with_candidates():
     state = QueryState(phase="VECTOR_DONE", candidates=[c])
     assert len(state.candidates) == 1
     assert state.candidates[0].ci_name == "x"
+
+
+def test_query_state_token_usage_defaults_to_empty_list():
+    """token_usage should default to an empty list."""
+    state = QueryState(phase="VECTOR_DONE", candidates=[], query="test")
+    assert state.token_usage == []
+
+
+def test_query_state_token_usage_carries_entries():
+    """token_usage should store and preserve token entries."""
+    entry = {
+        "operation": "triage",
+        "model": "claude-haiku-4-5",
+        "input_tokens": 1000,
+        "output_tokens": 200,
+    }
+    state = QueryState(phase="TRIAGE_DONE", candidates=[], query="test", token_usage=[entry])
+    assert len(state.token_usage) == 1
+    assert state.token_usage[0]["operation"] == "triage"
