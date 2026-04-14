@@ -52,6 +52,9 @@ def run_query(
     yield state
 
     if state.phase == "NO_MATCHES":
+        # Triage was called — persist its token usage even though no matches survived
+        for entry in state.token_usage:
+            db.log_token_usage(query_text=state.query[:200], **entry)
         return
 
     # Phase 3: Sonnet rationale

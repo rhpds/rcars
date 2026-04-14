@@ -230,7 +230,7 @@ def test_check_showroom_stale_ignores_typo_fix(tmp_path):
     assert result["content_hash"] != first_hash
 
 
-def test_analyze_showroom_logs_scan_tokens(monkeypatch):
+def test_analyze_showroom_logs_scan_tokens():
     """analyze_showroom should call db.log_token_usage with scan tokens when db provided."""
     from unittest.mock import MagicMock, patch
     from rcars.analyzer import analyze_showroom
