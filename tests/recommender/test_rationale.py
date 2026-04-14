@@ -41,12 +41,14 @@ def _mock_analysis():
     }
 
 
-def _mock_client(response_json):
+def _mock_client(response_json, input_tokens=40000, output_tokens=3500):
     client = MagicMock()
     content_block = MagicMock()
     content_block.text = json.dumps(response_json)
     response = MagicMock()
     response.content = [content_block]
+    response.usage.input_tokens = input_tokens
+    response.usage.output_tokens = output_tokens
     client.messages.create.return_value = response
     return client
 
@@ -120,3 +122,59 @@ def test_format_rationale_candidates_includes_full_analysis():
     assert "test-ci" in text
     assert "Learn OCP" in text
     assert "Module 1" in text
+
+
+def test_generate_rationale_captures_token_usage():
+    """Returned QueryState should carry rationale token entry."""
+    candidates = [_candidate("good-ci")]
+    state = QueryState(phase="TRIAGE_DONE", candidates=candidates, query="openshift")
+
+    sonnet_response = {
+        "recommendations": [
+            {"ci_name": "good-ci", "rationale": "Good match.",
+             "suggested_format": "hands_on_lab", "duration_notes": "", "caveats": ""},
+        ],
+        "overall_assessment": "Good.",
+        "content_gaps": [],
+    }
+    client = _mock_client(sonnet_response, input_tokens=40000, output_tokens=3500)
+    db = _mock_db()
+
+    result = generate_rationale(state, db, client, model="claude-sonnet-4-6", top_n=5)
+
+    assert len(result.token_usage) == 1
+    entry = result.token_usage[0]
+    assert entry["operation"] == "rationale"
+    assert entry["model"] == "claude-sonnet-4-6"
+    assert entry["input_tokens"] == 40000
+    assert entry["output_tokens"] == 3500
+
+
+def test_generate_rationale_carries_forward_token_usage():
+    """Prior token_usage entries should be preserved in returned state."""
+    prior = {
+        "operation": "triage", "model": "claude-haiku-4-5",
+        "input_tokens": 1200, "output_tokens": 300,
+    }
+    candidates = [_candidate("good-ci")]
+    state = QueryState(
+        phase="TRIAGE_DONE", candidates=candidates,
+        query="openshift", token_usage=[prior],
+    )
+
+    sonnet_response = {
+        "recommendations": [
+            {"ci_name": "good-ci", "rationale": "Matches well.",
+             "suggested_format": "hands_on_lab", "duration_notes": "", "caveats": ""},
+        ],
+        "overall_assessment": "Good.",
+        "content_gaps": [],
+    }
+    client = _mock_client(sonnet_response)
+    db = _mock_db()
+
+    result = generate_rationale(state, db, client, model="claude-sonnet-4-6", top_n=5)
+
+    assert len(result.token_usage) == 2
+    assert result.token_usage[0]["operation"] == "triage"
+    assert result.token_usage[1]["operation"] == "rationale"

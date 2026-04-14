@@ -131,6 +131,13 @@ def generate_rationale(
         len(top_candidates), elapsed,
     )
 
+    new_token_entry = {
+        "operation": "rationale",
+        "model": model,
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }
+
     return QueryState(
         phase="COMPLETE",
         candidates=top_candidates + remaining,
@@ -138,4 +145,5 @@ def generate_rationale(
         overall_assessment=result.get("overall_assessment") if result else None,
         content_gaps=result.get("content_gaps") if result else None,
         timings={**state.timings, "rationale": round(elapsed, 3)},
+        token_usage=[*state.token_usage, new_token_entry],
     )
