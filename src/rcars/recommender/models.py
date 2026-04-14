@@ -50,3 +50,4 @@ class QueryState:
     overall_assessment: str | None = None
     content_gaps: list[str] | None = None
     timings: dict[str, float] = field(default_factory=dict)
+    token_usage: list[dict] = field(default_factory=list)

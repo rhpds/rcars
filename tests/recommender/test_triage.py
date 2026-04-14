@@ -23,12 +23,14 @@ def _candidate(ci_name, summary="A workshop", topics=None):
     )
 
 
-def _mock_client(response_json):
+def _mock_client(response_json, input_tokens=1000, output_tokens=200):
     client = MagicMock()
     content_block = MagicMock()
     content_block.text = json.dumps(response_json)
     response = MagicMock()
     response.content = [content_block]
+    response.usage.input_tokens = input_tokens
+    response.usage.output_tokens = output_tokens
     client.messages.create.return_value = response
     return client
 
@@ -112,3 +114,46 @@ def test_triage_handles_missing_ci_in_response():
 
     assert len(result.candidates) == 1
     assert result.candidates[0].ci_name == "a-ci"
+
+
+def test_triage_captures_token_usage():
+    """Returned QueryState should carry triage token usage entry."""
+    candidates = [_candidate("good-ci")]
+    state = QueryState(phase="VECTOR_DONE", candidates=candidates, query="ansible")
+
+    haiku_response = [
+        {"ci_name": "good-ci", "relevance_score": 85, "relevant": True,
+         "one_line_reason": "Match"},
+    ]
+    client = _mock_client(haiku_response, input_tokens=1500, output_tokens=250)
+
+    result = triage(state, client, model="claude-haiku-4-5", triage_cutoff=30)
+
+    assert len(result.token_usage) == 1
+    entry = result.token_usage[0]
+    assert entry["operation"] == "triage"
+    assert entry["model"] == "claude-haiku-4-5"
+    assert entry["input_tokens"] == 1500
+    assert entry["output_tokens"] == 250
+
+
+def test_triage_carries_forward_existing_token_usage():
+    """Existing token_usage from prior state should be preserved."""
+    prior_entry = {"operation": "scan", "model": "claude-sonnet-4-6",
+                   "input_tokens": 9000, "output_tokens": 800}
+    candidates = [_candidate("good-ci")]
+    state = QueryState(
+        phase="VECTOR_DONE", candidates=candidates,
+        query="ansible", token_usage=[prior_entry],
+    )
+
+    haiku_response = [
+        {"ci_name": "good-ci", "relevance_score": 80, "relevant": True,
+         "one_line_reason": "Match"},
+    ]
+    client = _mock_client(haiku_response)
+    result = triage(state, client, triage_cutoff=30)
+
+    assert len(result.token_usage) == 2
+    assert result.token_usage[0]["operation"] == "scan"
+    assert result.token_usage[1]["operation"] == "triage"

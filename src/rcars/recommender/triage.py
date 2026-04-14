@@ -102,9 +102,17 @@ def triage(
         len(survivors), len(state.candidates), triage_cutoff, elapsed,
     )
 
+    new_token_entry = {
+        "operation": "triage",
+        "model": model,
+        "input_tokens": response.usage.input_tokens,
+        "output_tokens": response.usage.output_tokens,
+    }
+
     return QueryState(
         phase=phase,
         candidates=survivors,
         query=state.query,
         timings={**state.timings, "triage": round(elapsed, 3)},
+        token_usage=[*state.token_usage, new_token_entry],
     )
