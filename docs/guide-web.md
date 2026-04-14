@@ -133,9 +133,39 @@ The Admin page (`/admin`) is visible to curators and admins. It shows:
 - **Catalog Sync** — triggers `rcars refresh` to pull the latest catalog metadata from Babylon
 - **Showroom Analysis** — triggers `rcars scan` to analyze unscanned and stale items. Shows a live scrolling log of the scan progress.
 - **Content Updates** — triggers `rcars check-stale` to detect which analyzed Showrooms have changed since the last scan. Items with content changes are marked stale and picked up by the next scan.
+- **Token Usage** — shows Anthropic API token consumption for the selected time window (see below)
 - **Curator Access** — lists configured curator email addresses
 
 All background operations (scan, check-stale, catalog sync) run in background threads. You can navigate away from the admin page and come back — the current state of any running operation is preserved and the live log resumes from where it is.
+
+### Token Usage
+
+The Token Usage section shows how many Claude API tokens RCARS has consumed, broken down by model and operation type. It loads automatically when you open the admin page.
+
+**Time window selector** — use the dropdown to choose the period:
+
+| Option | What it shows |
+|--------|--------------|
+| Last 7 days | Rolling 7-day window |
+| Last 30 days | Rolling 30-day window (default) |
+| Last 90 days | Rolling 90-day window |
+| All time | Every token ever logged |
+
+**Summary table** — one row per model × operation combination, showing call count and token totals formatted in K/M shorthand:
+
+| Model | Operation | Calls | Input | Output | Total |
+|-------|-----------|------:|------:|-------:|------:|
+| claude-sonnet-4-6 | scan | 95 | 12.4M | 380K | 12.8M |
+| claude-sonnet-4-6 | rationale | 42 | 890K | 168K | 1.1M |
+| claude-haiku-4-5 | triage | 42 | 240K | 84K | 324K |
+
+- **scan** — Sonnet calls made by `rcars scan` to analyze Showroom content
+- **triage** — Haiku calls made per advisor query (phase 2 relevance scoring)
+- **rationale** — Sonnet calls made per advisor query that returns results (phase 3 explanation)
+
+**Recent Queries table** — one row per advisor query, showing the triage and rationale token split side by side with a timestamp. Raw counts are shown (not K/M) since per-query volumes are smaller.
+
+For a deeper explanation of how token tracking works internally, see the [Token Usage Tracking](token-usage.md) technical doc.
 
 ---
 

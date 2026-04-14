@@ -15,3 +15,4 @@ RCARS helps Red Hat field teams find the right demos and labs for any event, aud
 | [Web UI Guide](guide-web.md) | Field teams, event staff | How to use the advisor and curator interfaces |
 | [CLI Admin Guide](guide-cli.md) | Ops / admins | Command reference and operational workflows |
 | [Architecture](architecture.md) | Engineers | End-to-end technical deep-dive |
+| [Token Usage Tracking](token-usage.md) | Engineers, admins | How API token consumption is captured, stored, and reported |

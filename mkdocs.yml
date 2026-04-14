@@ -35,6 +35,7 @@ nav:
   - Web UI Guide: guide-web.md
   - CLI Admin Guide: guide-cli.md
   - Architecture: architecture.md
+  - Token Usage Tracking: token-usage.md
 
 markdown_extensions:
   - tables
