@@ -99,11 +99,20 @@ def _token_usage_html(stats: list, queries: list, days: int) -> str:
     else:
         query_html = ""
 
+    refresh_btn = (
+        f'<button hx-get="/admin/token-usage?days={days}" '
+        f'hx-target="#token-usage-section" hx-swap="outerHTML" '
+        f'style="background:none;border:1px solid var(--border);border-radius:4px;'
+        f'padding:3px 8px;font-size:12px;color:var(--text-muted);cursor:pointer;" '
+        f'title="Refresh token stats">&#8635;</button>'
+    )
+
     return (
         f'<div id="token-usage-section">'
         f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
         f'<span style="font-size:12px;color:var(--text-muted);">Window:</span>'
         f"{select_html}"
+        f"{refresh_btn}"
         f"</div>"
         f"{summary_html}"
         f"{query_html}"
