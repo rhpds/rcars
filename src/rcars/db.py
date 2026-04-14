@@ -377,6 +377,11 @@ class Database:
 
         Groups triage and rationale rows from the same pipeline run by
         query_text + 1-minute time bucket. Returns most recent first.
+
+        NOTE: Two separate queries with identical text submitted within the same
+        calendar minute will be merged into one row. Acceptable for current
+        traffic volume; a future revision could add a pipeline_run_id column for
+        exact grouping.
         """
         if days is not None:
             time_filter = "AND created_at >= NOW() - %(days)s * INTERVAL '1 day'"
