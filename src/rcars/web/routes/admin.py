@@ -22,6 +22,95 @@ _refresh_status: dict = {"running": False, "result": None, "color": None}
 _stale_check_status: dict = {"running": False, "lines": [], "exit_ok": None}
 
 
+def _fmt_tokens(n: int) -> str:
+    """Format token count with K/M suffix for summary display."""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M"
+    if n >= 1_000:
+        return f"{n / 1_000:.1f}K"
+    return str(n)
+
+
+def _token_usage_html(stats: list, queries: list, days: int) -> str:
+    """Render the token usage section as an HTML fragment."""
+    # Window selector
+    select_html = (
+        '<select hx-get="/admin/token-usage" hx-target="#token-usage-section" '
+        'hx-swap="outerHTML" hx-trigger="change" name="days" '
+        'style="background:var(--bg-secondary);color:var(--text-primary);'
+        'border:1px solid var(--border);border-radius:4px;padding:4px 8px;font-size:12px;">'
+    )
+    for val, label in [(7, "Last 7 days"), (30, "Last 30 days"), (90, "Last 90 days"), (0, "All time")]:
+        selected = " selected" if val == days else ""
+        select_html += f'<option value="{val}"{selected}>{label}</option>'
+    select_html += "</select>"
+
+    # Summary table
+    if stats:
+        rows = "".join(
+            f'<tr><td>{row["model"]}</td><td>{row["operation"]}</td>'
+            f'<td>{row["calls"]}</td>'
+            f'<td>{_fmt_tokens(row["input_tokens"])}</td>'
+            f'<td>{_fmt_tokens(row["output_tokens"])}</td>'
+            f'<td>{_fmt_tokens(row["total_tokens"])}</td></tr>'
+            for row in stats
+        )
+        summary_html = (
+            '<table class="status-table" style="margin-top:8px;">'
+            "<tr><th>Model</th><th>Operation</th><th>Calls</th>"
+            "<th>Input</th><th>Output</th><th>Total</th></tr>"
+            f"{rows}</table>"
+        )
+    else:
+        summary_html = (
+            '<p style="font-size:12px;color:var(--text-muted);">'
+            "No token usage data for this period.</p>"
+        )
+
+    # Per-query table
+    if queries:
+        query_rows = ""
+        for row in queries:
+            q_full = row.get("query_text") or ""
+            q_display = q_full[:60] + ("…" if len(q_full) > 60 else "")
+            qt = row["query_time"].strftime("%Y-%m-%d %H:%M") if row.get("query_time") else ""
+            total = row.get("total_tokens", 0)
+            query_rows += (
+                f'<tr>'
+                f'<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;'
+                f'white-space:nowrap;" title="{_html.escape(q_full)}">'
+                f"{_html.escape(q_display)}</td>"
+                f'<td>{row.get("triage_input", 0):,}</td>'
+                f'<td>{row.get("triage_output", 0):,}</td>'
+                f'<td>{row.get("rationale_input", 0):,}</td>'
+                f'<td>{row.get("rationale_output", 0):,}</td>'
+                f'<td>{total:,}</td>'
+                f'<td style="font-size:10px;color:var(--text-muted);">{qt}</td>'
+                f"</tr>"
+            )
+        query_html = (
+            '<div style="font-size:12px;font-weight:600;margin:12px 0 6px;">'
+            "Recent Queries</div>"
+            '<table class="status-table" style="font-size:11px;">'
+            "<tr><th>Query</th><th>Haiku In</th><th>Haiku Out</th>"
+            "<th>Sonnet In</th><th>Sonnet Out</th><th>Total</th><th>Time</th></tr>"
+            f"{query_rows}</table>"
+        )
+    else:
+        query_html = ""
+
+    return (
+        f'<div id="token-usage-section">'
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;">'
+        f'<span style="font-size:12px;color:var(--text-muted);">Window:</span>'
+        f"{select_html}"
+        f"</div>"
+        f"{summary_html}"
+        f"{query_html}"
+        f"</div>"
+    )
+
+
 def _get_db_dependency() -> Database | None:
     from rcars.web.app import get_db
     return get_db()
@@ -343,3 +432,15 @@ async def refresh_status(
         _refresh_status["color"] = None
         return HTMLResponse(_refresh_section_idle(msg, color) + _status_table_oob(db))
     return HTMLResponse(_refresh_section_idle())
+
+
+@router.get("/admin/token-usage", response_class=HTMLResponse)
+async def token_usage_fragment(
+    days: int = 30,
+    user: str = Depends(require_admin),
+    db: Database = Depends(_get_db_dependency),
+):
+    days_arg = days if days > 0 else None
+    stats = db.get_token_stats(days=days_arg)
+    queries = db.get_recent_queries(days=days_arg)
+    return HTMLResponse(_token_usage_html(stats, queries, days))

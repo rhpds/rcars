@@ -207,3 +207,91 @@ def test_check_stale_starts(admin_client):
     response = client.post("/admin/check-stale")
     assert response.status_code == 200
     assert "Checking Showrooms" in response.text
+
+
+def test_token_usage_route_returns_summary(admin_client):
+    """GET /admin/token-usage should return model/operation breakdown."""
+    client, mock_db = admin_client
+    mock_db.get_token_stats.return_value = [
+        {
+            "operation": "scan", "model": "claude-sonnet-4-6",
+            "calls": 10, "input_tokens": 50000, "output_tokens": 5000,
+            "total_tokens": 55000,
+        },
+        {
+            "operation": "triage", "model": "claude-haiku-4-5",
+            "calls": 5, "input_tokens": 6000, "output_tokens": 1500,
+            "total_tokens": 7500,
+        },
+    ]
+    mock_db.get_recent_queries.return_value = []
+
+    response = client.get("/admin/token-usage?days=30")
+
+    assert response.status_code == 200
+    assert "claude-sonnet-4-6" in response.text
+    assert "claude-haiku-4-5" in response.text
+    assert "scan" in response.text
+    assert "triage" in response.text
+    assert "token-usage-section" in response.text
+
+
+def test_token_usage_route_empty_state(admin_client):
+    """GET /admin/token-usage with no data should show empty message."""
+    client, mock_db = admin_client
+    mock_db.get_token_stats.return_value = []
+    mock_db.get_recent_queries.return_value = []
+
+    response = client.get("/admin/token-usage?days=30")
+
+    assert response.status_code == 200
+    assert "No token usage data" in response.text
+
+
+def test_token_usage_shows_recent_queries(admin_client):
+    """GET /admin/token-usage should render per-query rows."""
+    from datetime import datetime, timezone
+    client, mock_db = admin_client
+    mock_db.get_token_stats.return_value = []
+    mock_db.get_recent_queries.return_value = [
+        {
+            "query_text": "OpenShift booth demo for Summit",
+            "query_time": datetime(2026, 4, 13, 14, 22, tzinfo=timezone.utc),
+            "triage_input": 1200, "triage_output": 300,
+            "rationale_input": 45000, "rationale_output": 3800,
+            "total_tokens": 50300,
+        }
+    ]
+
+    response = client.get("/admin/token-usage?days=30")
+
+    assert response.status_code == 200
+    assert "OpenShift booth demo for Summit" in response.text
+    assert "50,300" in response.text
+
+
+def test_token_usage_all_time_param(admin_client):
+    """GET /admin/token-usage?days=0 should call get_token_stats with days=None."""
+    client, mock_db = admin_client
+    mock_db.get_token_stats.return_value = []
+    mock_db.get_recent_queries.return_value = []
+
+    response = client.get("/admin/token-usage?days=0")
+
+    assert response.status_code == 200
+    mock_db.get_token_stats.assert_called_once_with(days=None)
+    mock_db.get_recent_queries.assert_called_once_with(days=None)
+
+
+def test_token_usage_window_selector_present(admin_client):
+    """Token usage section should include the time window selector."""
+    client, mock_db = admin_client
+    mock_db.get_token_stats.return_value = []
+    mock_db.get_recent_queries.return_value = []
+
+    response = client.get("/admin/token-usage?days=30")
+
+    assert "Last 7 days" in response.text
+    assert "Last 30 days" in response.text
+    assert "All time" in response.text
+    assert "/admin/token-usage" in response.text
