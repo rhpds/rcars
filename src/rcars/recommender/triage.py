@@ -102,11 +102,12 @@ def triage(
         len(survivors), len(state.candidates), triage_cutoff, elapsed,
     )
 
+    usage = getattr(response, "usage", None)
     new_token_entry = {
         "operation": "triage",
         "model": model,
-        "input_tokens": response.usage.input_tokens,
-        "output_tokens": response.usage.output_tokens,
+        "input_tokens": getattr(usage, "input_tokens", 0),
+        "output_tokens": getattr(usage, "output_tokens", 0),
     }
 
     return QueryState(
