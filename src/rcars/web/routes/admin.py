@@ -102,9 +102,8 @@ def _token_usage_html(stats: list, queries: list, days: int) -> str:
     refresh_btn = (
         f'<button hx-get="/admin/token-usage?days={days}" '
         f'hx-target="#token-usage-section" hx-swap="outerHTML" '
-        f'style="background:none;border:1px solid var(--border);border-radius:4px;'
-        f'padding:3px 8px;font-size:12px;color:var(--text-muted);cursor:pointer;" '
-        f'title="Refresh token stats">&#8635;</button>'
+        f'class="btn-action" style="padding:6px 14px;font-size:13px;">'
+        f'&#8635; Refresh</button>'
     )
 
     return (
@@ -183,18 +182,31 @@ def _run_refresh():
         _refresh_status["running"] = False
 
 
+def _log_line_html(line: str) -> str:
+    """Render a single log line with color based on content."""
+    low = line.lower()
+    if any(w in low for w in ("error", "fail", "exception")):
+        color = "var(--score-amber)"
+    elif any(w in low for w in ("complete", "done", "success", "✓")):
+        color = "var(--score-green)"
+    elif any(w in low for w in ("skip", "warn", "stale")):
+        color = "var(--text-amber)"
+    else:
+        color = "#aaa"
+    return f'<div style="color:{color};padding:3px 0;border-bottom:1px solid #1a1f2e;">{_html.escape(line)}</div>'
+
+
 def _log_block_html(lines: list[str], div_id: str = "") -> str:
-    """Render a scrollable log block that auto-scrolls to the bottom."""
+    """Render a scrollable log block styled to match the rest of the UI."""
     if not lines:
         return ""
     recent = lines[-100:]
-    log_content = "\n".join(f'<div>{_html.escape(line)}</div>' for line in recent)
+    log_content = "".join(_log_line_html(line) for line in recent)
     id_attr = f' id="{div_id}"' if div_id else ""
     return (
-        f'<div{id_attr} style="margin-top:10px;background:var(--bg-secondary);'
-        f'border:1px solid var(--border);border-radius:4px;padding:8px 10px;'
-        f'font-size:11px;font-family:monospace;color:var(--text-muted);'
-        f'white-space:pre-wrap;max-height:350px;overflow-y:auto;">'
+        f'<div{id_attr} style="margin-top:12px;background:var(--bg-card);'
+        f'border:1px solid var(--border);border-radius:6px;padding:12px 14px;'
+        f'font-size:13px;line-height:1.5;max-height:360px;overflow-y:auto;">'
         f'{log_content}</div>'
         f'<script>(() => {{ let el = document.getElementById("{div_id}"); '
         f'if (el) el.scrollTop = el.scrollHeight; }})()</script>'
