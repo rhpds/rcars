@@ -43,6 +43,12 @@
                 placeholder="Refine or ask anything..."></textarea>
       <button type="button" id="send-btn" class="btn-send">Send</button>
     </div>
+    <div style="padding:4px 12px;display:flex;align-items:center;gap:6px;">
+      <label style="font-size:11px;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <input type="checkbox" id="include-non-prod" style="accent-color:var(--accent-blue);">
+        Include non-prod content
+      </label>
+    </div>
   </div>
   <div class="rec-pane" id="rec-pane">
     {% if restored_recs_html %}
@@ -109,12 +115,14 @@
           chatPane.scrollTop = chatPane.scrollHeight;
         }
       });
+      var nonProdCheckbox = document.getElementById('include-non-prod');
       htmx.ajax('POST', '/advisor/query', {
         target: '#rec-pane',
         swap: 'outerHTML',
         values: {
           session_id: sessionId,
-          message: sentMsg
+          message: sentMsg,
+          include_non_prod: nonProdCheckbox && nonProdCheckbox.checked ? 'true' : 'false'
         }
       });
     }
