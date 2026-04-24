@@ -105,7 +105,8 @@ def refresh(include_dev: bool):
 
 
 @cli.command()
-def status():
+@click.option("--failures", is_flag=True, default=False, help="Show detailed scan failures")
+def status(failures: bool):
     """Show catalog status summary."""
     db = get_db()
     summary = db.get_status_summary()
@@ -120,7 +121,26 @@ def status():
     table.add_row("Analyzed", str(summary["analyzed"]))
     table.add_row("Stale", str(summary["stale"]))
 
+    fail_count = summary.get("scan_failures", 0)
+    fail_style = "red" if fail_count > 0 else "green"
+    table.add_row("Scan failures", f"[{fail_style}]{fail_count}[/{fail_style}]")
+
     console.print(table)
+
+    if failures:
+        fail_list = db.get_scan_failures()
+        if fail_list:
+            ftable = Table(title="Scan Failures")
+            ftable.add_column("CI Name", style="cyan")
+            ftable.add_column("Error Class")
+            ftable.add_column("Failed At")
+            for f in fail_list:
+                failed_at = f["scan_failed_at"].strftime("%Y-%m-%d %H:%M") if f.get("scan_failed_at") else ""
+                ftable.add_row(f["ci_name"], f.get("scan_error_class", ""), failed_at)
+            console.print(ftable)
+        else:
+            console.print("[green]No scan failures.[/green]")
+
     db.close()
 
 

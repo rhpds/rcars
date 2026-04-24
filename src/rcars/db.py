@@ -449,12 +449,18 @@ class Database:
                 )
                 stale = cur.fetchone()["count"]
 
+                cur.execute(
+                    "SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed'"
+                )
+                scan_failures = cur.fetchone()["count"]
+
         return {
             "total": total,
             "prod": prod,
             "with_showroom": with_showroom,
             "analyzed": analyzed,
             "stale": stale,
+            "scan_failures": scan_failures,
         }
 
     def upsert_showroom_analysis(self, analysis: dict[str, Any]):
