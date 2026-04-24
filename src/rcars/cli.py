@@ -64,41 +64,63 @@ def init_db(drop: bool):
 @cli.command()
 def refresh():
     """Refresh catalog from Babylon CRDs (all namespaces: prod + dev + event)."""
+    import time
     from rcars.catalog_reader import CatalogReader
 
     settings = Settings()
     db = get_db()
 
     namespaces = settings.catalog_namespaces
+    t0 = time.monotonic()
 
-    console.print(f"[bold]Refreshing catalog from {len(namespaces)} namespace(s)...[/bold]")
+    _print(f"Refreshing catalog from {len(namespaces)} namespace(s): {', '.join(namespaces)}")
+    _print(f"Component namespace: {settings.agnosticv_component_namespace}")
 
     try:
+        _print("Connecting to Babylon cluster...")
         reader = CatalogReader(settings.kubeconfig_path)
+        _print("Connected. Reading CatalogItem CRDs...")
         items = reader.refresh_catalog(
             namespaces=namespaces,
             component_namespace=settings.agnosticv_component_namespace,
         )
     except Exception as e:
-        console.print(f"[red]Error connecting to cluster:[/red] {e}")
+        _print(f"ERROR: Failed to connect to cluster: {e}")
         db.close()
         sys.exit(1)
 
+    _print(f"Retrieved {len(items)} catalog items from Babylon. Upserting to database...")
+
     count_with_showroom = 0
     refreshed_ci_names = set()
-    for item in items:
+    stage_counts = {"prod": 0, "dev": 0, "event": 0, "other": 0}
+    for i, item in enumerate(items, 1):
         db.upsert_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
         refreshed_ci_names.add(item["ci_name"])
+        stage = item.get("stage", "other")
+        stage_counts[stage] = stage_counts.get(stage, 0) + 1
         if item.get("showroom_url"):
             count_with_showroom += 1
+        if i % 25 == 0 or i == len(items):
+            _print(f"  upserted {i}/{len(items)} items...")
 
+    _print(f"Upsert complete. By stage: {', '.join(f'{k}={v}' for k, v in stage_counts.items() if v > 0)}")
+    _print(f"Items with Showroom URLs: {count_with_showroom}")
+
+    _print("Reconciling: checking for items removed from Babylon...")
     removed = db.delete_removed_items(refreshed_ci_names)
+    if removed:
+        for r in removed:
+            _print(f"  removed: {r['ci_name']} (stage={r.get('stage', '?')})")
+    else:
+        _print("  No items to remove.")
 
-    console.print(
-        f"[green]Done.[/green] {len(items)} items refreshed, "
-        f"{count_with_showroom} with Showroom URLs. "
-        f"Removed {len(removed)} items no longer in Babylon catalog."
+    elapsed = time.monotonic() - t0
+    _print(
+        f"Done in {elapsed:.1f}s. {len(items)} items refreshed, "
+        f"{count_with_showroom} with Showroom URLs, "
+        f"{len(removed)} removed."
     )
     db.close()
 

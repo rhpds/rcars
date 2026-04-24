@@ -202,15 +202,16 @@ class CatalogReader:
     ) -> list[dict[str, Any]]:
         items = []
 
-        for ns in namespaces:
-            log.info("Reading CatalogItems from %s", ns)
+        for ns_idx, ns in enumerate(namespaces, 1):
+            log.info("Reading CatalogItems from namespace %d/%d: %s", ns_idx, len(namespaces), ns)
             try:
                 crds = self.list_catalog_items(ns)
             except client.ApiException as e:
                 log.error("Failed to list CatalogItems in %s: %s", ns, e.reason)
                 continue
 
-            for crd in crds:
+            log.info("Found %d CatalogItems in %s, processing...", len(crds), ns)
+            for i, crd in enumerate(crds, 1):
                 item = extract_catalog_item(crd)
                 ci_name = item["ci_name"]
 
@@ -221,20 +222,23 @@ class CatalogReader:
                     url, ref = extract_showroom_url(component)
                     item["showroom_url"] = url
                     item["showroom_ref"] = ref
+                    if url:
+                        log.debug("  %s: showroom=%s ref=%s", ci_name, url, ref)
 
-                    # For published VCIs, extract base CI references
                     if item["is_published"]:
                         base_refs = extract_base_ci_refs(component)
                         if base_refs:
                             stage = item.get("stage", "prod")
-                            # Use first component (1:1 is the norm)
                             item["base_ci_name"] = component_item_to_ci_name(
                                 base_refs[0], stage
                             )
 
                 items.append(item)
 
-            log.info("Found %d CatalogItems in %s", len(crds), ns)
+                if i % 50 == 0:
+                    log.info("  processed %d/%d items in %s", i, len(crds), ns)
+
+            log.info("Completed %s: %d items", ns, len(crds))
 
         # Second pass: set published_ci_name on base CIs
         items_by_name = {i["ci_name"]: i for i in items}
