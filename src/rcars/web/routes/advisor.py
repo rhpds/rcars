@@ -134,14 +134,33 @@ def _base_context(request: Request, db: Database | None, user: str, active_page:
     }
 
 
+_TIER_ORDER = {"green": 0, "yellow": 1, "white": 2}
+
+
+def _tier_sort_key(rec: dict) -> tuple:
+    tier = rec.get("tier", "white")
+    order = _TIER_ORDER.get(tier, 2)
+    if tier == "green":
+        score = -(rec.get("fit_score") or 0)
+    elif tier == "yellow":
+        score = -(rec.get("relevance_score") or rec.get("fit_score") or 0)
+    else:
+        score = -(rec.get("vector_similarity_pct") or 0)
+    return (order, score)
+
+
 def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
-    """Convert Candidate dataclasses to rec dicts for templates."""
+    """Convert Candidate dataclasses to rec dicts for templates, sorted by tier."""
     recs = []
     for c in candidates:
+        tier = getattr(c, "tier", "white")
         rec = {
             "ci_name": c.ci_name,
             "display_name": c.display_name,
+            "tier": tier,
             "fit_score": c.relevance_score if c.relevance_score is not None else c.vector_similarity_pct,
+            "relevance_score": c.relevance_score,
+            "vector_similarity_pct": c.vector_similarity_pct,
             "rationale": c.rationale or "",
             "why_it_fits": c.why_it_fits or "",
             "how_to_use": c.how_to_use or "",
@@ -149,7 +168,9 @@ def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
             "duration_notes": c.duration_notes or "",
             "caveats": c.caveats or "",
             "one_line_reason": c.one_line_reason or "",
-            "card_phase": "complete" if c.rationale else card_phase,
+            "card_phase": "complete" if c.rationale else (
+                "triaged" if tier == "yellow" else card_phase
+            ),
             "summary": c.summary,
             "topics": c.topics,
             "difficulty": c.difficulty,
@@ -158,6 +179,7 @@ def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
             "stage": c.stage,
         }
         recs.append(rec)
+    recs.sort(key=_tier_sort_key)
     return recs
 
 
@@ -205,6 +227,7 @@ def _run_advisor_query(
                 recs = _enrich_recs(recs, db)
                 rec_html = templates.get_template("fragments/rec_list.html").render(
                     recs=recs, is_curator=is_curator, session_id=session_id,
+                    turn_index=turn_index,
                     phase="triaging", status_message="Evaluating relevance...",
                 )
                 _query_status[session_id] = {
@@ -216,12 +239,15 @@ def _run_advisor_query(
             elif state.phase == "TRIAGE_DONE":
                 recs = _candidates_to_recs(state.candidates, "triaged")
                 recs = _enrich_recs(recs, db)
-                # Mark top N for rationale
-                for i, rec in enumerate(recs):
-                    if i < settings.rationale_top_n and (rec.get("relevance_score", 0) or rec.get("fit_score", 0)) >= 70:
+                # Mark top N yellow candidates as "analyzing" (going to Sonnet)
+                yellow_count = 0
+                for rec in recs:
+                    if rec.get("tier") == "yellow" and yellow_count < settings.rationale_top_n:
                         rec["card_phase"] = "analyzing"
+                        yellow_count += 1
                 rec_html = templates.get_template("fragments/rec_list.html").render(
                     recs=recs, is_curator=is_curator, session_id=session_id,
+                    turn_index=turn_index,
                     phase="rationale", status_message="Preparing detailed analysis...",
                 )
                 _query_status[session_id] = {
@@ -250,6 +276,7 @@ def _run_advisor_query(
 
                 rec_html = templates.get_template("fragments/rec_list.html").render(
                     recs=recs, is_curator=is_curator, session_id=session_id,
+                    turn_index=turn_index,
                     phase="complete", status_message=None,
                 )
                 chat_html = templates.get_template("fragments/chat_turn.html").render(
