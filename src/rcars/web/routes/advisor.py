@@ -193,6 +193,7 @@ def _run_advisor_query(
     settings,
     user: str,
     prod_only: bool = True,
+    opted_out: bool = False,
 ) -> None:
     """Background thread: run three-phase pipeline, update _query_status at each phase."""
     turn_index = len(_sessions.get(session_id, []))
@@ -200,8 +201,10 @@ def _run_advisor_query(
 
     try:
         # Detect URLs in the query and enhance with event context
+        event_url_stored: str | None = None
         urls = re.findall(r'https?://[^\s<>"]+', description)
         if urls:
+            event_url_stored = urls[0]
             from rcars.event_parser import parse_event_url
             for url in urls[:1]:  # Only parse the first URL
                 log.info("advisor: detected URL %s, fetching event profile", url)
@@ -274,6 +277,30 @@ def _run_advisor_query(
                     "recs": recs, "turn_index": turn_index,
                 })
 
+                # Persist session turn to DB
+                if db:
+                    results_for_storage = [
+                        {
+                            "ci_name": r["ci_name"],
+                            "tier": r.get("tier", "white"),
+                            "fit_score": r.get("fit_score"),
+                            "relevance_score": r.get("relevance_score"),
+                            "vector_similarity_pct": r.get("vector_similarity_pct"),
+                            "stage": r.get("stage", "prod"),
+                        }
+                        for r in recs
+                    ]
+                    db.log_advisor_session(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        user_email=user,
+                        query_text=message,
+                        event_url=event_url_stored,
+                        results=results_for_storage,
+                        overall_assessment=overall,
+                        opted_out=opted_out,
+                    )
+
                 rec_html = templates.get_template("fragments/rec_list.html").render(
                     recs=recs, is_curator=is_curator, session_id=session_id,
                     turn_index=turn_index,
@@ -292,6 +319,17 @@ def _run_advisor_query(
 
             elif state.phase == "NO_MATCHES":
                 no_match_msg = "Nothing in the catalog is a strong fit for this query. Try broadening your terms or describing what you need differently."
+                if db:
+                    db.log_advisor_session(
+                        session_id=session_id,
+                        turn_index=turn_index,
+                        user_email=user,
+                        query_text=message,
+                        event_url=event_url_stored,
+                        results=[],
+                        overall_assessment=no_match_msg,
+                        opted_out=opted_out,
+                    )
                 turns = _sessions.setdefault(session_id, [])
                 turns.append({
                     "role": "assistant", "content": no_match_msg,
@@ -446,18 +484,19 @@ async def advisor_query(
 
     description = " ".join(t["content"] for t in turns if t["role"] == "user")
 
-    # Read non-prod toggle from form data
+    # Read form toggles
     form = await request.form()
     include_non_prod = form.get("include_non_prod") == "true"
+    opted_out = form.get("opted_out") == "true"
     prod_only = not include_non_prod
 
-    log.info("advisor: spawning background query user=%s session=%s prod_only=%s query=%r",
-             user, session_id, prod_only, description[:120])
+    log.info("advisor: spawning background query user=%s session=%s prod_only=%s opted_out=%s query=%r",
+             user, session_id, prod_only, opted_out, description[:120])
 
     _query_status[session_id] = {"running": True, "rec_html": None, "chat_html": None, "error": None}
     t = threading.Thread(
         target=_run_advisor_query,
-        args=(session_id, message, description, first_message, db, client, settings, user, prod_only),
+        args=(session_id, message, description, first_message, db, client, settings, user, prod_only, opted_out),
         daemon=True,
     )
     t.start()
