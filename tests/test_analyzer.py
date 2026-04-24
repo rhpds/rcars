@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+from pathlib import Path
 from rcars.analyzer import (
     build_analysis_prompt,
     parse_analysis_response,
@@ -310,3 +311,27 @@ def test_analyze_showroom_no_db_does_not_fail():
             db=None,
         )
     assert result is not None
+
+
+def test_clone_dir_uses_unique_suffix(tmp_path, monkeypatch):
+    """Two clones of the same repo URL must use different directories."""
+    from rcars.analyzer import clone_showroom
+
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        clone_path = cmd[-1]
+        Path(clone_path).mkdir(parents=True, exist_ok=True)
+        calls.append(clone_path)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    p1 = clone_showroom("https://github.com/org/my-workshop.git", None, str(tmp_path))
+    p2 = clone_showroom("https://github.com/org/my-workshop.git", None, str(tmp_path))
+
+    assert p1 != p2
+    assert p1.name.startswith("rcars-showroom-my-workshop-")
+    assert p2.name.startswith("rcars-showroom-my-workshop-")
+    assert len(calls) == 2
+    assert calls[0] != calls[1]

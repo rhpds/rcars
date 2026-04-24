@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import threading
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any
@@ -183,9 +184,10 @@ def clone_showroom(
     url: str, ref: str | None, clone_dir: str = "/tmp"
 ) -> Path | None:
     """Shallow clone a Showroom repo. Returns clone path or None on failure."""
-    # Derive a safe directory name from the URL
+    # Derive a safe directory name from the URL with unique suffix
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
-    clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}"
+    suffix = uuid.uuid4().hex[:8]
+    clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}-{suffix}"
 
     # Clean up any previous clone
     if clone_path.exists():
