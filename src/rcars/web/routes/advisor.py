@@ -119,7 +119,11 @@ def _base_context(request: Request, db: Database | None, user: str, active_page:
     if db:
         db_status = db.get_db_currency(stale_days=settings.stale_days)
     else:
-        db_status = {"last_refresh": "no database", "is_stale": True}
+        db_status = {
+            "last_refresh": "no database", "is_stale": True,
+            "catalog_stale": True, "catalog_date": "never",
+            "analysis_stale": True, "analysis_date": "never",
+        }
     return {
         "request": request,
         "current_user": user,

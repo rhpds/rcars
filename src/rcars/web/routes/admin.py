@@ -124,6 +124,30 @@ def _get_db_dependency() -> Database | None:
     return get_db()
 
 
+def _currency_badge_oob(db: Database) -> str:
+    """Render the logo currency badges as an HTMX OOB swap fragment."""
+    settings = Settings()
+    c = db.get_db_currency(stale_days=settings.stale_days)
+    cat_badge = (
+        '<span style="color:#c9190b;font-weight:700;">● STALE</span>'
+        if c["catalog_stale"] else
+        '<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>'
+    )
+    ana_badge = (
+        '<span style="color:#c9190b;font-weight:700;">● STALE</span>'
+        if c["analysis_stale"] else
+        '<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>'
+    )
+    return (
+        f'<div id="currency-badges" hx-swap-oob="true">'
+        f'<div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">'
+        f'CATALOG {c["catalog_date"]} {cat_badge}</div>'
+        f'<div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">'
+        f'ANALYSIS {c["analysis_date"]} {ana_badge}</div>'
+        f'</div>'
+    )
+
+
 def _status_table_oob(db: Database) -> str:
     """Render the catalog status table as an HTMX OOB swap fragment."""
     s = db.get_status_summary()
@@ -386,7 +410,7 @@ async def stale_check_status(
         lines = list(_stale_check_status["lines"])
         msg = "Check complete." if exit_ok else "Check failed — see logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_stale_section_idle(msg, color, lines) + _status_table_oob(db))
+        return HTMLResponse(_stale_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
     return HTMLResponse(_stale_section_idle())
 
 
@@ -418,7 +442,7 @@ async def rescan_status(
         # Don't clear exit_ok here — keep the result visible until the next scan starts.
         msg = "Analysis complete." if exit_ok else "Analysis failed — check logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_rescan_section_idle(msg, color, lines) + _status_table_oob(db))
+        return HTMLResponse(_rescan_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
     return HTMLResponse(_rescan_section_idle())
 
 
@@ -449,7 +473,7 @@ async def refresh_status(
         lines = list(_refresh_status["lines"])
         msg = "Catalog sync complete." if exit_ok else "Sync failed — check logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_refresh_section_idle(msg, color, lines) + _status_table_oob(db))
+        return HTMLResponse(_refresh_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
     return HTMLResponse(_refresh_section_idle())
 
 

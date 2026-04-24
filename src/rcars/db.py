@@ -837,18 +837,59 @@ class Database:
             conn.commit()
 
     def get_db_currency(self, stale_days: int = 3) -> dict:
-        """Return last catalog refresh date and staleness status."""
+        """Return catalog and analysis currency status."""
         from datetime import timedelta
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT MAX(last_refreshed) as max_refreshed FROM catalog_items")
                 row = cur.fetchone()
                 last_refresh = row["max_refreshed"] if row else None
-        if last_refresh is None:
-            return {"last_refresh": "never", "is_stale": True}
-        now = datetime.now(timezone.utc)
-        is_stale = (now - last_refresh) > timedelta(days=stale_days)
+
+                # Catalog currency
+                catalog_stale = True
+                catalog_date = "never"
+                if last_refresh:
+                    now = datetime.now(timezone.utc)
+                    catalog_stale = (now - last_refresh) > timedelta(days=stale_days)
+                    catalog_date = last_refresh.strftime("%Y.%m.%d")
+
+                # Analysis currency: are there unanalyzed or stale items?
+                cur.execute("""
+                    SELECT COUNT(*) as count FROM catalog_items
+                    WHERE showroom_url IS NOT NULL AND showroom_url != ''
+                      AND (is_published IS NULL OR is_published = FALSE)
+                """)
+                scannable = cur.fetchone()["count"]
+
+                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis")
+                analyzed = cur.fetchone()["count"]
+
+                cur.execute(
+                    "SELECT COUNT(*) as count FROM showroom_analysis WHERE is_stale = TRUE"
+                )
+                stale_count = cur.fetchone()["count"]
+
+                cur.execute(
+                    "SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed'"
+                )
+                failed_count = cur.fetchone()["count"]
+
+                cur.execute("SELECT MAX(last_analyzed) as max_analyzed FROM showroom_analysis")
+                row = cur.fetchone()
+                last_analyzed = row["max_analyzed"] if row else None
+
+        unanalyzed = max(0, scannable - analyzed)
+        analysis_stale = (unanalyzed > 0 or stale_count > 0) if scannable > 0 else True
+        analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
+
         return {
-            "last_refresh": last_refresh.strftime("%Y.%m.%d"),
-            "is_stale": is_stale,
+            "last_refresh": catalog_date,
+            "is_stale": catalog_stale,
+            "catalog_stale": catalog_stale,
+            "catalog_date": catalog_date,
+            "analysis_stale": analysis_stale,
+            "analysis_date": analysis_date,
+            "unanalyzed": unanalyzed,
+            "stale_count": stale_count,
+            "failed_count": failed_count,
         }
