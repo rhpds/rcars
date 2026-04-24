@@ -5,8 +5,11 @@ import pytest
 from rcars.config import Settings
 
 
-def test_settings_defaults():
+def test_settings_defaults(monkeypatch):
     """Settings should have sensible defaults for non-secret values."""
+    monkeypatch.delenv("CLOUD_ML_REGION", raising=False)
+    monkeypatch.delenv("RCARS_CLONE_DIR", raising=False)
+    monkeypatch.delenv("RCARS_MAX_PARALLEL", raising=False)
     settings = Settings()
     assert settings.database_url == ""
     assert settings.model == "claude-sonnet-4-6"
