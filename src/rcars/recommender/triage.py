@@ -70,36 +70,47 @@ def triage(
     else:
         scores_by_ci = {}
 
-    survivors = []
+    annotated = []
+    relevant_count = 0
     for candidate in state.candidates:
         score_data = scores_by_ci.get(candidate.ci_name)
         if not score_data:
-            log.info("  triage: dropped %s — not in Haiku response", candidate.ci_name)
+            log.info("  triage: not scored %s — marking white", candidate.ci_name)
+            annotated.append(candidate)
             continue
 
         relevance = score_data.get("relevance_score", 0)
         relevant = score_data.get("relevant", False)
         reason = score_data.get("one_line_reason", "")
 
-        if not relevant or relevance < triage_cutoff:
-            log.info("  triage: dropped %s — score=%d relevant=%s (%s)",
-                     candidate.ci_name, relevance, relevant, reason)
-            continue
-
         candidate.relevance_score = relevance
-        candidate.relevant = True
         candidate.one_line_reason = reason
-        survivors.append(candidate)
-        log.info("  triage: kept %s — score=%d (%s)", candidate.ci_name, relevance, reason)
 
-    survivors.sort(key=lambda c: c.relevance_score or 0, reverse=True)
+        if relevant and relevance >= triage_cutoff:
+            candidate.tier = "yellow"
+            candidate.relevant = True
+            relevant_count += 1
+            log.info("  triage: yellow %s — score=%d (%s)", candidate.ci_name, relevance, reason)
+        else:
+            candidate.tier = "white"
+            candidate.relevant = False
+            log.info("  triage: white %s — score=%d relevant=%s (%s)",
+                     candidate.ci_name, relevance, relevant, reason)
+
+        annotated.append(candidate)
+
+    # Sort: yellow first (by score desc), white last (by vector similarity desc)
+    annotated.sort(key=lambda c: (
+        0 if c.tier == "yellow" else 1,
+        -(c.relevance_score or 0) if c.tier == "yellow" else -(c.vector_similarity_pct or 0),
+    ))
 
     elapsed = time.monotonic() - t0
-    phase = "TRIAGE_DONE" if survivors else "NO_MATCHES"
+    phase = "TRIAGE_DONE" if relevant_count > 0 else "NO_MATCHES"
 
     log.info(
-        "triage: %d/%d candidates survived (cutoff=%d, elapsed=%.3fs)",
-        len(survivors), len(state.candidates), triage_cutoff, elapsed,
+        "triage: %d/%d relevant, %d total returned (cutoff=%d, elapsed=%.3fs)",
+        relevant_count, len(state.candidates), len(annotated), triage_cutoff, elapsed,
     )
 
     usage = getattr(response, "usage", None)
@@ -112,7 +123,7 @@ def triage(
 
     return QueryState(
         phase=phase,
-        candidates=survivors,
+        candidates=annotated,
         query=state.query,
         timings={**state.timings, "triage": round(elapsed, 3)},
         token_usage=[*state.token_usage, new_token_entry],
