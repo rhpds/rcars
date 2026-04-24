@@ -88,4 +88,19 @@
   <div x-show="expanded" style="display:none;" @click.stop>
     {% include "fragments/rec_card_expanded.html" %}
   </div>
+
+  {# ── "This fits best" button — complete green/yellow cards only ── #}
+  {% if card_phase == "complete" and tier in ["green", "yellow"] and session_id is defined %}
+  <div style="margin-top:8px;" @click.stop>
+    <button
+      hx-post="/advisor/select"
+      hx-vals='{"session_id": "{{ session_id }}", "turn_index": "{{ turn_index|default(0) }}", "ci_name": {{ rec.ci_name | tojson }}}'
+      hx-target="this"
+      hx-swap="outerHTML"
+      style="background:transparent;border:1px solid #444;color:var(--text-muted);
+             padding:4px 10px;border-radius:4px;font-size:11px;cursor:pointer;">
+      This fits best
+    </button>
+  </div>
+  {% endif %}
 </div>
