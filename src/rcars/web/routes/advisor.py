@@ -542,6 +542,23 @@ async def advisor_query_status(
     return HTMLResponse(_query_done_fragment(status["rec_html"], status.get("chat_html", "")))
 
 
+@router.post("/advisor/select", response_class=HTMLResponse)
+async def advisor_select(
+    session_id: Annotated[str, Form()],
+    turn_index: Annotated[str, Form()],
+    ci_name: Annotated[str, Form()],
+    user: str = Depends(get_current_user),
+    db: Database | None = Depends(_get_db_dependency),
+):
+    if db:
+        db.update_advisor_session_choice(session_id, int(turn_index), ci_name)
+    return HTMLResponse(
+        '<button style="background:var(--score-green);color:#000;border:none;'
+        'padding:4px 10px;border-radius:4px;font-size:11px;font-weight:600;cursor:default;">'
+        '✓ Best fit selected</button>'
+    )
+
+
 @router.get("/advisor/restore/{session_id}/{turn_index}", response_class=HTMLResponse)
 async def advisor_restore(
     request: Request,
