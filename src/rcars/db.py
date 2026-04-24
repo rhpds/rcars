@@ -912,7 +912,8 @@ class Database:
                 row = cur.fetchone()
                 last_analyzed = row["max_analyzed"] if row else None
 
-        unanalyzed = max(0, scannable - analyzed)
+        # Unanalyzed excludes scan failures — those are tracked separately
+        unanalyzed = max(0, scannable - analyzed - failed_count)
         analysis_stale = (unanalyzed > 0 or stale_count > 0) if scannable > 0 else True
         analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
 

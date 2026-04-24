@@ -265,13 +265,13 @@ def _log_block_html(lines: list[str], div_id: str = "", collapsed: bool = False)
         f'font-size:13px;line-height:1.5;max-height:360px;overflow-y:auto;">'
         f'{log_content}</div>'
         f'</details>'
-        f'<script>(() => {{ '
+        f'<script>requestAnimationFrame(() => {{ '
         f'let el = document.getElementById("{div_id}"); '
         f'if (!el) return; '
         f'let saved = (window._rcarsLogPos || {{}})["{div_id}"]; '
         f'if (saved && !saved.atBottom) {{ el.scrollTop = saved.top; }} '
         f'else {{ el.scrollTop = el.scrollHeight; }} '
-        f'}})()</script>'
+        f'}})</script>'
     )
 
 
