@@ -116,6 +116,9 @@ CREATE INDEX IF NOT EXISTS idx_analysis_log_created_at ON analysis_log(created_a
 """
 
 
+STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
+
+
 class Database:
     """PostgreSQL database with connection pooling.
 
@@ -721,6 +724,46 @@ class Database:
                         (ci_name, needed),
                     )
             conn.commit()
+
+    def get_stage_deduplicated_items(
+        self, stage_filter: str | None = None
+    ) -> list[dict]:
+        """Return catalog items with cross-stage dedup applied.
+
+        When stage_filter is set, returns only that stage (no dedup needed).
+        When stage_filter is None (all stages), deduplicates items that share
+        the same showroom_url+showroom_ref, keeping the highest-priority stage.
+        """
+        with self._pool.connection() as conn:
+            if stage_filter:
+                cur = conn.execute(
+                    "SELECT * FROM catalog_items WHERE stage = %s ORDER BY ci_name",
+                    (stage_filter,)
+                )
+                return cur.fetchall()
+
+            cur = conn.execute("SELECT * FROM catalog_items ORDER BY ci_name")
+            all_items = cur.fetchall()
+
+        no_showroom = [i for i in all_items if not i.get("showroom_url")]
+        has_showroom = [i for i in all_items if i.get("showroom_url")]
+
+        groups: dict[tuple, list[dict]] = {}
+        for item in has_showroom:
+            key = (item["showroom_url"], item.get("showroom_ref") or "")
+            groups.setdefault(key, []).append(item)
+
+        deduped = []
+        for group in groups.values():
+            if len(group) == 1:
+                deduped.append(group[0])
+            else:
+                group.sort(key=lambda i: STAGE_PRIORITY.get(i.get("stage", "dev"), 99))
+                deduped.append(group[0])
+
+        result = no_showroom + deduped
+        result.sort(key=lambda i: i.get("ci_name", ""))
+        return result
 
     def delete_removed_items(self, current_ci_names: set[str]) -> list[dict]:
         """Delete catalog items not in the current set. Returns removed items."""
