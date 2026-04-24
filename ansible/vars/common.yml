@@ -18,7 +18,7 @@ oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:latest"
 pg_port: 5432
 pg_user: rcars
 pg_database: rcars
-pg_pvc_size: 5Gi
+pg_pvc_size: 20Gi
 pg_storage_class: ocs-storagecluster-ceph-rbd
 
 # Vertex AI
