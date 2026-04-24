@@ -167,11 +167,15 @@ async def curate(
     request: Request,
     q: str = "",
     status_filter: str = "has_showroom",
+    stage_filter: str = "all",
     page: int = 1,
     user: str = Depends(require_curator),
     db: Database = Depends(_get_db_dependency),
 ):
-    items = db.list_catalog_items(prod_only=False)
+    if stage_filter == "all":
+        items = db.get_stage_deduplicated_items()
+    else:
+        items = db.get_stage_deduplicated_items(stage_filter=stage_filter)
 
     if q:
         q_lower = q.lower()
@@ -221,6 +225,7 @@ async def curate(
         "page_size": PAGE_SIZE,
         "q": q,
         "status_filter": status_filter,
+        "stage_filter": stage_filter,
     })
     return templates.TemplateResponse(request=request, name="curate.html", context=ctx)
 

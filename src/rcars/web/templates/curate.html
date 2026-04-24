@@ -17,6 +17,12 @@
       <option value="untagged" {% if status_filter == 'untagged' %}selected{% endif %}>Untagged</option>
       <option value="scan_failed" {% if status_filter == 'scan_failed' %}selected{% endif %}>Scan failures</option>
     </select>
+    <select name="stage_filter" class="filter-select" onchange="this.form.submit()">
+      <option value="all" {% if stage_filter == 'all' %}selected{% endif %}>All stages</option>
+      <option value="prod" {% if stage_filter == 'prod' %}selected{% endif %}>Prod</option>
+      <option value="dev" {% if stage_filter == 'dev' %}selected{% endif %}>Dev</option>
+      <option value="event" {% if stage_filter == 'event' %}selected{% endif %}>Event</option>
+    </select>
     <button type="submit" class="btn-action" style="padding:6px 12px;font-size:12px;">Filter</button>
   </form>
 
@@ -24,6 +30,8 @@
   <div class="curate-item" id="item-{{ item.ci_name | replace('.', '-') }}">
     <div style="display:flex;align-items:center;margin-bottom:4px;">
       <span class="curate-item-title">{{ item.display_name or item.ci_name }}</span>
+      {% if item.stage == 'dev' %}<span style="display:inline-block;background:#2a4a6a;color:#99ccff;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:600;margin-left:6px;">DEV</span>{% endif %}
+      {% if item.stage == 'event' %}<span style="display:inline-block;background:#5a4a1a;color:#ffcc66;border-radius:10px;padding:2px 8px;font-size:10px;font-weight:600;margin-left:6px;">EVENT</span>{% endif %}
       <span class="review-badge" id="badge-{{ item.ci_name | replace('.', '-') }}"
             style="{% if not item.enrichment_review_needed %}display:none;{% endif %}">needs review</span>
     </div>
@@ -155,17 +163,17 @@
   {% if total_pages > 1 %}
   <div style="display:flex;gap:6px;margin-top:16px;justify-content:center;align-items:center;flex-wrap:wrap;">
     {% if page > 1 %}
-    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page - 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">&laquo; Prev</a>
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&stage_filter={{ stage_filter }}&page={{ page - 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">&laquo; Prev</a>
     {% endif %}
     {% for p in range(1, total_pages + 1) %}
       {% if p == page %}
       <span style="color:var(--accent-blue);font-size:12px;padding:5px 8px;background:var(--bg-card);border-radius:4px;font-weight:600;">{{ p }}</span>
       {% else %}
-      <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ p }}" style="color:var(--text-muted);font-size:12px;padding:5px 8px;text-decoration:none;">{{ p }}</a>
+      <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&stage_filter={{ stage_filter }}&page={{ p }}" style="color:var(--text-muted);font-size:12px;padding:5px 8px;text-decoration:none;">{{ p }}</a>
       {% endif %}
     {% endfor %}
     {% if page < total_pages %}
-    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&page={{ page + 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Next &raquo;</a>
+    <a href="/curate?q={{ q }}&status_filter={{ status_filter }}&stage_filter={{ stage_filter }}&page={{ page + 1 }}" class="btn-action" style="font-size:12px;padding:5px 12px;text-decoration:none;">Next &raquo;</a>
     {% endif %}
   </div>
   {% endif %}
