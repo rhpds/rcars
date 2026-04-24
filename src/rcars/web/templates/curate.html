@@ -15,6 +15,7 @@
       <option value="all" {% if status_filter == 'all' %}selected{% endif %}>All items</option>
       <option value="needs_review" {% if status_filter == 'needs_review' %}selected{% endif %}>Needs review</option>
       <option value="untagged" {% if status_filter == 'untagged' %}selected{% endif %}>Untagged</option>
+      <option value="scan_failed" {% if status_filter == 'scan_failed' %}selected{% endif %}>Scan failures</option>
     </select>
     <button type="submit" class="btn-action" style="padding:6px 12px;font-size:12px;">Filter</button>
   </form>
@@ -27,6 +28,30 @@
             style="{% if not item.enrichment_review_needed %}display:none;{% endif %}">needs review</span>
     </div>
     <div class="curate-item-ci">{{ item.ci_name }}</div>
+
+    {% if item.scan_status == 'failed' %}
+    <div style="background:#2a1a1a;border:1px solid #5a2a2a;border-radius:6px;padding:10px;margin:8px 0;">
+      <span style="display:inline-block;background:#5a2020;color:#ff9999;border-radius:10px;padding:2px 10px;font-size:11px;font-weight:600;margin-bottom:6px;">{{ item.scan_error_class or 'unknown' }}</span>
+      <p style="font-size:12px;color:#cc8888;margin:6px 0;line-height:1.4;">{{ item.scan_error or 'No error details available' }}</p>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">
+        Failed: {{ item.scan_failed_at.strftime('%Y-%m-%d %H:%M') if item.scan_failed_at else 'unknown' }}
+      </div>
+      <form hx-post="/curate/override"
+            hx-target="#override-status-{{ item.ci_name | replace('.', '-') | replace('/', '-') }}"
+            hx-swap="innerHTML"
+            style="margin-top:6px;">
+        <input type="hidden" name="ci_name" value="{{ item.ci_name }}">
+        <label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:4px;">Showroom URL override:</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <input type="text" name="override_url"
+                 value="{{ item.showroom_url_override or item.showroom_url or '' }}"
+                 style="background:var(--bg-card);border:1px solid #444;color:#ccc;padding:6px 10px;border-radius:4px;font-size:12px;flex:1;">
+          <button type="submit" style="background:#2a3a2a;color:var(--score-green);border:1px solid #3a5a3a;padding:5px 12px;border-radius:4px;font-size:12px;cursor:pointer;white-space:nowrap;">Save Override</button>
+        </div>
+        <span id="override-status-{{ item.ci_name | replace('.', '-') | replace('/', '-') }}" style="font-size:11px;"></span>
+      </form>
+    </div>
+    {% endif %}
 
     {% if item.summary or item.difficulty or item.content_type %}
     <div style="margin-bottom:8px;font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px;align-items:baseline;">
