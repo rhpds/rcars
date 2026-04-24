@@ -42,7 +42,7 @@ def run_query(
     if state.phase == "NO_MATCHES":
         return
 
-    # Phase 2: Haiku triage
+    # Phase 2: Haiku triage — annotates all candidates with tier, returns full list
     state = triage_phase(
         state=state,
         anthropic_client=anthropic_client,
@@ -52,24 +52,55 @@ def run_query(
     yield state
 
     if state.phase == "NO_MATCHES":
-        # Triage was called — persist its token usage even though no matches survived
+        # Triage ran but found nothing relevant — persist token usage and stop
         for entry in state.token_usage:
             db.log_token_usage(query_text=state.query[:200], **entry)
         return
 
-    # Phase 3: Sonnet rationale
-    state = generate_rationale(
-        state=state,
+    # Phase 3: Sonnet rationale — only on yellow (relevant) candidates to control cost
+    all_candidates = state.candidates
+    yellow_candidates = [c for c in all_candidates if c.tier == "yellow"]
+
+    yellow_state = QueryState(
+        phase=state.phase,
+        candidates=yellow_candidates,
+        query=state.query,
+        timings=state.timings,
+        token_usage=state.token_usage,
+    )
+
+    rationale_state = generate_rationale(
+        state=yellow_state,
         db=db,
         anthropic_client=anthropic_client,
         model=settings.rationale_model,
         top_n=settings.rationale_top_n,
     )
-    yield state
+
+    # Promote candidates that received a Sonnet rationale to green
+    for c in rationale_state.candidates:
+        if c.rationale:
+            c.tier = "green"
+
+    # Rebuild full list: green → remaining yellow → white
+    green = [c for c in rationale_state.candidates if c.tier == "green"]
+    remaining_yellow = [c for c in rationale_state.candidates if c.tier == "yellow"]
+    white = [c for c in all_candidates if c.tier == "white"]
+
+    final_state = QueryState(
+        phase=rationale_state.phase,
+        candidates=green + remaining_yellow + white,
+        query=rationale_state.query,
+        overall_assessment=rationale_state.overall_assessment,
+        content_gaps=rationale_state.content_gaps,
+        timings=rationale_state.timings,
+        token_usage=rationale_state.token_usage,
+    )
+    yield final_state
 
     # Write query token usage to DB
-    for entry in state.token_usage:
+    for entry in final_state.token_usage:
         db.log_token_usage(
-            query_text=state.query[:200],
+            query_text=final_state.query[:200],
             **entry,
         )
