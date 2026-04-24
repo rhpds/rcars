@@ -18,7 +18,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 log = logging.getLogger(__name__)
 
 _rescan_status: dict = {"running": False, "lines": [], "exit_ok": None}
-_refresh_status: dict = {"running": False, "result": None, "color": None}
+_refresh_status: dict = {"running": False, "lines": [], "exit_ok": None}
 _stale_check_status: dict = {"running": False, "lines": [], "exit_ok": None}
 
 
@@ -146,48 +146,36 @@ def _status_table_oob(db: Database) -> str:
 </table>"""
 
 
-def _refresh_section_running() -> str:
-    return """<div id="refresh-section"
-     hx-get="/admin/refresh/status"
-     hx-trigger="every 3s"
-     hx-target="this"
-     hx-swap="outerHTML">
-  <button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Sync Catalog</button>
-  <span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Syncing catalog\u2026</span>
-</div>"""
+def _refresh_section_running(lines: list[str]) -> str:
+    return (
+        f'<div id="refresh-section"'
+        f' hx-get="/admin/refresh/status"'
+        f' hx-trigger="every 3s"'
+        f' hx-target="this"'
+        f' hx-swap="outerHTML">'
+        f'<button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Sync Catalog</button>'
+        f'<span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Syncing catalog\u2026</span>'
+        f'{_log_block_html(lines, "refresh-log")}'
+        f'</div>'
+    )
 
 
-def _refresh_section_idle(msg: str = "", color: str = "") -> str:
-    status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{msg}</span>' if msg else ""
-    return f"""<div id="refresh-section">
-  <button class="btn-action"
-          hx-post="/admin/refresh"
-          hx-target="#refresh-section"
-          hx-swap="outerHTML">Sync Catalog</button>
-  {status_span}
-</div>"""
+def _refresh_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
+    status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{_html.escape(msg)}</span>' if msg else ""
+    return (
+        f'<div id="refresh-section">'
+        f'<button class="btn-action"'
+        f' hx-post="/admin/refresh"'
+        f' hx-target="#refresh-section"'
+        f' hx-swap="outerHTML">Sync Catalog</button>'
+        f'{status_span}'
+        f'{_log_block_html(lines or [], "refresh-log")}'
+        f'</div>'
+    )
 
 
 def _run_refresh():
-    global _refresh_status
-    try:
-        result = subprocess.run(
-            ["rcars", "refresh"],
-            capture_output=True,
-            text=True,
-            timeout=300,
-        )
-        if result.returncode == 0:
-            _refresh_status["result"] = "Catalog sync complete."
-            _refresh_status["color"] = "var(--score-green)"
-        else:
-            _refresh_status["result"] = f"Sync failed: {result.stderr[:200]}"
-            _refresh_status["color"] = "var(--score-red)"
-    except Exception as e:
-        _refresh_status["result"] = f"Sync error: {str(e)[:200]}"
-        _refresh_status["color"] = "var(--score-red)"
-    finally:
-        _refresh_status["running"] = False
+    _run_subprocess(["rcars", "refresh"], _refresh_status, "refresh")
 
 
 def _log_line_html(line: str) -> str:
@@ -330,9 +318,11 @@ async def admin(
     # Render current state of background operations so navigating
     # back to the admin page shows running jobs, not idle buttons.
     if _refresh_status["running"]:
-        refresh_html = _refresh_section_running()
-    elif _refresh_status.get("result"):
-        refresh_html = _refresh_section_idle(_refresh_status["result"], _refresh_status.get("color", ""))
+        refresh_html = _refresh_section_running(_refresh_status["lines"])
+    elif _refresh_status.get("exit_ok") is not None:
+        msg = "Catalog sync complete." if _refresh_status["exit_ok"] else "Sync failed — check logs above."
+        color = "var(--score-green)" if _refresh_status["exit_ok"] else "var(--score-red)"
+        refresh_html = _refresh_section_idle(msg, color, _refresh_status["lines"])
     else:
         refresh_html = _refresh_section_idle()
 
@@ -438,13 +428,13 @@ async def trigger_refresh(
     db: Database = Depends(_get_db_dependency),
 ):
     if _refresh_status["running"]:
-        return HTMLResponse(_refresh_section_running())
+        return HTMLResponse(_refresh_section_running(_refresh_status["lines"]))
     _refresh_status["running"] = True
-    _refresh_status["result"] = None
-    _refresh_status["color"] = None
+    _refresh_status["lines"] = []
+    _refresh_status["exit_ok"] = None
     t = threading.Thread(target=_run_refresh, daemon=True)
     t.start()
-    return HTMLResponse(_refresh_section_running())
+    return HTMLResponse(_refresh_section_running([]))
 
 
 @router.get("/admin/refresh/status", response_class=HTMLResponse)
@@ -453,13 +443,13 @@ async def refresh_status(
     db: Database = Depends(_get_db_dependency),
 ):
     if _refresh_status["running"]:
-        return HTMLResponse(_refresh_section_running())
-    if _refresh_status["result"] is not None:
-        msg = _refresh_status["result"]
-        color = _refresh_status["color"]
-        _refresh_status["result"] = None
-        _refresh_status["color"] = None
-        return HTMLResponse(_refresh_section_idle(msg, color) + _status_table_oob(db))
+        return HTMLResponse(_refresh_section_running(_refresh_status["lines"]))
+    if _refresh_status["exit_ok"] is not None:
+        exit_ok = _refresh_status["exit_ok"]
+        lines = list(_refresh_status["lines"])
+        msg = "Catalog sync complete." if exit_ok else "Sync failed — check logs above."
+        color = "var(--score-green)" if exit_ok else "var(--score-red)"
+        return HTMLResponse(_refresh_section_idle(msg, color, lines) + _status_table_oob(db))
     return HTMLResponse(_refresh_section_idle())
 
 
