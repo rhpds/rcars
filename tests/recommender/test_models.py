@@ -26,6 +26,26 @@ def test_candidate_defaults():
     assert c.suggested_format is None
     assert c.duration_notes is None
     assert c.caveats is None
+    assert c.tier == "white"
+
+
+def test_candidate_default_tier():
+    """New candidates default to 'white' tier."""
+    c = Candidate(
+        ci_name="test/lab", display_name="Test", category="demo",
+        summary="s", topics=[], products=[], difficulty="easy",
+        duration_min=30, content_type="demo",
+    )
+    assert c.tier == "white"
+
+
+def test_candidate_tier_can_be_set():
+    c = Candidate(
+        ci_name="test/lab", display_name="Test", category="demo",
+        summary="s", topics=[], products=[], difficulty="easy",
+        duration_min=30, content_type="demo", tier="green",
+    )
+    assert c.tier == "green"
 
 
 def test_candidate_vector_similarity_calculation():

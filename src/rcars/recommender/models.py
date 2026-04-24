@@ -19,6 +19,7 @@ class Candidate:
     duration_min: int | None
     content_type: str
     stage: str = "prod"
+    tier: str = "white"  # white | yellow | green — set by pipeline phases
     vector_distance: float = 0.0
     vector_similarity_pct: int = 0
 
