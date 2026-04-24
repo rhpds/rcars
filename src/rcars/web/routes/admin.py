@@ -125,25 +125,33 @@ def _get_db_dependency() -> Database | None:
 
 
 def _currency_badge_oob(db: Database) -> str:
-    """Render the logo currency badges as an HTMX OOB swap fragment."""
+    """Render the full logo block as an HTMX OOB swap to refresh currency badges."""
     settings = Settings()
     c = db.get_db_currency(stale_days=settings.stale_days)
-    cat_badge = (
-        '<span style="color:#c9190b;font-weight:700;">● STALE</span>'
-        if c["catalog_stale"] else
-        '<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>'
-    )
-    ana_badge = (
-        '<span style="color:#c9190b;font-weight:700;">● STALE</span>'
-        if c["analysis_stale"] else
-        '<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>'
-    )
+    cat_stale_text = "● STALE" if c["catalog_stale"] else "● CURRENT"
+    cat_color = "#c9190b" if c["catalog_stale"] else "#5cb85c"
+    ana_stale_text = "● STALE" if c["analysis_stale"] else "● CURRENT"
+    ana_color = "#c9190b" if c["analysis_stale"] else "#5cb85c"
     return (
         f'<div id="currency-badges" hx-swap-oob="true">'
-        f'<div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">'
-        f'CATALOG {c["catalog_date"]} {cat_badge}</div>'
-        f'<div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">'
-        f'ANALYSIS {c["analysis_date"]} {ana_badge}</div>'
+        f'<a href="/advisor" style="display:inline-block;line-height:0;">'
+        f'<svg width="380" height="110" viewBox="0 0 380 110" xmlns="http://www.w3.org/2000/svg" class="rcars-logo">'
+        f'<path d="M 12 10 A 54 54 0 0 1 66 64 L 84 64 L 84 104 L 56 104 Q 12 104 12 40 Z" fill="#FF9900"/>'
+        f'<path d="M 24 28 A 28 28 0 0 1 50 54" stroke="#CC6600" stroke-width="4" fill="none" opacity="0.6"/>'
+        f'<rect x="90" y="10" width="140" height="30" rx="5" fill="#FF9900"/>'
+        f'<rect x="236" y="10" width="34" height="30" rx="5" fill="#FFCC99"/>'
+        f'<rect x="276" y="10" width="60" height="30" rx="5" fill="#9966CC"/>'
+        f'<rect x="90" y="46" width="246" height="18" rx="4" fill="#1c1c2e"/>'
+        f'<rect x="90" y="70" width="246" height="16" rx="4" fill="#1c1c2e"/>'
+        f'<rect x="90" y="90" width="246" height="16" rx="4" fill="#1c1c2e"/>'
+        f'<text x="100" y="32" font-family="Arial Black, Impact, sans-serif" font-size="20" font-weight="900" fill="#000" letter-spacing="5">RCARS</text>'
+        f'<text x="100" y="60" font-family="Arial, sans-serif" font-size="13" fill="#FF9900" letter-spacing="2">RHDP CONTENT ADVISOR</text>'
+        f'<text x="100" y="82" font-family="Arial, sans-serif" font-size="10" fill="#666">CATALOG {c["catalog_date"]}</text>'
+        f'<text x="230" y="82" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="{cat_color}">{cat_stale_text}</text>'
+        f'<text x="100" y="102" font-family="Arial, sans-serif" font-size="10" fill="#666">ANALYSIS {c["analysis_date"]}</text>'
+        f'<text x="230" y="102" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="{ana_color}">{ana_stale_text}</text>'
+        f'</svg>'
+        f'</a>'
         f'</div>'
     )
 

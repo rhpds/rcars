@@ -12,10 +12,11 @@
 
   <!-- Top bar with LCARS logo -->
   <header class="rcars-header">
+    <div id="currency-badges">
     <a href="/advisor" style="display:inline-block;line-height:0;">
-    <svg width="380" height="74" viewBox="0 0 380 74" xmlns="http://www.w3.org/2000/svg" class="rcars-logo">
+    <svg width="380" height="110" viewBox="0 0 380 110" xmlns="http://www.w3.org/2000/svg" class="rcars-logo">
       <!-- Arc -->
-      <path d="M 12 10 A 54 54 0 0 1 66 64 L 84 64 L 84 68 L 56 68 Q 12 68 12 40 Z" fill="#FF9900"/>
+      <path d="M 12 10 A 54 54 0 0 1 66 64 L 84 64 L 84 104 L 56 104 Q 12 104 12 40 Z" fill="#FF9900"/>
       <path d="M 24 28 A 28 28 0 0 1 50 54" stroke="#CC6600" stroke-width="4" fill="none" opacity="0.6"/>
       <!-- Header bars -->
       <rect x="90" y="10" width="140" height="30" rx="5" fill="#FF9900"/>
@@ -23,24 +24,31 @@
       <rect x="276" y="10" width="60" height="30" rx="5" fill="#9966CC"/>
       <!-- Middle bar -->
       <rect x="90" y="46" width="246" height="18" rx="4" fill="#1c1c2e"/>
+      <!-- Catalog status bar -->
+      <rect x="90" y="70" width="246" height="16" rx="4" fill="#1c1c2e"/>
+      <!-- Analysis status bar -->
+      <rect x="90" y="90" width="246" height="16" rx="4" fill="#1c1c2e"/>
       <!-- RCARS -->
       <text x="100" y="32" font-family="Arial Black, Impact, sans-serif" font-size="20" font-weight="900" fill="#000" letter-spacing="5">RCARS</text>
       <!-- RHDP CONTENT ADVISOR -->
       <text x="100" y="60" font-family="Arial, sans-serif" font-size="13" fill="#FF9900" letter-spacing="2">RHDP CONTENT ADVISOR</text>
+      <!-- Catalog row -->
+      <text x="100" y="82" font-family="Arial, sans-serif" font-size="10" fill="#666">CATALOG {{ db_status.catalog_date }}</text>
+      {% if db_status.catalog_stale %}
+      <text x="230" y="82" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="#c9190b">● STALE</text>
+      {% else %}
+      <text x="230" y="82" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="#5cb85c">● CURRENT</text>
+      {% endif %}
+      <!-- Analysis row -->
+      <text x="100" y="102" font-family="Arial, sans-serif" font-size="10" fill="#666">ANALYSIS {{ db_status.analysis_date }}</text>
+      {% if db_status.analysis_stale %}
+      <text x="230" y="102" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="#c9190b">● STALE</text>
+      {% else %}
+      <text x="230" y="102" font-family="Arial Black, sans-serif" font-size="10" font-weight="900" fill="#5cb85c">● CURRENT</text>
+      {% endif %}
     </svg>
-    <div id="currency-badges" style="margin-left:4px;margin-top:2px;">
-      <div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">
-        CATALOG {{ db_status.catalog_date }}
-        {% if db_status.catalog_stale %}<span style="color:#c9190b;font-weight:700;">● STALE</span>
-        {% else %}<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>{% endif %}
-      </div>
-      <div style="font-size:10px;color:#888;display:flex;gap:8px;align-items:center;">
-        ANALYSIS {{ db_status.analysis_date }}
-        {% if db_status.analysis_stale %}<span style="color:#c9190b;font-weight:700;">● STALE</span>
-        {% else %}<span style="color:#5cb85c;font-weight:700;">● CURRENT</span>{% endif %}
-      </div>
-    </div>
     </a>
+    </div>
 
     <div class="header-right">
       {% if is_curator %}
