@@ -15,6 +15,11 @@
     <div style="flex:1;min-width:0;">
       <div class="rec-title">{{ rec.display_name }}</div>
       <div class="rec-pill-row">
+        {% if rec.stage == 'dev' %}
+          <span class="rec-pill" style="background:#2a4a6a;color:#99ccff;font-weight:600;">DEV</span>
+        {% elif rec.stage == 'event' %}
+          <span class="rec-pill" style="background:#5a4a1a;color:#ffcc66;font-weight:600;">EVENT</span>
+        {% endif %}
         {% if rec.content_type %}
           <span class="rec-pill">{{ rec.content_type | replace('_', ' ') }}</span>
         {% endif %}
@@ -31,6 +36,17 @@
     </div>
     <span class="rec-expand-hint" x-text="expanded ? '▾' : '▸'"></span>
   </div>
+
+  {# ── Stage callout for non-prod items ── #}
+  {% if rec.stage == 'dev' %}
+  <div style="background:#1a2a3a;border:1px solid #2a4a6a;border-radius:4px;padding:6px 10px;margin:6px 0;font-size:11px;color:#99ccff;font-style:italic;">
+    In development. This content may be incomplete or awaiting promotion.
+  </div>
+  {% elif rec.stage == 'event' %}
+  <div style="background:#2a2a1a;border:1px solid #5a4a1a;border-radius:4px;padding:6px 10px;margin:6px 0;font-size:11px;color:#ffcc66;font-style:italic;">
+    Event-only content. Not self-service — contact RHDP ops to order on your behalf.
+  </div>
+  {% endif %}
 
   {# ── Body: Structured analysis or phase placeholder ── #}
   {% if card_phase == "analyzing" %}

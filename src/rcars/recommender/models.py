@@ -18,8 +18,9 @@ class Candidate:
     difficulty: str
     duration_min: int | None
     content_type: str
-    vector_distance: float
-    vector_similarity_pct: int
+    stage: str = "prod"
+    vector_distance: float = 0.0
+    vector_similarity_pct: int = 0
 
     # Populated after Phase 2 (Haiku triage)
     relevance_score: int | None = None

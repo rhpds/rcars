@@ -128,6 +128,13 @@ def _status_table_oob(db: Database) -> str:
     """Render the catalog status table as an HTMX OOB swap fragment."""
     s = db.get_status_summary()
     stale_color = "var(--score-amber)" if s["stale"] > 0 else "var(--score-green)"
+    fail_count = s.get("scan_failures", 0)
+    fail_color = "var(--score-red)" if fail_count > 0 else "var(--score-green)"
+    fail_cell = (
+        f'<a href="/curate?status_filter=scan_failed" style="color:{fail_color};">{fail_count}</a>'
+        if fail_count > 0
+        else f'<span style="color:{fail_color};">0</span>'
+    )
     return f"""<table id="catalog-status-table" class="status-table" hx-swap-oob="true">
   <tr><th>Metric</th><th>Count</th></tr>
   <tr><td>Total catalog items</td><td>{s["total"]}</td></tr>
@@ -135,6 +142,7 @@ def _status_table_oob(db: Database) -> str:
   <tr><td>With Showroom (scannable)</td><td>{s["with_showroom"]}</td></tr>
   <tr><td>Analyzed</td><td>{s["analyzed"]}</td></tr>
   <tr><td>Stale (needs rescan)</td><td style="color:{stale_color};">{s["stale"]}</td></tr>
+  <tr><td>Scan failures</td><td>{fail_cell}</td></tr>
 </table>"""
 
 

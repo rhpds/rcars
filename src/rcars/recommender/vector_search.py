@@ -103,6 +103,7 @@ def search(
             difficulty=(analysis or {}).get("difficulty", ""),
             duration_min=(analysis or {}).get("estimated_duration_min"),
             content_type=(analysis or {}).get("content_type", ""),
+            stage=row.get("stage", "prod"),
             vector_distance=row["distance"],
             vector_similarity_pct=Candidate.similarity_pct(row["distance"]),
         ))

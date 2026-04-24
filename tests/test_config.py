@@ -5,13 +5,16 @@ import pytest
 from rcars.config import Settings
 
 
-def test_settings_defaults():
+def test_settings_defaults(monkeypatch):
     """Settings should have sensible defaults for non-secret values."""
+    monkeypatch.delenv("CLOUD_ML_REGION", raising=False)
+    monkeypatch.delenv("RCARS_CLONE_DIR", raising=False)
+    monkeypatch.delenv("RCARS_MAX_PARALLEL", raising=False)
     settings = Settings()
     assert settings.database_url == ""
     assert settings.model == "claude-sonnet-4-6"
     assert settings.max_parallel == 5
-    assert settings.clone_dir == "/tmp"
+    assert settings.clone_dir == "/tmp/rcars-clones"
     assert settings.cloud_ml_region == "us-east5"
 
 
@@ -44,21 +47,15 @@ def test_settings_vertex_not_used_without_project(monkeypatch):
     assert settings.use_vertex is False
 
 
-def test_catalog_namespaces_prod_only():
-    """Default catalog namespaces should be prod only."""
-    settings = Settings()
-    assert settings.catalog_namespaces_prod == ["babylon-catalog-prod"]
-
-
-def test_catalog_namespaces_all():
-    """All namespaces should include prod, dev, and event."""
+def test_catalog_namespaces():
+    """Catalog namespaces should include prod, dev, and event."""
     settings = Settings()
     expected = [
         "babylon-catalog-prod",
         "babylon-catalog-dev",
         "babylon-catalog-event",
     ]
-    assert settings.catalog_namespaces_all == expected
+    assert settings.catalog_namespaces == expected
 
 
 def test_showroom_url_variables():

@@ -12,6 +12,7 @@
       <tr><td>With Showroom (scannable)</td><td>{{ status.with_showroom }}</td></tr>
       <tr><td>Analyzed</td><td>{{ status.analyzed }}</td></tr>
       <tr><td>Stale (needs rescan)</td><td style="color:{% if status.stale > 0 %}var(--score-amber){% else %}var(--score-green){% endif %};">{{ status.stale }}</td></tr>
+      <tr><td>Scan failures</td><td style="color:{% if status.scan_failures > 0 %}var(--score-red){% else %}var(--score-green){% endif %};">{% if status.scan_failures > 0 %}<a href="/curate?status_filter=scan_failed" style="color:var(--score-red);">{{ status.scan_failures }}</a>{% else %}0{% endif %}</td></tr>
     </table>
   </div>
 

@@ -151,6 +151,7 @@ def _candidates_to_recs(candidates: list, card_phase: str) -> list[dict]:
             "difficulty": c.difficulty,
             "duration_min": c.duration_min,
             "content_type": c.content_type,
+            "stage": c.stage,
         }
         recs.append(rec)
     return recs
@@ -165,6 +166,7 @@ def _run_advisor_query(
     client,
     settings,
     user: str,
+    prod_only: bool = True,
 ) -> None:
     """Background thread: run three-phase pipeline, update _query_status at each phase."""
     turn_index = len(_sessions.get(session_id, []))
@@ -192,7 +194,7 @@ def _run_advisor_query(
             db=db,
             anthropic_client=client,
             settings=settings,
-            prod_only=True,
+            prod_only=prod_only,
         ):
             if state.phase == "VECTOR_DONE":
                 recs = _candidates_to_recs(state.candidates, "vector")
@@ -412,15 +414,19 @@ async def advisor_query(
         ))
 
     description = " ".join(t["content"] for t in turns if t["role"] == "user")
-    log.info("advisor: spawning background query user=%s session=%s query=%r", user, session_id, description[:120])
+
+    # Read non-prod toggle from form data
+    form = await request.form()
+    include_non_prod = form.get("include_non_prod") == "true"
+    prod_only = not include_non_prod
+
+    log.info("advisor: spawning background query user=%s session=%s prod_only=%s query=%r",
+             user, session_id, prod_only, description[:120])
 
     _query_status[session_id] = {"running": True, "rec_html": None, "chat_html": None, "error": None}
-    # daemon=True: thread is killed on process exit. If shutdown occurs mid-query the
-    # exception handler in _run_advisor_query will catch any OperationalError from the
-    # closing DB connection and produce a graceful "Found 0 matches." result.
     t = threading.Thread(
         target=_run_advisor_query,
-        args=(session_id, message, description, first_message, db, client, settings, user),
+        args=(session_id, message, description, first_message, db, client, settings, user, prod_only),
         daemon=True,
     )
     t.start()

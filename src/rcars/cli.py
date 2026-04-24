@@ -62,23 +62,14 @@ def init_db(drop: bool):
 
 
 @cli.command()
-@click.option(
-    "--include-dev",
-    is_flag=True,
-    default=False,
-    help="Include dev and event catalog items (default: prod only)",
-)
-def refresh(include_dev: bool):
-    """Refresh catalog from Babylon CRDs."""
+def refresh():
+    """Refresh catalog from Babylon CRDs (all namespaces: prod + dev + event)."""
     from rcars.catalog_reader import CatalogReader
 
     settings = Settings()
     db = get_db()
 
-    namespaces = (
-        settings.catalog_namespaces_all if include_dev
-        else settings.catalog_namespaces_prod
-    )
+    namespaces = settings.catalog_namespaces
 
     console.print(f"[bold]Refreshing catalog from {len(namespaces)} namespace(s)...[/bold]")
 
@@ -94,18 +85,27 @@ def refresh(include_dev: bool):
         sys.exit(1)
 
     count_with_showroom = 0
+    refreshed_ci_names = set()
     for item in items:
         db.upsert_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
+        refreshed_ci_names.add(item["ci_name"])
         if item.get("showroom_url"):
             count_with_showroom += 1
 
-    console.print(f"[green]Done.[/green] {len(items)} items refreshed, {count_with_showroom} with Showroom URLs")
+    removed = db.delete_removed_items(refreshed_ci_names)
+
+    console.print(
+        f"[green]Done.[/green] {len(items)} items refreshed, "
+        f"{count_with_showroom} with Showroom URLs. "
+        f"Removed {len(removed)} items no longer in Babylon catalog."
+    )
     db.close()
 
 
 @cli.command()
-def status():
+@click.option("--failures", is_flag=True, default=False, help="Show detailed scan failures")
+def status(failures: bool):
     """Show catalog status summary."""
     db = get_db()
     summary = db.get_status_summary()
@@ -120,7 +120,26 @@ def status():
     table.add_row("Analyzed", str(summary["analyzed"]))
     table.add_row("Stale", str(summary["stale"]))
 
+    fail_count = summary.get("scan_failures", 0)
+    fail_style = "red" if fail_count > 0 else "green"
+    table.add_row("Scan failures", f"[{fail_style}]{fail_count}[/{fail_style}]")
+
     console.print(table)
+
+    if failures:
+        fail_list = db.get_scan_failures()
+        if fail_list:
+            ftable = Table(title="Scan Failures")
+            ftable.add_column("CI Name", style="cyan")
+            ftable.add_column("Error Class")
+            ftable.add_column("Failed At")
+            for f in fail_list:
+                failed_at = f["scan_failed_at"].strftime("%Y-%m-%d %H:%M") if f.get("scan_failed_at") else ""
+                ftable.add_row(f["ci_name"], f.get("scan_error_class", ""), failed_at)
+            console.print(ftable)
+        else:
+            console.print("[green]No scan failures.[/green]")
+
     db.close()
 
 
@@ -224,11 +243,23 @@ def show(ci_name: str, full: bool):
 @click.option("--force", is_flag=True, default=False, help="Re-analyze everything")
 def scan(max_analyze: int | None, force: bool):
     """Analyze Showroom content via Sonnet API."""
+    import shutil
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    from pathlib import Path
     from rcars.analyzer import analyze_showroom
 
     settings = Settings()
     db = get_db()
+
+    # Clean up orphaned clone directories from previous runs
+    clone_base = Path(settings.clone_dir)
+    if clone_base.exists():
+        for entry in clone_base.iterdir():
+            if entry.is_dir() and entry.name.startswith("rcars-showroom-"):
+                shutil.rmtree(entry, ignore_errors=True)
+                log.info("Cleaned up orphaned clone: %s", entry.name)
+    else:
+        clone_base.mkdir(parents=True, exist_ok=True)
 
     anthropic_client = settings.get_anthropic_client()
     if not anthropic_client:
@@ -273,12 +304,13 @@ def scan(max_analyze: int | None, force: bool):
 
     def process_item(item):
         _print(f"  start: {item['ci_name']}")
+        effective_url = item.get("showroom_url_override") or item["showroom_url"]
         return analyze_showroom(
             ci_name=item["ci_name"],
             display_name=item.get("display_name", ""),
             category=item.get("category", ""),
             product=item.get("product", ""),
-            showroom_url=item["showroom_url"],
+            showroom_url=effective_url,
             showroom_ref=item.get("showroom_ref"),
             anthropic_client=anthropic_client,
             model=settings.model,
@@ -331,17 +363,26 @@ def scan(max_analyze: int | None, force: bool):
                             embedding=mod_emb["embedding"],
                         )
 
+                    db.set_scan_status(result["ci_name"], "success")
                     db.log_action(result["ci_name"], "analyze")
                     completed += 1
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}")
                 else:
                     errors += 1
+                    db.set_scan_status(
+                        item["ci_name"], "failed",
+                        error_class="unknown",
+                        error_message=f"Analysis returned no result for {item.get('showroom_url')}",
+                    )
                     db.log_action(item["ci_name"], "error", details="Analysis returned None")
                     _print(f"  FAIL: {item['ci_name']} — analysis returned None")
             except Exception as e:
+                from rcars.analyzer import classify_scan_error
+                error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
                 errors += 1
-                db.log_action(item["ci_name"], "error", details=str(e)[:200])
-                _print(f"  FAIL: {item['ci_name']} — {e}")
+                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                db.log_action(item["ci_name"], "error", details=error_msg[:500])
+                _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
 
     _print(f"Done. {completed}/{total} analyzed, {errors} errors")
     db.close()

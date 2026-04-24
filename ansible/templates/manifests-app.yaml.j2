@@ -87,7 +87,7 @@ spec:
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
             - name: RCARS_CLONE_DIR
-              value: /tmp
+              value: /tmp/rcars-clones
             - name: HF_HOME
               value: /opt/app-root/.cache/huggingface
           volumeMounts:
@@ -103,6 +103,8 @@ spec:
               subPath: credentials.json
               readOnly: true
 {% endif %}
+            - name: clone-workspace
+              mountPath: /tmp/rcars-clones
           livenessProbe:
             httpGet:
               path: /advisor
@@ -139,6 +141,9 @@ spec:
           secret:
             secretName: {{ app_name }}-vertex-credentials
 {% endif %}
+        - name: clone-workspace
+          emptyDir:
+            sizeLimit: 10Gi
 ---
 # OAuth Proxy Service
 apiVersion: v1

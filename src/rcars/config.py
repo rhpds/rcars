@@ -32,7 +32,7 @@ class Settings:
         default_factory=lambda: int(os.environ.get("RCARS_MAX_PARALLEL", "5"))
     )
     clone_dir: str = field(
-        default_factory=lambda: os.environ.get("RCARS_CLONE_DIR", "/tmp")
+        default_factory=lambda: os.environ.get("RCARS_CLONE_DIR", "/tmp/rcars-clones")
     )
 
     # Recommender pipeline
@@ -62,11 +62,8 @@ class Settings:
         )
     )
 
-    # Catalog namespaces
-    catalog_namespaces_prod: list[str] = field(
-        default_factory=lambda: ["babylon-catalog-prod"]
-    )
-    catalog_namespaces_all: list[str] = field(
+    # Catalog namespaces (always sync all stages)
+    catalog_namespaces: list[str] = field(
         default_factory=lambda: [
             "babylon-catalog-prod",
             "babylon-catalog-dev",

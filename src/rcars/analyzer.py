@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import threading
+import uuid
 import warnings
 from pathlib import Path
 from typing import Any
@@ -179,13 +180,46 @@ def truncate_content(content: str, max_chars: int = 150000) -> str:
     return content[:max_chars]
 
 
+def classify_scan_error(
+    exc: Exception, url: str | None = None
+) -> tuple[str, str]:
+    """Classify a scan error and return (error_class, human_message)."""
+    msg = str(exc)
+    stderr = getattr(exc, "stderr", "") or ""
+
+    if url and ("{{" in url or "{%" in url):
+        return "jinja_url", f"Showroom URL contains unresolved template variables: {url}"
+
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return "timeout", f"Clone timed out after {exc.timeout}s for {url}"
+
+    if isinstance(exc, subprocess.CalledProcessError):
+        stderr_lower = stderr.lower()
+        if "permission denied" in stderr_lower or "403" in stderr_lower:
+            return "private_repo", f"Permission denied cloning {url}: {stderr.strip()}"
+        if "not found" in stderr_lower or "404" in stderr_lower:
+            return "http_404", f"Repository not found: {url}: {stderr.strip()}"
+        return "clone_failed", f"Git clone failed for {url}: {stderr.strip()}"
+
+    msg_lower = msg.lower()
+    if "no .adoc" in msg_lower or isinstance(exc, FileNotFoundError):
+        return "missing_antora", f"No .adoc files found in Showroom layout for {url}"
+    if "boilerplate" in msg_lower:
+        return "no_content", f"All content filtered as boilerplate for {url}"
+    if "parse" in msg_lower or "json" in msg_lower:
+        return "parse_error", f"Failed to parse analysis response for {url}: {msg}"
+
+    return "unknown", f"Unexpected error scanning {url}: {msg}"
+
+
 def clone_showroom(
     url: str, ref: str | None, clone_dir: str = "/tmp"
 ) -> Path | None:
     """Shallow clone a Showroom repo. Returns clone path or None on failure."""
-    # Derive a safe directory name from the URL
+    # Derive a safe directory name from the URL with unique suffix
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
-    clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}"
+    suffix = uuid.uuid4().hex[:8]
+    clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}-{suffix}"
 
     # Clean up any previous clone
     if clone_path.exists():

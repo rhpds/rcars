@@ -167,11 +167,15 @@ async def curate(
     request: Request,
     q: str = "",
     status_filter: str = "has_showroom",
+    stage_filter: str = "all",
     page: int = 1,
     user: str = Depends(require_curator),
     db: Database = Depends(_get_db_dependency),
 ):
-    items = db.list_catalog_items(prod_only=False)
+    if stage_filter == "all":
+        items = db.get_stage_deduplicated_items()
+    else:
+        items = db.get_stage_deduplicated_items(stage_filter=stage_filter)
 
     if q:
         q_lower = q.lower()
@@ -201,11 +205,13 @@ async def curate(
         })
 
     if status_filter == "has_showroom":
-        enriched = [i for i in enriched if i.get("showroom_url")]
+        enriched = [i for i in enriched if i.get("showroom_url") and i.get("scan_status") != "failed"]
     elif status_filter == "needs_review":
         enriched = [i for i in enriched if i["enrichment_review_needed"]]
     elif status_filter == "untagged":
         enriched = [i for i in enriched if not i["tags"]]
+    elif status_filter == "scan_failed":
+        enriched = [i for i in enriched if i.get("scan_status") == "failed"]
 
     total = len(enriched)
     start = (page - 1) * PAGE_SIZE
@@ -219,6 +225,7 @@ async def curate(
         "page_size": PAGE_SIZE,
         "q": q,
         "status_filter": status_filter,
+        "stage_filter": stage_filter,
     })
     return templates.TemplateResponse(request=request, name="curate.html", context=ctx)
 
@@ -269,6 +276,17 @@ async def flag_item(
 ):
     db.set_enrichment_review_needed(ci_name, needed.lower() == "true")
     return HTMLResponse("", status_code=200)
+
+
+@router.post("/curate/override", response_class=HTMLResponse)
+async def save_override(
+    ci_name: Annotated[str, Form()],
+    override_url: Annotated[str, Form()] = "",
+    user: str = Depends(require_curator),
+    db: Database = Depends(_get_db_dependency),
+):
+    db.set_showroom_url_override(ci_name, override_url.strip() or None)
+    return HTMLResponse('<span style="color:var(--score-green);font-size:12px;">&#10003; Saved</span>')
 
 
 @router.post("/curate/analyze", response_class=HTMLResponse)
