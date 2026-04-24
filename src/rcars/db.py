@@ -628,10 +628,10 @@ class Database:
                 cur.execute("""
                     SELECT * FROM catalog_items
                     WHERE showroom_url = %s
-                      AND (showroom_ref = %s OR (%s IS NULL AND showroom_ref IS NULL))
+                      AND COALESCE(showroom_ref, '') = COALESCE(%s, '')
                       AND (is_published IS NULL OR is_published = FALSE)
                     ORDER BY ci_name
-                """, (showroom_url, showroom_ref, showroom_ref))
+                """, (showroom_url, showroom_ref))
                 return cur.fetchall()
 
     def get_analyzed_items(self) -> list[dict[str, Any]]:
