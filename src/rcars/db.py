@@ -33,7 +33,12 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     is_prod BOOLEAN DEFAULT FALSE,
     is_published BOOLEAN DEFAULT FALSE,
     published_ci_name TEXT,
-    base_ci_name TEXT
+    base_ci_name TEXT,
+    scan_status TEXT NOT NULL DEFAULT 'not_scanned',
+    scan_error_class TEXT,
+    scan_error TEXT,
+    scan_failed_at TIMESTAMPTZ,
+    showroom_url_override TEXT
 );
 
 CREATE TABLE IF NOT EXISTS showroom_analysis (
@@ -192,6 +197,22 @@ class Database:
                     cur.execute(
                         "CREATE INDEX idx_token_usage_operation ON token_usage(operation)"
                     )
+
+                # Migration 004: scan status + override columns
+                cur.execute("""
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'catalog_items' AND column_name = 'scan_status'
+                """)
+                if not cur.fetchone():
+                    log.info("Migration 004: adding scan status columns")
+                    cur.execute("""
+                        ALTER TABLE catalog_items
+                            ADD COLUMN scan_status TEXT NOT NULL DEFAULT 'not_scanned',
+                            ADD COLUMN scan_error_class TEXT,
+                            ADD COLUMN scan_error TEXT,
+                            ADD COLUMN scan_failed_at TIMESTAMPTZ,
+                            ADD COLUMN showroom_url_override TEXT
+                    """)
             conn.commit()
 
     def drop_schema(self):
@@ -693,6 +714,54 @@ class Database:
                         "INSERT INTO showroom_analysis (ci_name, enrichment_review_needed) VALUES (%s, %s) ON CONFLICT (ci_name) DO UPDATE SET enrichment_review_needed = EXCLUDED.enrichment_review_needed",
                         (ci_name, needed),
                     )
+            conn.commit()
+
+    def set_scan_status(
+        self, ci_name: str, status: str,
+        error_class: str | None = None, error_message: str | None = None,
+    ):
+        """Set scan status on a catalog item. Clears error fields on success."""
+        with self._pool.connection() as conn:
+            if status == "success":
+                conn.execute("""
+                    UPDATE catalog_items
+                    SET scan_status = 'success',
+                        scan_error_class = NULL,
+                        scan_error = NULL,
+                        scan_failed_at = NULL
+                    WHERE ci_name = %s
+                """, (ci_name,))
+            else:
+                conn.execute("""
+                    UPDATE catalog_items
+                    SET scan_status = %s,
+                        scan_error_class = %s,
+                        scan_error = %s,
+                        scan_failed_at = %s
+                    WHERE ci_name = %s
+                """, (status, error_class, error_message,
+                      datetime.now(timezone.utc), ci_name))
+            conn.commit()
+
+    def get_scan_failures(self) -> list[dict]:
+        """Return all catalog items with scan_status='failed'."""
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT ci_name, display_name, stage, scan_error_class,
+                       scan_error, scan_failed_at, showroom_url, showroom_url_override
+                FROM catalog_items
+                WHERE scan_status = 'failed'
+                ORDER BY scan_failed_at DESC
+            """)
+            return cur.fetchall()
+
+    def set_showroom_url_override(self, ci_name: str, override_url: str | None):
+        """Set or clear the Showroom URL override for a catalog item."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE catalog_items SET showroom_url_override = %s WHERE ci_name = %s",
+                (override_url, ci_name),
+            )
             conn.commit()
 
     def get_db_currency(self, stale_days: int = 3) -> dict:

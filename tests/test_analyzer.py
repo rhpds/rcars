@@ -313,6 +313,72 @@ def test_analyze_showroom_no_db_does_not_fail():
     assert result is not None
 
 
+def test_classify_private_repo():
+    from rcars.analyzer import classify_scan_error
+    err = subprocess.CalledProcessError(128, "git", stderr="Permission denied (publickey)")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/private.git")
+    assert cls == "private_repo"
+    assert "Permission denied" in msg
+
+
+def test_classify_jinja_url():
+    from rcars.analyzer import classify_scan_error
+    err = ValueError("URL contains template variable")
+    cls, msg = classify_scan_error(err, url="https://github.com/{{ repo }}.git")
+    assert cls == "jinja_url"
+
+
+def test_classify_timeout():
+    from rcars.analyzer import classify_scan_error
+    err = subprocess.TimeoutExpired("git", 120)
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert cls == "timeout"
+
+
+def test_classify_missing_antora():
+    from rcars.analyzer import classify_scan_error
+    err = FileNotFoundError("No .adoc files found")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert cls == "missing_antora"
+
+
+def test_classify_clone_failed():
+    from rcars.analyzer import classify_scan_error
+    err = subprocess.CalledProcessError(128, "git", stderr="fatal: unable to access, could not resolve host")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/gone.git")
+    assert cls == "clone_failed"
+
+
+def test_classify_no_content():
+    from rcars.analyzer import classify_scan_error
+    err = ValueError("All files filtered as boilerplate")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert cls == "no_content"
+
+
+def test_classify_parse_error():
+    from rcars.analyzer import classify_scan_error
+    err = ValueError("Failed to parse analysis JSON")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert cls == "parse_error"
+
+
+def test_classify_unknown():
+    from rcars.analyzer import classify_scan_error
+    err = RuntimeError("something unexpected")
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert cls == "unknown"
+    assert "something unexpected" in msg
+
+
+def test_classify_returns_full_message():
+    from rcars.analyzer import classify_scan_error
+    long_msg = "A" * 500
+    err = RuntimeError(long_msg)
+    cls, msg = classify_scan_error(err, url="https://github.com/org/repo.git")
+    assert len(msg) >= 500
+
+
 def test_clone_dir_uses_unique_suffix(tmp_path, monkeypatch):
     """Two clones of the same repo URL must use different directories."""
     from rcars.analyzer import clone_showroom
