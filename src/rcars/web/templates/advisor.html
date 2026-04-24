@@ -43,7 +43,7 @@
                 placeholder="Refine or ask anything..."></textarea>
       <button type="button" id="send-btn" class="btn-send">Send</button>
     </div>
-    <div style="padding:6px 12px;display:flex;align-items:center;gap:10px;">
+    <div style="padding:6px 12px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
       <label style="cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none;">
         <span style="font-size:12px;color:var(--text-muted);">Include non-prod content</span>
         <span style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;">
@@ -61,6 +61,25 @@
                    }">
           <span class="np-track" style="position:absolute;inset:0;border-radius:20px;background:#444;transition:background 0.2s;"></span>
           <span class="np-thumb" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 0.2s;"></span>
+        </span>
+      </label>
+      <label style="cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none;">
+        <span style="font-size:12px;color:var(--text-muted);">Don't save this query</span>
+        <span style="position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0;">
+          <input type="checkbox" id="opted-out"
+                 style="opacity:0;width:0;height:0;position:absolute;"
+                 onchange="
+                   var track = this.parentElement.querySelector('.oo-track');
+                   var thumb = this.parentElement.querySelector('.oo-thumb');
+                   if (this.checked) {
+                     track.style.background = 'var(--score-amber, #cc9900)';
+                     thumb.style.transform = 'translateX(16px)';
+                   } else {
+                     track.style.background = '#444';
+                     thumb.style.transform = 'translateX(0)';
+                   }">
+          <span class="oo-track" style="position:absolute;inset:0;border-radius:20px;background:#444;transition:background 0.2s;"></span>
+          <span class="oo-thumb" style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform 0.2s;"></span>
         </span>
       </label>
     </div>
@@ -131,15 +150,25 @@
         }
       });
       var nonProdCheckbox = document.getElementById('include-non-prod');
+      var optedOutCheckbox = document.getElementById('opted-out');
       htmx.ajax('POST', '/advisor/query', {
         target: '#rec-pane',
         swap: 'outerHTML',
         values: {
           session_id: sessionId,
           message: sentMsg,
-          include_non_prod: nonProdCheckbox && nonProdCheckbox.checked ? 'true' : 'false'
+          include_non_prod: nonProdCheckbox && nonProdCheckbox.checked ? 'true' : 'false',
+          opted_out: optedOutCheckbox && optedOutCheckbox.checked ? 'true' : 'false'
         }
       });
+      // Reset opt-out after send (one-time per message)
+      if (optedOutCheckbox && optedOutCheckbox.checked) {
+        optedOutCheckbox.checked = false;
+        var ooTrack = optedOutCheckbox.parentElement.querySelector('.oo-track');
+        var ooThumb = optedOutCheckbox.parentElement.querySelector('.oo-thumb');
+        if (ooTrack) ooTrack.style.background = '#444';
+        if (ooThumb) ooThumb.style.transform = 'translateX(0)';
+      }
     }
 
     // Enter key sends (Shift+Enter for newline)
