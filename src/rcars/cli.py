@@ -285,12 +285,13 @@ def scan(max_analyze: int | None, force: bool):
 
     def process_item(item):
         _print(f"  start: {item['ci_name']}")
+        effective_url = item.get("showroom_url_override") or item["showroom_url"]
         return analyze_showroom(
             ci_name=item["ci_name"],
             display_name=item.get("display_name", ""),
             category=item.get("category", ""),
             product=item.get("product", ""),
-            showroom_url=item["showroom_url"],
+            showroom_url=effective_url,
             showroom_ref=item.get("showroom_ref"),
             anthropic_client=anthropic_client,
             model=settings.model,
@@ -343,17 +344,26 @@ def scan(max_analyze: int | None, force: bool):
                             embedding=mod_emb["embedding"],
                         )
 
+                    db.set_scan_status(result["ci_name"], "success")
                     db.log_action(result["ci_name"], "analyze")
                     completed += 1
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}")
                 else:
                     errors += 1
+                    db.set_scan_status(
+                        item["ci_name"], "failed",
+                        error_class="unknown",
+                        error_message=f"Analysis returned no result for {item.get('showroom_url')}",
+                    )
                     db.log_action(item["ci_name"], "error", details="Analysis returned None")
                     _print(f"  FAIL: {item['ci_name']} — analysis returned None")
             except Exception as e:
+                from rcars.analyzer import classify_scan_error
+                error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
                 errors += 1
-                db.log_action(item["ci_name"], "error", details=str(e)[:200])
-                _print(f"  FAIL: {item['ci_name']} — {e}")
+                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                db.log_action(item["ci_name"], "error", details=error_msg[:500])
+                _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
 
     _print(f"Done. {completed}/{total} analyzed, {errors} errors")
     db.close()
