@@ -32,7 +32,7 @@ class Settings:
         default_factory=lambda: int(os.environ.get("RCARS_MAX_PARALLEL", "5"))
     )
     clone_dir: str = field(
-        default_factory=lambda: os.environ.get("RCARS_CLONE_DIR", "/tmp")
+        default_factory=lambda: os.environ.get("RCARS_CLONE_DIR", "/tmp/rcars-clones")
     )
 
     # Recommender pipeline

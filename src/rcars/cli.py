@@ -224,11 +224,23 @@ def show(ci_name: str, full: bool):
 @click.option("--force", is_flag=True, default=False, help="Re-analyze everything")
 def scan(max_analyze: int | None, force: bool):
     """Analyze Showroom content via Sonnet API."""
+    import shutil
     from concurrent.futures import ThreadPoolExecutor, as_completed
+    from pathlib import Path
     from rcars.analyzer import analyze_showroom
 
     settings = Settings()
     db = get_db()
+
+    # Clean up orphaned clone directories from previous runs
+    clone_base = Path(settings.clone_dir)
+    if clone_base.exists():
+        for entry in clone_base.iterdir():
+            if entry.is_dir() and entry.name.startswith("rcars-showroom-"):
+                shutil.rmtree(entry, ignore_errors=True)
+                log.info("Cleaned up orphaned clone: %s", entry.name)
+    else:
+        clone_base.mkdir(parents=True, exist_ok=True)
 
     anthropic_client = settings.get_anthropic_client()
     if not anthropic_client:
