@@ -216,13 +216,49 @@ class Database:
                             ADD COLUMN scan_failed_at TIMESTAMPTZ,
                             ADD COLUMN showroom_url_override TEXT
                     """)
+
+                # Migration 005: advisor_sessions table
+                cur.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables
+                        WHERE table_name = 'advisor_sessions'
+                    ) as exists
+                """)
+                if not cur.fetchone()["exists"]:
+                    log.info("Migration 005: creating advisor_sessions table")
+                    cur.execute("""
+                        CREATE TABLE advisor_sessions (
+                            id                 SERIAL PRIMARY KEY,
+                            session_id         TEXT NOT NULL,
+                            turn_index         INTEGER NOT NULL,
+                            user_email         TEXT,
+                            query_text         TEXT,
+                            event_url          TEXT,
+                            results_json       JSONB,
+                            overall_assessment TEXT,
+                            chosen_ci_name     TEXT,
+                            chosen_at          TIMESTAMPTZ,
+                            opted_out          BOOLEAN NOT NULL DEFAULT FALSE,
+                            created_at         TIMESTAMPTZ DEFAULT NOW()
+                        )
+                    """)
+                    cur.execute(
+                        "CREATE INDEX idx_advisor_sessions_session ON advisor_sessions(session_id)"
+                    )
+                    cur.execute(
+                        "CREATE INDEX idx_advisor_sessions_user ON advisor_sessions(user_email)"
+                    )
+                    cur.execute(
+                        "CREATE INDEX idx_advisor_sessions_created ON advisor_sessions(created_at)"
+                    )
             conn.commit()
 
     def drop_schema(self):
         """Drop all tables, terminating other connections first."""
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
-            "analysis_log", "jobs", "token_usage", "catalog_items", "alembic_version",
+            "analysis_log", "jobs", "token_usage", "advisor_sessions",
+            "catalog_items", "alembic_version",
         ]
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -928,3 +964,47 @@ class Database:
             "stale_count": stale_count,
             "failed_count": failed_count,
         }
+
+    def log_advisor_session(
+        self,
+        session_id: str,
+        turn_index: int,
+        user_email: str | None,
+        query_text: str | None,
+        event_url: str | None,
+        results: list[dict],
+        overall_assessment: str | None,
+        opted_out: bool = False,
+    ) -> int:
+        """Insert an advisor session turn. Returns the row id."""
+        if opted_out:
+            query_text = None
+            results = None
+            overall_assessment = None
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                INSERT INTO advisor_sessions
+                    (session_id, turn_index, user_email, query_text, event_url,
+                     results_json, overall_assessment, opted_out)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id
+            """, (
+                session_id, turn_index, user_email, query_text, event_url,
+                Jsonb(results) if results is not None else None,
+                overall_assessment, opted_out,
+            ))
+            row_id = cur.fetchone()["id"]
+            conn.commit()
+        return row_id
+
+    def update_advisor_session_choice(
+        self, session_id: str, turn_index: int, chosen_ci_name: str
+    ) -> None:
+        """Record the user's chosen recommendation for a session turn."""
+        with self._pool.connection() as conn:
+            conn.execute("""
+                UPDATE advisor_sessions
+                SET chosen_ci_name = %s, chosen_at = NOW()
+                WHERE session_id = %s AND turn_index = %s
+            """, (chosen_ci_name, session_id, turn_index))
+            conn.commit()
