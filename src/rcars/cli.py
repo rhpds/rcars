@@ -387,6 +387,51 @@ def scan(max_analyze: int | None, force: bool):
 
                     db.set_scan_status(result["ci_name"], "success")
                     db.log_action(result["ci_name"], "analyze")
+
+                    # Propagate analysis to siblings sharing the same Showroom content
+                    effective_url = item.get("showroom_url_override") or item["showroom_url"]
+                    siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
+                    for sibling in siblings:
+                        sib_name = sibling["ci_name"]
+                        if sib_name == result["ci_name"]:
+                            continue
+                        db.upsert_showroom_analysis({
+                            "ci_name": sib_name,
+                            "content_type": analysis.get("content_type"),
+                            "summary": analysis.get("summary"),
+                            "products_json": analysis.get("products"),
+                            "audience_json": analysis.get("audience"),
+                            "topics_json": analysis.get("topics"),
+                            "modules_json": analysis.get("modules"),
+                            "learning_objectives_json": analysis.get("learning_objectives"),
+                            "difficulty": analysis.get("difficulty"),
+                            "estimated_duration_min": analysis.get("estimated_duration_min"),
+                            "event_fit_json": analysis.get("event_fit"),
+                            "use_cases_json": analysis.get("use_cases"),
+                            "last_repo_commit": result.get("last_repo_commit"),
+                            "last_repo_updated": result.get("last_repo_updated"),
+                            "content_hash": result.get("content_hash"),
+                            "is_stale": False,
+                            "stale_commit": None,
+                        })
+                        db.store_embedding(
+                            ci_name=sib_name,
+                            embed_type="ci_summary",
+                            content_text=result["ci_embedding_text"],
+                            embedding=result["ci_embedding"],
+                        )
+                        for mod_emb in result.get("module_embeddings", []):
+                            db.store_embedding(
+                                ci_name=sib_name,
+                                embed_type="module",
+                                module_title=mod_emb["module_title"],
+                                content_text=mod_emb["content_text"],
+                                embedding=mod_emb["embedding"],
+                            )
+                        db.set_scan_status(sib_name, "success")
+                        db.log_action(sib_name, "analyze-propagated")
+                        _print(f"  propagated: {sib_name} (same Showroom as {result['ci_name']})")
+
                     completed += 1
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}")
                 else:

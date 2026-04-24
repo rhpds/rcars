@@ -158,7 +158,9 @@ def _currency_badge_oob(db: Database) -> str:
 
 def _status_table_oob(db: Database) -> str:
     """Render the catalog status table as an HTMX OOB swap fragment."""
+    settings = Settings()
     s = db.get_status_summary()
+    c = db.get_db_currency(stale_days=settings.stale_days)
     stale_color = "var(--score-amber)" if s["stale"] > 0 else "var(--score-green)"
     fail_count = s.get("scan_failures", 0)
     fail_color = "var(--score-red)" if fail_count > 0 else "var(--score-green)"
@@ -167,6 +169,8 @@ def _status_table_oob(db: Database) -> str:
         if fail_count > 0
         else f'<span style="color:{fail_color};">0</span>'
     )
+    cat_date_color = "var(--score-red)" if c["catalog_stale"] else "var(--score-green)"
+    ana_date_color = "var(--score-red)" if c["analysis_stale"] else "var(--score-green)"
     return f"""<table id="catalog-status-table" class="status-table" hx-swap-oob="true">
   <tr><th>Metric</th><th>Count</th></tr>
   <tr><td>Total catalog items</td><td>{s["total"]}</td></tr>
@@ -175,7 +179,24 @@ def _status_table_oob(db: Database) -> str:
   <tr><td>Analyzed</td><td>{s["analyzed"]}</td></tr>
   <tr><td>Stale (needs rescan)</td><td style="color:{stale_color};">{s["stale"]}</td></tr>
   <tr><td>Scan failures</td><td>{fail_cell}</td></tr>
+  <tr style="border-top:1px solid #2a2a3a;">
+    <td style="color:var(--text-muted);">Last catalog sync</td>
+    <td style="color:{cat_date_color};">{c["catalog_date"]}</td>
+  </tr>
+  <tr>
+    <td style="color:var(--text-muted);">Last analysis run</td>
+    <td style="color:{ana_date_color};">{c["analysis_date"]}</td>
+  </tr>
 </table>"""
+
+
+def _save_log_scroll_js(div_id: str) -> str:
+    return (
+        f'var l=document.getElementById("{div_id}");'
+        f'if(l){{window._rcarsLogPos=window._rcarsLogPos||{{}};'
+        f'window._rcarsLogPos["{div_id}"]={{top:l.scrollTop,'
+        f'atBottom:l.scrollHeight-l.scrollTop-l.clientHeight<50}};}}'
+    )
 
 
 def _refresh_section_running(lines: list[str]) -> str:
@@ -184,7 +205,8 @@ def _refresh_section_running(lines: list[str]) -> str:
         f' hx-get="/admin/refresh/status"'
         f' hx-trigger="every 3s"'
         f' hx-target="this"'
-        f' hx-swap="outerHTML">'
+        f' hx-swap="outerHTML"'
+        f' hx-on:htmx:before-swap="{_save_log_scroll_js("refresh-log")}">'
         f'<button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Sync Catalog</button>'
         f'<span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Syncing catalog\u2026</span>'
         f'{_log_block_html(lines, "refresh-log")}'
@@ -201,7 +223,7 @@ def _refresh_section_idle(msg: str = "", color: str = "", lines: list[str] | Non
         f' hx-target="#refresh-section"'
         f' hx-swap="outerHTML">Sync Catalog</button>'
         f'{status_span}'
-        f'{_log_block_html(lines or [], "refresh-log")}'
+        f'{_log_block_html(lines or [], "refresh-log", collapsed=True)}'
         f'</div>'
     )
 
@@ -224,20 +246,32 @@ def _log_line_html(line: str) -> str:
     return f'<div style="color:{color};padding:3px 0;border-bottom:1px solid #1a1f2e;">{_html.escape(line)}</div>'
 
 
-def _log_block_html(lines: list[str], div_id: str = "") -> str:
-    """Render a scrollable log block styled to match the rest of the UI."""
+def _log_block_html(lines: list[str], div_id: str = "", collapsed: bool = False) -> str:
+    """Render a collapsible scrollable log block."""
     if not lines:
         return ""
     recent = lines[-100:]
     log_content = "".join(_log_line_html(line) for line in recent)
-    id_attr = f' id="{div_id}"' if div_id else ""
+    expanded = "false" if collapsed else "true"
+    toggle_label = "Show log" if collapsed else "Hide log"
     return (
-        f'<div{id_attr} style="margin-top:12px;background:var(--bg-card);'
+        f'<div x-data="{{ open: {expanded} }}" style="margin-top:10px;">'
+        f'<button @click="open = !open" style="background:none;border:none;'
+        f'color:var(--text-muted);font-size:11px;cursor:pointer;padding:0;"'
+        f' x-text="open ? \'Hide log\' : \'Show log\'">{toggle_label}</button>'
+        f'<div x-show="open" x-collapse'
+        f' id="{div_id}" style="margin-top:6px;background:var(--bg-card);'
         f'border:1px solid var(--border);border-radius:6px;padding:12px 14px;'
         f'font-size:13px;line-height:1.5;max-height:360px;overflow-y:auto;">'
         f'{log_content}</div>'
-        f'<script>(() => {{ let el = document.getElementById("{div_id}"); '
-        f'if (el) el.scrollTop = el.scrollHeight; }})()</script>'
+        f'</div>'
+        f'<script>(() => {{ '
+        f'let el = document.getElementById("{div_id}"); '
+        f'if (!el) return; '
+        f'let saved = (window._rcarsLogPos || {{}})["{div_id}"]; '
+        f'if (saved && !saved.atBottom) {{ el.scrollTop = saved.top; }} '
+        f'else {{ el.scrollTop = el.scrollHeight; }} '
+        f'}})()</script>'
     )
 
 
@@ -247,7 +281,8 @@ def _rescan_section_running(lines: list[str]) -> str:
         f' hx-get="/admin/rescan/status"'
         f' hx-trigger="every 3s"'
         f' hx-target="this"'
-        f' hx-swap="outerHTML">'
+        f' hx-swap="outerHTML"'
+        f' hx-on:htmx:before-swap="{_save_log_scroll_js("rescan-log")}">'
         f'<button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Analyze Showroom Content</button>'
         f'<span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Analysis running\u2026</span>'
         f'{_log_block_html(lines, "rescan-log")}'
@@ -264,7 +299,7 @@ def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None
         f' hx-target="#rescan-section"'
         f' hx-swap="outerHTML">Analyze Showroom Content</button>'
         f'{status_span}'
-        f'{_log_block_html(lines or [], "rescan-log")}'
+        f'{_log_block_html(lines or [], "rescan-log", collapsed=True)}'
         f'</div>'
     )
 
@@ -275,7 +310,8 @@ def _stale_section_running(lines: list[str]) -> str:
         f' hx-get="/admin/check-stale/status"'
         f' hx-trigger="every 3s"'
         f' hx-target="this"'
-        f' hx-swap="outerHTML">'
+        f' hx-swap="outerHTML"'
+        f' hx-on:htmx:before-swap="{_save_log_scroll_js("stale-log")}">'
         f'<button class="btn-action" disabled style="opacity:0.5;cursor:not-allowed;">Check for Updates</button>'
         f'<span style="font-size:12px;color:var(--score-amber);margin-left:10px;">&#8635; Checking Showrooms\u2026</span>'
         f'{_log_block_html(lines, "stale-log")}'
@@ -292,7 +328,7 @@ def _stale_section_idle(msg: str = "", color: str = "", lines: list[str] | None 
         f' hx-target="#stale-section"'
         f' hx-swap="outerHTML">Check for Updates</button>'
         f'{status_span}'
-        f'{_log_block_html(lines or [], "stale-log")}'
+        f'{_log_block_html(lines or [], "stale-log", collapsed=True)}'
         f'</div>'
     )
 

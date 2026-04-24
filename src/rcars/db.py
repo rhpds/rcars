@@ -587,7 +587,13 @@ class Database:
                 return cur.fetchall()
 
     def get_items_needing_analysis(self) -> list[dict[str, Any]]:
-        """Get catalog items that need analysis: unanalyzed or stale."""
+        """Get catalog items that need analysis, deduplicated by Showroom content.
+
+        For each unique (showroom_url, showroom_ref) pair, only returns the
+        highest-priority stage CI (prod > event > dev) that lacks an analysis.
+        Siblings sharing the same content are skipped — their analysis is
+        propagated after the scan via propagate_analysis_to_siblings().
+        """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -595,9 +601,37 @@ class Database:
                     LEFT JOIN showroom_analysis sa ON ci.ci_name = sa.ci_name
                     WHERE ci.showroom_url IS NOT NULL
                       AND ci.showroom_url != ''
+                      AND (ci.is_published IS NULL OR ci.is_published = FALSE)
                       AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
                     ORDER BY ci.ci_name
                 """)
+                all_needing = cur.fetchall()
+
+        # Dedup by (showroom_url, showroom_ref) — keep highest priority stage
+        groups: dict[tuple, list[dict]] = {}
+        for item in all_needing:
+            key = (item["showroom_url"], item.get("showroom_ref") or "")
+            groups.setdefault(key, []).append(item)
+
+        deduped = []
+        for group in groups.values():
+            group.sort(key=lambda i: STAGE_PRIORITY.get(i.get("stage", "dev"), 99))
+            deduped.append(group[0])
+
+        deduped.sort(key=lambda i: i.get("ci_name", ""))
+        return deduped
+
+    def get_siblings_by_showroom(self, showroom_url: str, showroom_ref: str | None) -> list[dict[str, Any]]:
+        """Return all catalog items sharing the same showroom_url+showroom_ref."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT * FROM catalog_items
+                    WHERE showroom_url = %s
+                      AND (showroom_ref = %s OR (%s IS NULL AND showroom_ref IS NULL))
+                      AND (is_published IS NULL OR is_published = FALSE)
+                    ORDER BY ci_name
+                """, (showroom_url, showroom_ref, showroom_ref))
                 return cur.fetchall()
 
     def get_analyzed_items(self) -> list[dict[str, Any]]:
