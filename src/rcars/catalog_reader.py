@@ -135,13 +135,14 @@ def extract_showroom_url(
     for var in url_vars:
         value = definition.get(var)
         if value and isinstance(value, str) and not value.startswith("{{"):
-            url = value
+            # Strip inline YAML comments (e.g. "https://repo.git #TODO: update")
+            url = value.split(" #")[0].strip()
             break
 
     for var in ref_vars:
         value = definition.get(var)
         if value and isinstance(value, str) and not value.startswith("{{"):
-            ref = value
+            ref = value.split(" #")[0].strip()
             break
 
     return url, ref

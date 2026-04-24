@@ -950,7 +950,11 @@ class Database:
 
         # Unanalyzed excludes scan failures — those are tracked separately
         unanalyzed = max(0, scannable - analyzed - failed_count)
-        analysis_stale = (unanalyzed > 0 or stale_count > 0) if scannable > 0 else True
+        # STALE if content has changed (stale_count) OR more than 10% unanalyzed.
+        # A small tail of unanalyzed items (new additions, jinja URLs, etc.)
+        # should not flip the whole badge red.
+        stale_threshold = max(5, int(scannable * 0.10))
+        analysis_stale = (stale_count > 0 or unanalyzed > stale_threshold) if scannable > 0 else True
         analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
 
         return {
