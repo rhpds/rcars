@@ -11,7 +11,7 @@ def test_settings_defaults():
     assert settings.database_url == ""
     assert settings.model == "claude-sonnet-4-6"
     assert settings.max_parallel == 5
-    assert settings.clone_dir == "/tmp"
+    assert settings.clone_dir == "/tmp/rcars-clones"
     assert settings.cloud_ml_region == "us-east5"
 
 
