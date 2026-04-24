@@ -256,8 +256,11 @@ def _log_block_html(lines: list[str], div_id: str = "", collapsed: bool = False)
     recent = lines[-100:]
     log_content = "".join(_log_line_html(line) for line in recent)
     open_attr = "" if collapsed else " open"
+    details_id = f"{div_id}-details"
     return (
-        f'<details{open_attr} style="margin-top:10px;">'
+        f'<details id="{details_id}"{open_attr} style="margin-top:10px;"'
+        f' ontoggle="window._rcarsLogOpen=window._rcarsLogOpen||{{}};'
+        f'window._rcarsLogOpen[\\"{details_id}\\"]=this.open;">'
         f'<summary style="font-size:11px;color:var(--text-muted);cursor:pointer;'
         f'list-style:none;user-select:none;">&#9654; Log</summary>'
         f'<div id="{div_id}" '
@@ -269,9 +272,12 @@ def _log_block_html(lines: list[str], div_id: str = "", collapsed: bool = False)
         f'{log_content}</div>'
         f'</details>'
         f'<script>requestAnimationFrame(() => {{ '
-        f'let el = document.getElementById("{div_id}"); '
+        f'var det = document.getElementById("{details_id}"); '
+        f'var el = document.getElementById("{div_id}"); '
+        f'var savedOpen = (window._rcarsLogOpen || {{}})["{details_id}"]; '
+        f'if (det && savedOpen === false) {{ det.removeAttribute("open"); return; }} '
         f'if (!el) return; '
-        f'let saved = (window._rcarsLogPos || {{}})["{div_id}"]; '
+        f'var saved = (window._rcarsLogPos || {{}})["{div_id}"]; '
         f'if (saved && !saved.atBottom) {{ el.scrollTop = saved.top; }} '
         f'else {{ el.scrollTop = el.scrollHeight; }} '
         f'}})</script>'
