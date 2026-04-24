@@ -62,23 +62,14 @@ def init_db(drop: bool):
 
 
 @cli.command()
-@click.option(
-    "--include-dev",
-    is_flag=True,
-    default=False,
-    help="Include dev and event catalog items (default: prod only)",
-)
-def refresh(include_dev: bool):
-    """Refresh catalog from Babylon CRDs."""
+def refresh():
+    """Refresh catalog from Babylon CRDs (all namespaces: prod + dev + event)."""
     from rcars.catalog_reader import CatalogReader
 
     settings = Settings()
     db = get_db()
 
-    namespaces = (
-        settings.catalog_namespaces_all if include_dev
-        else settings.catalog_namespaces_prod
-    )
+    namespaces = settings.catalog_namespaces
 
     console.print(f"[bold]Refreshing catalog from {len(namespaces)} namespace(s)...[/bold]")
 
@@ -94,13 +85,21 @@ def refresh(include_dev: bool):
         sys.exit(1)
 
     count_with_showroom = 0
+    refreshed_ci_names = set()
     for item in items:
         db.upsert_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
+        refreshed_ci_names.add(item["ci_name"])
         if item.get("showroom_url"):
             count_with_showroom += 1
 
-    console.print(f"[green]Done.[/green] {len(items)} items refreshed, {count_with_showroom} with Showroom URLs")
+    removed = db.delete_removed_items(refreshed_ci_names)
+
+    console.print(
+        f"[green]Done.[/green] {len(items)} items refreshed, "
+        f"{count_with_showroom} with Showroom URLs. "
+        f"Removed {len(removed)} items no longer in Babylon catalog."
+    )
     db.close()
 
 

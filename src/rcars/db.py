@@ -722,6 +722,29 @@ class Database:
                     )
             conn.commit()
 
+    def delete_removed_items(self, current_ci_names: set[str]) -> list[dict]:
+        """Delete catalog items not in the current set. Returns removed items."""
+        with self._pool.connection() as conn:
+            cur = conn.execute("SELECT ci_name, display_name, stage FROM catalog_items")
+            all_items = cur.fetchall()
+
+            removed = [i for i in all_items if i["ci_name"] not in current_ci_names]
+
+            for item in removed:
+                ci = item["ci_name"]
+                conn.execute("DELETE FROM enrichment_tags WHERE ci_name = %s", (ci,))
+                conn.execute("DELETE FROM embeddings WHERE ci_name = %s", (ci,))
+                conn.execute("DELETE FROM analysis_log WHERE ci_name = %s", (ci,))
+                conn.execute("DELETE FROM showroom_analysis WHERE ci_name = %s", (ci,))
+                conn.execute("DELETE FROM catalog_items WHERE ci_name = %s", (ci,))
+                log.info("Removed catalog item no longer in Babylon: %s (stage=%s)",
+                         ci, item.get("stage"))
+
+            if removed:
+                conn.commit()
+
+            return removed
+
     def set_scan_status(
         self, ci_name: str, status: str,
         error_class: str | None = None, error_message: str | None = None,

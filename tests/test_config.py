@@ -44,21 +44,15 @@ def test_settings_vertex_not_used_without_project(monkeypatch):
     assert settings.use_vertex is False
 
 
-def test_catalog_namespaces_prod_only():
-    """Default catalog namespaces should be prod only."""
-    settings = Settings()
-    assert settings.catalog_namespaces_prod == ["babylon-catalog-prod"]
-
-
-def test_catalog_namespaces_all():
-    """All namespaces should include prod, dev, and event."""
+def test_catalog_namespaces():
+    """Catalog namespaces should include prod, dev, and event."""
     settings = Settings()
     expected = [
         "babylon-catalog-prod",
         "babylon-catalog-dev",
         "babylon-catalog-event",
     ]
-    assert settings.catalog_namespaces_all == expected
+    assert settings.catalog_namespaces == expected
 
 
 def test_showroom_url_variables():
