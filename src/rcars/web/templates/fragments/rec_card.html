@@ -1,11 +1,10 @@
-{% set score = rec.fit_score %}
 {% set card_phase = rec.card_phase|default("complete") %}
-{% if score >= 80 %}{% set score_class = "score-green" %}
-{% elif score >= 50 %}{% set score_class = "score-amber" %}
-{% else %}{% set score_class = "score-red" %}{% endif %}
+{% set tier = rec.tier|default("white") %}
+{% set score = rec.fit_score %}
 
-<div class="rec-card {{ score_class }}"
+<div class="rec-card {% if tier == 'green' %}tier-green{% elif tier == 'yellow' %}tier-yellow{% endif %}"
      data-phase="{{ card_phase }}"
+     data-tier="{{ tier }}"
      x-data="{ expanded: false }"
      @click="expanded = !expanded">
 

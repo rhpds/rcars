@@ -305,6 +305,8 @@ body {
 .rec-card.score-green { background: var(--bg-card-green); border-left-color: var(--score-green); }
 .rec-card.score-amber { background: var(--bg-card-amber); border-left-color: var(--score-amber); }
 .rec-card.score-red { background: var(--bg-card-red); border-left-color: var(--score-red); }
+.rec-card.tier-green { background: var(--bg-card-green); border-left-color: var(--score-green); }
+.rec-card.tier-yellow { background: var(--bg-card-amber); border-left-color: var(--score-amber); }
 
 .rec-card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
 
