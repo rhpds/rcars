@@ -214,8 +214,10 @@ def _refresh_section_running(lines: list[str]) -> str:
     )
 
 
-def _refresh_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
+def _refresh_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None, last_run: str = "") -> str:
     status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{_html.escape(msg)}</span>' if msg else ""
+    last_run_color = "var(--score-red)" if not last_run or last_run == "never" else "var(--score-green)"
+    last_run_html = f'<p style="font-size:11px;margin:4px 0 8px;">Last run: <span style="color:{last_run_color};">{last_run or "never"}</span></p>'
     return (
         f'<div id="refresh-section">'
         f'<button class="btn-action"'
@@ -223,6 +225,7 @@ def _refresh_section_idle(msg: str = "", color: str = "", lines: list[str] | Non
         f' hx-target="#refresh-section"'
         f' hx-swap="outerHTML">Sync Catalog</button>'
         f'{status_span}'
+        f'{last_run_html}'
         f'{_log_block_html(lines or [], "refresh-log", collapsed=True)}'
         f'</div>'
     )
@@ -247,24 +250,21 @@ def _log_line_html(line: str) -> str:
 
 
 def _log_block_html(lines: list[str], div_id: str = "", collapsed: bool = False) -> str:
-    """Render a collapsible scrollable log block."""
+    """Render a collapsible scrollable log block using native <details>/<summary>."""
     if not lines:
         return ""
     recent = lines[-100:]
     log_content = "".join(_log_line_html(line) for line in recent)
-    expanded = "false" if collapsed else "true"
-    toggle_label = "Show log" if collapsed else "Hide log"
+    open_attr = "" if collapsed else " open"
     return (
-        f'<div x-data="{{ open: {expanded} }}" style="margin-top:10px;">'
-        f'<button @click="open = !open" style="background:none;border:none;'
-        f'color:var(--text-muted);font-size:11px;cursor:pointer;padding:0;"'
-        f' x-text="open ? \'Hide log\' : \'Show log\'">{toggle_label}</button>'
-        f'<div x-show="open" x-collapse'
-        f' id="{div_id}" style="margin-top:6px;background:var(--bg-card);'
+        f'<details{open_attr} style="margin-top:10px;">'
+        f'<summary style="font-size:11px;color:var(--text-muted);cursor:pointer;'
+        f'list-style:none;user-select:none;">&#9654; Log</summary>'
+        f'<div id="{div_id}" style="margin-top:6px;background:var(--bg-card);'
         f'border:1px solid var(--border);border-radius:6px;padding:12px 14px;'
         f'font-size:13px;line-height:1.5;max-height:360px;overflow-y:auto;">'
         f'{log_content}</div>'
-        f'</div>'
+        f'</details>'
         f'<script>(() => {{ '
         f'let el = document.getElementById("{div_id}"); '
         f'if (!el) return; '
@@ -290,8 +290,10 @@ def _rescan_section_running(lines: list[str]) -> str:
     )
 
 
-def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
+def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None, last_run: str = "") -> str:
     status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{_html.escape(msg)}</span>' if msg else ""
+    last_run_color = "var(--score-red)" if not last_run or last_run == "never" else "var(--score-green)"
+    last_run_html = f'<p style="font-size:11px;margin:4px 0 8px;">Last run: <span style="color:{last_run_color};">{last_run or "never"}</span></p>'
     return (
         f'<div id="rescan-section">'
         f'<button class="btn-action"'
@@ -299,6 +301,7 @@ def _rescan_section_idle(msg: str = "", color: str = "", lines: list[str] | None
         f' hx-target="#rescan-section"'
         f' hx-swap="outerHTML">Analyze Showroom Content</button>'
         f'{status_span}'
+        f'{last_run_html}'
         f'{_log_block_html(lines or [], "rescan-log", collapsed=True)}'
         f'</div>'
     )
@@ -319,8 +322,10 @@ def _stale_section_running(lines: list[str]) -> str:
     )
 
 
-def _stale_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None) -> str:
+def _stale_section_idle(msg: str = "", color: str = "", lines: list[str] | None = None, last_run: str = "") -> str:
     status_span = f'<span style="font-size:12px;color:{color};margin-left:10px;">{_html.escape(msg)}</span>' if msg else ""
+    last_run_color = "var(--score-red)" if not last_run or last_run == "never" else "var(--score-green)"
+    last_run_html = f'<p style="font-size:11px;margin:4px 0 8px;">Last run: <span style="color:{last_run_color};">{last_run or "never"}</span></p>'
     return (
         f'<div id="stale-section">'
         f'<button class="btn-action"'
@@ -328,6 +333,7 @@ def _stale_section_idle(msg: str = "", color: str = "", lines: list[str] | None 
         f' hx-target="#stale-section"'
         f' hx-swap="outerHTML">Check for Updates</button>'
         f'{status_span}'
+        f'{last_run_html}'
         f'{_log_block_html(lines or [], "stale-log", collapsed=True)}'
         f'</div>'
     )
@@ -385,32 +391,35 @@ async def admin(
     currency = db.get_db_currency(stale_days=settings.stale_days)
     # Render current state of background operations so navigating
     # back to the admin page shows running jobs, not idle buttons.
+    cat_date = currency.get("catalog_date", "never")
+    ana_date = currency.get("analysis_date", "never")
+
     if _refresh_status["running"]:
         refresh_html = _refresh_section_running(_refresh_status["lines"])
     elif _refresh_status.get("exit_ok") is not None:
         msg = "Catalog sync complete." if _refresh_status["exit_ok"] else "Sync failed — check logs above."
         color = "var(--score-green)" if _refresh_status["exit_ok"] else "var(--score-red)"
-        refresh_html = _refresh_section_idle(msg, color, _refresh_status["lines"])
+        refresh_html = _refresh_section_idle(msg, color, _refresh_status["lines"], last_run=cat_date)
     else:
-        refresh_html = _refresh_section_idle()
+        refresh_html = _refresh_section_idle(last_run=cat_date)
 
     if _rescan_status["running"]:
         rescan_html = _rescan_section_running(_rescan_status["lines"])
     elif _rescan_status.get("exit_ok") is not None:
         msg = "Analysis complete." if _rescan_status["exit_ok"] else "Analysis failed — check logs above."
         color = "var(--score-green)" if _rescan_status["exit_ok"] else "var(--score-red)"
-        rescan_html = _rescan_section_idle(msg, color, _rescan_status["lines"])
+        rescan_html = _rescan_section_idle(msg, color, _rescan_status["lines"], last_run=ana_date)
     else:
-        rescan_html = _rescan_section_idle()
+        rescan_html = _rescan_section_idle(last_run=ana_date)
 
     if _stale_check_status["running"]:
         stale_html = _stale_section_running(_stale_check_status["lines"])
     elif _stale_check_status.get("exit_ok") is not None:
         msg = "Check complete." if _stale_check_status["exit_ok"] else "Check failed — see logs above."
         color = "var(--score-green)" if _stale_check_status["exit_ok"] else "var(--score-red)"
-        stale_html = _stale_section_idle(msg, color, _stale_check_status["lines"])
+        stale_html = _stale_section_idle(msg, color, _stale_check_status["lines"], last_run=ana_date)
     else:
-        stale_html = _stale_section_idle()
+        stale_html = _stale_section_idle(last_run=ana_date)
 
     ctx = {
         "request": request,
@@ -454,8 +463,9 @@ async def stale_check_status(
         lines = list(_stale_check_status["lines"])
         msg = "Check complete." if exit_ok else "Check failed — see logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_stale_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
-    return HTMLResponse(_stale_section_idle())
+        c = db.get_db_currency(stale_days=Settings().stale_days)
+        return HTMLResponse(_stale_section_idle(msg, color, lines, last_run=c["analysis_date"]) + _status_table_oob(db) + _currency_badge_oob(db))
+    return HTMLResponse(_stale_section_idle(last_run=db.get_db_currency(stale_days=Settings().stale_days)["analysis_date"]))
 
 
 @router.post("/admin/rescan", response_class=HTMLResponse)
@@ -486,8 +496,9 @@ async def rescan_status(
         # Don't clear exit_ok here — keep the result visible until the next scan starts.
         msg = "Analysis complete." if exit_ok else "Analysis failed — check logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_rescan_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
-    return HTMLResponse(_rescan_section_idle())
+        c = db.get_db_currency(stale_days=Settings().stale_days)
+        return HTMLResponse(_rescan_section_idle(msg, color, lines, last_run=c["analysis_date"]) + _status_table_oob(db) + _currency_badge_oob(db))
+    return HTMLResponse(_rescan_section_idle(last_run=db.get_db_currency(stale_days=Settings().stale_days)["analysis_date"]))
 
 
 @router.post("/admin/refresh", response_class=HTMLResponse)
@@ -517,8 +528,9 @@ async def refresh_status(
         lines = list(_refresh_status["lines"])
         msg = "Catalog sync complete." if exit_ok else "Sync failed — check logs above."
         color = "var(--score-green)" if exit_ok else "var(--score-red)"
-        return HTMLResponse(_refresh_section_idle(msg, color, lines) + _status_table_oob(db) + _currency_badge_oob(db))
-    return HTMLResponse(_refresh_section_idle())
+        c = db.get_db_currency(stale_days=Settings().stale_days)
+        return HTMLResponse(_refresh_section_idle(msg, color, lines, last_run=c["catalog_date"]) + _status_table_oob(db) + _currency_badge_oob(db))
+    return HTMLResponse(_refresh_section_idle(last_run=db.get_db_currency(stale_days=Settings().stale_days)["catalog_date"]))
 
 
 @router.get("/admin/token-usage", response_class=HTMLResponse)
