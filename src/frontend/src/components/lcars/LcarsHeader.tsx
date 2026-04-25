@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
-import { usePrivateMode } from '../../hooks/usePrivateMode'
 import { api } from '../../services/api'
 
 interface DbStatus {
@@ -13,7 +12,6 @@ interface DbStatus {
 
 export function LcarsHeader() {
   const auth = useAuth()
-  const privateMode = usePrivateMode()
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null)
 
   useEffect(() => {
@@ -72,17 +70,6 @@ export function LcarsHeader() {
       </div>
 
       <div className="header-right">
-        <div
-          className={`lcars-toggle${privateMode.enabled ? ' active' : ''}`}
-          onClick={privateMode.toggle}
-          style={{ fontSize: '11px' }}
-          title="When enabled, your queries and results are not saved. This means your feedback can't help us improve recommendations for other Red Hatters."
-        >
-          <div className="lcars-toggle-track">
-            <div className="lcars-toggle-knob" />
-          </div>
-          <span>Private</span>
-        </div>
         {auth.email && <span className="user-email">{auth.email}</span>}
       </div>
     </header>

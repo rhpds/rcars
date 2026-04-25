@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { api } from '../services/api'
 import { useJobStream } from '../hooks/useJobStream'
-import { usePrivateMode } from '../hooks/usePrivateMode'
 import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCard } from '../components/advisor/RecCard'
 
@@ -29,7 +28,6 @@ export function AdvisorPage() {
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
-  const privateMode = usePrivateMode()
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const stream = useJobStream(activeJobId)
@@ -63,7 +61,7 @@ export function AdvisorPage() {
     setMessages(prev => [...prev, { role: 'user', content: query }])
 
     try {
-      const { job_id } = await api.submitQuery(query, true, privateMode.enabled)
+      const { job_id } = await api.submitQuery(query)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -89,7 +87,7 @@ export function AdvisorPage() {
           {messages.length === 0 && !sending && (
             <div className="chat-welcome">
               <p>What content are you looking for?</p>
-              <p className="hint">Describe your event, audience, or topic. Paste an event URL for automatic matching.</p>
+              <p className="hint">Describe what kind of content you need — include the audience, topic, and format. Be as detailed as possible and refine your search as results come in. You can also paste an event URL for automatic matching.</p>
             </div>
           )}
           {messages.map((msg, i) => (
