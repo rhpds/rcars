@@ -16,7 +16,7 @@ from rcars.services.analyzer import parse_analysis_response
 
 log = logging.getLogger(__name__)
 
-EVENT_PROMPT_PATH = Path(__file__).parent / "prompts" / "match_event.txt"
+EVENT_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "match_event.txt"
 
 # URL path patterns that indicate schedule/program/content pages
 _CONTENT_PATH_PATTERNS = re.compile(

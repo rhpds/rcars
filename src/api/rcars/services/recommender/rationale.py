@@ -12,7 +12,7 @@ from rcars.services.recommender.models import Candidate, QueryState
 
 log = logging.getLogger(__name__)
 
-RATIONALE_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "rationale.txt"
+RATIONALE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale.txt"
 
 
 def format_rationale_candidates(

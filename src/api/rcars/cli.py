@@ -106,6 +106,116 @@ def refresh():
 
 
 @cli.command()
+@click.option("--max", "max_analyze", type=int, default=None, help="Max items to analyze")
+def scan(max_analyze: int | None):
+    """Analyze Showroom content via Sonnet API."""
+    import shutil
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from pathlib import Path
+    from rcars.services.analyzer import analyze_showroom, classify_scan_error
+
+    settings = Settings()
+    db = get_db()
+
+    clone_base = Path(settings.clone_dir)
+    clone_base.mkdir(parents=True, exist_ok=True)
+
+    anthropic_client = settings.get_anthropic_client()
+    if not anthropic_client:
+        _print("ERROR: No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+        db.close()
+        sys.exit(1)
+
+    items = db.get_items_needing_analysis()
+    _print(f"Found {len(items)} items needing analysis")
+
+    items = [i for i in items if not i.get("is_published")]
+    if max_analyze:
+        _print(f"Limiting to first {max_analyze} items (--max)")
+        items = items[:max_analyze]
+
+    if not items:
+        _print("Nothing to analyze.")
+        db.close()
+        return
+
+    _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
+    completed = 0
+    errors = 0
+    total = len(items)
+    t0 = time.monotonic()
+
+    def process_item(item):
+        effective_url = item.get("showroom_url_override") or item["showroom_url"]
+        return analyze_showroom(
+            ci_name=item["ci_name"],
+            display_name=item.get("display_name", ""),
+            category=item.get("category", ""),
+            product=item.get("product", ""),
+            showroom_url=effective_url,
+            showroom_ref=item.get("showroom_ref"),
+            anthropic_client=anthropic_client,
+            model=settings.model,
+            clone_dir=settings.clone_dir,
+            db=db,
+        )
+
+    with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
+        futures = {executor.submit(process_item, item): item for item in items}
+        for future in as_completed(futures):
+            item = futures[future]
+            try:
+                result = future.result()
+                if result:
+                    analysis = result["analysis"]
+                    db.upsert_showroom_analysis({
+                        "ci_name": result["ci_name"],
+                        "content_type": analysis.get("content_type"),
+                        "summary": analysis.get("summary"),
+                        "products_json": analysis.get("products"),
+                        "audience_json": analysis.get("audience"),
+                        "topics_json": analysis.get("topics"),
+                        "modules_json": analysis.get("modules"),
+                        "learning_objectives_json": analysis.get("learning_objectives"),
+                        "difficulty": analysis.get("difficulty"),
+                        "estimated_duration_min": analysis.get("estimated_duration_min"),
+                        "event_fit_json": analysis.get("event_fit"),
+                        "use_cases_json": analysis.get("use_cases"),
+                        "last_repo_commit": result.get("last_repo_commit"),
+                        "last_repo_updated": result.get("last_repo_updated"),
+                        "content_hash": result.get("content_hash"),
+                        "is_stale": False,
+                    })
+                    db.store_embedding(
+                        ci_name=result["ci_name"], embed_type="ci_summary",
+                        content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                    )
+                    for mod_emb in result.get("module_embeddings", []):
+                        db.store_embedding(
+                            ci_name=result["ci_name"], embed_type="module",
+                            module_title=mod_emb["module_title"],
+                            content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
+                        )
+                    db.set_scan_status(result["ci_name"], "success")
+                    completed += 1
+                    _print(f"  done: [{completed}/{total}] {item['ci_name']}")
+                else:
+                    errors += 1
+                    db.set_scan_status(item["ci_name"], "failed", error_class="unknown", error_message="Analysis returned None")
+                    _print(f"  FAIL: {item['ci_name']} — analysis returned None")
+            except Exception as e:
+                error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
+                errors += 1
+                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
+
+    elapsed = time.monotonic() - t0
+    _print(f"Done in {elapsed:.1f}s. {completed}/{total} analyzed, {errors} errors")
+    db.close()
+
+
+@cli.command()
 @click.option("--failures", is_flag=True, default=False, help="Show detailed scan failures")
 def status(failures: bool):
     """Show catalog status summary."""

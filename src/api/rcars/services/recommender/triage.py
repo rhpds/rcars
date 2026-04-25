@@ -9,7 +9,7 @@ from rcars.services.recommender.models import Candidate, QueryState
 
 log = logging.getLogger(__name__)
 
-TRIAGE_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "triage.txt"
+TRIAGE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "triage.txt"
 
 
 def format_triage_candidates(candidates: list[Candidate]) -> str:
