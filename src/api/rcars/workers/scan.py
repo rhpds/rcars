@@ -37,6 +37,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
             model=wctx.settings.model,
             clone_dir=wctx.settings.clone_dir,
             db=wctx.db,
+            content_path=item.get("content_path"),
         )
 
         if result:

@@ -255,14 +255,18 @@ def clone_showroom(
         return None
 
 
-def read_showroom_content(clone_path: Path) -> dict[str, str]:
+def read_showroom_content(clone_path: Path, content_path: str | None = None) -> dict[str, str]:
     """Read .adoc files from a cloned Showroom repo.
 
     Reads from content/modules/ROOT/pages/ (standard Antora layout).
+    If content_path is set, reads from that directory instead.
     Also reads nav.adoc if present, for structure context.
     """
     files = {}
-    pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
+    if content_path:
+        pages_dir = clone_path / content_path
+    else:
+        pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
 
     if pages_dir.exists():
         for adoc_file in sorted(pages_dir.glob("*.adoc")):
@@ -399,6 +403,7 @@ def analyze_showroom(
     model: str = "claude-sonnet-4-6",
     clone_dir: str = "/tmp",
     db=None,
+    content_path: str | None = None,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -428,7 +433,7 @@ def analyze_showroom(
         log.info("analyze %s: cloned (HEAD=%s)", ci_name, head_sha[:8] if head_sha else "?")
 
         # Read content
-        raw_files = read_showroom_content(clone_path)
+        raw_files = read_showroom_content(clone_path, content_path=content_path)
         if not raw_files:
             log.warning("analyze %s: no .adoc files found in %s", ci_name, showroom_url)
             return None
