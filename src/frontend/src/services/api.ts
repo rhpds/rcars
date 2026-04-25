@@ -76,5 +76,7 @@ export const api = {
   getTokenUsage: (days = 30) => request<unknown>(`/admin/token-usage?days=${days}`),
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),
   getWorkerHealth: () => request<unknown>('/admin/workers'),
+  getJobStatus: (jobId: string) =>
+    request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   getQueryHistory: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/queries?limit=${limit}`),
 };

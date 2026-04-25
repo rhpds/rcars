@@ -118,9 +118,22 @@ export function BrowsePage() {
 
   const handleAnalyze = async (ciName: string) => {
     setAnalyzing(ciName)
-    await api.analyzeSingle(ciName)
-    setAnalyzing(null)
-    loadItems()
+    const { job_id } = await api.analyzeSingle(ciName)
+    // Poll job status until complete
+    const poll = async () => {
+      const result = await api.getJobStatus(job_id)
+      if (result.status === 'complete' || result.status === 'failed') {
+        setAnalyzing(null)
+        loadItems()
+        if (expandedItem === ciName) {
+          const detail = await api.getCatalogItem(ciName) as ItemDetail
+          setItemDetail(detail)
+        }
+      } else {
+        setTimeout(poll, 3000)
+      }
+    }
+    setTimeout(poll, 3000)
   }
 
   const handleAddTag = async (ciName: string) => {
@@ -209,13 +222,21 @@ export function BrowsePage() {
                   <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
                 </div>
                 {auth.isCurator && (
-                  <LcarsButton
-                    variant="curator-secondary"
-                    onClick={() => handleAnalyze(item.ci_name)}
-                    disabled={analyzing === item.ci_name}
-                  >
-                    {analyzing === item.ci_name ? 'Analyzing...' : 'Re-analyze'}
-                  </LcarsButton>
+                  analyzing === item.ci_name ? (
+                    <span style={{
+                      color: '#e8a838', fontSize: '13px', padding: '5px 12px',
+                      animation: 'pulse-bg 1.5s ease-in-out infinite',
+                    }}>
+                      Analyzing...
+                    </span>
+                  ) : (
+                    <LcarsButton
+                      variant="curator-secondary"
+                      onClick={() => handleAnalyze(item.ci_name)}
+                    >
+                      Re-analyze
+                    </LcarsButton>
+                  )
                 )}
               </div>
 
