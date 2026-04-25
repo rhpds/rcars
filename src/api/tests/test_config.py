@@ -14,7 +14,7 @@ def test_curator_check():
     s = Settings(
         database_url="postgresql://test:test@localhost/test",
         redis_url="redis://localhost:6379",
-        curator_emails=["alice@redhat.com", "Bob@REDHAT.COM"],
+        curator_emails_str="alice@redhat.com,Bob@REDHAT.COM",
     )
     assert s.is_curator("alice@redhat.com")
     assert s.is_curator("bob@redhat.com")
@@ -25,7 +25,7 @@ def test_admin_check():
     s = Settings(
         database_url="postgresql://test:test@localhost/test",
         redis_url="redis://localhost:6379",
-        admin_emails=["admin@redhat.com"],
+        admin_emails_str="admin@redhat.com",
     )
     assert s.is_admin("admin@redhat.com")
     assert not s.is_admin("user@redhat.com")

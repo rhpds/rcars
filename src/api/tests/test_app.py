@@ -10,8 +10,8 @@ def client():
         database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
         redis_url="redis://localhost:6379",
         dev_user="test@redhat.com",
-        admin_emails=["test@redhat.com"],
-        curator_emails=["test@redhat.com"],
+        admin_emails_str="test@redhat.com",
+        curator_emails_str="test@redhat.com",
     )
     app = create_app(settings)
     with TestClient(app) as c:

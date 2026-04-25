@@ -3,6 +3,10 @@ from __future__ import annotations
 from pydantic_settings import BaseSettings
 
 
+def _parse_csv(val: str) -> list[str]:
+    return [x.strip() for x in val.split(",") if x.strip()] if val else []
+
+
 class Settings(BaseSettings):
     model_config = {"env_prefix": "RCARS_", "case_sensitive": False}
 
@@ -32,30 +36,27 @@ class Settings(BaseSettings):
     # Babylon K8s
     kubeconfig_path: str = ""
     agnosticv_component_namespace: str = "babylon-config"
-    catalog_namespaces: list[str] = [
-        "babylon-catalog-prod",
-        "babylon-catalog-dev",
-        "babylon-catalog-event",
-    ]
 
-    # Showroom URL variable names
-    showroom_url_vars: list[str] = [
-        "ocp4_workload_showroom_content_git_repo",
-        "showroom_git_repo",
-    ]
-    showroom_ref_vars: list[str] = [
-        "ocp4_workload_showroom_content_git_repo_ref",
-        "showroom_git_repo_ref",
-    ]
-
-    # Auth / roles
-    curator_emails: list[str] = []
-    admin_emails: list[str] = []
+    # Auth / roles — stored as comma-separated strings, parsed via methods
+    curator_emails_str: str = ""
+    admin_emails_str: str = ""
     dev_user: str = ""
-    sa_allowlist: list[str] = []
+    sa_allowlist_str: str = ""
 
     # Ops
     stale_days: int = 3
+
+    @property
+    def curator_emails(self) -> list[str]:
+        return _parse_csv(self.curator_emails_str)
+
+    @property
+    def admin_emails(self) -> list[str]:
+        return _parse_csv(self.admin_emails_str)
+
+    @property
+    def sa_allowlist(self) -> list[str]:
+        return _parse_csv(self.sa_allowlist_str)
 
     @property
     def use_vertex(self) -> bool:
