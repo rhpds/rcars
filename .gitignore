@@ -46,3 +46,5 @@ site/
 # Ansible vars with secrets (use .example files as templates)
 ansible/vars/dev.yml
 ansible/vars/prod.yml
+node_modules
+tsconfig.tsbuildinfo
