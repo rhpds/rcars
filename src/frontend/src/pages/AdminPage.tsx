@@ -3,7 +3,7 @@ import { api } from '../services/api'
 import { LcarsButton } from '../components/lcars'
 import { LogWindow } from '../components/admin/LogWindow'
 
-type AdminTab = 'catalog' | 'workers' | 'tokens'
+// ── Catalog Status Page ──
 
 interface CatalogStatus {
   last_refresh: string
@@ -16,17 +16,150 @@ interface CatalogStatus {
   failed_count: number
 }
 
+interface ActionState {
+  log: string[]
+  logOpen: boolean
+  running: boolean
+}
+
+function AdminAction({ title, description, buttonLabel, onRun }: {
+  title: string; description: string; buttonLabel: string; onRun: (addLog: (msg: string) => void) => Promise<void>
+}) {
+  const [state, setState] = useState<ActionState>({ log: [], logOpen: false, running: false })
+
+  const addLog = (msg: string) => setState(prev => ({ ...prev, log: [...prev.log, msg] }))
+
+  const handleRun = async () => {
+    setState(prev => ({ ...prev, running: true, logOpen: true }))
+    try {
+      await onRun(addLog)
+    } catch (err) {
+      addLog(`Error: ${err}`)
+    }
+    setState(prev => ({ ...prev, running: false }))
+  }
+
+  return (
+    <div className="admin-section">
+      <h3>{title}</h3>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>{description}</p>
+      <LcarsButton onClick={handleRun} disabled={state.running}>
+        {state.running ? `${buttonLabel}...` : buttonLabel}
+      </LcarsButton>
+      <LogWindow
+        lines={state.log}
+        isOpen={state.logOpen}
+        onToggle={() => setState(prev => ({ ...prev, logOpen: !prev.logOpen }))}
+      />
+    </div>
+  )
+}
+
+export function AdminCatalogPage() {
+  const [status, setStatus] = useState<CatalogStatus | null>(null)
+
+  const loadStatus = () => {
+    api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
+  }
+
+  useEffect(() => { loadStatus() }, [])
+
+  const statusColor = (stale: boolean) => stale ? '#c9190b' : '#5cb85c'
+
+  return (
+    <div className="admin-layout">
+      <div className="admin-section">
+        <h3>Catalog Status</h3>
+        {status ? (
+          <table className="status-table">
+            <thead><tr><th>Metric</th><th>Count</th></tr></thead>
+            <tbody>
+              <tr><td>Total catalog items</td><td>{status.unanalyzed + status.stale_count + status.failed_count}</td></tr>
+              <tr><td>Unanalyzed items</td><td>{status.unanalyzed}</td></tr>
+              <tr>
+                <td>Stale (needs rescan)</td>
+                <td style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c' }}>{status.stale_count}</td>
+              </tr>
+              <tr>
+                <td>Scan failures</td>
+                <td style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c' }}>{status.failed_count}</td>
+              </tr>
+              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
+                <td style={{ color: '#666' }}>Last catalog sync</td>
+                <td style={{ color: statusColor(status.catalog_stale) }}>{status.catalog_date}</td>
+              </tr>
+              <tr>
+                <td style={{ color: '#666' }}>Last analysis run</td>
+                <td style={{ color: statusColor(status.analysis_stale) }}>{status.analysis_date}</td>
+              </tr>
+            </tbody>
+          </table>
+        ) : (
+          <div style={{ color: '#666' }}>Loading...</div>
+        )}
+      </div>
+
+      <AdminAction
+        title="Catalog Sync"
+        description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items. Takes ~30 seconds."
+        buttonLabel="Refresh Catalog"
+        onRun={async (addLog) => {
+          addLog('Starting catalog refresh...')
+          const result = await api.refreshCatalog()
+          addLog(`Catalog refresh enqueued: job_id=${result.job_id}`)
+          addLog('Check Workers tab for job progress.')
+          loadStatus()
+        }}
+      />
+
+      <AdminAction
+        title="Showroom Analysis"
+        description="Clone and analyze Showroom repos via Sonnet for unscanned items. Runs in background. Duration depends on item count (~30-60s per item)."
+        buttonLabel="Scan Unanalyzed"
+        onRun={async (addLog) => {
+          addLog('Starting scan...')
+          const result = await api.startScan() as { job_id: string; enqueued: number }
+          addLog(`Scan enqueued: ${result.enqueued} items queued for analysis`)
+          addLog(`Parent job_id=${result.job_id}`)
+          loadStatus()
+        }}
+      />
+
+      <AdminAction
+        title="Content Updates"
+        description="Check if any analyzed Showrooms have changed since last scan by comparing content hashes. Marks changed items as stale for re-analysis. Takes ~1-2 minutes."
+        buttonLabel="Check Stale"
+        onRun={async (addLog) => {
+          addLog('Starting stale check...')
+          const result = await api.checkStale()
+          addLog(`Stale check enqueued: job_id=${result.job_id}`)
+          loadStatus()
+        }}
+      />
+
+      <AdminAction
+        title="Rescan Stale Items"
+        description="Re-analyze all items currently marked as stale. Enqueues individual analysis jobs for each stale item."
+        buttonLabel="Rescan Stale"
+        onRun={async (addLog) => {
+          addLog('Starting rescan of stale items...')
+          const result = await api.rescanStale() as { job_id: string; enqueued: number }
+          addLog(`Rescan enqueued: ${result.enqueued} stale items queued`)
+          addLog(`Parent job_id=${result.job_id}`)
+          loadStatus()
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Workers Page ──
+
 interface WorkerHealth {
   queue_depths: Record<string, number>
   active_jobs: number
   running_jobs: Array<{ id: string; job_type: string; created_at: string }>
   failed_jobs_recent: number
-}
-
-interface TokenStats {
-  stats: Array<{ operation: string; model: string; calls: number; input_tokens: number; output_tokens: number; total_tokens: number }>
-  recent_queries: Array<{ query_text: string; query_time: string; total_tokens: number; triage_input: number; triage_output: number; rationale_input: number; rationale_output: number }>
-  days: number
 }
 
 interface Job {
@@ -40,125 +173,7 @@ interface Job {
   completed_at: string | null
 }
 
-export function AdminPage() {
-  const [activeTab, setActiveTab] = useState<AdminTab>('catalog')
-
-  const tabStyle = (tab: AdminTab) => ({
-    background: activeTab === tab ? '#1a3a5a' : 'transparent',
-    border: `1px solid ${activeTab === tab ? '#73bcf7' : '#333'}`,
-    color: activeTab === tab ? '#73bcf7' : '#666',
-    padding: '8px 20px',
-    borderRadius: '6px',
-    cursor: 'pointer' as const,
-    fontSize: '15px',
-  })
-
-  return (
-    <div className="admin-layout">
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-        <button style={tabStyle('catalog')} onClick={() => setActiveTab('catalog')}>Catalog Status</button>
-        <button style={tabStyle('workers')} onClick={() => setActiveTab('workers')}>Workers</button>
-        <button style={tabStyle('tokens')} onClick={() => setActiveTab('tokens')}>Token Usage</button>
-      </div>
-
-      {activeTab === 'catalog' && <CatalogTab />}
-      {activeTab === 'workers' && <WorkersTab />}
-      {activeTab === 'tokens' && <TokensTab />}
-    </div>
-  )
-}
-
-function CatalogTab() {
-  const [status, setStatus] = useState<CatalogStatus | null>(null)
-  const [actionLog, setActionLog] = useState<string[]>([])
-  const [logOpen, setLogOpen] = useState(false)
-
-  useEffect(() => {
-    api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
-  }, [])
-
-  const handleAction = async (label: string, fn: () => Promise<{ job_id: string }>) => {
-    setActionLog(prev => [...prev, `Starting ${label}...`])
-    setLogOpen(true)
-    try {
-      const result = await fn()
-      setActionLog(prev => [...prev, `${label} enqueued: job_id=${result.job_id}`])
-      api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
-    } catch (err) {
-      setActionLog(prev => [...prev, `Error: ${err}`])
-    }
-  }
-
-  const statusColor = (stale: boolean) => stale ? '#c9190b' : '#5cb85c'
-  const statusLabel = (stale: boolean) => stale ? 'STALE' : 'CURRENT'
-
-  return (
-    <>
-      <div className="admin-section">
-        <h3>Catalog & Analysis Status</h3>
-        {status ? (
-          <table className="status-table">
-            <tbody>
-              <tr>
-                <td>Catalog</td>
-                <td>{status.catalog_date}</td>
-                <td style={{ color: statusColor(status.catalog_stale), fontWeight: 600 }}>
-                  {statusLabel(status.catalog_stale)}
-                </td>
-              </tr>
-              <tr>
-                <td>Analysis</td>
-                <td>{status.analysis_date}</td>
-                <td style={{ color: statusColor(status.analysis_stale), fontWeight: 600 }}>
-                  {statusLabel(status.analysis_stale)}
-                </td>
-              </tr>
-              <tr>
-                <td>Unanalyzed items</td>
-                <td colSpan={2}>{status.unanalyzed}</td>
-              </tr>
-              <tr>
-                <td>Stale items</td>
-                <td colSpan={2} style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c' }}>
-                  {status.stale_count}
-                </td>
-              </tr>
-              <tr>
-                <td>Scan failures</td>
-                <td colSpan={2} style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c' }}>
-                  {status.failed_count}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>Loading...</div>
-        )}
-      </div>
-
-      <div className="admin-section">
-        <h3>Actions</h3>
-        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          <LcarsButton onClick={() => handleAction('Catalog refresh', api.refreshCatalog)}>
-            Refresh Catalog
-          </LcarsButton>
-          <LcarsButton onClick={() => handleAction('Scan', api.startScan)}>
-            Scan Unanalyzed
-          </LcarsButton>
-          <LcarsButton onClick={() => handleAction('Stale check', api.checkStale)}>
-            Check Stale
-          </LcarsButton>
-          <LcarsButton onClick={() => handleAction('Rescan stale', api.rescanStale)}>
-            Rescan Stale
-          </LcarsButton>
-        </div>
-        <LogWindow lines={actionLog} isOpen={logOpen} onToggle={() => setLogOpen(!logOpen)} />
-      </div>
-    </>
-  )
-}
-
-function WorkersTab() {
+export function AdminWorkersPage() {
   const [health, setHealth] = useState<WorkerHealth | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
 
@@ -189,14 +204,15 @@ function WorkersTab() {
   }
 
   return (
-    <>
+    <div className="admin-layout">
       <div className="admin-section">
         <h3>Queue Depths</h3>
+        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+          Number of jobs waiting in each Redis queue. Auto-refreshes every 10 seconds.
+        </p>
         {health ? (
           <table className="status-table">
-            <thead>
-              <tr><th>Queue</th><th>Depth</th><th>Status</th></tr>
-            </thead>
+            <thead><tr><th>Queue</th><th>Depth</th><th>Status</th></tr></thead>
             <tbody>
               {Object.entries(health.queue_depths).map(([queue, depth]) => (
                 <tr key={queue}>
@@ -214,7 +230,7 @@ function WorkersTab() {
         )}
         {health && (
           <div style={{ marginTop: '12px', fontSize: '14px', color: '#aaa' }}>
-            Active jobs: {health.active_jobs} · Recent failures: {' '}
+            Active jobs: {health.active_jobs} · Recent failures:{' '}
             <span style={{ color: health.failed_jobs_recent > 0 ? '#c9190b' : '#5cb85c' }}>
               {health.failed_jobs_recent}
             </span>
@@ -226,18 +242,14 @@ function WorkersTab() {
         <h3>Recent Jobs</h3>
         {jobs.length > 0 ? (
           <table className="status-table">
-            <thead>
-              <tr><th>Type</th><th>Status</th><th>Queue</th><th>Created</th><th>By</th></tr>
-            </thead>
+            <thead><tr><th>Type</th><th>Status</th><th>Queue</th><th>Created</th><th>By</th></tr></thead>
             <tbody>
               {jobs.map(job => (
                 <tr key={job.id}>
                   <td>{job.job_type}</td>
                   <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
                   <td style={{ color: '#666' }}>{job.queue}</td>
-                  <td style={{ color: '#666', fontSize: '13px' }}>
-                    {new Date(job.created_at).toLocaleString()}
-                  </td>
+                  <td style={{ color: '#666', fontSize: '13px' }}>{new Date(job.created_at).toLocaleString()}</td>
                   <td style={{ color: '#666', fontSize: '13px' }}>{job.created_by || '-'}</td>
                 </tr>
               ))}
@@ -247,11 +259,19 @@ function WorkersTab() {
           <div style={{ color: '#666' }}>No recent jobs.</div>
         )}
       </div>
-    </>
+    </div>
   )
 }
 
-function TokensTab() {
+// ── Token Usage Page ──
+
+interface TokenStats {
+  stats: Array<{ operation: string; model: string; calls: number; input_tokens: number; output_tokens: number; total_tokens: number }>
+  recent_queries: Array<{ query_text: string; query_time: string; total_tokens: number; triage_input: number; triage_output: number; rationale_input: number; rationale_output: number }>
+  days: number
+}
+
+export function AdminTokensPage() {
   const [stats, setStats] = useState<TokenStats | null>(null)
   const [days, setDays] = useState(30)
 
@@ -260,9 +280,12 @@ function TokensTab() {
   }, [days])
 
   return (
-    <>
+    <div className="admin-layout">
       <div className="admin-section">
         <h3>Token Usage</h3>
+        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+          Claude API token consumption by model and operation.
+        </p>
         <div style={{ marginBottom: '12px' }}>
           <select
             className="filter-select"
@@ -278,9 +301,7 @@ function TokensTab() {
 
         {stats && stats.stats.length > 0 ? (
           <table className="status-table">
-            <thead>
-              <tr><th>Operation</th><th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total</th></tr>
-            </thead>
+            <thead><tr><th>Operation</th><th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total</th></tr></thead>
             <tbody>
               {stats.stats.map((s, i) => (
                 <tr key={i}>
@@ -303,24 +324,16 @@ function TokensTab() {
         <div className="admin-section">
           <h3>Recent Queries</h3>
           <table className="status-table">
-            <thead>
-              <tr><th>Query</th><th>Time</th><th>Triage</th><th>Rationale</th><th>Total</th></tr>
-            </thead>
+            <thead><tr><th>Query</th><th>Time</th><th>Triage</th><th>Rationale</th><th>Total</th></tr></thead>
             <tbody>
               {stats.recent_queries.map((q, i) => (
                 <tr key={i}>
                   <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {q.query_text}
                   </td>
-                  <td style={{ color: '#666', fontSize: '13px' }}>
-                    {new Date(q.query_time).toLocaleString()}
-                  </td>
-                  <td style={{ color: '#666' }}>
-                    {(q.triage_input + q.triage_output).toLocaleString()}
-                  </td>
-                  <td style={{ color: '#666' }}>
-                    {(q.rationale_input + q.rationale_output).toLocaleString()}
-                  </td>
+                  <td style={{ color: '#666', fontSize: '13px' }}>{new Date(q.query_time).toLocaleString()}</td>
+                  <td style={{ color: '#666' }}>{(q.triage_input + q.triage_output).toLocaleString()}</td>
+                  <td style={{ color: '#666' }}>{(q.rationale_input + q.rationale_output).toLocaleString()}</td>
                   <td>{q.total_tokens?.toLocaleString()}</td>
                 </tr>
               ))}
@@ -328,6 +341,6 @@ function TokensTab() {
           </table>
         </div>
       )}
-    </>
+    </div>
   )
 }

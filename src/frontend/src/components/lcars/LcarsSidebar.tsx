@@ -4,6 +4,7 @@ import { useAuth } from '../../hooks/useAuth'
 export function LcarsSidebar() {
   const auth = useAuth()
   const location = useLocation()
+  const isAdminSection = location.pathname.startsWith('/admin')
 
   return (
     <nav className="rcars-nav">
@@ -19,9 +20,33 @@ export function LcarsSidebar() {
         Browse
       </NavLink>
       {auth.isAdmin && (
-        <NavLink to="/admin" className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
-          Admin
-        </NavLink>
+        <>
+          <NavLink to="/admin/catalog" className={() => `nav-item${isAdminSection ? ' active' : ''}`}>
+            Admin
+          </NavLink>
+          {isAdminSection && (
+            <>
+              <NavLink
+                to="/admin/catalog"
+                className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}
+              >
+                Catalog Status
+              </NavLink>
+              <NavLink
+                to="/admin/workers"
+                className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}
+              >
+                Workers
+              </NavLink>
+              <NavLink
+                to="/admin/tokens"
+                className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}
+              >
+                Token Usage
+              </NavLink>
+            </>
+          )}
+        </>
       )}
     </nav>
   )
