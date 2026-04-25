@@ -517,7 +517,7 @@ Every component emits structured JSON log lines to stdout. Every log line includ
 Every component boundary crossing is logged:
 
 ```
-[api]    job=abc123 user=nate@redhat.com action=request_received endpoint=/api/v1/advisor/query
+[api]    job=abc123 user=user@redhat.com action=request_received endpoint=/api/v1/advisor/query
 [api]    job=abc123 action=enqueued queue=recommend
 [worker] job=abc123 action=picked_up worker=rcars-worker-7x2k queue=recommend
 [worker] job=abc123 action=phase_started phase=vector_search

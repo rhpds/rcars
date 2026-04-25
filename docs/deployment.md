@@ -50,7 +50,7 @@ Edit `ansible/vars/dev.yml` and fill in all `CHANGEME` values:
 | `babylon_kubeconfig_path` | path to your Babylon read-only kubeconfig |
 | `vertex_credentials_path` | path to your GCP service account JSON key (e.g. `~/devel/secrets/gcp-vertex-key.json`) — project ID is read from the file automatically |
 | `github_token` | GitHub PAT with `repo` scope |
-| `curator_emails` / `admin_emails` | YAML lists of email addresses (must match OpenShift SSO email, e.g. `nstephan@redhat.com`) |
+| `curator_emails` / `admin_emails` | YAML lists of email addresses (must match OpenShift SSO email, e.g. `user@redhat.com`) |
 
 Leave `kubeconfig` as-is (`~/devel/secrets/rcars-mgmt.kubeconfig`) — the next step creates that file.
 
@@ -129,7 +129,7 @@ Open the URL from `frontend_host` in your vars file (e.g. `https://rcars-dev.app
 
 You should see the OpenShift SSO login page. After authenticating, RCARS loads with your email in the header. If your email is in `curator_emails` or `admin_emails`, the Curator/Admin sections will appear.
 
-> **Identity note:** The OAuth proxy passes your full SSO email address via `X-Forwarded-Email` (e.g. `nstephan@redhat.com`). Use this format in `curator_emails` and `admin_emails`, not the short username.
+> **Identity note:** The OAuth proxy passes your full SSO email address via `X-Forwarded-Email` (e.g. `user@redhat.com`). Use this format in `curator_emails` and `admin_emails`, not the short username.
 
 ---
 
