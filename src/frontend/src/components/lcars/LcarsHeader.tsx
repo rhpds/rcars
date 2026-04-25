@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { api } from '../../services/api'
@@ -8,6 +8,89 @@ interface DbStatus {
   catalog_stale: boolean
   analysis_date: string
   analysis_stale: boolean
+}
+
+const DOCS_BASE = 'https://rhpds.github.io/rcars'
+
+function HeaderMenu() {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        style={{
+          background: 'transparent',
+          border: '1px solid #333',
+          color: '#999',
+          padding: '4px 10px',
+          borderRadius: '4px',
+          cursor: 'pointer',
+          fontSize: '14px',
+        }}
+      >
+        ☰
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute',
+          right: 0,
+          top: '100%',
+          marginTop: '6px',
+          background: '#1a1f2e',
+          border: '1px solid #333',
+          borderRadius: '6px',
+          minWidth: '180px',
+          zIndex: 100,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+        }}>
+          <a
+            href={`${DOCS_BASE}/overview/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            style={menuItemStyle}
+          >
+            Overview
+          </a>
+          <a
+            href={`${DOCS_BASE}/guide-web/`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            style={menuItemStyle}
+          >
+            Web UI Guide
+          </a>
+          <div style={{ borderTop: '1px solid #333' }} />
+          <button
+            onClick={() => { setOpen(false) }}
+            style={{ ...menuItemStyle, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'not-allowed', opacity: 0.5 }}
+          >
+            Send Feedback
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const menuItemStyle: React.CSSProperties = {
+  display: 'block',
+  padding: '10px 16px',
+  color: '#aaa',
+  textDecoration: 'none',
+  fontSize: '14px',
+  cursor: 'pointer',
 }
 
 export function LcarsHeader() {
@@ -70,6 +153,7 @@ export function LcarsHeader() {
       </div>
 
       <div className="header-right">
+        <HeaderMenu />
         {auth.email && <span className="user-email">{auth.email}</span>}
       </div>
     </header>
