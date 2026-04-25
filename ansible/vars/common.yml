@@ -37,7 +37,7 @@ curator_emails: []
 admin_emails: []
 
 # Scaling
-api_replicas: 2
+api_replicas: 1
 worker_replicas: 1
 frontend_replicas: 1
 

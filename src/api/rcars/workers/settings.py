@@ -2,10 +2,21 @@
 
 from __future__ import annotations
 
+import os
+from urllib.parse import urlparse
 from arq.connections import RedisSettings
 from redis.asyncio import Redis
 
 from rcars.config import Settings
+
+
+def _redis_settings_from_url(url: str) -> RedisSettings:
+    parsed = urlparse(url)
+    return RedisSettings(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 6379,
+        database=int(parsed.path.lstrip("/") or 0) if parsed.path and parsed.path != "/" else 0,
+    )
 from rcars.db import Database
 from rcars.logging import setup_logging, get_logger
 from rcars.api.streaming import JobProgressRelay
@@ -39,7 +50,7 @@ class WorkerSettings:
     functions = [run_recommendation, run_analysis, run_catalog_refresh, run_stale_check]
     on_startup = startup
     on_shutdown = shutdown
-    redis_settings = RedisSettings()
+    redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
     max_jobs = 5
     job_timeout = 600
     queue_name = "default"
