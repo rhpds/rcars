@@ -117,7 +117,7 @@ export function AdvisorPage() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about content for your event..."
+            placeholder="Describe what you're looking for..."
             rows={2}
             disabled={sending}
           />
