@@ -1,12 +1,25 @@
 # RCARS Deployment Guide
 
+## Architecture
+
+RCARS v2 runs as three separate components on OpenShift:
+
+| Component | Image | What it does |
+|---|---|---|
+| `rcars-api` | `rcars-api:latest` | FastAPI JSON API, serves `/api/v1/*` |
+| `rcars-worker` | `rcars-api:latest` (same image, different entrypoint) | arq background worker for LLM operations |
+| `rcars-frontend` | `rcars-frontend:latest` | nginx serving the React SPA, proxies `/api/*` to the API service |
+
+Supporting infrastructure: PostgreSQL (pgvector), Redis 7, OAuth proxy.
+
+---
+
 ## Prerequisites
 
-- `oc` CLI logged into the target OpenShift cluster with cluster-admin (for the one-time bootstrap)
+- `oc` CLI logged into the target OpenShift cluster with cluster-admin (one-time bootstrap only)
 - `ansible` with `kubernetes.core` collection installed
 - Read-only kubeconfig for the Babylon cluster
 - Vertex AI service account JSON key
-- GitHub personal access token (for private repo access and webhook registration)
 
 ### Install Ansible Dependencies
 
@@ -16,19 +29,14 @@ ansible-galaxy collection install -r ansible/requirements.yml
 
 ---
 
-## One-Time Bootstrap (first deploy only)
+## One-Time Bootstrap
 
-This creates a `rcars-mgmt-sa` service account with minimum permissions for all future deployments. You need cluster-admin for this step only — after this, the playbook runs as the service account.
+This creates a `rcars-mgmt-sa` service account for all future deployments. You need cluster-admin for this step only.
 
 ### Step 1. Log in with your personal account
 
 ```bash
 oc login https://api.<your-cluster>:6443
-```
-
-Confirm you're on the right cluster:
-
-```bash
 oc whoami && oc whoami --show-server
 ```
 
@@ -45,214 +53,206 @@ Edit `ansible/vars/dev.yml` and fill in all `CHANGEME` values:
 | `pg_password` | `openssl rand -hex 16` |
 | `oauth_client_secret` | `openssl rand -hex 16` |
 | `oauth_cookie_secret` | `openssl rand -hex 16` |
-| `webhook_secret` | `openssl rand -hex 16` |
 | `cluster_domain` | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
-| `babylon_kubeconfig_path` | path to your Babylon read-only kubeconfig |
-| `vertex_credentials_path` | path to your GCP service account JSON key (e.g. `~/devel/secrets/gcp-vertex-key.json`) — project ID is read from the file automatically |
-| `github_token` | GitHub PAT with `repo` scope |
-| `curator_emails` / `admin_emails` | YAML lists of email addresses (must match OpenShift SSO email, e.g. `user@redhat.com`) |
+| `babylon_kubeconfig_path` | Path to your Babylon read-only kubeconfig |
+| `vertex_credentials_path` | Path to your GCP service account JSON key |
+| `curator_emails` | YAML list of curator email addresses |
+| `admin_emails` | YAML list of admin email addresses |
 
-Leave `kubeconfig` as-is (`~/devel/secrets/rcars-mgmt.kubeconfig`) — the next step creates that file.
+> **Identity note:** Email addresses must match the OpenShift SSO email format (e.g. `user@redhat.com`). The OAuth proxy passes `X-Forwarded-Email` — use this format, not the short username.
 
-### Step 3. Bootstrap RBAC and generate the mgmt kubeconfig
-
-Run with your personal kubeconfig, passing it explicitly:
+### Step 3. Bootstrap RBAC
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
 ```
 
-This creates:
-- Namespaces `rcars-dev` and `rcars-prod`
-- Service account `rcars-mgmt-sa` in `rcars-dev`
-- ClusterRole `rcars-mgmt` (namespace lifecycle + OAuthClient management)
-- ClusterRoleBinding and admin RoleBinding in `rcars-dev`
-- Long-lived token Secret `rcars-mgmt-sa-token`
-- Kubeconfig at `~/devel/secrets/rcars-mgmt.kubeconfig`
-
-Verify it works:
+Verify:
 
 ```bash
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc whoami
 # → system:serviceaccount:rcars-dev:rcars-mgmt-sa
-
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get ns rcars-dev rcars-prod
 ```
 
----
-
-## Initial Application Deployment
-
-### Step 4. Apply infrastructure manifests
+### Step 4. Apply infrastructure
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags bootstrap
 ```
 
-This applies the resources that only need to exist once: Secrets, PersistentVolumeClaim, PostgreSQL StatefulSet and Service, ImageStream, BuildConfig, and OAuthClient.
+Creates: Secrets, PostgreSQL StatefulSet, Redis StatefulSet, ImageStreams, BuildConfigs, OAuthClient.
 
-### Step 5. Run the first build and app deploy
+### Step 5. Deploy the application
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
 
-This uses the mgmt kubeconfig from your `dev.yml` and will:
-1. Apply app manifests (Deployment, Services, Route, OAuth Proxy)
-2. Trigger the first Docker build from GitHub (~3–5 minutes)
-3. Wait for the build to complete and roll out the new image
-4. Run database schema setup (`rcars status`)
-5. Display the GitHub webhook URL
+This will:
+1. Apply app manifests (API, Worker, Frontend Deployments + Services + Route + OAuth Proxy)
+2. Trigger Docker builds for API (~5 min) and frontend (~30s)
+3. Wait for builds to complete and restart all deployments
+4. Run database schema setup
 
-### Step 6. Configure GitHub webhook
+### Step 6. Load initial data
 
-After `--tags apply` runs, get the webhook URL:
+After the app is running:
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc describe bc/rcars -n rcars-dev | grep -A2 "Webhook GitHub"
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get secret rcars-webhook -n rcars-dev -o jsonpath='{.data.WebHookSecretKey}' | base64 -d
+# Sync catalog from Babylon CRDs
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
+  oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['refresh'])"
+
+# Analyze a few items to verify
+KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
+  oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['scan', '--max', '5'])"
 ```
 
-Add it to your GitHub repo at `https://github.com/<your-repo>/settings/hooks`:
-
-1. Click "Add webhook"
-2. **Payload URL:** replace `<secret>` in the URL from the describe output with the decoded secret value
-3. **Content type:** `application/json`
-4. **Secret:** the decoded `WebHookSecretKey` value
-5. **Events:** Just the push event
-
-The `webhook-access-unauthenticated` RoleBinding (applied automatically by the playbook) grants GitHub the permission to reach the BuildConfig webhook endpoint.
+Once verified, run a larger scan or use the Admin UI to analyze all content.
 
 ### Step 7. Verify
 
-Open the URL from `frontend_host` in your vars file (e.g. `https://rcars-dev.apps.<cluster-domain>`).
-
-You should see the OpenShift SSO login page. After authenticating, RCARS loads with your email in the header. If your email is in `curator_emails` or `admin_emails`, the Curator/Admin sections will appear.
-
-> **Identity note:** The OAuth proxy passes your full SSO email address via `X-Forwarded-Email` (e.g. `user@redhat.com`). Use this format in `curator_emails` and `admin_emails`, not the short username.
+Open `https://rcars-dev.apps.<cluster-domain>`. After SSO login, you should see the RCARS advisor with the LCARS theme.
 
 ---
 
 ## Day-to-Day Operations
 
-All `oc` commands should use the mgmt kubeconfig:
+Set the kubeconfig:
 
 ```bash
 export KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig
 ```
 
-Or prefix each command inline: `KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc ...`
-
-### Code update (after push to main)
-
-Pushing to `main` triggers the BuildConfig webhook automatically. Once the build completes, the Deployment rolls out the new image automatically via the `image.openshift.io/triggers` annotation — no playbook run required.
-
-If you also need to run schema migrations after the deploy:
+### Rebuild and deploy frontend only (~30s)
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
 ```
 
-Or for a full build + wait + migrate in one shot:
+Or manually:
+
+```bash
+oc start-build rcars-frontend-build -n rcars-dev
+# Wait for completion, then:
+oc rollout restart deployment/rcars-frontend -n rcars-dev
+```
+
+### Rebuild and deploy API + workers (~5 min)
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+```
+
+Or manually:
+
+```bash
+oc start-build rcars-api-build -n rcars-dev
+# Wait for completion, then:
+oc rollout restart deployment/rcars-api deployment/rcars-worker -n rcars-dev
+```
+
+### Full update (build all + migrate)
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
 
-### Apply app config changes only (no build)
+### Apply config changes only (no build)
 
-Re-applies app manifests (Deployment env vars, Services, Route) and runs schema setup — skips the build entirely:
+Re-applies manifests (env vars, replicas, resource limits) without triggering builds:
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 ```
 
-### Apply infra changes (Secrets, BuildConfig, PostgreSQL, OAuthClient)
+---
 
-Run when rotating secrets, changing `git_ref`, or updating other infrastructure resources:
+## Managing Users
 
-```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags bootstrap
+Curator and admin access is controlled by email lists in the Ansible vars file.
+
+### Add a curator or admin
+
+1. Edit `ansible/vars/dev.yml`:
+
+```yaml
+curator_emails:
+  - existing-curator@redhat.com
+  - new-curator@redhat.com
+
+admin_emails:
+  - existing-admin@redhat.com
+  - new-admin@redhat.com
 ```
 
-### Just run schema setup
+2. Apply the change:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 ```
 
-### Trigger a build only
+This updates the ConfigMap and restarts the API pod. The new user will have access on their next login.
+
+### Remove a curator or admin
+
+Remove their email from the list in `ansible/vars/dev.yml` and re-apply with `--tags apply`.
+
+---
+
+## CLI Commands
+
+Run commands in the API pod:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags builds
-```
+# Catalog status
+oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['status'])"
 
-### Restart the app
+# Refresh catalog from Babylon
+oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['refresh'])"
 
-```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc rollout restart deployment/rcars -n rcars-dev
-```
+# Scan content (analyze Showrooms)
+oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['scan', '--max', '10'])"
 
-### Check logs
+# Add a tag
+oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['tag', 'ci-name.prod', 'label', 'flagship'])"
 
-```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars -n rcars-dev -f
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars-oauth-proxy -n rcars-dev -f
-```
-
-### Run a command on the pod
-
-```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars status
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars refresh
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars scan --max 5
+# Set custom content path for non-standard Showroom
+oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['set-content-path', 'ci-name.prod', 'docs/labs/'])"
 ```
 
 ---
 
-## Initial Data Load
+## Check Logs
 
-After the app is running, load data via the Admin UI or pod exec:
+```bash
+# API logs
+oc logs deployment/rcars-api -n rcars-dev -f
 
-1. **Sync catalog** — pulls CatalogItems from Babylon CRDs into the database.
-   Use the **Sync Catalog** button in the Admin UI, or:
-   ```bash
-   KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars refresh
-   ```
+# Worker logs
+oc logs deployment/rcars-worker -n rcars-dev -f
 
-2. **Analyze Showroom content** — runs AI analysis on items with Showroom URLs.
-   Start small to verify it's working before running the full catalog:
-   ```bash
-   KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec -it deployment/rcars -n rcars-dev -- rcars scan --max 3
-   ```
-   Once satisfied, use the **Analyze Showroom Content** button in the Admin UI for the full catalog.
+# Frontend (nginx) logs
+oc logs deployment/rcars-frontend -n rcars-dev -f
+
+# OAuth proxy logs
+oc logs deployment/rcars-oauth-proxy -n rcars-dev -f
+```
 
 ---
 
-## Production Deployment
-
-### Bootstrap prod RBAC (one-time)
-
-The mgmt SA already exists but needs an admin RoleBinding in `rcars-prod`. Run the bootstrap for prod with your personal kubeconfig:
+## Restart Components
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=prod -e kubeconfig=~/.kube/config --tags mgmt-rbac
+# Restart everything
+oc rollout restart deployment/rcars-api deployment/rcars-worker deployment/rcars-frontend -n rcars-dev
+
+# Restart just the API + worker (e.g. after config change)
+oc rollout restart deployment/rcars-api deployment/rcars-worker -n rcars-dev
+
+# Restart just the frontend
+oc rollout restart deployment/rcars-frontend -n rcars-dev
 ```
-
-### Create prod vars file
-
-```bash
-cp ansible/vars/prod.yml.example ansible/vars/prod.yml
-# Edit with production values — same fields as dev.yml
-```
-
-### Deploy to prod
-
-```bash
-ansible-playbook ansible/deploy.yml -e env=prod --tags update
-```
-
-Production builds from the `production` branch. Promote by merging `main → production` — the webhook triggers the build automatically.
 
 ---
 
@@ -261,52 +261,36 @@ Production builds from the `production` branch. Promote by merging `main → pro
 ### Build fails
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs bc/rcars -n rcars-dev
+oc logs bc/rcars-api-build -n rcars-dev
+oc logs bc/rcars-frontend-build -n rcars-dev
 ```
 
 ### Pod won't start
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc describe pod -l app=rcars,component=app -n rcars-dev
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars -n rcars-dev
+oc describe pod -l app=rcars,component=api -n rcars-dev
+oc logs deployment/rcars-api -n rcars-dev
 ```
 
-### Multiple pods / stuck rollout
+### Worker errors
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc get pods -n rcars-dev -l app=rcars,component=app
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc rollout status deployment/rcars -n rcars-dev
+oc logs deployment/rcars-worker -n rcars-dev
 ```
 
-If a rollout is stuck due to a crashing new pod, check logs on the new pod and fix the underlying issue. Once fixed, apply again — the new pod will replace the broken one.
+Common issues:
+- **Redis connection refused** — check `RCARS_REDIS_URL` env var points to `rcars-redis:6379`
+- **No Anthropic client** — verify Vertex AI credentials are mounted
 
 ### Database connection issues
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc exec deployment/rcars -n rcars-dev -- \
+oc exec deployment/rcars-api -n rcars-dev -- \
   python -c "import os; print(os.environ.get('RCARS_DATABASE_URL', 'not set')[:40])"
 ```
 
 ### OAuth proxy issues
 
 ```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig oc logs deployment/rcars-oauth-proxy -n rcars-dev
+oc logs deployment/rcars-oauth-proxy -n rcars-dev
 ```
-
-### Webhook returns 403
-
-The `webhook-access-unauthenticated` RoleBinding may be missing. Run:
-
-```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags bootstrap
-```
-
-Then redeliver the webhook from GitHub.
-
-### Re-run RBAC bootstrap (e.g. token expired or kubeconfig lost)
-
-```bash
-ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
-```
-
-The mgmt-rbac task is fully idempotent — it's safe to run at any time.
