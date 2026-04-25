@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { api } from '../services/api'
 import { useJobStream } from '../hooks/useJobStream'
+import { usePrivateMode } from '../hooks/usePrivateMode'
 import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCard } from '../components/advisor/RecCard'
 
@@ -28,7 +29,7 @@ export function AdvisorPage() {
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
-  const [dontSave, setDontSave] = useState(false)
+  const privateMode = usePrivateMode()
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const stream = useJobStream(activeJobId)
@@ -62,7 +63,7 @@ export function AdvisorPage() {
     setMessages(prev => [...prev, { role: 'user', content: query }])
 
     try {
-      const { job_id } = await api.submitQuery(query, true, dontSave)
+      const { job_id } = await api.submitQuery(query, true, privateMode.enabled)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -125,24 +126,6 @@ export function AdvisorPage() {
           <button className={`btn-send${sending ? ' sending' : ''}`} onClick={handleSend} disabled={sending}>
             Send
           </button>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', alignItems: 'center', gap: '6px' }}>
-          <div
-            className={`lcars-toggle${dontSave ? ' active' : ''}`}
-            onClick={() => setDontSave(!dontSave)}
-            style={{ fontSize: '11px' }}
-          >
-            <div className="lcars-toggle-track">
-              <div className="lcars-toggle-knob" />
-            </div>
-            <span>Private mode</span>
-          </div>
-          <span
-            title="When enabled, your query and results are not saved. This means your feedback can't help us improve recommendations for other Red Hatters. Token usage is still tracked for capacity planning."
-            style={{ cursor: 'help', color: '#444', fontSize: '12px', lineHeight: 1 }}
-          >
-            ?
-          </span>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthContext, useAuthProvider } from './hooks/useAuth'
+import { PrivateModeContext, usePrivateModeProvider } from './hooks/usePrivateMode'
 import { LcarsHeader, LcarsSidebar } from './components/lcars'
 import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
@@ -8,6 +9,7 @@ import './styles/lcars.css'
 
 export default function App() {
   const auth = useAuthProvider()
+  const privateMode = usePrivateModeProvider()
 
   if (auth.isLoading) {
     return (
@@ -19,28 +21,30 @@ export default function App() {
 
   return (
     <AuthContext.Provider value={auth}>
-      <BrowserRouter>
-        <LcarsHeader />
-        <div className="rcars-body">
-          <LcarsSidebar />
-          <main className="rcars-main">
-            <Routes>
-              <Route path="/" element={<Navigate to="/advisor" replace />} />
-              <Route path="/advisor" element={<AdvisorPage />} />
-              <Route path="/browse" element={<BrowsePage />} />
-              {auth.isAdmin && (
-                <>
-                  <Route path="/admin" element={<Navigate to="/admin/catalog" replace />} />
-                  <Route path="/admin/catalog" element={<AdminCatalogPage />} />
-                  <Route path="/admin/workers" element={<AdminWorkersPage />} />
-                  <Route path="/admin/tokens" element={<AdminTokensPage />} />
-                  <Route path="/admin/queries" element={<AdminQueriesPage />} />
-                </>
-              )}
-            </Routes>
-          </main>
-        </div>
-      </BrowserRouter>
+      <PrivateModeContext.Provider value={privateMode}>
+        <BrowserRouter>
+          <LcarsHeader />
+          <div className="rcars-body">
+            <LcarsSidebar />
+            <main className="rcars-main">
+              <Routes>
+                <Route path="/" element={<Navigate to="/advisor" replace />} />
+                <Route path="/advisor" element={<AdvisorPage />} />
+                <Route path="/browse" element={<BrowsePage />} />
+                {auth.isAdmin && (
+                  <>
+                    <Route path="/admin" element={<Navigate to="/admin/catalog" replace />} />
+                    <Route path="/admin/catalog" element={<AdminCatalogPage />} />
+                    <Route path="/admin/workers" element={<AdminWorkersPage />} />
+                    <Route path="/admin/tokens" element={<AdminTokensPage />} />
+                    <Route path="/admin/queries" element={<AdminQueriesPage />} />
+                  </>
+                )}
+              </Routes>
+            </main>
+          </div>
+        </BrowserRouter>
+      </PrivateModeContext.Provider>
     </AuthContext.Provider>
   )
 }
