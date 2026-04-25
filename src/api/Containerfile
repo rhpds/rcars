@@ -4,6 +4,11 @@ FROM registry.access.redhat.com/ubi9/python-311 AS builder
 USER 0
 WORKDIR /opt/app-root/src
 
+ENV HF_HOME=/opt/app-root/hf_cache
+ENV TQDM_DISABLE=1
+ENV TRANSFORMERS_VERBOSITY=error
+ENV HF_HUB_DISABLE_PROGRESS_BARS=1
+
 COPY pyproject.toml requirements.txt ./
 RUN pip install --no-cache-dir -e .
 
@@ -18,12 +23,12 @@ USER 1001
 
 COPY --from=builder /opt/app-root/lib /opt/app-root/lib
 COPY --from=builder /opt/app-root/bin /opt/app-root/bin
-COPY --from=builder /opt/app-root/.cache /opt/app-root/.cache
+COPY --from=builder /opt/app-root/hf_cache /opt/app-root/hf_cache
 
 WORKDIR /opt/app-root/src
 COPY . .
 
-ENV HF_HOME=/opt/app-root/.cache/huggingface
+ENV HF_HOME=/opt/app-root/hf_cache
 ENV TQDM_DISABLE=1
 ENV TRANSFORMERS_VERBOSITY=error
 ENV HF_HUB_DISABLE_PROGRESS_BARS=1

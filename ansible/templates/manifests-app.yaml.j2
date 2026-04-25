@@ -108,7 +108,7 @@ spec:
             - name: RCARS_DEV_USER
               value: ""
             - name: HF_HOME
-              value: /opt/app-root/.cache/huggingface
+              value: /opt/app-root/hf_cache
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -231,7 +231,7 @@ spec:
             - name: RCARS_CLONE_DIR
               value: /tmp/rcars-clones
             - name: HF_HOME
-              value: /opt/app-root/.cache/huggingface
+              value: /opt/app-root/hf_cache
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
