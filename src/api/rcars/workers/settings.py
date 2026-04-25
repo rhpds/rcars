@@ -10,6 +10,9 @@ from rcars.db import Database
 from rcars.logging import setup_logging, get_logger
 from rcars.api.streaming import JobProgressRelay
 from rcars.workers.base import WorkerContext
+from rcars.workers.recommend import run_recommendation
+from rcars.workers.scan import run_analysis
+from rcars.workers.ops import run_catalog_refresh, run_stale_check
 
 
 async def startup(ctx: dict) -> None:
@@ -33,7 +36,7 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = []
+    functions = [run_recommendation, run_analysis, run_catalog_refresh, run_stale_check]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings()

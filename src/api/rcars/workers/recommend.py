@@ -1,0 +1,66 @@
+"""Recommendation worker task."""
+
+from __future__ import annotations
+
+from rcars.workers.base import WorkerContext, publish_progress
+from rcars.services.recommender.pipeline import run_query
+import structlog
+
+logger = structlog.get_logger()
+
+
+async def run_recommendation(ctx: dict, job_id: str, query: str, prod_only: bool = True) -> dict:
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("picked_up", action="picked_up", queue="recommend")
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        client = wctx.settings.get_anthropic_client()
+        if client is None:
+            raise RuntimeError("No Anthropic client configured")
+
+        async def on_progress(data: dict):
+            await publish_progress(wctx.relay, job_id, wctx.db, **data)
+
+        state = await run_query(
+            query=query,
+            db=wctx.db,
+            anthropic_client=client,
+            settings=wctx.settings,
+            prod_only=prod_only,
+            on_progress=on_progress,
+        )
+
+        results = {
+            "phase": state.phase,
+            "candidates": [
+                {
+                    "ci_name": c.ci_name,
+                    "display_name": c.display_name,
+                    "tier": c.tier,
+                    "relevance_score": c.relevance_score,
+                    "vector_similarity_pct": c.vector_similarity_pct,
+                    "stage": c.stage,
+                    "why_it_fits": c.why_it_fits,
+                    "how_to_use": c.how_to_use,
+                    "suggested_format": c.suggested_format,
+                    "duration_notes": c.duration_notes,
+                    "caveats": c.caveats,
+                }
+                for c in state.candidates
+            ],
+            "overall_assessment": state.overall_assessment,
+            "content_gaps": state.content_gaps,
+        }
+
+        wctx.db.complete_job(job_id, result_json=results)
+        log.info("job_complete", action="job_complete", results=len(state.candidates))
+        return results
+
+    except Exception as e:
+        log.error("job_failed", action="job_failed", error=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        await wctx.relay.publish(job_id, {"phase": "failed", "error": str(e)})
+        raise
