@@ -20,7 +20,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     for item in items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
         await arq_redis.enqueue_job(
-            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="analyze"
+            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="default"
         )
 
     db.complete_job(parent_job_id, result_json={"enqueued": len(items)})
@@ -32,7 +32,7 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="check_stale", queue="ops", created_by=user)
-    await arq_redis.enqueue_job("run_stale_check", job_id=job_id, _queue_name="ops")
+    await arq_redis.enqueue_job("run_stale_check", job_id=job_id, _queue_name="default")
     return {"job_id": job_id}
 
 
@@ -48,7 +48,7 @@ async def rescan_stale(request: Request, user: str = Depends(require_admin)):
     for item in stale_items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan")
         await arq_redis.enqueue_job(
-            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="analyze"
+            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="default"
         )
 
     db.complete_job(parent_job_id, result_json={"enqueued": len(stale_items)})
@@ -60,7 +60,7 @@ async def analyze_single(ci_name: str, request: Request, user: str = Depends(req
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
-    await arq_redis.enqueue_job("run_analysis", job_id=job_id, ci_name=ci_name, _queue_name="analyze")
+    await arq_redis.enqueue_job("run_analysis", job_id=job_id, ci_name=ci_name, _queue_name="default")
     return {"job_id": job_id}
 
 
