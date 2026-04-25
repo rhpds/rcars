@@ -10,6 +10,20 @@ interface CatalogItem {
   stage: string
   showroom_url: string | null
   scan_status: string
+  enrichment_review_needed?: boolean
+}
+
+type ContentFilter = 'all' | 'has_showroom' | 'needs_review' | 'untagged' | 'scan_failures'
+
+function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  return (
+    <div className={`lcars-toggle${active ? ' active' : ''}`} onClick={onToggle}>
+      <div className="lcars-toggle-track">
+        <div className="lcars-toggle-knob" />
+      </div>
+      <span>{label}</span>
+    </div>
+  )
 }
 
 export function BrowsePage() {
@@ -18,6 +32,7 @@ export function BrowsePage() {
   const [search, setSearch] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
+  const [contentFilter, setContentFilter] = useState<ContentFilter>('all')
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [expandedItem, setExpandedItem] = useState<string | null>(null)
@@ -42,6 +57,21 @@ export function BrowsePage() {
       if (!(item.display_name || '').toLowerCase().includes(q) &&
           !item.ci_name.toLowerCase().includes(q)) return false
     }
+
+    switch (contentFilter) {
+      case 'has_showroom':
+        if (!item.showroom_url) return false
+        break
+      case 'needs_review':
+        if (!item.enrichment_review_needed) return false
+        break
+      case 'scan_failures':
+        if (item.scan_status !== 'failed') return false
+        break
+      case 'untagged':
+        break
+    }
+
     return true
   })
 
@@ -64,18 +94,9 @@ export function BrowsePage() {
     loadItems()
   }
 
-  const toggleStyle = (active: boolean) => ({
-    background: active ? '#1a3a5a' : 'transparent',
-    border: `1px solid ${active ? '#73bcf7' : '#333'}`,
-    color: active ? '#73bcf7' : '#666',
-    padding: '6px 16px',
-    borderRadius: '6px',
-    cursor: 'pointer' as const,
-    fontSize: '14px',
-  })
-
   return (
     <div className="curate-layout">
+      {/* Filter bar */}
       <div className="filter-bar">
         <input
           className="filter-input"
@@ -83,18 +104,19 @@ export function BrowsePage() {
           value={search}
           onChange={(e) => { setSearch(e.target.value); setOffset(0) }}
         />
-        <button
-          style={toggleStyle(showDev)}
-          onClick={() => { setShowDev(!showDev); setOffset(0) }}
+        <select
+          className="filter-select"
+          value={contentFilter}
+          onChange={(e) => { setContentFilter(e.target.value as ContentFilter); setOffset(0) }}
         >
-          Show dev
-        </button>
-        <button
-          style={toggleStyle(showEvent)}
-          onClick={() => { setShowEvent(!showEvent); setOffset(0) }}
-        >
-          Show event
-        </button>
+          <option value="all">All items</option>
+          <option value="has_showroom">Has Showroom</option>
+          <option value="needs_review">Needs review</option>
+          <option value="untagged">Untagged</option>
+          <option value="scan_failures">Scan failures</option>
+        </select>
+        <LcarsToggle label="dev" active={showDev} onToggle={() => { setShowDev(!showDev); setOffset(0) }} />
+        <LcarsToggle label="event" active={showEvent} onToggle={() => { setShowEvent(!showEvent); setOffset(0) }} />
         <span style={{ color: '#666', fontSize: '14px', alignSelf: 'center' }}>
           {total} items
         </span>
@@ -118,6 +140,7 @@ export function BrowsePage() {
                       <span style={{ fontSize: '12px', color: '#e8a838', marginLeft: '8px' }}>{item.stage}</span>
                     )}
                     {item.scan_status === 'failed' && <LcarsBadge variant="red"> FAILED</LcarsBadge>}
+                    {item.enrichment_review_needed && <LcarsBadge variant="amber"> REVIEW</LcarsBadge>}
                   </div>
                   <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
                 </div>
