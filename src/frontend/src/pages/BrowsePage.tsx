@@ -10,16 +10,14 @@ interface CatalogItem {
   stage: string
   showroom_url: string | null
   scan_status: string
-  tags?: Array<{ id: number; tag_type: string; tag_value: string }>
-  analysis?: { summary: string; is_stale: boolean } | null
 }
 
 export function BrowsePage() {
   const auth = useAuth()
-  const [items, setItems] = useState<CatalogItem[]>([])
-  const [total, setTotal] = useState(0)
+  const [allItems, setAllItems] = useState<CatalogItem[]>([])
   const [search, setSearch] = useState('')
-  const [stageFilter, setStageFilter] = useState('')
+  const [showDev, setShowDev] = useState(false)
+  const [showEvent, setShowEvent] = useState(false)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [expandedItem, setExpandedItem] = useState<string | null>(null)
@@ -28,22 +26,27 @@ export function BrowsePage() {
 
   const loadItems = async () => {
     setLoading(true)
-    const params: Record<string, string | number> = { limit, offset }
-    if (stageFilter) params.stage = stageFilter
-    const data = await api.listCatalog(params as { stage?: string; limit?: number; offset?: number })
-    setItems(data.items as CatalogItem[])
-    setTotal(data.total)
+    const data = await api.listCatalog({ limit: 500 })
+    setAllItems(data.items as CatalogItem[])
     setLoading(false)
   }
 
-  useEffect(() => { loadItems() }, [offset, stageFilter])
+  useEffect(() => { loadItems() }, [])
 
-  const filteredItems = search
-    ? items.filter(i =>
-        (i.display_name || '').toLowerCase().includes(search.toLowerCase()) ||
-        i.ci_name.toLowerCase().includes(search.toLowerCase())
-      )
-    : items
+  const filteredItems = allItems.filter(item => {
+    if (item.stage === 'dev' && !showDev) return false
+    if (item.stage === 'event' && !showEvent) return false
+
+    if (search) {
+      const q = search.toLowerCase()
+      if (!(item.display_name || '').toLowerCase().includes(q) &&
+          !item.ci_name.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+
+  const total = filteredItems.length
+  const pageItems = filteredItems.slice(offset, offset + limit)
 
   const handleExpand = async (ciName: string) => {
     if (expandedItem === ciName) {
@@ -61,6 +64,16 @@ export function BrowsePage() {
     loadItems()
   }
 
+  const toggleStyle = (active: boolean) => ({
+    background: active ? '#1a3a5a' : 'transparent',
+    border: `1px solid ${active ? '#73bcf7' : '#333'}`,
+    color: active ? '#73bcf7' : '#666',
+    padding: '6px 16px',
+    borderRadius: '6px',
+    cursor: 'pointer' as const,
+    fontSize: '14px',
+  })
+
   return (
     <div className="curate-layout">
       <div className="filter-bar">
@@ -68,18 +81,20 @@ export function BrowsePage() {
           className="filter-input"
           placeholder="Search by name or CI..."
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setOffset(0) }}
         />
-        <select
-          className="filter-select"
-          value={stageFilter}
-          onChange={(e) => { setStageFilter(e.target.value); setOffset(0) }}
+        <button
+          style={toggleStyle(showDev)}
+          onClick={() => { setShowDev(!showDev); setOffset(0) }}
         >
-          <option value="">All stages</option>
-          <option value="prod">prod</option>
-          <option value="dev">dev</option>
-          <option value="event">event</option>
-        </select>
+          Show dev
+        </button>
+        <button
+          style={toggleStyle(showEvent)}
+          onClick={() => { setShowEvent(!showEvent); setOffset(0) }}
+        >
+          Show event
+        </button>
         <span style={{ color: '#666', fontSize: '14px', alignSelf: 'center' }}>
           {total} items
         </span>
@@ -89,7 +104,7 @@ export function BrowsePage() {
         <div style={{ color: '#666', padding: '20px' }}>Loading...</div>
       ) : (
         <>
-          {filteredItems.map(item => (
+          {pageItems.map(item => (
             <div key={item.ci_name} className="curate-item">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
@@ -99,9 +114,12 @@ export function BrowsePage() {
                     onClick={() => handleExpand(item.ci_name)}
                   >
                     {item.display_name || item.ci_name}
+                    {item.stage !== 'prod' && (
+                      <span style={{ fontSize: '12px', color: '#e8a838', marginLeft: '8px' }}>{item.stage}</span>
+                    )}
                     {item.scan_status === 'failed' && <LcarsBadge variant="red"> FAILED</LcarsBadge>}
                   </div>
-                  <div className="curate-item-ci">{item.ci_name} · {item.stage} · {item.category}</div>
+                  <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
                 </div>
                 {auth.isCurator && (
                   <LcarsButton variant="curator-secondary" onClick={() => handleAnalyze(item.ci_name)}>
@@ -133,7 +151,6 @@ export function BrowsePage() {
             </div>
           ))}
 
-          {/* Pagination */}
           {total > limit && (
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
               <button

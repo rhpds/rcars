@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { api } from '../../services/api'
 
@@ -27,6 +28,7 @@ export function LcarsHeader() {
   return (
     <header className="rcars-header">
       <div id="currency-badges">
+        <Link to="/advisor" style={{ display: 'inline-block', lineHeight: 0 }}>
         <svg width="380" height="110" viewBox="0 0 380 110" xmlns="http://www.w3.org/2000/svg" className="rcars-logo">
           {/* Arc */}
           <path d="M 12 10 A 54 54 0 0 1 66 64 L 84 64 L 84 104 L 56 104 Q 12 104 12 40 Z" fill="#FF9900"/>
@@ -64,6 +66,7 @@ export function LcarsHeader() {
             </text>
           )}
         </svg>
+        </Link>
       </div>
 
       <div className="header-right">
