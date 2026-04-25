@@ -28,6 +28,7 @@ export function AdvisorPage() {
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
+  const [dontSave, setDontSave] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const stream = useJobStream(activeJobId)
@@ -61,7 +62,7 @@ export function AdvisorPage() {
     setMessages(prev => [...prev, { role: 'user', content: query }])
 
     try {
-      const { job_id } = await api.submitQuery(query)
+      const { job_id } = await api.submitQuery(query, true, dontSave)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -125,6 +126,15 @@ export function AdvisorPage() {
             Send
           </button>
         </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#555', marginTop: '6px', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={dontSave}
+            onChange={(e) => setDontSave(e.target.checked)}
+            style={{ accentColor: '#e8a838' }}
+          />
+          Don't save this query
+        </label>
       </div>
 
       {/* Recommendations panel */}

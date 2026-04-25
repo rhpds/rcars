@@ -52,3 +52,23 @@ async def worker_health(request: Request, user: str = Depends(require_admin)):
         "running_jobs": running,
         "failed_jobs_recent": len(failed),
     }
+
+
+@router.get("/queries")
+async def query_history(
+    request: Request,
+    user: str = Depends(require_admin),
+    limit: int = Query(50, le=200),
+):
+    db = request.app.state.db
+    sessions = db.list_advisor_sessions(limit=limit)
+    results = []
+    for session in sessions:
+        turns = db.get_advisor_session(session["session_id"])
+        results.append({
+            "session_id": session["session_id"],
+            "started_at": session["started_at"],
+            "turn_count": session["turns"],
+            "turns": turns,
+        })
+    return {"items": results, "total": len(results)}

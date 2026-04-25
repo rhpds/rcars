@@ -344,3 +344,120 @@ export function AdminTokensPage() {
     </div>
   )
 }
+
+// ── Query History Page ──
+
+interface QuerySession {
+  session_id: string
+  started_at: string
+  turn_count: number
+  turns: Array<{
+    query_text: string | null
+    overall_assessment: string | null
+    results_json: unknown[] | null
+    chosen_ci_name: string | null
+    opted_out: boolean
+    created_at: string
+  }>
+}
+
+export function AdminQueriesPage() {
+  const [sessions, setSessions] = useState<QuerySession[]>([])
+  const [expandedSession, setExpandedSession] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    api.getQueryHistory(50).then(data => {
+      setSessions((data as { items: QuerySession[] }).items)
+      setLoading(false)
+    })
+  }, [])
+
+  return (
+    <div className="admin-layout">
+      <div className="admin-section">
+        <h3>Query History</h3>
+        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+          Historical advisor queries and results. Opted-out queries show as redacted.
+        </p>
+
+        {loading ? (
+          <div style={{ color: '#666' }}>Loading...</div>
+        ) : sessions.length === 0 ? (
+          <div style={{ color: '#666' }}>No queries recorded yet.</div>
+        ) : (
+          <table className="status-table">
+            <thead><tr><th>Session</th><th>Turns</th><th>Started</th><th></th></tr></thead>
+            <tbody>
+              {sessions.map(session => (
+                <>
+                  <tr
+                    key={session.session_id}
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => setExpandedSession(
+                      expandedSession === session.session_id ? null : session.session_id
+                    )}
+                  >
+                    <td style={{ fontFamily: 'monospace', fontSize: '13px' }}>
+                      {expandedSession === session.session_id ? '▾' : '▸'}{' '}
+                      {session.session_id.slice(0, 8)}...
+                    </td>
+                    <td>{session.turn_count}</td>
+                    <td style={{ color: '#666', fontSize: '13px' }}>
+                      {new Date(session.started_at).toLocaleString()}
+                    </td>
+                    <td></td>
+                  </tr>
+                  {expandedSession === session.session_id && session.turns.map((turn, ti) => (
+                    <tr key={`${session.session_id}-${ti}`} style={{ background: '#0a0d12' }}>
+                      <td colSpan={4} style={{ padding: '12px 20px' }}>
+                        <div style={{ fontSize: '13px', marginBottom: '6px' }}>
+                          <span style={{ color: '#e8a838' }}>Turn {ti + 1}</span>
+                          {turn.opted_out && (
+                            <span style={{ color: '#c9190b', marginLeft: '10px', fontSize: '11px' }}>OPTED OUT</span>
+                          )}
+                          {turn.chosen_ci_name && (
+                            <span style={{ color: '#5cb85c', marginLeft: '10px', fontSize: '11px' }}>
+                              Selected: {turn.chosen_ci_name}
+                            </span>
+                          )}
+                        </div>
+                        {turn.opted_out ? (
+                          <div style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>
+                            Query and results redacted (user opted out)
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ color: '#aaa', fontSize: '14px', marginBottom: '6px' }}>
+                              <strong>Q:</strong> {turn.query_text || '(empty)'}
+                            </div>
+                            {turn.overall_assessment && (
+                              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>
+                                <strong>Assessment:</strong> {turn.overall_assessment}
+                              </div>
+                            )}
+                            {turn.results_json && Array.isArray(turn.results_json) && (
+                              <div style={{ color: '#666', fontSize: '12px' }}>
+                                {turn.results_json.length} results returned
+                                {(turn.results_json as Array<{ ci_name?: string; tier?: string }>).slice(0, 3).map((r, ri) => (
+                                  <span key={ri} style={{ marginLeft: '8px' }}>
+                                    [{r.tier}] {r.ci_name}
+                                  </span>
+                                ))}
+                                {turn.results_json.length > 3 && <span> ...</span>}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}

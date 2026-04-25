@@ -21,10 +21,10 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[] }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, prodOnly = true) =>
+  submitQuery: (query: string, prodOnly = true, optedOut = false) =>
     request<{ job_id: string }>('/advisor/query', {
       method: 'POST',
-      body: JSON.stringify({ query, prod_only: prodOnly }),
+      body: JSON.stringify({ query, prod_only: prodOnly, opted_out: optedOut }),
     }),
   getQueryResult: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
@@ -76,4 +76,5 @@ export const api = {
   getTokenUsage: (days = 30) => request<unknown>(`/admin/token-usage?days=${days}`),
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),
   getWorkerHealth: () => request<unknown>('/admin/workers'),
+  getQueryHistory: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/queries?limit=${limit}`),
 };

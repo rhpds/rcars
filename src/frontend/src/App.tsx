@@ -3,7 +3,7 @@ import { AuthContext, useAuthProvider } from './hooks/useAuth'
 import { LcarsHeader, LcarsSidebar } from './components/lcars'
 import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
-import { AdminCatalogPage, AdminWorkersPage, AdminTokensPage } from './pages/AdminPage'
+import { AdminCatalogPage, AdminWorkersPage, AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
 import './styles/lcars.css'
 
 export default function App() {
@@ -34,6 +34,7 @@ export default function App() {
                   <Route path="/admin/catalog" element={<AdminCatalogPage />} />
                   <Route path="/admin/workers" element={<AdminWorkersPage />} />
                   <Route path="/admin/tokens" element={<AdminTokensPage />} />
+                  <Route path="/admin/queries" element={<AdminQueriesPage />} />
                 </>
               )}
             </Routes>

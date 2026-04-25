@@ -44,6 +44,12 @@ export function LcarsSidebar() {
               >
                 Token Usage
               </NavLink>
+              <NavLink
+                to="/admin/queries"
+                className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}
+              >
+                Query History
+              </NavLink>
             </>
           )}
         </>
