@@ -22,8 +22,8 @@ FRONTEND_DIR="${PROJECT_DIR}/src/frontend"
 export RCARS_DATABASE_URL="postgresql://rcars:dev@localhost:5432/rcars"
 export RCARS_REDIS_URL="redis://localhost:6379"
 export RCARS_DEV_USER="${RCARS_DEV_USER:-dev@redhat.com}"
-export RCARS_ADMIN_EMAILS="${RCARS_ADMIN_EMAILS:-dev@redhat.com}"
-export RCARS_CURATOR_EMAILS="${RCARS_CURATOR_EMAILS:-dev@redhat.com}"
+export RCARS_ADMIN_EMAILS_STR="${RCARS_ADMIN_EMAILS_STR:-dev@redhat.com}"
+export RCARS_CURATOR_EMAILS_STR="${RCARS_CURATOR_EMAILS_STR:-dev@redhat.com}"
 
 start_postgres() {
     if podman ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
