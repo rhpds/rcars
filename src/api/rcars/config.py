@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pydantic_settings import BaseSettings
 
 
@@ -36,8 +37,23 @@ class Settings(BaseSettings):
     # Babylon K8s
     kubeconfig_path: str = ""
     agnosticv_component_namespace: str = "babylon-config"
+    catalog_namespaces: list[str] = [
+        "babylon-catalog-prod",
+        "babylon-catalog-dev",
+        "babylon-catalog-event",
+    ]
 
-    # Auth / roles — stored as comma-separated strings, parsed via methods
+    # Showroom URL variable names
+    showroom_url_vars: list[str] = [
+        "ocp4_workload_showroom_content_git_repo",
+        "showroom_git_repo",
+    ]
+    showroom_ref_vars: list[str] = [
+        "ocp4_workload_showroom_content_git_repo_ref",
+        "showroom_git_repo_ref",
+    ]
+
+    # Auth / roles
     curator_emails_str: str = ""
     admin_emails_str: str = ""
     dev_user: str = ""
@@ -45,6 +61,14 @@ class Settings(BaseSettings):
 
     # Ops
     stale_days: int = 3
+
+    def model_post_init(self, __context) -> None:
+        if not self.vertex_project_id:
+            self.vertex_project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
+        if not self.cloud_ml_region or self.cloud_ml_region == "us-east5":
+            self.cloud_ml_region = os.environ.get("CLOUD_ML_REGION", self.cloud_ml_region)
+        if not self.anthropic_api_key:
+            self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
     @property
     def curator_emails(self) -> list[str]:
