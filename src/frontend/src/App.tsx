@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthContext, useAuthProvider } from './hooks/useAuth'
-import { LcarsHeader } from './components/lcars'
+import { LcarsHeader, LcarsSidebar } from './components/lcars'
 import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { AdminPage } from './pages/AdminPage'
@@ -22,6 +22,7 @@ export default function App() {
       <BrowserRouter>
         <LcarsHeader />
         <div className="rcars-body">
+          <LcarsSidebar />
           <main className="rcars-main">
             <Routes>
               <Route path="/" element={<Navigate to="/advisor" replace />} />
