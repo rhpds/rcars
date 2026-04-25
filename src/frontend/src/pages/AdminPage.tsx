@@ -132,9 +132,50 @@ export function AdminCatalogPage() {
         onRun={async (addLog) => {
           addLog('Starting scan...')
           const result = await api.startScan() as { job_id: string; enqueued: number }
-          addLog(`Scan enqueued: ${result.enqueued} items queued for analysis`)
-          addLog(`Parent job_id=${result.job_id}`)
-          loadStatus()
+          addLog(`${result.enqueued} items queued for analysis`)
+          addLog('Monitoring progress...')
+
+          let lastComplete = 0
+          let lastFailed = 0
+          const poll = async (): Promise<boolean> => {
+            const progress = await api.getScanProgress()
+            // Log newly completed items
+            if (progress.complete > lastComplete) {
+              const newItems = progress.recent_complete.slice(-(progress.complete - lastComplete))
+              for (const ci of newItems) {
+                addLog(`  ✓ ${ci}`)
+              }
+            }
+            if (progress.failed > lastFailed) {
+              const newFails = progress.recent_failures.slice(-(progress.failed - lastFailed))
+              for (const err of newFails) {
+                addLog(`  ✗ ${err}`)
+              }
+            }
+            lastComplete = progress.complete
+            lastFailed = progress.failed
+
+            const done = progress.queued === 0 && progress.running === 0 && progress.total > 0
+            if (!done) {
+              addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed]`)
+            }
+            loadStatus()
+            return done
+          }
+
+          // Poll every 10 seconds until all jobs are done
+          const interval = setInterval(async () => {
+            try {
+              const done = await poll()
+              if (done) {
+                clearInterval(interval)
+                addLog(`Scan complete: ${lastComplete} analyzed, ${lastFailed} failed`)
+                loadStatus()
+              }
+            } catch {
+              // ignore polling errors
+            }
+          }, 10000)
         }}
       />
 

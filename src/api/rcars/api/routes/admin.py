@@ -54,6 +54,35 @@ async def worker_health(request: Request, user: str = Depends(require_admin)):
     }
 
 
+@router.get("/scan-progress")
+async def scan_progress(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    jobs = db.list_jobs(limit=500, job_type="analyze")
+    queued = [j for j in jobs if j["status"] == "queued"]
+    running = [j for j in jobs if j["status"] == "running"]
+    complete = [j for j in jobs if j["status"] == "complete"]
+    failed = [j for j in jobs if j["status"] == "failed"]
+
+    recent = []
+    for j in complete[-20:]:
+        ci = j.get("result_json", {}).get("ci_name", "unknown") if j.get("result_json") else "unknown"
+        recent.append(ci)
+    failed_names = []
+    for j in failed[-10:]:
+        error = j.get("error", "unknown")
+        failed_names.append(error[:100])
+
+    return {
+        "queued": len(queued),
+        "running": len(running),
+        "complete": len(complete),
+        "failed": len(failed),
+        "total": len(jobs),
+        "recent_complete": recent,
+        "recent_failures": failed_names,
+    }
+
+
 @router.get("/queries")
 async def query_history(
     request: Request,
