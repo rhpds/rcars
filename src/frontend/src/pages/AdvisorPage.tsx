@@ -86,21 +86,23 @@ export function AdvisorPage() {
         <div className="chat-turns">
           {messages.length === 0 && !sending && (
             <div className="chat-welcome">
-              <p>RCARS Content Advisor</p>
-              <p className="hint" style={{ marginBottom: '12px' }}>
-                RCARS searches across the entire RHDP content catalog — workshops, demos, and hands-on labs — to find what fits your needs. It uses AI to match your request against analyzed Showroom content, scoring relevance and generating detailed recommendations.
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                RCARS searches across the entire RHDP catalog to find what fits your needs. It uses AI to match your request against analyzed content, scoring relevance and generating detailed recommendations. This goes far deeper than keyword matching against a description.
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
                 <strong style={{ color: '#d2d2d2' }}>How to get the best results:</strong><br/>
-                Be specific about your audience (developers, platform engineers, executives), the topic or product area, the format you need (booth demo, hands-on lab, presentation), and how much time you have. The more detail you provide, the better the match.
+                Be specific about your audience, activity, the topic or product area, the format you need (hands-on lab, presentation, demonstration, etc.), and how much time you have. The more detail you provide, the better the match.
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
                 <strong style={{ color: '#d2d2d2' }}>Refine as you go:</strong><br/>
-                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare.
+                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare. If you prefer an earlier result, click on that message to restore those recommendations.
               </p>
-              <p className="hint">
+              <p className="hint" style={{ marginBottom: '14px' }}>
                 <strong style={{ color: '#d2d2d2' }}>Event matching:</strong><br/>
                 Paste an event URL (conference site, call for papers, etc.) and RCARS will analyze the event themes and suggest content that fits the tracks and audience.
+              </p>
+              <p className="hint" style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>
+                Try: "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization and migration from VMware"
               </p>
             </div>
           )}
