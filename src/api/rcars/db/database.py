@@ -630,7 +630,19 @@ class Database:
         stale_threshold = max(5, int(scannable * 0.10))
         analysis_stale = (stale_count > 0 or unanalyzed > stale_threshold) if scannable > 0 else True
         analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items")
+                total = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE")
+                prod = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'dev'")
+                dev = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'event'")
+                event = cur.fetchone()["count"]
         return {
+            "total": total, "prod": prod, "dev": dev, "event": event,
+            "scannable": scannable, "analyzed": analyzed,
             "last_refresh": catalog_date, "is_stale": catalog_stale,
             "catalog_stale": catalog_stale, "catalog_date": catalog_date,
             "analysis_stale": analysis_stale, "analysis_date": analysis_date,

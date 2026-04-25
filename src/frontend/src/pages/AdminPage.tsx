@@ -6,6 +6,12 @@ import { LogWindow } from '../components/admin/LogWindow'
 // ── Catalog Status Page ──
 
 interface CatalogStatus {
+  total: number
+  prod: number
+  dev: number
+  event: number
+  scannable: number
+  analyzed: number
   last_refresh: string
   catalog_stale: boolean
   catalog_date: string
@@ -74,8 +80,15 @@ export function AdminCatalogPage() {
           <table className="status-table">
             <thead><tr><th>Metric</th><th>Count</th></tr></thead>
             <tbody>
-              <tr><td>Total catalog items</td><td>{status.unanalyzed + status.stale_count + status.failed_count}</td></tr>
-              <tr><td>Unanalyzed items</td><td>{status.unanalyzed}</td></tr>
+              <tr><td>Total catalog items</td><td>{status.total}</td></tr>
+              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Production</td><td>{status.prod}</td></tr>
+              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Dev</td><td>{status.dev}</td></tr>
+              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Event</td><td>{status.event}</td></tr>
+              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
+                <td>Scannable (with Showroom)</td><td>{status.scannable}</td>
+              </tr>
+              <tr><td>Analyzed</td><td>{status.analyzed}</td></tr>
+              <tr><td>Unanalyzed</td><td>{status.unanalyzed}</td></tr>
               <tr>
                 <td>Stale (needs rescan)</td>
                 <td style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c' }}>{status.stale_count}</td>
