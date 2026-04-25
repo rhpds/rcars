@@ -8,14 +8,13 @@
 #   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
 #                                                        # One-time bootstrap: create SA, RBAC, kubeconfig
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags bootstrap # Apply infra (ImageStream, BuildConfig, Secrets, PG, OAuthClient)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply     # Apply app manifests + migrate + webhooks (no build)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Full update: apply + build + migrate + webhooks
-#   ansible-playbook ansible/deploy.yml -e env=prod --tags update   # Full prod update
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply          # Apply app manifests + migrate (no build)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update         # Full update: apply + build + migrate
+#   ansible-playbook ansible/deploy.yml -e env=prod --tags update        # Full prod update
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all + rollout
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend  # Rebuild frontend only
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api       # Rebuild API + workers
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run Alembic migrations
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags webhooks        # Show webhook URLs
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
@@ -46,8 +45,6 @@
           - oauth_client_secret != 'CHANGEME'
           - oauth_cookie_secret is defined
           - oauth_cookie_secret != 'CHANGEME'
-          - webhook_secret is defined
-          - webhook_secret != 'CHANGEME'
           - cluster_domain is defined
           - "'your-cluster' not in cluster_domain"
         fail_msg: >
@@ -154,13 +151,6 @@
           register: migrate_result
           changed_when: false
       tags: [migrate, apply, update]
-
-    - name: Show webhook configuration
-      ansible.builtin.include_tasks:
-        file: tasks/webhooks.yml
-        apply:
-          tags: [webhooks, apply, update]
-      tags: [webhooks, apply, update]
 
   post_tasks:
     - name: Get pod status

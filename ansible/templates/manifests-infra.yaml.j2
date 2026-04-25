@@ -1,21 +1,5 @@
 {# RCARS v2 infrastructure manifests — apply once on bootstrap or when infra config changes. #}
 ---
-# Webhook RBAC
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: webhook-access-unauthenticated
-  labels:
-    app: {{ app_name }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: system:webhook
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: system:unauthenticated
----
 # ServiceAccount for OAuth proxy
 apiVersion: v1
 kind: ServiceAccount
@@ -81,7 +65,7 @@ stringData:
 {% endif %}
 {% if github_token is defined and github_token != 'CHANGEME' %}
 ---
-# GitHub source secret
+# GitHub source secret (for private repo access during builds)
 apiVersion: v1
 kind: Secret
 metadata:
