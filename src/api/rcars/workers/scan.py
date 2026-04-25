@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
 from rcars.workers.base import WorkerContext
 from rcars.services.analyzer import analyze_showroom, classify_scan_error
 import structlog
@@ -27,25 +29,28 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
             raise ValueError(f"No Showroom URL for: {ci_name}")
 
         client = wctx.settings.get_anthropic_client()
-        result = analyze_showroom(
-            ci_name=ci_name,
-            display_name=item.get("display_name", ""),
-            category=item.get("category", ""),
-            product=item.get("product", ""),
-            showroom_url=showroom_url,
-            showroom_ref=item.get("showroom_ref"),
-            anthropic_client=client,
-            model=wctx.settings.model,
-            clone_dir=wctx.settings.clone_dir,
-            db=wctx.db,
-            content_path=item.get("content_path"),
+        result = await asyncio.to_thread(
+            functools.partial(
+                analyze_showroom,
+                ci_name=ci_name,
+                display_name=item.get("display_name", ""),
+                category=item.get("category", ""),
+                product=item.get("product", ""),
+                showroom_url=showroom_url,
+                showroom_ref=item.get("showroom_ref"),
+                anthropic_client=client,
+                model=wctx.settings.model,
+                clone_dir=wctx.settings.clone_dir,
+                db=wctx.db,
+                content_path=item.get("content_path"),
+            )
         )
 
         if result:
             analysis = result["analysis"]
 
             # Map LLM field names to DB column names
-            wctx.db.upsert_showroom_analysis({
+            analysis_data = {
                 "ci_name": ci_name,
                 "content_type": analysis.get("content_type"),
                 "summary": analysis.get("summary"),
@@ -63,7 +68,8 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
                 "content_hash": result.get("content_hash"),
                 "is_stale": False,
                 "stale_commit": None,
-            })
+            }
+            wctx.db.upsert_showroom_analysis(analysis_data)
 
             wctx.db.store_embedding(
                 ci_name=ci_name,
@@ -81,8 +87,33 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
                 )
 
             wctx.db.set_scan_status(ci_name, "success")
-            wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "analyzed"})
-            log.info("analysis_complete", action="job_complete", ci_name=ci_name)
+
+            # Propagate analysis to siblings sharing the same Showroom content
+            effective_url = item.get("showroom_url_override") or item["showroom_url"]
+            siblings = wctx.db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
+            propagated = 0
+            for sibling in siblings:
+                sib_name = sibling["ci_name"]
+                if sib_name == ci_name:
+                    continue
+                analysis_copy = dict(analysis_data)
+                analysis_copy["ci_name"] = sib_name
+                wctx.db.upsert_showroom_analysis(analysis_copy)
+                wctx.db.store_embedding(
+                    ci_name=sib_name, embed_type="ci_summary",
+                    content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                )
+                for mod_emb in result.get("module_embeddings", []):
+                    wctx.db.store_embedding(
+                        ci_name=sib_name, embed_type="module",
+                        module_title=mod_emb["module_title"],
+                        content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
+                    )
+                wctx.db.set_scan_status(sib_name, "success")
+                propagated += 1
+
+            wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
+            log.info("analysis_complete", action="job_complete", ci_name=ci_name, propagated=propagated)
         else:
             wctx.db.set_scan_status(ci_name, "failed", error_class="no_result", error_message="Analysis returned no results")
             wctx.db.fail_job(job_id, error="Analysis returned no results")
