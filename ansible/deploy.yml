@@ -125,7 +125,7 @@
             namespace: "{{ target_namespace }}"
             label_selectors:
               - "app={{ app_name }}"
-              - "component=app"
+              - "component=api"
           register: app_pods
           until: >-
             app_pods.resources | default([]) | length > 0 and

@@ -1,9 +1,6 @@
-{# RCARS infrastructure manifests — apply once on bootstrap or when infra config changes.
-   Does NOT need to run on every app deploy. #}
+{# RCARS v2 infrastructure manifests — apply once on bootstrap or when infra config changes. #}
 ---
-# Allow GitHub to trigger BuildConfig webhooks without cluster credentials.
-# OpenShift validates the secret in the URL path; this binding grants the
-# unauthenticated group permission to reach the webhook endpoint.
+# Webhook RBAC
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -65,7 +62,6 @@ metadata:
   name: {{ app_name }}-babylon-kubeconfig
   labels:
     app: {{ app_name }}
-    component: app
 type: Opaque
 stringData:
   kubeconfig: {{ babylon_kubeconfig_content | to_json }}
@@ -79,25 +75,13 @@ metadata:
   name: {{ app_name }}-vertex-credentials
   labels:
     app: {{ app_name }}
-    component: app
 type: Opaque
 stringData:
   credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | to_json }}
 {% endif %}
----
-# GitHub webhook secret for BuildConfig
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ app_name }}-webhook
-  labels:
-    app: {{ app_name }}
-type: Opaque
-stringData:
-  WebHookSecretKey: "{{ webhook_secret }}"
 {% if github_token is defined and github_token != 'CHANGEME' %}
 ---
-# GitHub source secret for private repo access
+# GitHub source secret
 apiVersion: v1
 kind: Secret
 metadata:
@@ -119,12 +103,26 @@ metadata:
     app: {{ app_name }}
     component: postgresql
 spec:
-  accessModes:
-    - ReadWriteOnce
+  accessModes: [ReadWriteOnce]
   storageClassName: {{ pg_storage_class }}
   resources:
     requests:
       storage: {{ pg_pvc_size }}
+---
+# Redis PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ app_name }}-redis-data
+  labels:
+    app: {{ app_name }}
+    component: redis
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ pg_storage_class }}
+  resources:
+    requests:
+      storage: {{ redis_pvc_size }}
 ---
 # PostgreSQL Service
 apiVersion: v1
@@ -210,31 +208,107 @@ spec:
           persistentVolumeClaim:
             claimName: {{ app_name }}-postgresql-data
 ---
-# ImageStream
+# Redis Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-redis
+  labels:
+    app: {{ app_name }}
+    component: redis
+spec:
+  selector:
+    app: {{ app_name }}
+    component: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+  type: ClusterIP
+---
+# Redis StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ app_name }}-redis
+  labels:
+    app: {{ app_name }}
+    component: redis
+spec:
+  replicas: 1
+  serviceName: {{ app_name }}-redis
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: redis
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: {{ redis_image }}
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/redis/data
+          resources:
+            requests:
+              cpu: {{ redis_cpu_request }}
+              memory: {{ redis_memory_request }}
+            limits:
+              cpu: {{ redis_cpu_limit }}
+              memory: {{ redis_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ app_name }}-redis-data
+---
+# API ImageStream
 apiVersion: image.openshift.io/v1
 kind: ImageStream
 metadata:
-  name: {{ app_name }}
+  name: {{ app_name }}-api
   labels:
     app: {{ app_name }}
 ---
-# BuildConfig
+# Frontend ImageStream
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: {{ app_name }}-frontend
+  labels:
+    app: {{ app_name }}
+---
+# API BuildConfig
 apiVersion: build.openshift.io/v1
 kind: BuildConfig
 metadata:
-  name: {{ app_name }}
+  name: {{ app_name }}-api-build
   labels:
     app: {{ app_name }}
+    component: api
 spec:
   output:
     to:
       kind: ImageStreamTag
-      name: "{{ app_name }}:latest"
+      name: "{{ app_name }}-api:latest"
   source:
     type: Git
     git:
       uri: "https://github.com/{{ github_repo }}.git"
       ref: "{{ git_ref }}"
+    contextDir: src/api
 {% if github_token is defined and github_token != 'CHANGEME' %}
     sourceSecret:
       name: {{ app_name }}-github-source
@@ -242,12 +316,35 @@ spec:
   strategy:
     type: Docker
     dockerStrategy:
-      dockerfilePath: Dockerfile
-  triggers:
-    - type: GitHub
-      github:
-        secretReference:
-          name: {{ app_name }}-webhook
+      dockerfilePath: Containerfile
+---
+# Frontend BuildConfig
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: {{ app_name }}-frontend-build
+  labels:
+    app: {{ app_name }}
+    component: frontend
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: "{{ app_name }}-frontend:latest"
+  source:
+    type: Git
+    git:
+      uri: "https://github.com/{{ github_repo }}.git"
+      ref: "{{ git_ref }}"
+    contextDir: src/frontend
+{% if github_token is defined and github_token != 'CHANGEME' %}
+    sourceSecret:
+      name: {{ app_name }}-github-source
+{% endif %}
+  strategy:
+    type: Docker
+    dockerStrategy:
+      dockerfilePath: Containerfile
 ---
 # OAuthClient registration
 apiVersion: oauth.openshift.io/v1

@@ -1,52 +1,69 @@
-{# RCARS app manifests — apply on every deploy when app config or image changes. #}
+{# RCARS v2 app manifests — three deployments (frontend, API, worker) + OAuth proxy. #}
 ---
-# App Service
+# API Service (internal — used by frontend nginx proxy and cluster consumers)
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ app_name }}-service
+  name: {{ app_name }}-api
   labels:
     app: {{ app_name }}
-    component: app
+    component: api
 spec:
   selector:
     app: {{ app_name }}
-    component: app
+    component: api
   ports:
     - port: {{ app_port }}
       targetPort: {{ app_port }}
   type: ClusterIP
 ---
-# App Deployment
+# Frontend Service (used by OAuth proxy)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-frontend-service
+  labels:
+    app: {{ app_name }}
+    component: frontend
+spec:
+  selector:
+    app: {{ app_name }}
+    component: frontend
+  ports:
+    - port: {{ app_port }}
+      targetPort: {{ app_port }}
+  type: ClusterIP
+---
+# ── API Deployment ──
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ app_name }}
+  name: {{ app_name }}-api
   labels:
     app: {{ app_name }}
-    component: app
+    component: api
   annotations:
     image.openshift.io/triggers: >-
-      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}\")].image"}]
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-api:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-api\")].image"}]
 spec:
-  replicas: 1
+  replicas: {{ api_replicas }}
   selector:
     matchLabels:
       app: {{ app_name }}
-      component: app
+      component: api
   template:
     metadata:
       labels:
         app: {{ app_name }}
-        component: app
+        component: api
     spec:
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: {{ app_name }}
-          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}:latest"
+        - name: {{ app_name }}-api
+          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}-api:latest"
           imagePullPolicy: Always
           ports:
             - containerPort: {{ app_port }}
@@ -68,8 +85,10 @@ spec:
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+            - name: RCARS_REDIS_URL
+              value: "redis://{{ app_name }}-redis:6379"
 {% if babylon_kubeconfig_content is defined %}
-            - name: RCARS_KUBECONFIG
+            - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
 {% endif %}
 {% if vertex_enabled | default(false) %}
@@ -80,14 +99,14 @@ spec:
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /etc/rcars/vertex-credentials.json
 {% endif %}
-            - name: RCARS_CURATOR_EMAILS
+            - name: RCARS_CURATOR_EMAILS_STR
               value: "{{ curator_emails | join(',') }}"
-            - name: RCARS_ADMIN_EMAILS
+            - name: RCARS_ADMIN_EMAILS_STR
               value: "{{ admin_emails | join(',') }}"
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
-            - name: RCARS_CLONE_DIR
-              value: /tmp/rcars-clones
+            - name: RCARS_DEV_USER
+              value: ""
             - name: HF_HOME
               value: /opt/app-root/.cache/huggingface
           volumeMounts:
@@ -107,25 +126,25 @@ spec:
               mountPath: /tmp/rcars-clones
           livenessProbe:
             httpGet:
-              path: /advisor
+              path: /api/v1/health
               port: {{ app_port }}
             initialDelaySeconds: 15
             periodSeconds: 30
             timeoutSeconds: 10
           readinessProbe:
             httpGet:
-              path: /advisor
+              path: /api/v1/health/ready
               port: {{ app_port }}
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
           resources:
             requests:
-              cpu: 500m
-              memory: 1Gi
+              cpu: {{ api_cpu_request }}
+              memory: {{ api_memory_request }}
             limits:
-              cpu: "2"
-              memory: 4Gi
+              cpu: "{{ api_cpu_limit }}"
+              memory: {{ api_memory_limit }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -145,7 +164,173 @@ spec:
           emptyDir:
             sizeLimit: 10Gi
 ---
-# OAuth Proxy Service
+# ── Worker Deployment (same image as API, different entrypoint) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-worker
+  labels:
+    app: {{ app_name }}
+    component: worker
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-api:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-worker\")].image"}]
+spec:
+  replicas: {{ worker_replicas }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: worker
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}-worker
+          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}-api:latest"
+          imagePullPolicy: Always
+          command: ["arq", "rcars.workers.WorkerSettings"]
+          env:
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_USER
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_PASSWORD
+            - name: PG_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_DATABASE
+            - name: RCARS_DATABASE_URL
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+            - name: RCARS_REDIS_URL
+              value: "redis://{{ app_name }}-redis:6379"
+{% if babylon_kubeconfig_content is defined %}
+            - name: RCARS_KUBECONFIG_PATH
+              value: /etc/rcars/kubeconfig
+{% endif %}
+{% if vertex_enabled | default(false) %}
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
+            - name: CLOUD_ML_REGION
+              value: "{{ vertex_region }}"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/rcars/vertex-credentials.json
+{% endif %}
+            - name: RCARS_CLONE_DIR
+              value: /tmp/rcars-clones
+            - name: HF_HOME
+              value: /opt/app-root/.cache/huggingface
+          volumeMounts:
+{% if babylon_kubeconfig_content is defined %}
+            - name: babylon-kubeconfig
+              mountPath: /etc/rcars/kubeconfig
+              subPath: kubeconfig
+              readOnly: true
+{% endif %}
+{% if vertex_enabled | default(false) %}
+            - name: vertex-credentials
+              mountPath: /etc/rcars/vertex-credentials.json
+              subPath: credentials.json
+              readOnly: true
+{% endif %}
+            - name: clone-workspace
+              mountPath: /tmp/rcars-clones
+          resources:
+            requests:
+              cpu: {{ worker_cpu_request }}
+              memory: {{ worker_memory_request }}
+            limits:
+              cpu: "{{ worker_cpu_limit }}"
+              memory: {{ worker_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+{% if babylon_kubeconfig_content is defined %}
+        - name: babylon-kubeconfig
+          secret:
+            secretName: {{ app_name }}-babylon-kubeconfig
+{% endif %}
+{% if vertex_enabled | default(false) %}
+        - name: vertex-credentials
+          secret:
+            secretName: {{ app_name }}-vertex-credentials
+{% endif %}
+        - name: clone-workspace
+          emptyDir:
+            sizeLimit: 10Gi
+---
+# ── Frontend Deployment ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-frontend
+  labels:
+    app: {{ app_name }}
+    component: frontend
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-frontend:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-frontend\")].image"}]
+spec:
+  replicas: {{ frontend_replicas }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: frontend
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}-frontend
+          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}-frontend:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: {{ app_port }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: {{ app_port }}
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: {{ app_port }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: {{ frontend_cpu_request }}
+              memory: {{ frontend_memory_request }}
+            limits:
+              cpu: {{ frontend_cpu_limit }}
+              memory: {{ frontend_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+---
+# ── OAuth Proxy (fronts the frontend service) ──
 apiVersion: v1
 kind: Service
 metadata:
@@ -163,7 +348,6 @@ spec:
       targetPort: 8080
   type: ClusterIP
 ---
-# OAuth Proxy Deployment
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -196,13 +380,13 @@ spec:
             - -http-address=:8080
             - -https-address=
             - -email-domain=*
-            - "-upstream=http://{{ app_name }}-service:{{ app_port }}/"
+            - "-upstream=http://{{ app_name }}-frontend-service:{{ app_port }}/"
             - -client-id=$(OAUTH_CLIENT_ID)
             - -client-secret-file=/etc/proxy/secrets/client-secret
             - -cookie-secret-file=/etc/proxy/secrets/session_secret
             - "-openshift-service-account={{ app_name }}-oauth"
             - -openshift-ca=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-            - "-skip-auth-regex=^/static/"
+            - "-skip-auth-regex=^/assets/"
             - -upstream-timeout=180s
             - -pass-user-headers=true
           env:
@@ -246,7 +430,7 @@ spec:
           secret:
             secretName: {{ app_name }}-oauth-proxy-secret
 ---
-# Route
+# Route (points to OAuth proxy → frontend → nginx proxies /api/* to API service)
 apiVersion: route.openshift.io/v1
 kind: Route
 metadata:
@@ -254,7 +438,7 @@ metadata:
   labels:
     app: {{ app_name }}
   annotations:
-    haproxy.router.openshift.io/timeout: 120s
+    haproxy.router.openshift.io/timeout: 180s
 spec:
   host: "{{ frontend_host }}"
   to:
