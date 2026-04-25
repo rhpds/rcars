@@ -114,7 +114,7 @@ export function AdminCatalogPage() {
 
       <AdminAction
         title="Catalog Sync"
-        description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items. Takes ~30 seconds."
+        description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
         buttonLabel="Refresh Catalog"
         onRun={async (addLog) => {
           addLog('Starting catalog refresh...')
@@ -140,7 +140,7 @@ export function AdminCatalogPage() {
 
       <AdminAction
         title="Content Updates"
-        description="Check if any analyzed Showrooms have changed since last scan by comparing content hashes. Marks changed items as stale for re-analysis. Takes ~1-2 minutes."
+        description="Check if any analyzed Showrooms have changed since last scan by comparing content hashes. Marks changed items as stale for re-analysis."
         buttonLabel="Check Stale"
         onRun={async (addLog) => {
           addLog('Starting stale check...')
