@@ -41,8 +41,12 @@ export function BrowsePage() {
 
   const loadItems = async () => {
     setLoading(true)
-    const data = await api.listCatalog({ limit: 500 })
-    setAllItems(data.items as CatalogItem[])
+    try {
+      const data = await api.listCatalog({ limit: 1000 })
+      setAllItems(data.items as CatalogItem[])
+    } catch (err) {
+      console.error('Failed to load catalog:', err)
+    }
     setLoading(false)
   }
 

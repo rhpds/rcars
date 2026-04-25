@@ -15,7 +15,7 @@ async def list_catalog(
     user: str = Depends(require_auth),
     stage: str | None = None,
     category: str | None = None,
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
 ):
     db = request.app.state.db
