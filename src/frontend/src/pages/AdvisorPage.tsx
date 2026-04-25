@@ -86,8 +86,22 @@ export function AdvisorPage() {
         <div className="chat-turns">
           {messages.length === 0 && !sending && (
             <div className="chat-welcome">
-              <p>What content are you looking for?</p>
-              <p className="hint">Describe what kind of content you need — include the audience, topic, and format. Be as detailed as possible and refine your search as results come in. You can also paste an event URL for automatic matching.</p>
+              <p>RCARS Content Advisor</p>
+              <p className="hint" style={{ marginBottom: '12px' }}>
+                RCARS searches across the entire RHDP content catalog — workshops, demos, and hands-on labs — to find what fits your needs. It uses AI to match your request against analyzed Showroom content, scoring relevance and generating detailed recommendations.
+              </p>
+              <p className="hint" style={{ marginBottom: '12px' }}>
+                <strong style={{ color: '#d2d2d2' }}>How to get the best results:</strong><br/>
+                Be specific about your audience (developers, platform engineers, executives), the topic or product area, the format you need (booth demo, hands-on lab, presentation), and how much time you have. The more detail you provide, the better the match.
+              </p>
+              <p className="hint" style={{ marginBottom: '12px' }}>
+                <strong style={{ color: '#d2d2d2' }}>Refine as you go:</strong><br/>
+                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare.
+              </p>
+              <p className="hint">
+                <strong style={{ color: '#d2d2d2' }}>Event matching:</strong><br/>
+                Paste an event URL (conference site, call for papers, etc.) and RCARS will analyze the event themes and suggest content that fits the tracks and audience.
+              </p>
             </div>
           )}
           {messages.map((msg, i) => (
