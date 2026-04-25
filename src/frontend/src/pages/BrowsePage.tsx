@@ -258,6 +258,19 @@ export function BrowsePage() {
                         </p>
                       )}
 
+                      {/* Products — purple pills */}
+                      {itemDetail.analysis.products_json && itemDetail.analysis.products_json.length > 0 && (
+                        <div style={{ marginBottom: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                          {itemDetail.analysis.products_json.map((prod, i) => (
+                            <span key={i} style={{
+                              display: 'inline-block', background: '#2a1a3a',
+                              color: '#9966CC', border: '1px solid #4a2a6a',
+                              borderRadius: '10px', padding: '2px 8px', fontSize: '11px',
+                            }}>{prod}</span>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Analysis topics — blue pills */}
                       {itemDetail.analysis.topics_json && itemDetail.analysis.topics_json.length > 0 && (
                         <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
