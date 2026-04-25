@@ -126,15 +126,24 @@ export function AdvisorPage() {
             Send
           </button>
         </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#555', marginTop: '6px', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={dontSave}
-            onChange={(e) => setDontSave(e.target.checked)}
-            style={{ accentColor: '#e8a838' }}
-          />
-          Don't save this query
-        </label>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px', alignItems: 'center', gap: '6px' }}>
+          <div
+            className={`lcars-toggle${dontSave ? ' active' : ''}`}
+            onClick={() => setDontSave(!dontSave)}
+            style={{ fontSize: '11px' }}
+          >
+            <div className="lcars-toggle-track">
+              <div className="lcars-toggle-knob" />
+            </div>
+            <span>Private mode</span>
+          </div>
+          <span
+            title="When enabled, your query and results are not saved. This means your feedback can't help us improve recommendations for other Red Hatters. Token usage is still tracked for capacity planning."
+            style={{ cursor: 'help', color: '#444', fontSize: '12px', lineHeight: 1 }}
+          >
+            ?
+          </span>
+        </div>
       </div>
 
       {/* Recommendations panel */}
