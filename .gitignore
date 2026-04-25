@@ -48,3 +48,4 @@ ansible/vars/dev.yml
 ansible/vars/prod.yml
 node_modules
 tsconfig.tsbuildinfo
+OPERATIONS.md
