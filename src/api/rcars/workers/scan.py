@@ -41,7 +41,9 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
         )
 
         if result:
-            wctx.db.upsert_showroom_analysis(result["analysis"])
+            analysis = result["analysis"]
+            analysis["ci_name"] = ci_name
+            wctx.db.upsert_showroom_analysis(analysis)
             wctx.db.store_embedding(
                 ci_name=ci_name,
                 embed_type="ci_summary",
