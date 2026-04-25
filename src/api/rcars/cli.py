@@ -1,0 +1,232 @@
+"""RCARS CLI — RHDP Content Advisory & Recommendation System."""
+
+from __future__ import annotations
+
+import logging
+import sys
+
+import click
+from rich.console import Console
+from rich.table import Table
+
+from rcars.config import Settings
+from rcars.db import Database
+
+console = Console()
+log = logging.getLogger("rcars")
+
+
+def _print(msg: str):
+    from datetime import datetime
+    ts = datetime.now().strftime("%H:%M:%S")
+    print(f"{ts} {msg}", flush=True)
+
+
+def get_db() -> Database:
+    settings = Settings()
+    if not settings.database_url:
+        console.print("[red]Error:[/red] RCARS_DATABASE_URL not set")
+        sys.exit(1)
+    db = Database(settings.database_url)
+    db.create_schema()
+    return db
+
+
+@click.group()
+@click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
+def cli(verbose: bool):
+    """RCARS — RHDP Content Advisory & Recommendation System."""
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(name)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+    )
+
+
+@cli.command("init-db")
+@click.option("--drop", is_flag=True, default=False, help="Drop all tables before creating schema")
+def init_db(drop: bool):
+    """Initialize or reset the database schema."""
+    db = get_db()
+    if drop:
+        console.print("[yellow]Dropping all tables...[/yellow]")
+        db.drop_schema()
+        db.create_schema()
+        console.print("[green]Schema recreated.[/green]")
+    else:
+        console.print("[green]Schema is up to date.[/green]")
+    db.close()
+
+
+@cli.command()
+def refresh():
+    """Refresh catalog from Babylon CRDs (all namespaces)."""
+    import time
+    from rcars.services.catalog import CatalogReader
+
+    settings = Settings()
+    db = get_db()
+    namespaces = settings.catalog_namespaces
+    t0 = time.monotonic()
+
+    _print(f"Refreshing catalog from {len(namespaces)} namespace(s): {', '.join(namespaces)}")
+
+    try:
+        reader = CatalogReader(settings.kubeconfig_path)
+        items = reader.refresh_catalog(
+            namespaces=namespaces,
+            component_namespace=settings.agnosticv_component_namespace,
+        )
+    except Exception as e:
+        _print(f"ERROR: Failed to connect to cluster: {e}")
+        db.close()
+        sys.exit(1)
+
+    _print(f"Retrieved {len(items)} catalog items. Upserting to database...")
+    refreshed_ci_names = set()
+    count_with_showroom = 0
+    for i, item in enumerate(items, 1):
+        db.upsert_catalog_item(item)
+        db.log_action(item["ci_name"], "refresh")
+        refreshed_ci_names.add(item["ci_name"])
+        if item.get("showroom_url"):
+            count_with_showroom += 1
+        if i % 25 == 0 or i == len(items):
+            _print(f"  upserted {i}/{len(items)} items...")
+
+    removed = db.delete_removed_items(refreshed_ci_names)
+    if removed:
+        for r in removed:
+            _print(f"  removed: {r['ci_name']} (stage={r.get('stage', '?')})")
+
+    elapsed = time.monotonic() - t0
+    _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(removed)} removed.")
+    db.close()
+
+
+@cli.command()
+@click.option("--failures", is_flag=True, default=False, help="Show detailed scan failures")
+def status(failures: bool):
+    """Show catalog status summary."""
+    db = get_db()
+    summary = db.get_status_summary()
+
+    table = Table(title="RCARS Catalog Status")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right")
+
+    table.add_row("Total catalog items", str(summary["total"]))
+    table.add_row("Production items", str(summary["prod"]))
+    table.add_row("With Showroom URL", str(summary["with_showroom"]))
+    table.add_row("Analyzed", str(summary["analyzed"]))
+    table.add_row("Stale", str(summary["stale"]))
+
+    fail_count = summary.get("scan_failures", 0)
+    fail_style = "red" if fail_count > 0 else "green"
+    table.add_row("Scan failures", f"[{fail_style}]{fail_count}[/{fail_style}]")
+    console.print(table)
+
+    if failures:
+        fail_list = db.get_scan_failures()
+        if fail_list:
+            ftable = Table(title="Scan Failures")
+            ftable.add_column("CI Name", style="cyan")
+            ftable.add_column("Error Class")
+            ftable.add_column("Failed At")
+            for f in fail_list:
+                failed_at = f["scan_failed_at"].strftime("%Y-%m-%d %H:%M") if f.get("scan_failed_at") else ""
+                ftable.add_row(f["ci_name"], f.get("scan_error_class", ""), failed_at)
+            console.print(ftable)
+        else:
+            console.print("[green]No scan failures.[/green]")
+    db.close()
+
+
+# ── Curation commands ──
+
+@cli.command()
+@click.argument("ci_name")
+@click.argument("tag_type")
+@click.argument("tag_value")
+def tag(ci_name: str, tag_type: str, tag_value: str):
+    """Add an enrichment tag to a catalog item."""
+    db = get_db()
+    db.add_enrichment_tag(ci_name, tag_type, tag_value)
+    console.print(f"Tagged [cyan]{ci_name}[/cyan]: {tag_type}={tag_value}")
+    db.close()
+
+
+@cli.command()
+@click.argument("ci_name")
+@click.argument("tag_type")
+@click.argument("tag_value")
+def untag(ci_name: str, tag_type: str, tag_value: str):
+    """Remove an enrichment tag from a catalog item."""
+    db = get_db()
+    db.remove_enrichment_tag(ci_name, tag_type, tag_value)
+    console.print(f"Removed tag {tag_type}={tag_value} from [cyan]{ci_name}[/cyan]")
+    db.close()
+
+
+@cli.command()
+@click.argument("ci_name")
+@click.argument("text")
+def note(ci_name: str, text: str):
+    """Set a curator note on a catalog item."""
+    db = get_db()
+    db.set_enrichment_note(ci_name, text)
+    console.print(f"Note set on [cyan]{ci_name}[/cyan]")
+    db.close()
+
+
+@cli.command()
+@click.argument("ci_name")
+def flag(ci_name: str):
+    """Flag a catalog item for enrichment review."""
+    db = get_db()
+    db.set_enrichment_review_flag(ci_name, True)
+    console.print(f"Flagged [cyan]{ci_name}[/cyan] for review")
+    db.close()
+
+
+@cli.command("override-url")
+@click.argument("ci_name")
+@click.argument("url")
+def override_url(ci_name: str, url: str):
+    """Override the Showroom URL for a catalog item."""
+    db = get_db()
+    db.set_showroom_url_override(ci_name, url)
+    console.print(f"Showroom URL override set for [cyan]{ci_name}[/cyan]: {url}")
+    db.close()
+
+
+@cli.command("set-content-path")
+@click.argument("ci_name")
+@click.argument("path")
+def set_content_path(ci_name: str, path: str):
+    """Set custom content path for non-standard Showroom repos."""
+    db = get_db()
+    db.set_content_path(ci_name, path)
+    console.print(f"Content path set for [cyan]{ci_name}[/cyan]: {path}")
+    db.close()
+
+
+# ── Server command ──
+
+@cli.command()
+@click.option("--host", default="0.0.0.0", show_default=True, help="Host to bind")
+@click.option("--port", default=8080, show_default=True, type=int, help="Port to listen on")
+@click.option("--reload", is_flag=True, help="Enable auto-reload for development")
+@click.option("--workers", default=1, show_default=True, type=int, help="Number of workers")
+def serve(host: str, port: int, reload: bool, workers: int):
+    """Start the RCARS API server."""
+    import uvicorn
+    uvicorn.run(
+        "rcars.api.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+        workers=workers,
+    )
