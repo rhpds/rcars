@@ -13,7 +13,7 @@ interface CatalogItem {
   enrichment_review_needed?: boolean
 }
 
-type ContentFilter = 'all' | 'has_showroom' | 'needs_review' | 'untagged' | 'scan_failures'
+type ContentFilter = 'all' | 'has_showroom' | 'analyzed' | 'needs_review' | 'untagged' | 'scan_failures'
 
 function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
   return (
@@ -66,6 +66,9 @@ export function BrowsePage() {
       case 'has_showroom':
         if (!item.showroom_url) return false
         break
+      case 'analyzed':
+        if (item.scan_status !== 'success') return false
+        break
       case 'needs_review':
         if (!item.enrichment_review_needed) return false
         break
@@ -115,6 +118,7 @@ export function BrowsePage() {
         >
           <option value="all">All items</option>
           <option value="has_showroom">Has Showroom</option>
+          <option value="analyzed">Analyzed</option>
           <option value="needs_review">Needs review</option>
           <option value="untagged">Untagged</option>
           <option value="scan_failures">Scan failures</option>
