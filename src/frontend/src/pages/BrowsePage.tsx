@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
-import { LcarsButton, LcarsBadge } from '../components/lcars'
+import { LcarsButton } from '../components/lcars'
 
 interface CatalogItem {
   ci_name: string
   display_name: string
   category: string
   stage: string
+  catalog_namespace: string
   showroom_url: string | null
   scan_status: string
   enrichment_review_needed?: boolean
@@ -18,6 +19,7 @@ interface ItemDetail {
   display_name: string
   category: string
   stage: string
+  catalog_namespace: string
   showroom_url: string | null
   analysis: {
     summary: string | null
@@ -29,6 +31,7 @@ interface ItemDetail {
     audience_json: string[] | null
     notes: string | null
     is_stale: boolean
+    enrichment_review_needed: boolean
   } | null
   tags: Array<{ id: number; tag_type: string; tag_value: string; added_by: string | null }>
 }
@@ -46,6 +49,10 @@ function LcarsToggle({ label, active, onToggle }: { label: string; active: boole
   )
 }
 
+function catalogUrl(ciName: string, namespace: string): string {
+  return `https://catalog.demo.redhat.com/catalog?item=${namespace}/${ciName}`
+}
+
 export function BrowsePage() {
   const auth = useAuth()
   const [allItems, setAllItems] = useState<CatalogItem[]>([])
@@ -57,9 +64,10 @@ export function BrowsePage() {
   const [loading, setLoading] = useState(true)
   const [expandedItem, setExpandedItem] = useState<string | null>(null)
   const [itemDetail, setItemDetail] = useState<ItemDetail | null>(null)
-  const [newTagType, setNewTagType] = useState('')
-  const [newTagValue, setNewTagValue] = useState('')
+  const [newTag, setNewTag] = useState('')
   const [noteText, setNoteText] = useState('')
+  const [flagged, setFlagged] = useState(false)
+  const [analyzing, setAnalyzing] = useState<string | null>(null)
   const limit = 50
 
   const loadItems = async () => {
@@ -105,18 +113,20 @@ export function BrowsePage() {
     const detail = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetail(detail)
     setNoteText(detail.analysis?.notes || '')
+    setFlagged(detail.analysis?.enrichment_review_needed || false)
   }
 
   const handleAnalyze = async (ciName: string) => {
+    setAnalyzing(ciName)
     await api.analyzeSingle(ciName)
+    setAnalyzing(null)
     loadItems()
   }
 
   const handleAddTag = async (ciName: string) => {
-    if (!newTagType.trim() || !newTagValue.trim()) return
-    await api.addTag(ciName, newTagType.trim(), newTagValue.trim())
-    setNewTagType('')
-    setNewTagValue('')
+    if (!newTag.trim()) return
+    await api.addTag(ciName, 'label', newTag.trim())
+    setNewTag('')
     const detail = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetail(detail)
   }
@@ -133,6 +143,7 @@ export function BrowsePage() {
 
   const handleFlag = async (ciName: string) => {
     await api.flagItem(ciName)
+    setFlagged(true)
     loadItems()
   }
 
@@ -180,125 +191,139 @@ export function BrowsePage() {
                     {expandedItem === item.ci_name ? '▾' : '▸'}{' '}
                     {item.display_name || item.ci_name}
                     {item.stage !== 'prod' && (
-                      <span style={{ fontSize: '12px', color: '#e8a838', marginLeft: '8px' }}>{item.stage}</span>
+                      <span style={{
+                        display: 'inline-block',
+                        background: item.stage === 'dev' ? '#2a4a6a' : '#5a4a1a',
+                        color: item.stage === 'dev' ? '#99ccff' : '#ffcc66',
+                        borderRadius: '10px', padding: '2px 8px', fontSize: '10px',
+                        fontWeight: 600, marginLeft: '6px',
+                      }}>{item.stage.toUpperCase()}</span>
                     )}
-                    {item.scan_status === 'failed' && <LcarsBadge variant="red"> FAILED</LcarsBadge>}
-                    {item.enrichment_review_needed && <LcarsBadge variant="amber"> REVIEW</LcarsBadge>}
+                    {item.scan_status === 'failed' && (
+                      <span style={{ display: 'inline-block', background: '#5a2020', color: '#ff9999', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>FAILED</span>
+                    )}
+                    {item.enrichment_review_needed && (
+                      <span className="review-badge">needs review</span>
+                    )}
                   </div>
                   <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
                 </div>
                 {auth.isCurator && (
-                  <LcarsButton variant="curator-secondary" onClick={() => handleAnalyze(item.ci_name)}>
-                    Re-analyze
+                  <LcarsButton
+                    variant="curator-secondary"
+                    onClick={() => handleAnalyze(item.ci_name)}
+                    disabled={analyzing === item.ci_name}
+                  >
+                    {analyzing === item.ci_name ? 'Analyzing...' : 'Re-analyze'}
                   </LcarsButton>
                 )}
               </div>
 
               {expandedItem === item.ci_name && itemDetail && (
                 <div style={{ marginTop: '12px' }}>
-                  {/* Analysis summary and metadata */}
+                  {/* Analysis metadata + summary */}
                   {itemDetail.analysis && (
                     <>
                       {itemDetail.analysis.content_type && (
-                        <div style={{ fontSize: '13px', color: '#888', marginBottom: '6px' }}>
-                          {itemDetail.analysis.content_type}
-                          {itemDetail.analysis.difficulty && ` · ${itemDetail.analysis.difficulty}`}
-                          {itemDetail.analysis.estimated_duration_min && ` · ~${itemDetail.analysis.estimated_duration_min} min`}
+                        <div style={{ fontSize: '12px', color: '#73bcf7', marginBottom: '6px', display: 'flex', gap: '8px' }}>
+                          <span>{itemDetail.analysis.content_type}</span>
+                          {itemDetail.analysis.difficulty && <span style={{ color: '#888' }}>{itemDetail.analysis.difficulty}</span>}
+                          {itemDetail.analysis.estimated_duration_min && <span style={{ color: '#888' }}>~{itemDetail.analysis.estimated_duration_min} min</span>}
                         </div>
                       )}
                       {itemDetail.analysis.summary && (
-                        <p style={{ fontSize: '14px', color: '#aaa', marginBottom: '10px', lineHeight: '1.6' }}>
+                        <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px', lineHeight: '1.5' }}>
                           {itemDetail.analysis.summary}
                         </p>
                       )}
 
-                      {/* Analysis topics as pills */}
+                      {/* Analysis topics — blue pills */}
                       {itemDetail.analysis.topics_json && itemDetail.analysis.topics_json.length > 0 && (
-                        <div className="rec-pill-row" style={{ marginBottom: '8px' }}>
+                        <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                           {itemDetail.analysis.topics_json.map((topic, i) => (
-                            <span key={i} className="rec-pill">{topic}</span>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Products */}
-                      {itemDetail.analysis.products_json && itemDetail.analysis.products_json.length > 0 && (
-                        <div className="rec-pill-row" style={{ marginBottom: '8px' }}>
-                          {itemDetail.analysis.products_json.map((prod, i) => (
-                            <span key={i} className="rec-pill pill-format">{prod}</span>
+                            <span key={i} style={{
+                              display: 'inline-block', background: '#1a2a3a',
+                              color: '#73bcf7', border: '1px solid #2a4a6a',
+                              borderRadius: '10px', padding: '2px 8px', fontSize: '11px',
+                            }}>{topic}</span>
                           ))}
                         </div>
                       )}
                     </>
                   )}
 
-                  {/* Curator enrichment tags */}
-                  {itemDetail.tags.length > 0 && (
-                    <div className="tag-list" style={{ marginBottom: '8px' }}>
-                      {itemDetail.tags.map(tag => (
-                        <span
-                          key={tag.id}
-                          className="tag-pill-removable"
-                          onClick={auth.isCurator ? () => handleRemoveTag(item.ci_name, tag.id) : undefined}
-                          title={auth.isCurator ? 'Click to remove' : `Added by ${tag.added_by || 'unknown'}`}
-                        >
-                          {tag.tag_type}: {tag.tag_value}
-                          {auth.isCurator && ' ×'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                  {/* Curator tags — green pills, just the value */}
+                  <div className="tag-list" style={{ marginBottom: '8px' }}>
+                    {itemDetail.tags.map(tag => (
+                      <span
+                        key={tag.id}
+                        className="tag-pill-removable"
+                        onClick={auth.isCurator ? () => handleRemoveTag(item.ci_name, tag.id) : undefined}
+                        title={auth.isCurator ? 'Click to remove' : `Added by ${tag.added_by || 'unknown'}`}
+                        style={{ cursor: auth.isCurator ? 'pointer' : 'default' }}
+                      >
+                        {tag.tag_value} {auth.isCurator && '×'}
+                      </span>
+                    ))}
+                    {/* Inline add tag — just type the value, like original RCARS */}
+                    {auth.isCurator && (
+                      <input
+                        type="text"
+                        value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddTag(item.ci_name) }}
+                        placeholder="+ add tag"
+                        style={{
+                          background: 'transparent', border: '1px dashed #3a5a3a',
+                          color: '#5cb85c', padding: '3px 10px', borderRadius: '10px',
+                          fontSize: '12px', width: '110px', outline: 'none',
+                        }}
+                      />
+                    )}
+                  </div>
 
                   {/* Curator controls */}
                   {auth.isCurator && (
-                    <div style={{ marginTop: '10px' }}>
-                      {/* Add tag */}
-                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
-                        <input
-                          className="filter-input"
-                          placeholder="Tag type"
-                          value={newTagType}
-                          onChange={(e) => setNewTagType(e.target.value)}
-                          style={{ width: '120px', padding: '6px 10px', fontSize: '13px' }}
-                        />
-                        <input
-                          className="filter-input"
-                          placeholder="Tag value"
-                          value={newTagValue}
-                          onChange={(e) => setNewTagValue(e.target.value)}
-                          style={{ width: '160px', padding: '6px 10px', fontSize: '13px' }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleAddTag(item.ci_name) }}
-                        />
-                        <LcarsButton variant="curator" onClick={() => handleAddTag(item.ci_name)}>
-                          + Add tag
-                        </LcarsButton>
-                      </div>
-
-                      {/* Note */}
-                      <div style={{ display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' }}>
-                        <input
-                          className="filter-input"
-                          placeholder="Add a note..."
-                          value={noteText}
-                          onChange={(e) => setNoteText(e.target.value)}
-                          style={{ flex: 1, padding: '6px 10px', fontSize: '13px' }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNote(item.ci_name) }}
-                        />
-                      </div>
-
-                      {/* Flag */}
-                      <LcarsButton variant="curator-secondary" onClick={() => handleFlag(item.ci_name)}>
-                        Flag for review
+                    <>
+                      <input
+                        type="text"
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        onBlur={() => handleSaveNote(item.ci_name)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNote(item.ci_name) }}
+                        placeholder="Add a note..."
+                        style={{
+                          background: 'var(--bg-card)', border: '1px solid #333',
+                          color: '#aaa', padding: '6px 10px', borderRadius: '4px',
+                          fontSize: '13px', width: '100%', fontStyle: 'italic',
+                          marginBottom: '8px', outline: 'none',
+                        }}
+                      />
+                      <LcarsButton
+                        variant="curator-secondary"
+                        onClick={() => handleFlag(item.ci_name)}
+                        disabled={flagged}
+                      >
+                        {flagged ? '✓ Flagged for review' : 'Flag for review'}
                       </LcarsButton>
-                    </div>
+                    </>
                   )}
 
-                  {/* Showroom link */}
-                  {item.showroom_url && (
-                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#555' }}>
-                      Showroom: <a href={item.showroom_url} target="_blank" rel="noopener noreferrer" style={{ color: '#73bcf7' }}>{item.showroom_url}</a>
-                    </div>
-                  )}
+                  {/* Links */}
+                  <div style={{ marginTop: '10px', fontSize: '13px', display: 'flex', gap: '16px' }}>
+                    <a
+                      href={catalogUrl(item.ci_name, item.catalog_namespace || 'babylon-catalog-prod')}
+                      target="_blank" rel="noopener noreferrer"
+                      style={{ color: '#73bcf7' }}
+                    >
+                      RHDP Catalog
+                    </a>
+                    {item.showroom_url && (
+                      <a href={item.showroom_url} target="_blank" rel="noopener noreferrer" style={{ color: '#73bcf7' }}>
+                        Showroom Repo
+                      </a>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
