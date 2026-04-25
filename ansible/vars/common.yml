@@ -12,6 +12,7 @@ mgmt_service_account:
 
 # Container images
 pg_image: pgvector/pgvector:pg16
+redis_image: "registry.redhat.io/rhel9/redis-7"
 oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:latest"
 
 # PostgreSQL
@@ -20,6 +21,9 @@ pg_user: rcars
 pg_database: rcars
 pg_pvc_size: 20Gi
 pg_storage_class: ocs-storagecluster-ceph-rbd
+
+# Redis
+redis_pvc_size: 1Gi
 
 # Vertex AI
 vertex_region: us-east5
@@ -31,3 +35,32 @@ vertex_region: us-east5
 stale_days: 3
 curator_emails: []
 admin_emails: []
+
+# Scaling
+api_replicas: 2
+worker_replicas: 1
+frontend_replicas: 1
+
+# Resource limits
+api_cpu_request: 500m
+api_cpu_limit: "2"
+api_memory_request: 512Mi
+api_memory_limit: 2Gi
+
+worker_cpu_request: 500m
+worker_cpu_limit: "2"
+worker_memory_request: 1Gi
+worker_memory_limit: 4Gi
+
+frontend_cpu_request: 100m
+frontend_cpu_limit: 500m
+frontend_memory_request: 128Mi
+frontend_memory_limit: 256Mi
+
+redis_cpu_request: 100m
+redis_cpu_limit: 500m
+redis_memory_request: 256Mi
+redis_memory_limit: 512Mi
+
+# API external route (disabled by default — cluster-internal only)
+rcars_api_external_route: false

@@ -11,9 +11,11 @@
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags apply     # Apply app manifests + migrate + webhooks (no build)
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags update    # Full update: apply + build + migrate + webhooks
 #   ansible-playbook ansible/deploy.yml -e env=prod --tags update   # Full prod update
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds    # Just trigger build + rollout
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate   # Just run Alembic migrations
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags webhooks  # Show webhook URLs
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all + rollout
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend  # Rebuild frontend only
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api       # Rebuild API + workers
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run Alembic migrations
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags webhooks        # Show webhook URLs
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
