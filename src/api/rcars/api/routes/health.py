@@ -1,0 +1,31 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Request
+
+router = APIRouter()
+
+
+@router.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@router.get("/health/ready")
+async def readiness(request: Request):
+    db = request.app.state.db
+    redis = request.app.state.redis
+    checks = {"database": False, "redis": False}
+    try:
+        with db.pool.connection() as conn:
+            conn.execute("SELECT 1")
+        checks["database"] = True
+    except Exception:
+        pass
+    try:
+        await redis.ping()
+        checks["redis"] = True
+    except Exception:
+        pass
+
+    all_ok = all(checks.values())
+    return {"status": "ok" if all_ok else "degraded", "checks": checks}
