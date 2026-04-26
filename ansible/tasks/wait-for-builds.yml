@@ -78,13 +78,28 @@
               kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
     merge_type: strategic-merge
 
-- name: Restart worker deployment
+- name: Restart scan worker deployment
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     api_version: apps/v1
     kind: Deployment
     namespace: "{{ target_namespace }}"
-    name: "{{ app_name }}-worker"
+    name: "{{ app_name }}-scan-worker"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    merge_type: strategic-merge
+
+- name: Restart recommend worker deployment
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-recommend-worker"
     definition:
       spec:
         template:
