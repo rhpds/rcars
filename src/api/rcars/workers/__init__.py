@@ -1,3 +1,3 @@
-from rcars.workers.settings import WorkerSettings
+from rcars.workers.settings import WorkerSettings, RecommendWorkerSettings
 
-__all__ = ["WorkerSettings"]
+__all__ = ["WorkerSettings", "RecommendWorkerSettings"]

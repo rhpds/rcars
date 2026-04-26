@@ -62,15 +62,24 @@ start_api() {
 }
 
 start_worker() {
-    if pgrep -f "arq rcars.workers" >/dev/null 2>&1; then
-        echo "  Worker already running"
-        return
+    if pgrep -f "arq rcars.workers.WorkerSettings" >/dev/null 2>&1; then
+        echo "  Scan worker already running"
+    else
+        cd "${API_DIR}"
+        "${VENV}/bin/arq" rcars.workers.WorkerSettings \
+            > /tmp/rcars-scan-worker.log 2>&1 &
+        echo "  ✓  scan worker (background)"
+        cd "${PROJECT_DIR}"
     fi
-    cd "${API_DIR}"
-    "${VENV}/bin/arq" rcars.workers.WorkerSettings \
-        > /tmp/rcars-worker.log 2>&1 &
-    echo "  ✓  localhost (background)"
-    cd "${PROJECT_DIR}"
+    if pgrep -f "arq rcars.workers.RecommendWorkerSettings" >/dev/null 2>&1; then
+        echo "  Recommend worker already running"
+    else
+        cd "${API_DIR}"
+        "${VENV}/bin/arq" rcars.workers.RecommendWorkerSettings \
+            > /tmp/rcars-recommend-worker.log 2>&1 &
+        echo "  ✓  recommend worker (background)"
+        cd "${PROJECT_DIR}"
+    fi
 }
 
 start_frontend() {

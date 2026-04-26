@@ -46,10 +46,20 @@ async def worker_health(request: Request, user: str = Depends(require_admin)):
     running = [j for j in jobs if j["status"] == "running"]
     failed = [j for j in jobs if j["status"] == "failed"]
 
+    running_details = []
+    for j in running:
+        ci = (j.get("progress_json") or {}).get("ci_name")
+        running_details.append({
+            "id": j["id"],
+            "job_type": j["job_type"],
+            "ci_name": ci,
+            "created_at": j["created_at"],
+        })
+
     return {
         "queue_depths": queue_depths,
         "active_jobs": len(running),
-        "running_jobs": running,
+        "running_jobs": running_details,
         "failed_jobs_recent": len(failed),
     }
 
@@ -65,12 +75,22 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
 
     recent = []
     for j in complete[-20:]:
-        ci = j.get("result_json", {}).get("ci_name", "unknown") if j.get("result_json") else "unknown"
-        recent.append(ci)
+        rj = j.get("result_json") or {}
+        ci = rj.get("ci_name", "unknown")
+        propagated = rj.get("propagated", 0)
+        label = f"{ci} (+{propagated} siblings)" if propagated else ci
+        recent.append(label)
     failed_names = []
     for j in failed[-10:]:
+        ci = j.get("result_json", {}).get("ci_name") if j.get("result_json") else None
         error = j.get("error", "unknown")
-        failed_names.append(error[:100])
+        label = f"{ci}: {error}" if ci else error
+        failed_names.append(label[:120])
+
+    total_propagated = sum(
+        (j.get("result_json") or {}).get("propagated", 0)
+        for j in complete
+    )
 
     return {
         "queued": len(queued),
@@ -78,6 +98,7 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
         "complete": len(complete),
         "failed": len(failed),
         "total": len(jobs),
+        "total_propagated": total_propagated,
         "recent_complete": recent,
         "recent_failures": failed_names,
     }

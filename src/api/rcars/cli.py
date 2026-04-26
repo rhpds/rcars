@@ -167,7 +167,11 @@ def scan(max_analyze: int | None):
             item = futures[future]
             try:
                 result = future.result()
-                if result:
+                if result and "error" in result:
+                    errors += 1
+                    db.set_scan_status(item["ci_name"], "failed", error_class=result["error"], error_message=result["message"])
+                    _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
+                elif result and "analysis" in result:
                     analysis = result["analysis"]
                     db.upsert_showroom_analysis({
                         "ci_name": result["ci_name"],

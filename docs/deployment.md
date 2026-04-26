@@ -7,8 +7,11 @@ RCARS v2 runs as three separate components on OpenShift:
 | Component | Image | What it does |
 |---|---|---|
 | `rcars-api` | `rcars-api:latest` | FastAPI JSON API, serves `/api/v1/*` |
-| `rcars-worker` | `rcars-api:latest` (same image, different entrypoint) | arq background worker for LLM operations |
+| `rcars-scan-worker` | `rcars-api:latest` (same image) | arq worker for scan/analysis (queue: `arq:queue:scan`) |
+| `rcars-recommend-worker` | `rcars-api:latest` (same image) | arq worker for advisor queries (queue: `arq:queue:recommend`) |
 | `rcars-frontend` | `rcars-frontend:latest` | nginx serving the React SPA, proxies `/api/*` to the API service |
+
+Workers are split into two deployments to prevent bulk scans from blocking advisor queries. Both use the same container image with different arq entrypoints.
 
 Supporting infrastructure: PostgreSQL (pgvector), Redis 7, OAuth proxy.
 
@@ -89,7 +92,7 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
 
 This will:
-1. Apply app manifests (API, Worker, Frontend Deployments + Services + Route + OAuth Proxy)
+1. Apply app manifests (API, Scan Worker, Recommend Worker, Frontend Deployments + Services + Route + OAuth Proxy)
 2. Trigger Docker builds for API (~5 min) and frontend (~30s)
 3. Wait for builds to complete and restart all deployments
 4. Run database schema setup
@@ -149,7 +152,7 @@ Or manually:
 ```bash
 oc start-build rcars-api-build -n rcars-dev
 # Wait for completion, then:
-oc rollout restart deployment/rcars-api deployment/rcars-worker -n rcars-dev
+oc rollout restart deployment/rcars-api deployment/rcars-scan-worker deployment/rcars-recommend-worker -n rcars-dev
 ```
 
 ### Full update (build all + migrate)
@@ -206,19 +209,22 @@ Run commands in the API pod:
 
 ```bash
 # Catalog status
-oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['status'])"
+oc exec deployment/rcars-api -n rcars-dev -- rcars status
 
 # Refresh catalog from Babylon
-oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['refresh'])"
+oc exec deployment/rcars-api -n rcars-dev -- rcars refresh
 
 # Scan content (analyze Showrooms)
-oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['scan', '--max', '10'])"
+oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 10
+
+# Show scan failures
+oc exec deployment/rcars-api -n rcars-dev -- rcars status --failures
 
 # Add a tag
-oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['tag', 'ci-name.prod', 'label', 'flagship'])"
+oc exec deployment/rcars-api -n rcars-dev -- rcars tag ci-name.prod label flagship
 
 # Set custom content path for non-standard Showroom
-oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['set-content-path', 'ci-name.prod', 'docs/labs/'])"
+oc exec deployment/rcars-api -n rcars-dev -- rcars set-content-path ci-name.prod docs/labs/
 ```
 
 ---
@@ -229,8 +235,11 @@ oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cl
 # API logs
 oc logs deployment/rcars-api -n rcars-dev -f
 
-# Worker logs
-oc logs deployment/rcars-worker -n rcars-dev -f
+# Scan worker logs
+oc logs deployment/rcars-scan-worker -n rcars-dev -f
+
+# Recommend worker logs
+oc logs deployment/rcars-recommend-worker -n rcars-dev -f
 
 # Frontend (nginx) logs
 oc logs deployment/rcars-frontend -n rcars-dev -f
@@ -245,10 +254,10 @@ oc logs deployment/rcars-oauth-proxy -n rcars-dev -f
 
 ```bash
 # Restart everything
-oc rollout restart deployment/rcars-api deployment/rcars-worker deployment/rcars-frontend -n rcars-dev
+oc rollout restart deployment/rcars-api deployment/rcars-scan-worker deployment/rcars-recommend-worker deployment/rcars-frontend -n rcars-dev
 
-# Restart just the API + worker (e.g. after config change)
-oc rollout restart deployment/rcars-api deployment/rcars-worker -n rcars-dev
+# Restart just the API + workers (e.g. after config change)
+oc rollout restart deployment/rcars-api deployment/rcars-scan-worker deployment/rcars-recommend-worker -n rcars-dev
 
 # Restart just the frontend
 oc rollout restart deployment/rcars-frontend -n rcars-dev
@@ -275,12 +284,17 @@ oc logs deployment/rcars-api -n rcars-dev
 ### Worker errors
 
 ```bash
-oc logs deployment/rcars-worker -n rcars-dev
+# Scan worker (analysis failures, git clone errors)
+oc logs deployment/rcars-scan-worker -n rcars-dev
+
+# Recommend worker (advisor query failures)
+oc logs deployment/rcars-recommend-worker -n rcars-dev
 ```
 
 Common issues:
 - **Redis connection refused** — check `RCARS_REDIS_URL` env var points to `rcars-redis:6379`
 - **No Anthropic client** — verify Vertex AI credentials are mounted
+- **Advisor queries stuck** — check recommend worker is running (`oc get pods -l component=recommend-worker`)
 
 ### Database connection issues
 

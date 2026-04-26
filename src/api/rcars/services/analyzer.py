@@ -426,7 +426,7 @@ def analyze_showroom(
         clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir)
         if not clone_path:
             log.error("analyze %s: clone failed", ci_name)
-            return None
+            return {"error": "clone_failed", "message": f"Failed to clone {showroom_url}"}
 
         # Get repo HEAD info
         head_sha, head_date = get_repo_head(clone_path)
@@ -436,7 +436,7 @@ def analyze_showroom(
         raw_files = read_showroom_content(clone_path, content_path=content_path)
         if not raw_files:
             log.warning("analyze %s: no .adoc files found in %s", ci_name, showroom_url)
-            return None
+            return {"error": "no_content", "message": f"No .adoc files found in {showroom_url}"}
 
         # Filter boilerplate
         content_files = filter_boilerplate_files(raw_files)
@@ -481,7 +481,7 @@ def analyze_showroom(
         analysis = parse_analysis_response(response_text)
         if not analysis:
             log.error("analyze %s: failed to parse Sonnet response", ci_name)
-            return None
+            return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
 
         # Generate embeddings
         ci_embedding_text = build_embedding_text(analysis)

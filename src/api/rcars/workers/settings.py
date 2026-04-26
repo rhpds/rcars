@@ -47,10 +47,22 @@ async def shutdown(ctx: dict) -> None:
 
 
 class WorkerSettings:
-    functions = [run_recommendation, run_analysis, run_catalog_refresh, run_stale_check]
+    """Scan/ops worker — handles analysis and catalog operations."""
+    functions = [run_analysis, run_catalog_refresh, run_stale_check]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
     max_jobs = 5
     job_timeout = 600
-    queue_name = "default"
+    queue_name = "arq:queue:scan"
+
+
+class RecommendWorkerSettings:
+    """Recommendation worker — handles advisor queries. Separate from scan to avoid starvation."""
+    functions = [run_recommendation]
+    on_startup = startup
+    on_shutdown = shutdown
+    redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
+    max_jobs = 3
+    job_timeout = 120
+    queue_name = "arq:queue:recommend"

@@ -16,7 +16,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
     log = logger.bind(job_id=job_id, ci_name=ci_name)
 
     log.info("picked_up", action="picked_up", queue="analyze")
-    wctx.db.update_job_status(job_id, "running")
+    wctx.db.update_job_status(job_id, "running", progress_json={"ci_name": ci_name})
 
     item = None
     try:
@@ -46,10 +46,17 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
             )
         )
 
-        if result:
+        if result and "error" in result:
+            error_class = result["error"]
+            error_msg = result["message"]
+            wctx.db.set_scan_status(ci_name, "failed", error_class=error_class, error_message=error_msg)
+            wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error=error_msg)
+            log.warning("analysis_failed", action="job_failed", error_class=error_class, error_msg=error_msg)
+            return {"ci_name": ci_name, "success": False}
+
+        if result and "analysis" in result:
             analysis = result["analysis"]
 
-            # Map LLM field names to DB column names
             analysis_data = {
                 "ci_name": ci_name,
                 "content_type": analysis.get("content_type"),
@@ -114,16 +121,16 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
 
             wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
             log.info("analysis_complete", action="job_complete", ci_name=ci_name, propagated=propagated)
-        else:
-            wctx.db.set_scan_status(ci_name, "failed", error_class="no_result", error_message="Analysis returned no results")
-            wctx.db.fail_job(job_id, error="Analysis returned no results")
-            log.warning("analysis_empty", action="job_failed", ci_name=ci_name)
+            return {"ci_name": ci_name, "success": True}
 
-        return {"ci_name": ci_name, "success": result is not None}
+        wctx.db.set_scan_status(ci_name, "failed", error_class="no_result", error_message="Analysis returned no results")
+        wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error="Analysis returned no results")
+        log.warning("analysis_empty", action="job_failed")
+        return {"ci_name": ci_name, "success": False}
 
     except Exception as e:
         log.error("analysis_failed", action="job_failed", error=str(e))
         error_class, error_msg = classify_scan_error(e, item.get("showroom_url") if item else None)
         wctx.db.set_scan_status(ci_name, "failed", error_class=error_class, error_message=error_msg)
-        wctx.db.fail_job(job_id, error=str(e))
+        wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error=str(e))
         raise

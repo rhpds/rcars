@@ -164,35 +164,35 @@ spec:
           emptyDir:
             sizeLimit: 10Gi
 ---
-# ── Worker Deployment (same image as API, different entrypoint) ──
+# ── Scan Worker Deployment (analysis, catalog refresh, stale checks) ──
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ app_name }}-worker
+  name: {{ app_name }}-scan-worker
   labels:
     app: {{ app_name }}
-    component: worker
+    component: scan-worker
   annotations:
     image.openshift.io/triggers: >-
-      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-api:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-worker\")].image"}]
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-api:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-scan-worker\")].image"}]
 spec:
-  replicas: {{ worker_replicas }}
+  replicas: {{ scan_worker_replicas }}
   selector:
     matchLabels:
       app: {{ app_name }}
-      component: worker
+      component: scan-worker
   template:
     metadata:
       labels:
         app: {{ app_name }}
-        component: worker
+        component: scan-worker
     spec:
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: {{ app_name }}-worker
+        - name: {{ app_name }}-scan-worker
           image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}-api:latest"
           imagePullPolicy: Always
           command: ["arq", "rcars.workers.WorkerSettings"]
@@ -272,6 +272,93 @@ spec:
         - name: clone-workspace
           emptyDir:
             sizeLimit: 10Gi
+---
+# ── Recommend Worker Deployment (advisor queries, separate from scan to avoid starvation) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-recommend-worker
+  labels:
+    app: {{ app_name }}
+    component: recommend-worker
+  annotations:
+    image.openshift.io/triggers: >-
+      [{"from":{"kind":"ImageStreamTag","name":"{{ app_name }}-api:latest","namespace":"{{ target_namespace }}"},"fieldPath":"spec.template.spec.containers[?(@.name==\"{{ app_name }}-recommend-worker\")].image"}]
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: recommend-worker
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: recommend-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}-recommend-worker
+          image: "image-registry.openshift-image-registry.svc:5000/{{ target_namespace }}/{{ app_name }}-api:latest"
+          imagePullPolicy: Always
+          command: ["arq", "rcars.workers.RecommendWorkerSettings"]
+          env:
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_USER
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_PASSWORD
+            - name: PG_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-postgresql
+                  key: POSTGRESQL_DATABASE
+            - name: RCARS_DATABASE_URL
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+            - name: RCARS_REDIS_URL
+              value: "redis://{{ app_name }}-redis:6379"
+{% if vertex_enabled | default(false) %}
+            - name: ANTHROPIC_VERTEX_PROJECT_ID
+              value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
+            - name: CLOUD_ML_REGION
+              value: "{{ vertex_region }}"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /etc/rcars/vertex-credentials.json
+{% endif %}
+            - name: HF_HOME
+              value: /opt/app-root/hf_cache
+{% if vertex_enabled | default(false) %}
+          volumeMounts:
+            - name: vertex-credentials
+              mountPath: /etc/rcars/vertex-credentials.json
+              subPath: credentials.json
+              readOnly: true
+{% endif %}
+          resources:
+            requests:
+              cpu: {{ recommend_worker_cpu_request }}
+              memory: {{ recommend_worker_memory_request }}
+            limits:
+              cpu: "{{ recommend_worker_cpu_limit }}"
+              memory: {{ recommend_worker_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+{% if vertex_enabled | default(false) %}
+      volumes:
+        - name: vertex-credentials
+          secret:
+            secretName: {{ app_name }}-vertex-credentials
+{% endif %}
 ---
 # ── Frontend Deployment ──
 apiVersion: apps/v1

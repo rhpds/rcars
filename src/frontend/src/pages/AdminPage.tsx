@@ -137,6 +137,7 @@ export function AdminCatalogPage() {
 
           let lastComplete = 0
           let lastFailed = 0
+          let lastStatusLine = ''
           const poll = async (): Promise<boolean> => {
             const progress = await api.getScanProgress()
             // Log newly completed items
@@ -157,7 +158,12 @@ export function AdminCatalogPage() {
 
             const done = progress.queued === 0 && progress.running === 0 && progress.total > 0
             if (!done) {
-              addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed]`)
+              const propInfo = progress.total_propagated ? `, ${progress.total_propagated} propagated` : ''
+              const statusLine = `  [${progress.complete} scanned, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed${propInfo}]`
+              if (statusLine !== lastStatusLine) {
+                addLog(statusLine)
+                lastStatusLine = statusLine
+              }
             }
             loadStatus()
             return done
@@ -169,7 +175,9 @@ export function AdminCatalogPage() {
               const done = await poll()
               if (done) {
                 clearInterval(interval)
-                addLog(`Scan complete: ${lastComplete} analyzed, ${lastFailed} failed`)
+                const finalProgress = await api.getScanProgress()
+                const propCount = (finalProgress as { total_propagated?: number }).total_propagated || 0
+                addLog(`Scan complete: ${lastComplete} scanned + ${propCount} propagated = ${lastComplete + propCount} total, ${lastFailed} failed`)
                 loadStatus()
               }
             } catch {
@@ -212,7 +220,7 @@ export function AdminCatalogPage() {
 interface WorkerHealth {
   queue_depths: Record<string, number>
   active_jobs: number
-  running_jobs: Array<{ id: string; job_type: string; created_at: string }>
+  running_jobs: Array<{ id: string; job_type: string; ci_name: string | null; created_at: string }>
   failed_jobs_recent: number
 }
 
@@ -225,6 +233,8 @@ interface Job {
   error: string | null
   created_at: string
   completed_at: string | null
+  progress_json: { ci_name?: string } | null
+  result_json: { ci_name?: string; status?: string; propagated?: number } | null
 }
 
 export function AdminWorkersPage() {
@@ -296,17 +306,22 @@ export function AdminWorkersPage() {
         <h3>Recent Jobs</h3>
         {jobs.length > 0 ? (
           <table className="status-table">
-            <thead><tr><th>Type</th><th>Status</th><th>Queue</th><th>Created</th><th>By</th></tr></thead>
+            <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>By</th></tr></thead>
             <tbody>
-              {jobs.map(job => (
-                <tr key={job.id}>
-                  <td>{job.job_type}</td>
-                  <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
-                  <td style={{ color: '#666' }}>{job.queue}</td>
-                  <td style={{ color: '#666', fontSize: '13px' }}>{new Date(job.created_at).toLocaleString()}</td>
-                  <td style={{ color: '#666', fontSize: '13px' }}>{job.created_by || '-'}</td>
-                </tr>
-              ))}
+              {jobs.map(job => {
+                const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
+                return (
+                  <tr key={job.id} title={job.error || undefined}>
+                    <td>{job.job_type}</td>
+                    <td style={{ fontSize: '12px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {ciName || '-'}
+                    </td>
+                    <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
+                    <td style={{ color: '#666', fontSize: '13px' }}>{new Date(job.created_at).toLocaleString()}</td>
+                    <td style={{ color: '#666', fontSize: '13px' }}>{job.created_by || '-'}</td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         ) : (

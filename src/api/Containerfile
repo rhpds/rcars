@@ -9,8 +9,8 @@ ENV TQDM_DISABLE=1
 ENV TRANSFORMERS_VERBOSITY=error
 ENV HF_HUB_DISABLE_PROGRESS_BARS=1
 
-COPY pyproject.toml requirements.txt ./
-RUN pip install --no-cache-dir -e .
+COPY pyproject.toml ./
+RUN mkdir -p rcars && touch rcars/__init__.py && pip install --no-cache-dir . && rm -rf rcars
 
 # Pre-download sentence-transformers model so it's baked into the image
 RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('all-MiniLM-L6-v2')"
@@ -28,6 +28,7 @@ COPY --from=builder /opt/app-root/hf_cache /opt/app-root/hf_cache
 WORKDIR /opt/app-root/src
 COPY . .
 
+ENV PYTHONPATH=/opt/app-root/src
 ENV HF_HOME=/opt/app-root/hf_cache
 ENV TQDM_DISABLE=1
 ENV TRANSFORMERS_VERBOSITY=error

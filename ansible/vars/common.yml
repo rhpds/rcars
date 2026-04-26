@@ -38,7 +38,7 @@ admin_emails: []
 
 # Scaling
 api_replicas: 1
-worker_replicas: 1
+scan_worker_replicas: 1
 frontend_replicas: 1
 
 # Resource limits
@@ -51,6 +51,11 @@ worker_cpu_request: 500m
 worker_cpu_limit: "2"
 worker_memory_request: 1Gi
 worker_memory_limit: 4Gi
+
+recommend_worker_cpu_request: 250m
+recommend_worker_cpu_limit: "1"
+recommend_worker_memory_request: 1Gi
+recommend_worker_memory_limit: 2Gi
 
 frontend_cpu_request: 100m
 frontend_cpu_limit: 500m
