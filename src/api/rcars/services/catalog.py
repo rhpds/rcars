@@ -136,49 +136,33 @@ def _resolve_template_var(
     return None
 
 
-def extract_showroom_url(
-    component_crd: dict[str, Any],
+URL_VARS = [
+    "ocp4_workload_showroom_content_git_repo",
+    "showroom_git_repo",
+    "bookbag_git_repo",
+]
+REF_VARS = [
+    "ocp4_workload_showroom_content_git_repo_ref",
+    "ocp4_workload_showroom_content_git_ref",
+    "showroom_git_ref",
+]
+
+
+def _extract_from_dict(
+    d: dict, catalog_params: list[dict], definition: dict,
 ) -> tuple[str | None, str | None]:
-    """Extract Showroom URL and ref from an AgnosticVComponent CRD.
-
-    Checks all known showroom variable names across OCP-based (Helm/Operator),
-    RHEL/VM-based (container on bastion), and legacy bookbag formats.
-
-    When a ref value is a Jinja2 template (e.g. '{{ showroom_repo_revision }}'),
-    resolves it by looking up the variable in spec.definition, with catalog
-    parameter defaults taking precedence (they represent the user-facing value
-    for that stage).
-
-    Returns (url, ref) tuple. Both are None if no Showroom URL found.
-    """
-    definition = (
-        component_crd.get("spec", {}).get("definition", {}) or {}
-    )
-    meta = definition.get("__meta__", {})
-    catalog_params = (meta.get("catalog") or {}).get("parameters") or []
-
-    url_vars = [
-        "ocp4_workload_showroom_content_git_repo",
-        "showroom_git_repo",
-        "bookbag_git_repo",
-    ]
-    ref_vars = [
-        "ocp4_workload_showroom_content_git_repo_ref",
-        "ocp4_workload_showroom_content_git_ref",
-        "showroom_git_ref",
-    ]
-
+    """Extract showroom URL and ref from a flat dict of variables."""
     url = None
     ref = None
 
-    for var in url_vars:
-        value = definition.get(var)
+    for var in URL_VARS:
+        value = d.get(var)
         if value and isinstance(value, str) and not value.startswith("{{"):
             url = value.split(" #")[0].strip()
             break
 
-    for var in ref_vars:
-        value = definition.get(var)
+    for var in REF_VARS:
+        value = d.get(var)
         if not value or not isinstance(value, str):
             continue
         if value.startswith("{{"):
@@ -191,6 +175,44 @@ def extract_showroom_url(
             break
 
     return url, ref
+
+
+def extract_showroom_url(
+    component_crd: dict[str, Any],
+) -> tuple[str | None, str | None]:
+    """Extract Showroom URL and ref from an AgnosticVComponent CRD.
+
+    Checks three locations in priority order:
+    1. Top-level spec.definition (direct showroom vars — standard CIs)
+    2. __meta__.components[].parameter_values (ZT Virtual CIs that pass
+       the showroom URL as a parameter override to a base component)
+
+    When a ref value is a Jinja2 template (e.g. '{{ showroom_repo_revision }}'),
+    resolves it by looking up the variable in spec.definition, with catalog
+    parameter defaults taking precedence per stage.
+
+    Returns (url, ref) tuple. Both are None if no Showroom URL found.
+    """
+    definition = (
+        component_crd.get("spec", {}).get("definition", {}) or {}
+    )
+    meta = definition.get("__meta__", {})
+    catalog_params = (meta.get("catalog") or {}).get("parameters") or []
+
+    # 1. Check top-level definition
+    url, ref = _extract_from_dict(definition, catalog_params, definition)
+    if url:
+        return url, ref
+
+    # 2. Fall back to component parameter_values (ZT Virtual CI pattern)
+    for comp in meta.get("components", []):
+        pv = comp.get("parameter_values", {})
+        if pv:
+            url, ref = _extract_from_dict(pv, catalog_params, definition)
+            if url:
+                return url, ref
+
+    return None, None
 
 
 class CatalogReader:
