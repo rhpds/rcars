@@ -150,6 +150,8 @@ REF_VARS = [
 
 TEMPLATE_REPOS = [
     "showroom_template_default",
+    "showroom_template_nookbag",
+    "showroom_template_zero",
 ]
 
 
