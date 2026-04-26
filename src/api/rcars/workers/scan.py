@@ -78,6 +78,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
             }
             wctx.db.upsert_showroom_analysis(analysis_data)
 
+            wctx.db.clear_embeddings(ci_name)
             wctx.db.store_embedding(
                 ci_name=ci_name,
                 embed_type="ci_summary",
@@ -106,6 +107,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
                 analysis_copy = dict(analysis_data)
                 analysis_copy["ci_name"] = sib_name
                 wctx.db.upsert_showroom_analysis(analysis_copy)
+                wctx.db.clear_embeddings(sib_name)
                 wctx.db.store_embedding(
                     ci_name=sib_name, embed_type="ci_summary",
                     content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],

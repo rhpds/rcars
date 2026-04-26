@@ -367,6 +367,11 @@ class Database:
 
     # ── Embeddings ──
 
+    def clear_embeddings(self, ci_name: str):
+        with self._pool.connection() as conn:
+            conn.execute("DELETE FROM embeddings WHERE ci_name = %s", (ci_name,))
+            conn.commit()
+
     def store_embedding(
         self, ci_name: str, embed_type: str, content_text: str,
         embedding: list[float], module_title: str | None = None,
