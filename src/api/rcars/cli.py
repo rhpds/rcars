@@ -159,6 +159,7 @@ def scan(max_analyze: int | None):
             model=settings.model,
             clone_dir=settings.clone_dir,
             db=db,
+            content_path=item.get("content_path"),
         )
 
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
@@ -190,7 +191,9 @@ def scan(max_analyze: int | None):
                         "last_repo_updated": result.get("last_repo_updated"),
                         "content_hash": result.get("content_hash"),
                         "is_stale": False,
+                        "stale_commit": None,
                     })
+                    db.clear_embeddings(result["ci_name"])
                     db.store_embedding(
                         ci_name=result["ci_name"], embed_type="ci_summary",
                         content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
@@ -224,6 +227,7 @@ def scan(max_analyze: int | None):
                         "last_repo_updated": result.get("last_repo_updated"),
                         "content_hash": result.get("content_hash"),
                         "is_stale": False,
+                        "stale_commit": None,
                     }
                     for sibling in siblings:
                         sib_name = sibling["ci_name"]
@@ -251,8 +255,8 @@ def scan(max_analyze: int | None):
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
                 else:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class="unknown", error_message="Analysis returned None")
-                    _print(f"  FAIL: {item['ci_name']} — analysis returned None")
+                    db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
+                    _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
             except Exception as e:
                 error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
                 errors += 1
