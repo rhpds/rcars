@@ -104,14 +104,14 @@ After the app is running:
 ```bash
 # Sync catalog from Babylon CRDs
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
-  oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['refresh'])"
+  oc exec deployment/rcars-api -n rcars-dev -- rcars refresh
 
 # Analyze a few items to verify
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
-  oc exec deployment/rcars-api -n rcars-dev -- python -c "from rcars.cli import cli; cli(['scan', '--max', '5'])"
+  oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 5
 ```
 
-Once verified, run a larger scan or use the Admin UI to analyze all content.
+Once verified, run a full scan via the Admin UI or `rcars scan` (no `--max`).
 
 ### Step 7. Verify
 
