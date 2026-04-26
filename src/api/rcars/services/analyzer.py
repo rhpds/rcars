@@ -422,7 +422,7 @@ def analyze_showroom(
     clone_path = None
     try:
         # Clone
-        log.info("analyze %s: cloning %s (ref=%s)", ci_name, showroom_url, showroom_ref or "default")
+        log.info("analyze %s: cloning %s (ref=%s)", ci_name, showroom_url, showroom_ref or "HEAD")
         clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir)
         if not clone_path:
             log.error("analyze %s: clone failed", ci_name)

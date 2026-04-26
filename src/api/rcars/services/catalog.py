@@ -148,6 +148,15 @@ REF_VARS = [
 ]
 
 
+TEMPLATE_REPOS = [
+    "showroom_template_default",
+]
+
+
+def _is_template_repo(url: str) -> bool:
+    return any(t in url for t in TEMPLATE_REPOS)
+
+
 def _extract_from_dict(
     d: dict, catalog_params: list[dict], definition: dict,
 ) -> tuple[str | None, str | None]:
@@ -158,7 +167,10 @@ def _extract_from_dict(
     for var in URL_VARS:
         value = d.get(var)
         if value and isinstance(value, str) and not value.startswith("{{"):
-            url = value.split(" #")[0].strip()
+            candidate = value.split(" #")[0].strip()
+            if _is_template_repo(candidate):
+                continue
+            url = candidate
             break
 
     for var in REF_VARS:
