@@ -56,7 +56,7 @@ async def refresh_catalog(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="refresh", queue="ops", created_by=user)
-    await arq_redis.enqueue_job("run_catalog_refresh", job_id=job_id, _queue_name="default")
+    await arq_redis.enqueue_job("run_catalog_refresh", job_id=job_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}
 
 
