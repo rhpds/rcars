@@ -176,7 +176,7 @@ export function AdminCatalogPage() {
               if (done) {
                 clearInterval(interval)
                 const finalProgress = await api.getScanProgress()
-                const propCount = (finalProgress as { total_propagated?: number }).total_propagated || 0
+                const propCount = finalProgress.total_propagated || 0
                 addLog(`Scan complete: ${lastComplete} scanned + ${propCount} propagated = ${lastComplete + propCount} total, ${lastFailed} failed`)
                 loadStatus()
               }

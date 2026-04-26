@@ -78,7 +78,7 @@ export const api = {
   getWorkerHealth: () => request<unknown>('/admin/workers'),
   getScanProgress: () => request<{
     queued: number; running: number; complete: number; failed: number;
-    total: number; recent_complete: string[]; recent_failures: string[];
+    total: number; total_propagated: number; recent_complete: string[]; recent_failures: string[];
   }>('/admin/scan-progress'),
   getJobStatus: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
