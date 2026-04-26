@@ -43,14 +43,16 @@ class Settings(BaseSettings):
         "babylon-catalog-event",
     ]
 
-    # Showroom URL variable names
+    # Showroom URL variable names (OCP Helm/Operator, RHEL/VM bastion, legacy bookbag)
     showroom_url_vars: list[str] = [
         "ocp4_workload_showroom_content_git_repo",
         "showroom_git_repo",
+        "bookbag_git_repo",
     ]
     showroom_ref_vars: list[str] = [
         "ocp4_workload_showroom_content_git_repo_ref",
-        "showroom_git_repo_ref",
+        "ocp4_workload_showroom_content_git_ref",
+        "showroom_git_ref",
     ]
 
     # Auth / roles

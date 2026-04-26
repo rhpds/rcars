@@ -18,11 +18,14 @@ log = logging.getLogger(__name__)
 
 # Only these fields are extracted from AgnosticVComponent spec.definition.
 # Everything else (vault secrets, SSH keys, credentials) is discarded.
+# Covers OCP (Helm/Operator), RHEL/VM (bastion container), and legacy bookbag.
 CRD_FIELD_ALLOWLIST = [
     "ocp4_workload_showroom_content_git_repo",
     "ocp4_workload_showroom_content_git_repo_ref",
+    "ocp4_workload_showroom_content_git_ref",
     "showroom_git_repo",
-    "showroom_git_repo_ref",
+    "showroom_git_ref",
+    "bookbag_git_repo",
 ]
 
 LABEL_PREFIX = "babylon.gpte.redhat.com/"
@@ -105,28 +108,64 @@ def component_item_to_ci_name(component_item: str, stage: str) -> str:
     return component_item.replace("/", ".").replace("_", "-") + "." + stage
 
 
+def _resolve_template_var(
+    value: str, definition: dict, catalog_params: list[dict],
+) -> str | None:
+    """Resolve a Jinja2 template variable like '{{ showroom_repo_revision }}'.
+
+    Resolution order:
+    1. Check catalog parameters for a default (user-facing override, e.g. dev.yaml)
+    2. Fall back to the variable's value in spec.definition (e.g. from common.yaml)
+    """
+    import re
+    match = re.match(r"\{\{\s*(\w+)\s*\}\}", value.strip())
+    if not match:
+        return None
+    var_name = match.group(1)
+
+    for param in catalog_params:
+        if param.get("name") == var_name:
+            default = (param.get("openAPIV3Schema") or {}).get("default")
+            if default and isinstance(default, str):
+                return default.split(" #")[0].strip()
+
+    resolved = definition.get(var_name)
+    if resolved and isinstance(resolved, str) and not resolved.startswith("{{"):
+        return resolved.split(" #")[0].strip()
+
+    return None
+
+
 def extract_showroom_url(
     component_crd: dict[str, Any],
 ) -> tuple[str | None, str | None]:
     """Extract Showroom URL and ref from an AgnosticVComponent CRD.
 
-    Uses a strict allowlist — only Showroom URL/ref variables are read.
-    All other fields in spec.definition (secrets, credentials, SSH keys)
-    are ignored.
+    Checks all known showroom variable names across OCP-based (Helm/Operator),
+    RHEL/VM-based (container on bastion), and legacy bookbag formats.
+
+    When a ref value is a Jinja2 template (e.g. '{{ showroom_repo_revision }}'),
+    resolves it by looking up the variable in spec.definition, with catalog
+    parameter defaults taking precedence (they represent the user-facing value
+    for that stage).
 
     Returns (url, ref) tuple. Both are None if no Showroom URL found.
     """
     definition = (
         component_crd.get("spec", {}).get("definition", {}) or {}
     )
+    meta = definition.get("__meta__", {})
+    catalog_params = (meta.get("catalog") or {}).get("parameters") or []
 
     url_vars = [
         "ocp4_workload_showroom_content_git_repo",
         "showroom_git_repo",
+        "bookbag_git_repo",
     ]
     ref_vars = [
         "ocp4_workload_showroom_content_git_repo_ref",
-        "showroom_git_repo_ref",
+        "ocp4_workload_showroom_content_git_ref",
+        "showroom_git_ref",
     ]
 
     url = None
@@ -135,13 +174,19 @@ def extract_showroom_url(
     for var in url_vars:
         value = definition.get(var)
         if value and isinstance(value, str) and not value.startswith("{{"):
-            # Strip inline YAML comments (e.g. "https://repo.git #TODO: update")
             url = value.split(" #")[0].strip()
             break
 
     for var in ref_vars:
         value = definition.get(var)
-        if value and isinstance(value, str) and not value.startswith("{{"):
+        if not value or not isinstance(value, str):
+            continue
+        if value.startswith("{{"):
+            resolved = _resolve_template_var(value, definition, catalog_params)
+            if resolved:
+                ref = resolved
+                break
+        else:
             ref = value.split(" #")[0].strip()
             break
 
