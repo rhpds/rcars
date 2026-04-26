@@ -307,6 +307,47 @@ Both the CLI (`rcars scan`) and the worker (`run_analysis`) implement propagatio
 
 ---
 
+## Worker Architecture
+
+### Why Workers Are Split
+
+All LLM operations run in background workers, not in the API process. This keeps the API responsive — it accepts requests, creates job records, enqueues tasks to Redis, and returns immediately with a `job_id`.
+
+Workers are split into two separate deployments:
+
+- **`rcars-scan-worker`** — handles `run_analysis`, `run_catalog_refresh`, and `run_stale_check`. Listens on `arq:queue:scan`. These are batch operations that can run for hours during a full catalog scan.
+- **`rcars-recommend-worker`** — handles `run_recommendation` only. Listens on `arq:queue:recommend`. These are user-facing queries that must respond in 30–60 seconds.
+
+The split exists because of a starvation problem discovered during v2 stabilization: with a single worker deployment, a bulk scan (400+ items at ~1 minute each) would monopolize all worker slots for hours, making the advisor completely unresponsive. Separate deployments with separate Redis queues guarantee that a user can always get a recommendation, even during a full catalog scan.
+
+### Job Lifecycle
+
+1. **API** receives a request (e.g., advisor query, scan trigger, catalog refresh)
+2. **API** creates a job record in PostgreSQL (`status: queued`) and enqueues the task to the appropriate Redis queue
+3. **Worker** picks up the task from Redis, updates job status to `running` with `progress_json` containing the CI name
+4. **Worker** executes the task (clone repo, call LLM, generate embeddings, etc.)
+5. **Worker** writes results to PostgreSQL (`showroom_analysis`, `embeddings`) and updates job status to `complete` or `failed`
+6. For recommendation jobs: the worker publishes progress to a Redis pub/sub channel, which the API relays to the browser via SSE (Server-Sent Events)
+
+The API and worker never communicate directly. Redis is the sole coordination channel — queues for job dispatch, pub/sub for progress streaming.
+
+### Configuration
+
+| Setting | Scan Worker | Recommend Worker |
+|---|---|---|
+| `max_jobs` | 5 | 3 |
+| `job_timeout` | 600s | 120s |
+| CPU request/limit | 500m / 2 | 250m / 1 |
+| Memory request/limit | 1Gi / 4Gi | 1Gi / 2Gi |
+
+The scan worker has higher resource limits because it runs `git clone` operations and loads the sentence-transformers model for embedding generation. The recommend worker is lighter — it only makes LLM API calls and runs vector searches against PostgreSQL.
+
+### Scaling
+
+Workers are stateless. To increase scan throughput, increase `scan_worker_replicas` in the Ansible vars. The recommend worker typically needs only 1 replica since recommendation queries are infrequent and complete in under a minute.
+
+---
+
 ## The Recommendation Engine (`recommender/`)
 
 Recommendation is a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results.
