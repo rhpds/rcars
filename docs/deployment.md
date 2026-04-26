@@ -2,7 +2,7 @@
 
 ## Architecture
 
-RCARS v2 runs as three separate components on OpenShift:
+RCARS v2 runs as four separate components on OpenShift:
 
 | Component | Image | What it does |
 |---|---|---|

@@ -39,7 +39,7 @@ Each of these stages is independent. The catalog can be refreshed without re-ana
 
 ## What It Runs On
 
-RCARS runs on Red Hat OpenShift. It is a single Python application backed by a PostgreSQL database with the pgvector extension, which enables fast similarity search over stored content embeddings. AI analysis and recommendations use Claude Sonnet via Red Hat's Vertex AI integration. Access is controlled through OpenShift's built-in OAuth proxy, so users log in with their standard Red Hat SSO credentials.
+RCARS runs on Red Hat OpenShift as a three-tier application: a React frontend, a FastAPI JSON API, and arq background workers for LLM operations. It is backed by PostgreSQL with the pgvector extension for fast similarity search over stored content embeddings. AI analysis and recommendations use Claude Sonnet via Red Hat's Vertex AI integration. Access is controlled through OpenShift's built-in OAuth proxy, so users log in with their standard Red Hat SSO credentials.
 
 ## Current Status
 

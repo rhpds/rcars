@@ -7,62 +7,20 @@ description: End-to-end technical architecture of RCARS
 
 ## System Overview
 
-RCARS is a Python application that pulls from the RHDP catalog, analyzes lab content with an LLM, stores results in PostgreSQL, and answers recommendation queries using a combination of vector similarity search and LLM ranking.
+RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pulls from the RHDP catalog, analyzes lab content with an LLM, stores results in PostgreSQL with pgvector, and answers recommendation queries using vector similarity search and LLM ranking.
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  RHDP Infrastructure                                                 │
-│                                                                      │
-│  Babylon K8s Cluster            Showroom Git Repos                   │
-│  ┌──────────────────────────┐   ┌──────────────────┐                │
-│  │ AgnosticVComponent       │   │ .adoc lab content │                │
-│  │ CatalogItem CRDs         │   │ (Antora layout)  │                │
-│  └────────────┬─────────────┘   └────────┬─────────┘                │
-└───────────────┼─────────────────────────-┼──────────────────────────┘
-                │ rcars refresh             │ rcars scan
-                ▼                          ▼
-┌──────────────────────────────────────────────────────────────────────┐
-│  OpenShift — rcars-dev namespace                                     │
-│                                                                      │
-│  ┌────────────────────────────────────────────┐                     │
-│  │  RCARS Pod                                 │                     │
-│  │                                            │                     │
-│  │  ┌─────────────────┐  ┌─────────────────┐ │                     │
-│  │  │  Catalog Reader │  │ Analyzer        │ │                     │
-│  │  │  (catalog_      │  │ + Embedder      │ │                     │
-│  │  │   reader.py)    │  │ (analyzer.py    │ │                     │
-│  │  └─────────────────┘  │  + ST model)    │ │                     │
-│  │                        └─────────────────┘ │                     │
-│  │  ┌───────────────────────────────────────┐ │                     │
-│  │  │  Recommender (3-phase pipeline)       │ │                     │
-│  │  │  Vector → Haiku triage → Sonnet       │ │                     │
-│  │  └───────────────────────────────────────┘ │                     │
-│  │  ┌───────────────────────────────────────┐ │                     │
-│  │  │  FastAPI Web App                      │ │                     │
-│  │  │  /advisor (HTMX)  /curate  /admin     │ │                     │
-│  │  │  OAuth Proxy → X-Forwarded-Email      │ │                     │
-│  │  └───────────────────────────────────────┘ │                     │
-│  └──────────────────────────┬─────────────────┘                     │
-│                             │ SQL / pgvector queries                 │
-│  ┌──────────────────────────▼─────────────────┐                     │
-│  │  PostgreSQL Pod + pgvector                  │                     │
-│  │                                             │                     │
-│  │  ┌──────────────┐  ┌──────────────────┐    │                     │
-│  │  │ catalog_items│  │showroom_analysis │    │                     │
-│  │  └──────────────┘  └──────────────────┘    │                     │
-│  │  ┌──────────────┐  ┌──────────────────┐    │                     │
-│  │  │  embeddings  │  │  action_log      │    │                     │
-│  │  │  (vector384) │  │                  │    │                     │
-│  │  └──────────────┘  └──────────────────┘    │                     │
-│  │  ┌──────────────────────────────────────┐  │                     │
-│  │  │  enrichment_tags / enrichment_notes  │  │                     │
-│  │  └──────────────────────────────────────┘  │                     │
-│  └─────────────────────────────────────────────┘                     │
-└──────────────────────────────────────────────────────────────────────┘
-                │ Recommendations
-                ▼
-           Users / Field Teams
-```
+### Deployments
+
+| Component | Image | Queue | Purpose |
+|---|---|---|---|
+| `rcars-api` | `rcars-api:latest` | — | FastAPI JSON API, serves `/api/v1/*` |
+| `rcars-scan-worker` | `rcars-api:latest` | `arq:queue:scan` | Analysis, catalog refresh, stale checks |
+| `rcars-recommend-worker` | `rcars-api:latest` | `arq:queue:recommend` | Advisor recommendation queries |
+| `rcars-frontend` | `rcars-frontend:latest` | — | React SPA (nginx), proxies `/api/*` to API |
+
+Workers are split into two deployments so bulk scans never block user-facing advisor queries. Both workers use the same container image with different arq entrypoints.
+
+Supporting infrastructure: PostgreSQL 16 + pgvector, Redis 7, OAuth proxy.
 
 The three main pipelines — catalog sync, content analysis, and recommendation — run independently and can be triggered separately. Nothing in the analysis pipeline depends on the state of an ongoing recommendation query, and vice versa.
 
@@ -97,17 +55,29 @@ What matters for RCARS is whether a CI has a Showroom URL — that is where the 
 
 ---
 
-## Catalog Reader (`catalog_reader.py`)
+## Catalog Reader (`services/catalog.py`)
 
-The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `AgnosticVComponent` resources in each target namespace.
+The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `CatalogItem` and `AgnosticVComponent` resources. CatalogItems provide catalog metadata (display name, category, stage); AgnosticVComponents provide the showroom URLs from `spec.definition`.
 
 For each component, it extracts:
 
-- **Display name, category, product, description, keywords, stage** — from standard CRD metadata fields
-- **Showroom URL and ref** — not a single field, but embedded in the component's workload variable configuration. The reader scans two known variable name patterns (`ocp4_workload_showroom_content_git_repo` and `showroom_git_repo`, along with their corresponding `_ref` variants) to locate the Git repository URL and branch/tag reference for the Showroom content.
-- **Published/base CI relationship** — derived from the CRD structure. Published CIs reference base CIs by name; the reader records both directions of this relationship.
+- **Display name, category, product, description, keywords, stage** — from CatalogItem CRD metadata and labels
+- **Showroom URL and ref** — extracted from the AgnosticVComponent using a three-tier resolution strategy (see below)
+- **Published/base CI relationship** — derived from `__meta__.components[].item` references
 
-The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert — nothing is deleted, but all fields are updated to match the current CRD state. This means if a Showroom URL is removed from a CRD, the next refresh will clear it from the database.
+The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
+
+### Showroom URL Extraction
+
+Showroom URLs are not stored in a single consistent field. RCARS checks three locations in priority order:
+
+**1. Top-level `spec.definition`** — the most common pattern. URL variables checked (in order): `ocp4_workload_showroom_content_git_repo`, `showroom_git_repo`, `bookbag_git_repo`. Ref variables: `ocp4_workload_showroom_content_git_repo_ref`, `ocp4_workload_showroom_content_git_ref`, `showroom_git_ref`.
+
+**2. Template variable resolution** — some CIs use Jinja2 templates for the ref (e.g., `{{ showroom_repo_revision }}`). RCARS resolves these by looking up the variable name in `spec.definition`, with catalog parameter defaults taking precedence per stage. Example: `modernize-ocp-virt` dev has a catalog parameter defaulting to `main`, while prod/event inherit `v1.0.0` from the definition.
+
+**3. Component `parameter_values`** — Zero Touch (ZT) Virtual CIs have `deployer.type: null` and delegate to a base component, passing the showroom URL as a parameter override in `__meta__.components[].parameter_values`. This covers ~254 CIs (entire `zt-rhelbu` and most `zt-ansiblebu`).
+
+**Template repos skipped:** URLs containing `showroom_template_default`, `showroom_template_nookbag`, or `showroom_template_zero` are filtered out — these are placeholder defaults from shared includes, not real content.
 
 ---
 
@@ -310,9 +280,30 @@ Two types of embeddings are generated using a locally-running sentence-transform
 
 The sentence-transformers model runs locally inside the RCARS pod with no external API call. Embeddings are normalized (unit vectors), which makes cosine similarity equivalent to dot product — a requirement of pgvector's `<=>` operator.
 
-### Step 7 — Store and Clean Up
+### Step 7 — Store, Propagate, and Clean Up
 
 The analysis and embeddings are written to the database. The temporary clone directory is deleted. This cleanup runs in a `finally` block — the clone is always deleted regardless of whether earlier steps succeeded or failed.
+
+---
+
+## Scan Deduplication and Propagation
+
+Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant.
+
+RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
+
+1. All scannable items (with Showroom URL, non-published) are grouped by `(url, ref)`.
+2. One representative per group is selected for scanning (prod preferred, then event, then dev).
+3. After scanning the representative, the analysis and embeddings are **propagated** to all siblings in the same group.
+4. Each sibling gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable and recommendable.
+
+**Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
+
+**`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
+
+**No content caching.** Every scan is a fresh `git clone` with the ref resolved at clone time. There is no persistent cache of repo content between scans.
+
+Both the CLI (`rcars scan`) and the worker (`run_analysis`) implement propagation identically.
 
 ---
 
@@ -352,59 +343,60 @@ For broad multi-track events, follow-up queries can narrow results to specific a
 
 ---
 
-## Web Layer (`web/`)
+## Frontend (`src/frontend/`)
 
-The web application is built on FastAPI with Jinja2 templates and HTMX for dynamic UI updates. There is no JavaScript framework. Page fragments are rendered server-side and swapped into the DOM by HTMX directives in the HTML.
+The frontend is a React Single Page Application built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
 
-### Routes
+### Pages
 
-- **`/advisor`** — Main recommendation interface. Serves the two-pane layout and handles query submissions.
-- **`/advisor/query`** (POST) — Receives a query, detects URLs and fetches event context if present, spawns a background thread to run the three-phase pipeline, and returns an HTMX polling spinner.
-- **`/advisor/query/status`** (GET) — HTMX polling endpoint. Returns progressive results as each pipeline phase completes (vector candidates, triaged set, final rationale).
-- **`/advisor/restore/{session_id}/{turn_index}`** (GET) — Re-renders the recommendation set from a stored conversation turn. No LLM call — retrieves CI names from the stored turn and re-fetches their catalog records from the database.
-- **`/curate`** — Enrichment management page. Lists all catalog items with filtering, paginated navigation, and inline tag/note/flag/re-analyze controls.
-- **`/curate/tag`**, **`/curate/note`**, **`/curate/flag`**, **`/curate/analyze`** — HTMX endpoints that handle curator enrichment and per-item analysis operations.
-- **`/admin`** — Admin controls: catalog status, sync trigger, scan trigger, stale check trigger. All background operations preserve state across page navigation.
-- **`/admin/rescan`** (POST) — Triggers a background `rcars scan` subprocess. Output is streamed to both the admin log window and the pod's stdout.
-- **`/admin/check-stale`** (POST) — Triggers a background `rcars check-stale` subprocess for content change detection.
+- **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE (Server-Sent Events) from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
+- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, and duration.
+- **Admin** — Four sub-tabs: Catalog Status (sync/scan controls), Workers (queue depths and job list with CI names), Token Usage (LLM cost tracking), Query History (advisor session log).
+
+### API Routes
+
+All API routes are under `/api/v1/`:
+
+- `POST /advisor/query` — Submit recommendation query, returns `{job_id}`
+- `GET /advisor/query/{job_id}/stream` — SSE stream of recommendation progress
+- `GET /advisor/query/{job_id}/result` — Poll for final results
+- `POST /analysis/scan` — Trigger bulk scan of unanalyzed items
+- `POST /analysis/{ci_name}` — Trigger single-item analysis
+- `POST /catalog/refresh` — Trigger catalog sync from Babylon CRDs
+- `GET /catalog/stats` — Catalog status summary
+- `GET /catalog/browse` — Paginated catalog listing with filters
+- `GET /admin/workers` — Worker health and queue depths
+- `GET /admin/scan-progress` — Live scan progress with CI names and propagation counts
 
 ### Conversation Store
 
-Conversations are stored in a server-side Python dictionary keyed by session ID (a UUID generated per session). Each entry is a list of turns: `[{role, content, rec_ci_names}, ...]`. No conversation content is written to the database. Sessions exist only for the lifetime of the server process — a restart clears all sessions.
-
-This design is intentional. Keeping conversation text out of the database avoids audit trail, retention, and data classification concerns. The downside is that rollback does not survive server restarts. The session history visible in the browser sidebar is stored in `localStorage` client-side — labels persist across restarts, but clicking them after a restart returns nothing.
+Advisor sessions are stored in the PostgreSQL `advisor_sessions` table. Each session contains multiple turns with query text, results, and user selections. Sessions persist across server restarts.
 
 ### Authentication and Roles
 
-In the deployed OpenShift environment, an OAuth proxy sidecar sits in front of the RCARS pod. All requests pass through the proxy, which authenticates users against Red Hat SSO and injects the authenticated user's full email address in the `X-Forwarded-Email` header.
+An OAuth proxy sits in front of the application. All requests pass through the proxy, which authenticates users against Red Hat SSO and injects the `X-Forwarded-Email` header.
 
-RCARS reads this header on every request. A FastAPI dependency (`get_current_user()`) extracts the email and resolves the user's role:
+The API reads this header on every request via a FastAPI dependency (`get_current_user()`):
 
-- **Admin** — email is in `RCARS_ADMIN_EMAILS`. Full access plus admin-specific UI controls.
-- **Curator** — email is in `RCARS_CURATOR_EMAILS`. Full access plus curator mode in the UI.
-- **Viewer** — authenticated but not in either list. Can use the advisor; cannot access curator or admin pages.
+- **Admin** — email in `RCARS_ADMIN_EMAILS_STR`. Full access including catalog sync, scan, and worker controls.
+- **Curator** — email in `RCARS_CURATOR_EMAILS_STR`. Can trigger single-item analysis and manage enrichment tags.
+- **Viewer** — authenticated but not in either list. Can use the advisor and browse.
 
-In local development, the `RCARS_DEV_USER` environment variable fakes the `X-Forwarded-Email` header value, allowing development without an OAuth proxy.
+In local development, `RCARS_DEV_USER` bypasses auth entirely.
 
 ---
 
 ## Deployment
 
-RCARS runs as a single pod on an OpenShift cluster. The pod runs the FastAPI application via Uvicorn. The PostgreSQL database runs as a separate pod in the same namespace.
+RCARS runs as four separate deployments on OpenShift, all in the `rcars-dev` namespace. See [Deployment Guide](deployment.md) for full setup instructions.
 
-### Build and Deploy
-
-Deployments are managed by an Ansible playbook (`ansible/deploy.yml`). The playbook supports tagged execution:
+Deployments are managed by an Ansible playbook (`ansible/deploy.yml`) with tagged execution:
 
 | Tag | What it does |
 |---|---|
-| `update` | Full cycle: build image + apply manifests + wait for rollout |
+| `update` | Full cycle: apply manifests + build images + wait for rollout + schema setup |
 | `apply` | Apply Kubernetes manifests only (no build) |
-| `builds` | Trigger an OpenShift image build only |
-| `migrate` | Run `rcars status` to initialize/update the schema |
+| `build-api` | Trigger API image build (rolls API + both workers via ImageStream trigger) |
+| `build-frontend` | Trigger frontend image build |
 
-A GitHub webhook configured in the repository triggers an OpenShift image build on every push to `main`. Builds do not roll out automatically — the `update` tag must be run to deploy a new image.
-
-### Schema Management
-
-Schema is managed through `rcars init-db`, which creates tables with `IF NOT EXISTS` and runs numbered migrations for adding new columns (e.g., `content_hash`). The `--drop` flag performs a full reset — it terminates other database connections, drops all tables, and recreates the schema from scratch. The database connection auto-reconnects if terminated, so the web app recovers without a pod restart.
+ImageStream change triggers automatically roll deployments when a new image is pushed — no manual restart needed.
