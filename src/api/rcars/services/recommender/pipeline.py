@@ -2,18 +2,65 @@
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Callable, Awaitable
 
 from rcars.db import Database
 from rcars.config import Settings
-from rcars.services.recommender.models import QueryState
+from rcars.services.recommender.models import Candidate, QueryState
 from rcars.services.recommender.vector_search import search
 from rcars.services.recommender.triage import triage
 from rcars.services.recommender.rationale import generate_rationale
 import structlog
 
 logger = structlog.get_logger()
+
+
+def _extract_duration_target(query: str) -> tuple[int | None, bool]:
+    """Extract a duration target (minutes) and whether it's a hard constraint."""
+    hard_keywords = ("hard limit", "strict", "maximum", "no more than", "at most", "cannot exceed", "must be under")
+    is_hard = any(k in query.lower() for k in hard_keywords)
+
+    patterns = [
+        r'(\d+)\s*[-–]?\s*hour',
+        r'(\d+)\s*[-–]?\s*min',
+        r'(\d+)\s*[-–]?\s*hr',
+    ]
+    for pat in patterns:
+        m = re.search(pat, query, re.IGNORECASE)
+        if m:
+            val = int(m.group(1))
+            if 'min' in pat:
+                return val, is_hard
+            return val * 60, is_hard
+    return None, is_hard
+
+
+def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: bool) -> None:
+    """Apply a soft score penalty based on duration overshoot.
+
+    Gentle: a 2x overshoot loses ~15% (soft) or ~25% (hard).
+    This reorders but doesn't remove candidates from contention.
+    """
+    for c in candidates:
+        if c.relevance_score is None or c.duration_min is None:
+            continue
+        if c.duration_min <= target_min:
+            continue
+        ratio = c.duration_min / target_min
+        # Soft: 1 - 0.08 * ln(ratio), capped at 0.7
+        # Hard: 1 - 0.15 * ln(ratio), capped at 0.6
+        import math
+        coeff = 0.15 if hard else 0.08
+        floor = 0.6 if hard else 0.7
+        multiplier = max(floor, 1.0 - coeff * math.log(ratio))
+        old_score = c.relevance_score
+        c.relevance_score = round(old_score * multiplier)
+        logger.debug("duration_penalty", ci_name=c.ci_name,
+                     duration=c.duration_min, target=target_min,
+                     ratio=round(ratio, 1), multiplier=round(multiplier, 2),
+                     old_score=old_score, new_score=c.relevance_score)
 
 
 async def run_query(
@@ -65,6 +112,16 @@ async def run_query(
     if state.phase == "NO_MATCHES":
         await emit({"phase": "complete", "results": 0})
         return state
+
+    # Duration re-ranking (between triage and rationale)
+    duration_target, is_hard = _extract_duration_target(query)
+    if duration_target:
+        _apply_duration_penalty(state.candidates, duration_target, is_hard)
+        state.candidates.sort(key=lambda c: (
+            0 if c.tier == "yellow" else 1,
+            -(c.relevance_score or 0) if c.tier == "yellow" else -(c.vector_similarity_pct or 0),
+        ))
+        logger.info("duration_rerank", target=duration_target, hard=is_hard)
 
     # Phase 3: Rationale
     top_n = settings.rationale_top_n
