@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { LcarsButton } from '../components/lcars'
@@ -32,6 +33,10 @@ interface ItemDetail {
   stage: string
   catalog_namespace: string
   showroom_url: string | null
+  scan_status: string
+  scan_error_class: string | null
+  scan_error: string | null
+  scan_failed_at: string | null
   analysis: {
     summary: string | null
     content_type: string | null
@@ -72,12 +77,14 @@ function catalogUrl(ciName: string, namespace: string): string {
 
 export function BrowsePage() {
   const auth = useAuth()
+  const [searchParams] = useSearchParams()
   const [allItems, setAllItems] = useState<CatalogItem[]>([])
   const [search, setSearch] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
   const [showZt, setShowZt] = useState(true)
-  const [contentFilter, setContentFilter] = useState<ContentFilter>('all')
+  const initialFilter = (searchParams.get('filter') as ContentFilter) || 'all'
+  const [contentFilter, setContentFilter] = useState<ContentFilter>(initialFilter)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(true)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
@@ -277,6 +284,21 @@ export function BrowsePage() {
 
                 {isExpanded && detail && (
                   <div style={{ marginTop: '12px' }}>
+                    {detail.scan_status === 'failed' && (
+                      <div style={{ background: '#2a1515', border: '1px solid #5a2020', borderRadius: '6px', padding: '10px 14px', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '12px', color: '#ff9999', fontWeight: 600, marginBottom: '4px' }}>
+                          Scan Error{detail.scan_error_class ? `: ${detail.scan_error_class}` : ''}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#cc8888', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>
+                          {detail.scan_error || 'No error details available'}
+                        </div>
+                        {detail.scan_failed_at && (
+                          <div style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>
+                            Failed: {new Date(detail.scan_failed_at).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {detail.analysis && (
                       <>
                         {detail.analysis.content_type && (

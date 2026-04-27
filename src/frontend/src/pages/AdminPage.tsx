@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import { LcarsButton } from '../components/lcars'
 import { LogWindow } from '../components/admin/LogWindow'
@@ -256,6 +257,7 @@ function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
 }
 
 export function AdminCatalogPage() {
+  const navigate = useNavigate()
   const [status, setStatus] = useState<CatalogStatus | null>(null)
 
   const loadStatus = () => {
@@ -297,7 +299,12 @@ export function AdminCatalogPage() {
               </tr>
               <tr>
                 <td>Scan failures</td>
-                <td style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c' }}>{status.failed_count}</td>
+                <td>
+                  <span
+                    onClick={() => status.failed_count > 0 && navigate('/browse?filter=scan_failures')}
+                    style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c', cursor: status.failed_count > 0 ? 'pointer' : 'default', textDecoration: status.failed_count > 0 ? 'underline' : 'none' }}
+                  >{status.failed_count}</span>
+                </td>
               </tr>
               <tr style={{ borderTop: '1px solid #2a2a3a' }}>
                 <td style={{ color: '#666' }}>Last catalog sync</td>
