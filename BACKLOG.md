@@ -2,7 +2,7 @@
 
 Last updated: 2026-04-27
 
-## Completed This Session (2026-04-27)
+## Completed
 
 - [x] SSE streaming for admin log windows (catalog refresh, stale check)
 - [x] Worker scan log parity — showroom URL, ref, content files, tokens logged
@@ -31,27 +31,29 @@ Last updated: 2026-04-27
 - [x] Duration-aware scoring — soft penalty for duration mismatch, hard penalty for "hard limit" language
 - [x] Rationale prompt uses display names, not CI paths
 - [x] Scan-progress scoped to current batch (not counting old completed jobs)
-
-## In Progress
-
-- [ ] Full rescan running (nav.adoc fix, ~385 repos, started 2026-04-27 ~14:40 UTC)
-- [ ] Workers page improvements committed but not yet deployed (waiting for scan to finish)
+- [x] Viewport scroll containment — overflow:hidden on html/body/#root, flex layout
+- [x] Advisor scroll containment — flex panes with min-height:0 and overflow-y:auto
+- [x] Nav.adoc subdirectory xrefs — handles nested module paths (e.g. `200-ops/lab_1.adoc`)
+- [x] Dev/event/ZT toggles in Advisor — pill toggles with server-side ZT filtering
+- [x] Clickable failure/stale counts on Admin page — deep link to Browse filtered view
+- [x] Browse URL param filtering — `?filter=scan_failures` etc. from Admin links
+- [x] Scan failure error details — expanded items show error class, message, timestamp
+- [x] Analysis stale threshold — percentage-based (>10% incomplete), not any-failure
+- [x] Content path API + UI — curator input to set custom content folder and trigger rescan
+- [x] Analysis max_tokens bumped to 8192 for large showrooms
+- [x] Stale item visibility — Browse filter + clickable Admin count
 
 ## Bugs
 
-- [ ] **Viewport scroll still broken** — chat pane extends beyond viewport when response is long; `html/body/#root overflow:hidden` fix committed but not yet deployed
-- [ ] **Nav.adoc edge case** — pages used outside nav.adoc (rare but possible); current behavior: nav.adoc is source of truth, unlisted pages are skipped
 - [ ] **DB/worker sync** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
 - [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker
 
 ## UI / UX
 
 - [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
-- [ ] **Advisor scroll containment** — deployed fix needs verification after next build
 - [ ] **Admin query history** — show user email, session duration
-- [ ] **Browse page** — ZT content classification (distinguish full workshops from micro-labs, filter in recommendations)
-- [ ] **Browse page** — "untagged" filter not yet implemented
-- [ ] **Private mode toggle** — opt-out of query logging (design started, deferred)
+- [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
+- [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
 
 ## Recommendation Quality
 
@@ -67,12 +69,11 @@ Last updated: 2026-04-27
 
 - [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; would avoid rescanning when `main` and `v1.0` point to same commit
 - [ ] **Stale detection improvements** — current content hash comparison requires full clone; could use GitHub API for lightweight checks
+- [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats are not scanned or indexed. These need different extraction pipelines (e.g. Arcade JSON/YAML, architecture docs from repos or Confluence). Would enable advisor responses like "here's a reference architecture for deploying X" instead of only hands-on labs
 - [ ] **Old monolith code** — `src/rcars/` should be removed once v2 is fully verified
-- [ ] **Nav.adoc subdirectory xrefs** — test with repos that use nested module structures (e.g. `xref:200-ops/lab_1.adoc`)
 
 ## Architecture
 
-- [ ] **Dev/event catalog visibility** — configurable scope filtering, "not yet available" callout for dev-only content
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for PH "unpacking"
 - [ ] **Conversational advisor** — multi-turn refinement with memory, interactive event URL parsing
 
