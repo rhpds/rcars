@@ -31,7 +31,10 @@ Also provide:
 
 - content_gaps: Array of topic strings not covered. Empty array if all covered. Do NOT include a "Content Gaps" section in the overall_assessment — the content_gaps array handles that separately.
 
-IMPORTANT: The Duration field in each candidate's metadata is the actual lab duration. Do not contradict it. If it says "Duration: 120 min", the content is approximately 2 hours.
+IMPORTANT:
+- The Duration field in each candidate's metadata is the actual lab duration. Do not contradict it. If it says "Duration: 120 min", the content is approximately 2 hours.
+- When the user specifies a time constraint, rank candidates that fit naturally ABOVE those requiring heavy cutting. A 120-min lab is a better fit for a "2-hour" request than a 480-min lab even if the longer lab has broader coverage. In the overall_assessment, lead with the best-fitting option, not the most comprehensive one.
+- When listing **Top Picks**, reorder them by practical fit for the request — not by the candidate numbering. The best recommendation for the user comes first.
 
 Return ONLY valid JSON (no markdown fences):
 {

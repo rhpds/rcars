@@ -24,7 +24,8 @@ def format_triage_candidates(candidates: list[Candidate]) -> str:
             f"Topics: {', '.join(c.topics)}\n"
             f"Products: {', '.join(c.products)}\n"
             f"Category: {c.category}\n"
-            f"Content Type: {c.content_type}"
+            f"Content Type: {c.content_type}\n"
+            f"Duration: {c.duration_min or '?'} min"
         )
     return "\n\n".join(parts)
 

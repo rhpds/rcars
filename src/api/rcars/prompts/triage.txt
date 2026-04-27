@@ -23,6 +23,7 @@ For each candidate, evaluate whether its content directly addresses the request.
 
 Rules:
 - relevance_score: 0–100. Score based on how well the content matches the request, not general quality.
+- If the user specifies a time constraint (e.g. "2-hour lab"), penalize candidates whose Duration far exceeds it. A 480-min lab cannot be a top match for a 2-hour request — even with perfect topic coverage, the score should reflect that the content requires heavy cutting. Candidates that fit the time constraint naturally should score higher than those requiring major trimming.
 - relevant: true if score >= 30, false otherwise.
 - one_line_reason: One sentence explaining the score. Be specific about what matches or doesn't match.
 - Return an entry for EVERY candidate, even if not relevant.
