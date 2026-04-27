@@ -56,6 +56,26 @@ async def rescan_stale(request: Request, user: str = Depends(require_admin)):
     return {"job_id": parent_job_id, "enqueued": len(stale_items)}
 
 
+@router.post("/rescan-all")
+async def rescan_all(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+
+    marked = db.mark_all_stale()
+    dedup_stats = db.get_scan_dedup_stats()
+    items = db.get_items_needing_analysis()
+    parent_job_id = db.create_job(job_type="rescan_all", queue="analyze", created_by=user)
+
+    for item in items:
+        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all")
+        await arq_redis.enqueue_job(
+            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="arq:queue:scan"
+        )
+
+    db.complete_job(parent_job_id, result_json={"marked_stale": marked, "enqueued": len(items), **dedup_stats})
+    return {"job_id": parent_job_id, "marked_stale": marked, "enqueued": len(items), **dedup_stats}
+
+
 @router.post("/{ci_name}")
 async def analyze_single(ci_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db

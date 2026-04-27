@@ -69,6 +69,7 @@ export const api = {
   startScan: () => request<{ job_id: string; enqueued: number }>('/analysis/scan', { method: 'POST' }),
   checkStale: () => request<{ job_id: string }>('/analysis/check-stale', { method: 'POST' }),
   rescanStale: () => request<{ job_id: string; enqueued: number }>('/analysis/rescan-stale', { method: 'POST' }),
+  rescanAll: () => request<{ job_id: string; marked_stale: number; enqueued: number; total_scannable?: number; unique_pairs?: number }>('/analysis/rescan-all', { method: 'POST' }),
   analyzeSingle: (ciName: string) =>
     request<{ job_id: string }>(`/analysis/${encodeURIComponent(ciName)}`, { method: 'POST' }),
 

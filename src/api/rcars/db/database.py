@@ -357,6 +357,12 @@ class Database:
             )
             conn.commit()
 
+    def mark_all_stale(self) -> int:
+        with self._pool.connection() as conn:
+            cur = conn.execute("UPDATE showroom_analysis SET is_stale = TRUE WHERE is_stale = FALSE")
+            conn.commit()
+            return cur.rowcount
+
     def clear_stale(self, ci_name: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
