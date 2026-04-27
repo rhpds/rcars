@@ -305,15 +305,30 @@ export function AdminWorkersPage() {
     return '#666'
   }
 
+  const shortTime = (iso: string) => {
+    const d = new Date(iso)
+    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  }
+
+  const elapsed = (created: string, completed: string | null) => {
+    if (!completed) return '-'
+    const ms = new Date(completed).getTime() - new Date(created).getTime()
+    if (ms < 1000) return '<1s'
+    const s = Math.round(ms / 1000)
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    return `${m}m ${s % 60}s`
+  }
+
   return (
-    <div className="admin-layout">
+    <div className="admin-layout admin-layout--wide">
       <div className="admin-section">
         <h3>Queue Depths</h3>
         <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
           Number of jobs waiting in each Redis queue. Auto-refreshes every 10 seconds.
         </p>
         {health ? (
-          <table className="status-table">
+          <table className="status-table status-table--compact">
             <thead><tr><th>Queue</th><th>Depth</th><th>Status</th></tr></thead>
             <tbody>
               {Object.entries(health.queue_depths).map(([queue, depth]) => (
@@ -331,7 +346,7 @@ export function AdminWorkersPage() {
           <div style={{ color: '#666' }}>Loading...</div>
         )}
         {health && (
-          <div style={{ marginTop: '12px', fontSize: '14px', color: '#aaa' }}>
+          <div style={{ marginTop: '10px', fontSize: '14px', color: '#aaa' }}>
             Active jobs: {health.active_jobs} · Recent failures:{' '}
             <span style={{ color: health.failed_jobs_recent > 0 ? '#c9190b' : '#5cb85c' }}>
               {health.failed_jobs_recent}
@@ -343,20 +358,21 @@ export function AdminWorkersPage() {
       <div className="admin-section">
         <h3>Recent Jobs</h3>
         {jobs.length > 0 ? (
-          <table className="status-table">
-            <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>By</th></tr></thead>
+          <table className="status-table status-table--compact">
+            <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
             <tbody>
               {jobs.map(job => {
                 const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
                 return (
                   <tr key={job.id} title={job.error || undefined}>
                     <td>{job.job_type}</td>
-                    <td style={{ fontSize: '12px', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {ciName || '-'}
                     </td>
                     <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
-                    <td style={{ color: '#666', fontSize: '13px' }}>{new Date(job.created_at).toLocaleString()}</td>
-                    <td style={{ color: '#666', fontSize: '13px' }}>{job.created_by || '-'}</td>
+                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
+                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
+                    <td style={{ color: '#888', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>
                   </tr>
                 )
               })}
