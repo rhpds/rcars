@@ -416,6 +416,7 @@ class Database:
             SELECT e.ci_name, e.content_text, e.module_title,
                    e.embedding <=> %s::vector AS distance,
                    ci.display_name, ci.category, ci.stage,
+                   ci.showroom_url, ci.showroom_ref,
                    ci.is_published, ci.published_ci_name, ci.base_ci_name
             FROM embeddings e
             JOIN catalog_items ci ON e.ci_name = ci.ci_name

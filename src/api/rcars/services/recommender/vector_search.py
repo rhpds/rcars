@@ -33,39 +33,34 @@ def search(
         include_zt=include_zt,
     )
 
-    # Deduplicate published/base CI pairs.  Published CIs are the orderable
-    # items — if one exists, show it instead of the base CI.  Base CIs that
-    # have a published counterpart should never appear in results because
-    # users cannot order them directly.
-    #
-    # Strategy: collect all rows that pass the cutoff, then for each content
-    # group (keyed by base CI name), pick the published CI if present,
-    # otherwise keep the base CI.
-    rows_by_content: dict[str, dict] = {}
+    # Deduplicate by showroom content.  Multiple CIs can share the same
+    # showroom repo+ref (prod/dev/event variants, published/base pairs).
+    # Group by (showroom_url, showroom_ref) and keep the best representative:
+    #   1. Prefer prod over dev/event (prod is orderable by all users)
+    #   2. Prefer published over base (published is the orderable CI)
+    #   3. Break ties by vector distance
+    stage_priority = {"prod": 0, "event": 1, "dev": 2}
+    rows_by_content: dict[tuple, dict] = {}
     for row in rows:
         if row["distance"] > distance_cutoff:
             continue
 
-        ci_name = row["ci_name"]
-
-        # Content key: the base CI name that owns the Showroom content.
-        if row.get("is_published") and row.get("base_ci_name"):
-            content_key = row["base_ci_name"]
-        else:
-            content_key = ci_name
+        url = row.get("showroom_url") or ""
+        ref = row.get("showroom_ref") or ""
+        content_key = (url, ref) if url else (row["ci_name"],)
 
         existing = rows_by_content.get(content_key)
         if existing is None:
             rows_by_content[content_key] = row
         else:
-            # Prefer the published CI — it's what users can order
-            if row.get("is_published") and not existing.get("is_published"):
+            row_stage = stage_priority.get(row.get("stage", "prod"), 9)
+            ex_stage = stage_priority.get(existing.get("stage", "prod"), 9)
+            row_pub = 0 if row.get("is_published") else 1
+            ex_pub = 0 if existing.get("is_published") else 1
+            row_rank = (row_stage, row_pub, row["distance"])
+            ex_rank = (ex_stage, ex_pub, existing["distance"])
+            if row_rank < ex_rank:
                 rows_by_content[content_key] = row
-            # If both are published (shouldn't happen) or both base, keep
-            # the one with better distance
-            elif row.get("is_published") == existing.get("is_published"):
-                if row["distance"] < existing["distance"]:
-                    rows_by_content[content_key] = row
 
     candidates = []
     for row in rows_by_content.values():
