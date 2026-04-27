@@ -292,9 +292,6 @@ body {
   padding: 20px;
   min-height: 0;
   overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 
 /* Recommendation cards */

@@ -249,14 +249,17 @@ function RecCardList({ candidates, isComplete, streamPhase }: {
 
   return (
     <>
+      {green.length > 0 && (
+        <div style={{ fontSize: '12px', color: '#5cb85c', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
+      )}
       {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} />)}
 
       {yellow.length > 0 && (
-        <CollapsibleTier label={`Yellow (${yellow.length})`} candidates={yellow} defaultOpen={green.length === 0} isComplete={isComplete} />
+        <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} />
       )}
 
       {white.length > 0 && (
-        <CollapsibleTier label={`Other (${white.length})`} candidates={white} isComplete={isComplete} />
+        <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={isComplete} />
       )}
     </>
   )

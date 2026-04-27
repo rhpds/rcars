@@ -13,6 +13,8 @@ export interface StreamCandidate {
   relevance_score: number | null
   vector_similarity_pct: number | null
   stage: string
+  catalog_namespace: string
+  learning_objectives: string[]
   why_it_fits: string | null
   how_to_use: string | null
   suggested_format: string | null

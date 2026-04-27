@@ -496,12 +496,20 @@ export function AdminQueriesPage() {
     })
   }, [])
 
+  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+  const tierColor = (tier: string) => {
+    if (tier === 'green') return '#5cb85c'
+    if (tier === 'yellow') return '#e8a838'
+    return '#666'
+  }
+
   return (
-    <div className="admin-layout">
+    <div className="admin-layout admin-layout--wide">
       <div className="admin-section">
         <h3>Query History</h3>
         <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-          Historical advisor queries and results. Opted-out queries show as redacted.
+          Advisor queries and recommendations. Click to expand details.
         </p>
 
         {loading ? (
@@ -509,76 +517,60 @@ export function AdminQueriesPage() {
         ) : sessions.length === 0 ? (
           <div style={{ color: '#666' }}>No queries recorded yet.</div>
         ) : (
-          <table className="status-table">
-            <thead><tr><th>Session</th><th>Turns</th><th>Started</th><th></th></tr></thead>
-            <tbody>
-              {sessions.map(session => (
-                <>
-                  <tr
-                    key={session.session_id}
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setExpandedSession(
-                      expandedSession === session.session_id ? null : session.session_id
-                    )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {sessions.map(session => {
+              const firstQuery = session.turns[0]?.query_text
+              const isExpanded = expandedSession === session.session_id
+              return (
+                <div key={session.session_id} style={{ background: '#0d1117', borderRadius: '6px', border: '1px solid #1e2030' }}>
+                  <div
+                    style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'baseline' }}
+                    onClick={() => setExpandedSession(isExpanded ? null : session.session_id)}
                   >
-                    <td style={{ fontFamily: 'monospace', fontSize: '13px' }}>
-                      {expandedSession === session.session_id ? '▾' : '▸'}{' '}
-                      {session.session_id.slice(0, 8)}...
-                    </td>
-                    <td>{session.turn_count}</td>
-                    <td style={{ color: '#666', fontSize: '13px' }}>
-                      {new Date(session.started_at).toLocaleString()}
-                    </td>
-                    <td></td>
-                  </tr>
-                  {expandedSession === session.session_id && session.turns.map((turn, ti) => (
-                    <tr key={`${session.session_id}-${ti}`} style={{ background: '#0a0d12' }}>
-                      <td colSpan={4} style={{ padding: '12px 20px' }}>
-                        <div style={{ fontSize: '13px', marginBottom: '6px' }}>
-                          <span style={{ color: '#e8a838' }}>Turn {ti + 1}</span>
-                          {turn.opted_out && (
-                            <span style={{ color: '#c9190b', marginLeft: '10px', fontSize: '11px' }}>OPTED OUT</span>
-                          )}
-                          {turn.chosen_ci_name && (
-                            <span style={{ color: '#5cb85c', marginLeft: '10px', fontSize: '11px' }}>
-                              Selected: {turn.chosen_ci_name}
-                            </span>
-                          )}
-                        </div>
-                        {turn.opted_out ? (
-                          <div style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>
-                            Query and results redacted (user opted out)
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ color: '#aaa', fontSize: '14px', marginBottom: '6px' }}>
-                              <strong>Q:</strong> {turn.query_text || '(empty)'}
+                    <span style={{ color: '#666', fontSize: '12px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {isExpanded ? '▾' : '▸'} {shortTime(session.started_at)}
+                    </span>
+                    <span style={{ color: '#ccc', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {firstQuery || '(empty query)'}
+                    </span>
+                    {session.turns.some(t => t.chosen_ci_name) && (
+                      <span style={{ color: '#5cb85c', fontSize: '11px', flexShrink: 0 }}>has selection</span>
+                    )}
+                  </div>
+                  {isExpanded && session.turns.map((turn, ti) => (
+                    <div key={ti} style={{ padding: '10px 14px 14px', borderTop: '1px solid #1e2030' }}>
+                      {turn.opted_out ? (
+                        <div style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>Query redacted (user opted out)</div>
+                      ) : (
+                        <>
+                          {turn.overall_assessment && (
+                            <div style={{ color: '#aaa', fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                              {turn.overall_assessment.slice(0, 500)}{turn.overall_assessment.length > 500 ? '...' : ''}
                             </div>
-                            {turn.overall_assessment && (
-                              <div style={{ color: '#888', fontSize: '13px', marginBottom: '4px' }}>
-                                <strong>Assessment:</strong> {turn.overall_assessment}
-                              </div>
-                            )}
-                            {turn.results_json && Array.isArray(turn.results_json) && (
-                              <div style={{ color: '#666', fontSize: '12px' }}>
-                                {turn.results_json.length} results returned
-                                {(turn.results_json as Array<{ ci_name?: string; tier?: string }>).slice(0, 3).map((r, ri) => (
-                                  <span key={ri} style={{ marginLeft: '8px' }}>
-                                    [{r.tier}] {r.ci_name}
+                          )}
+                          {turn.results_json && Array.isArray(turn.results_json) && (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number }>).map((r, ri) => (
+                                <div key={ri} style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <span style={{ color: tierColor(r.tier || 'white'), fontWeight: 600, width: '36px' }}>
+                                    {r.relevance_score ?? '?'}%
                                   </span>
-                                ))}
-                                {turn.results_json.length > 3 && <span> ...</span>}
-                              </div>
-                            )}
-                          </>
-                        )}
-                      </td>
-                    </tr>
+                                  <span style={{ color: '#bbb' }}>{r.display_name || r.ci_name}</span>
+                                  {turn.chosen_ci_name === r.ci_name && (
+                                    <span style={{ color: '#5cb85c', fontSize: '10px' }}>SELECTED</span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   ))}
-                </>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              )
+            })}
+          </div>
         )}
       </div>
     </div>

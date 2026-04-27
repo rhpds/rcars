@@ -35,7 +35,9 @@ async def run_query(
             {
                 "ci_name": c.ci_name, "display_name": c.display_name, "tier": c.tier,
                 "relevance_score": c.relevance_score, "vector_similarity_pct": c.vector_similarity_pct,
-                "stage": c.stage, "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
+                "stage": c.stage, "catalog_namespace": c.catalog_namespace,
+                "learning_objectives": c.learning_objectives,
+                "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
                 "suggested_format": c.suggested_format, "duration_notes": c.duration_notes,
                 "caveats": c.caveats,
             }

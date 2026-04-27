@@ -93,6 +93,9 @@ def search(
         analysis_ci = row.get("base_ci_name") if row.get("is_published") else ci_name
         analysis = db.get_showroom_analysis(analysis_ci or ci_name)
 
+        lo = (analysis or {}).get("learning_objectives_json") or {}
+        learning_objs = (lo.get("stated", []) if isinstance(lo, dict) else []) or []
+
         candidates.append(Candidate(
             ci_name=ci_name,
             display_name=row.get("display_name", ci_name),
@@ -104,6 +107,8 @@ def search(
             duration_min=(analysis or {}).get("estimated_duration_min"),
             content_type=(analysis or {}).get("content_type", ""),
             stage=row.get("stage", "prod"),
+            catalog_namespace=row.get("catalog_namespace", ""),
+            learning_objectives=learning_objs,
             vector_distance=row["distance"],
             vector_similarity_pct=Candidate.similarity_pct(row["distance"]),
         ))

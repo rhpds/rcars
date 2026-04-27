@@ -9,6 +9,8 @@ interface Candidate {
   relevance_score: number | null
   vector_similarity_pct: number | null
   stage: string
+  catalog_namespace: string
+  learning_objectives: string[]
   why_it_fits: string | null
   how_to_use: string | null
   suggested_format: string | null
@@ -24,8 +26,13 @@ interface RecCardProps {
   isComplete: boolean
 }
 
+function catalogUrl(ciName: string, namespace: string): string {
+  const ns = namespace || 'babylon-catalog-prod'
+  return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
+}
+
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
-  const [expanded, setExpanded] = useState(candidate.tier === 'green')
+  const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
 
   const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
@@ -75,20 +82,43 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
           {candidate.caveats && (
             <div className="rec-caveat">Caveat: {candidate.caveats}</div>
           )}
-          {isComplete && (tier === 'green' || tier === 'yellow') && (
+
+          {/* Learning objectives for green tier */}
+          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
             <div style={{ marginTop: '10px' }}>
-              {selected ? (
-                <span style={{ color: '#5cb85c', fontSize: '14px' }}>✓ Selected</span>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Relevant Learning Objectives</div>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
+                {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
+                  <li key={i}>{obj}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Links + feedback button */}
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <a
+              href={catalogUrl(candidate.ci_name, candidate.catalog_namespace)}
+              target="_blank" rel="noopener noreferrer"
+              style={{ color: '#73bcf7', fontSize: '13px' }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              View in RHDP Catalog
+            </a>
+            {isComplete && (tier === 'green' || tier === 'yellow') && (
+              selected ? (
+                <span style={{ color: '#5cb85c', fontSize: '13px' }}>✓ Best fit</span>
               ) : (
                 <button
                   className="btn-curator"
+                  title="Helps us improve recommendations by tracking which results are most useful"
                   onClick={(e) => { e.stopPropagation(); handleSelect() }}
                 >
-                  This fits best
+                  Best fit
                 </button>
-              )}
-            </div>
-          )}
+              )
+            )}
+          </div>
         </div>
       )}
     </LcarsCard>
