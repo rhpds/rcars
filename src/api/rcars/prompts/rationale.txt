@@ -24,15 +24,12 @@ Also provide:
 **Response:** 1-2 sentences directly answering the user's request.
 
 **Top Picks:**
-- Bullet for each recommended item with a one-sentence reason
+- Bullet for each recommended item with a one-sentence reason. List them in the SAME ORDER as the candidates above — Candidate 1 first, Candidate 2 second, etc. The candidates are pre-ranked by relevance.
 
 **Adapting for Your Needs:**
 - Practical suggestions for how to use the content (omit this section entirely if the content fits as-is)
 
-**Content Gaps:**
-- Topics the user asked about that none of the candidates cover well (omit this section entirely if everything is covered)
-
-- content_gaps: Array of topic strings not covered. Empty array if all covered.
+- content_gaps: Array of topic strings not covered. Empty array if all covered. Do NOT include a "Content Gaps" section in the overall_assessment — the content_gaps array handles that separately.
 
 IMPORTANT: The Duration field in each candidate's metadata is the actual lab duration. Do not contradict it. If it says "Duration: 120 min", the content is approximately 2 hours.
 

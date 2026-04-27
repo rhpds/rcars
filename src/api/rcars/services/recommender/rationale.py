@@ -24,7 +24,7 @@ def format_rationale_candidates(
     for i, c in enumerate(candidates, 1):
         analysis = analyses.get(c.ci_name, {})
         lines = [
-            f"--- Candidate {i} ---",
+            f"--- Candidate {i} (relevance: {c.relevance_score or 0}%) ---",
             f"CI Name: {c.ci_name}",
             f"Display Name: {c.display_name}",
             f"Category: {c.category}",

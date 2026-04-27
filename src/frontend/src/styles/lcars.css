@@ -158,11 +158,12 @@ body {
 .rcars-main { flex: 1; overflow: hidden; display: flex; }
 
 /* Advisor two-pane — flex fills all available space */
-.advisor-layout { display: flex; width: 100%; height: 100%; }
+.advisor-layout { display: flex; width: 100%; height: 100%; overflow: hidden; }
 
 .chat-pane {
   flex: 2;
   min-width: 320px;
+  min-height: 0;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -289,6 +290,7 @@ body {
 .rec-pane {
   flex: 3;
   padding: 20px;
+  min-height: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
