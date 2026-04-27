@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation, useSearchParams } from 'react-router-dom'
+import { NavLink, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { api } from '../../services/api'
 
@@ -14,6 +14,7 @@ export function LcarsSidebar() {
   const auth = useAuth()
   const location = useLocation()
   const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
   const isAdminSection = location.pathname.startsWith('/admin')
   const isAdvisorPage = location.pathname === '/advisor'
   const activeSession = searchParams.get('session')
@@ -44,9 +45,13 @@ export function LcarsSidebar() {
       </NavLink>
       {isAdvisorPage && (
         <>
-          <NavLink to="/advisor" className="nav-new-session" end>
+          <a
+            href="/advisor"
+            className="nav-new-session"
+            onClick={(e) => { e.preventDefault(); navigate('/advisor') }}
+          >
             + New Session
-          </NavLink>
+          </a>
           {sessions.length > 0 && (
             <div style={{ padding: '8px 14px 4px', fontSize: '10px', color: '#555', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Recent</div>
           )}

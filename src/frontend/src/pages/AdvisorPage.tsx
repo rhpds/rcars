@@ -67,10 +67,21 @@ export function AdvisorPage() {
 
   const stream = useJobStream(activeJobId)
 
-  // Load session from URL param
+  // Load session from URL param, or reset for new session
   useEffect(() => {
     const sid = searchParams.get('session')
-    if (sid && sid !== loadedSessionId) {
+    if (!sid) {
+      if (loadedSessionId) {
+        setLoadedSessionId(null)
+        setMessages([])
+        setTurns([])
+        setActiveTurn(0)
+        setActiveJobId(null)
+        setSending(false)
+      }
+      return
+    }
+    if (sid !== loadedSessionId) {
       setLoadedSessionId(sid)
       api.getSession(sid).then(data => {
         const sessionTurns = (data as { turns: Array<{ query_text: string | null; overall_assessment: string | null; results_json: StreamCandidate[] | null; content_gaps?: string[] | null }> }).turns
