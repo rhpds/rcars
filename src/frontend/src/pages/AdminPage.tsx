@@ -65,6 +65,7 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
   const [log, setLog] = useState<string[]>([])
   const [logOpen, setLogOpen] = useState(false)
   const [scanning, setScanning] = useState(false)
+  const [checking, setChecking] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const lastCompleteRef = useRef(0)
   const lastFailedRef = useRef(0)
@@ -107,7 +108,6 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     }, 10000)
   }, [addLog, onStatusChange])
 
-  // On mount, check if a scan is already running
   useEffect(() => {
     api.getScanProgress().then(progress => {
       if ((progress.queued > 0 || progress.running > 0) && progress.total > 0) {
@@ -120,24 +120,79 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
   }, [])
 
-  const handleScanUnanalyzed = async () => {
+  const handleScan = async () => {
     setLog([])
     lastCompleteRef.current = 0
     lastFailedRef.current = 0
-    addLog('Starting scan of unanalyzed items...')
+    addLog('Scanning unanalyzed and stale items...')
     const result = await api.startScan() as { job_id: string; enqueued: number; total_scannable?: number; unique_pairs?: number; will_propagate?: number }
     if (result.total_scannable !== undefined) {
       addLog(`${result.total_scannable} scannable → ${result.unique_pairs} unique Showrooms queued, ${result.will_propagate ?? 0} will propagate`)
     } else {
       addLog(`${result.enqueued} items queued`)
     }
-    if (result.enqueued === 0) { addLog('Nothing to scan.'); return }
+    if (result.enqueued === 0) { addLog('Nothing to scan — all items are current.'); return }
     addLog('Monitoring progress...')
     startPolling()
   }
 
+  const handleCheckStale = async () => {
+    setChecking(true)
+    setLogOpen(true)
+    addLog('Checking for stale content...')
+    const result = await api.checkStale()
+    addLog(`job_id=${result.job_id}`)
+    await new Promise<void>((resolve) => {
+      const stop = api.streamJob(result.job_id, (msg) => {
+        addLog(msg.user_message)
+        if (msg.phase === 'complete' || msg.phase === 'failed') {
+          stop()
+          resolve()
+        }
+      })
+      setTimeout(() => { stop(); resolve() }, 30 * 60 * 1000)
+    })
+    setChecking(false)
+    onStatusChange()
+  }
+
+  return (
+    <div className="admin-section">
+      <h3>Content Analysis</h3>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+        Scan analyzes unanalyzed and stale items via Sonnet (~30-60s per item). Check Stale compares content hashes to detect changes since last scan.
+      </p>
+      <div style={{ display: 'flex', gap: '8px' }}>
+        <LcarsButton onClick={handleScan} disabled={scanning || checking}>
+          {scanning ? 'Scanning...' : 'Scan'}
+        </LcarsButton>
+        <LcarsButton onClick={handleCheckStale} disabled={scanning || checking}>
+          {checking ? 'Checking...' : 'Check Stale'}
+        </LcarsButton>
+      </div>
+      <LogWindow
+        lines={log}
+        isOpen={logOpen}
+        onToggle={() => setLogOpen(!logOpen)}
+      />
+    </div>
+  )
+}
+
+function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
+  const [log, setLog] = useState<string[]>([])
+  const [logOpen, setLogOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastCompleteRef = useRef(0)
+  const lastFailedRef = useRef(0)
+
+  const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
+
   const handleRescanAll = async () => {
     setLog([])
+    setLogOpen(true)
+    setRunning(true)
     lastCompleteRef.current = 0
     lastFailedRef.current = 0
     addLog('Marking all items as stale and queueing full rescan...')
@@ -146,26 +201,51 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     if (result.total_scannable !== undefined) {
       addLog(`${result.total_scannable} scannable → ${result.unique_pairs} unique Showrooms queued`)
     }
-    addLog(`${result.enqueued} analysis jobs enqueued`)
-    if (result.enqueued === 0) { addLog('Nothing to scan.'); return }
-    addLog('Monitoring progress...')
-    startPolling()
+    addLog(`${result.enqueued} analysis jobs enqueued — this will take several hours`)
+    if (result.enqueued === 0) { addLog('Nothing to scan.'); setRunning(false); return }
+
+    intervalRef.current = setInterval(async () => {
+      try {
+        const progress = await api.getScanProgress()
+        if (progress.complete > lastCompleteRef.current) {
+          const newItems = progress.recent_complete.slice(-(progress.complete - lastCompleteRef.current))
+          for (const ci of newItems) addLog(`  ✓ ${ci}`)
+        }
+        if (progress.failed > lastFailedRef.current) {
+          const newFails = progress.recent_failures.slice(-(progress.failed - lastFailedRef.current))
+          for (const err of newFails) addLog(`  ✗ ${err}`)
+        }
+        lastCompleteRef.current = progress.complete
+        lastFailedRef.current = progress.failed
+
+        const done = progress.queued === 0 && progress.running === 0 && progress.total > 0
+        if (done) {
+          if (intervalRef.current) clearInterval(intervalRef.current)
+          intervalRef.current = null
+          const propCount = progress.total_propagated || 0
+          addLog(`Full rescan complete: ${progress.complete} scanned + ${propCount} propagated, ${progress.failed} failed`)
+          setRunning(false)
+          onStatusChange()
+        } else {
+          const propInfo = progress.total_propagated ? `, ${progress.total_propagated} propagated` : ''
+          addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed${propInfo}]`)
+          onStatusChange()
+        }
+      } catch { /* ignore */ }
+    }, 10000)
   }
+
+  useEffect(() => { return () => { if (intervalRef.current) clearInterval(intervalRef.current) } }, [])
 
   return (
     <div className="admin-section">
-      <h3>Showroom Analysis</h3>
-      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-        Clone and analyze Showroom repos via Sonnet. Duration depends on item count (~30-60s per item).
+      <h3>Full Rescan</h3>
+      <p style={{ fontSize: '12px', color: '#c9190b', marginBottom: '10px' }}>
+        Marks ALL items stale and re-analyzes every Showroom from scratch. Takes several hours and consumes significant API tokens. Use only when the analysis pipeline has changed (e.g. scanner bug fix).
       </p>
-      <div style={{ display: 'flex', gap: '8px' }}>
-        <LcarsButton onClick={handleScanUnanalyzed} disabled={scanning}>
-          {scanning ? 'Scanning...' : 'Scan Unanalyzed'}
-        </LcarsButton>
-        <LcarsButton onClick={handleRescanAll} disabled={scanning}>
-          Rescan All
-        </LcarsButton>
-      </div>
+      <LcarsButton onClick={handleRescanAll} disabled={running}>
+        {running ? 'Rescanning...' : 'Rescan All'}
+      </LcarsButton>
       <LogWindow
         lines={log}
         isOpen={logOpen}
@@ -259,27 +339,7 @@ export function AdminCatalogPage() {
 
       <ScanMonitor onStatusChange={loadStatus} />
 
-      <AdminAction
-        title="Content Updates"
-        description="Check if any analyzed Showrooms have changed since last scan by comparing content hashes. Marks changed items as stale for re-analysis."
-        buttonLabel="Check Stale"
-        onRun={async (addLog) => {
-          addLog('Starting stale check...')
-          const result = await api.checkStale()
-          addLog(`job_id=${result.job_id}`)
-          await new Promise<void>((resolve) => {
-            const stop = api.streamJob(result.job_id, (msg) => {
-              addLog(msg.user_message)
-              if (msg.phase === 'complete' || msg.phase === 'failed') {
-                stop()
-                resolve()
-              }
-            })
-            setTimeout(() => { stop(); resolve() }, 30 * 60 * 1000)
-          })
-          loadStatus()
-        }}
-      />
+      <RescanAllSection onStatusChange={loadStatus} />
     </div>
   )
 }
