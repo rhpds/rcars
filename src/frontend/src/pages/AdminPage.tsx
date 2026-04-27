@@ -403,7 +403,7 @@ export function AdminTokensPage() {
   }, [days])
 
   return (
-    <div className="admin-layout">
+    <div className="admin-layout admin-layout--wide">
       <div className="admin-section">
         <h3>Token Usage</h3>
         <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
@@ -446,22 +446,32 @@ export function AdminTokensPage() {
       {stats && stats.recent_queries.length > 0 && (
         <div className="admin-section">
           <h3>Recent Queries</h3>
-          <table className="status-table">
-            <thead><tr><th>Query</th><th>Time</th><th>Triage</th><th>Rationale</th><th>Total</th></tr></thead>
-            <tbody>
-              {stats.recent_queries.map((q, i) => (
-                <tr key={i}>
-                  <td style={{ maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {q.query_text}
-                  </td>
-                  <td style={{ color: '#666', fontSize: '13px' }}>{new Date(q.query_time).toLocaleString()}</td>
-                  <td style={{ color: '#666' }}>{(q.triage_input + q.triage_output).toLocaleString()}</td>
-                  <td style={{ color: '#666' }}>{(q.rationale_input + q.rationale_output).toLocaleString()}</td>
-                  <td>{q.total_tokens?.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+            {stats.recent_queries.map((q, i) => {
+              const isFollowUp = q.query_text.includes('\nAdditional context: ')
+              const displayQuery = isFollowUp
+                ? '↳ ' + q.query_text.split('\nAdditional context: ').pop()
+                : q.query_text
+              const triageTotal = q.triage_input + q.triage_output
+              const rationaleTotal = q.rationale_input + q.rationale_output
+              const shortTime = new Date(q.query_time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+              return (
+                <div key={i} style={{
+                  display: 'flex', gap: '10px', alignItems: 'baseline', fontSize: '13px',
+                  padding: isFollowUp ? '2px 0 2px 16px' : '4px 0',
+                  borderTop: !isFollowUp && i > 0 ? '1px solid #1a1a2a' : undefined,
+                }}>
+                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0, width: '110px' }}>{shortTime}</span>
+                  <span style={{ color: isFollowUp ? '#888' : '#ccc', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {displayQuery}
+                  </span>
+                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0 }} title="Triage tokens">T:{triageTotal.toLocaleString()}</span>
+                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0 }} title="Rationale tokens">R:{rationaleTotal.toLocaleString()}</span>
+                  <span style={{ color: '#aaa', fontSize: '11px', flexShrink: 0, width: '50px', textAlign: 'right' }}>{q.total_tokens?.toLocaleString()}</span>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
