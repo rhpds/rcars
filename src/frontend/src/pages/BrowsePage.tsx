@@ -12,6 +12,7 @@ interface CatalogItem {
   catalog_namespace: string
   showroom_url: string | null
   scan_status: string
+  is_stale?: boolean
   enrichment_review_needed?: boolean
 }
 
@@ -54,7 +55,7 @@ interface ItemDetail {
   tags: Array<{ id: number; tag_type: string; tag_value: string; added_by: string | null }>
 }
 
-type ContentFilter = 'all' | 'has_showroom' | 'analyzed' | 'needs_review' | 'untagged' | 'scan_failures'
+type ContentFilter = 'all' | 'has_showroom' | 'analyzed' | 'needs_review' | 'untagged' | 'scan_failures' | 'stale'
 
 function isZtItem(item: CatalogItem): boolean {
   return item.catalog_namespace?.startsWith('zt-') || item.ci_name.startsWith('zt-')
@@ -122,6 +123,7 @@ export function BrowsePage() {
       case 'analyzed': if (item.scan_status !== 'success') return false; break
       case 'needs_review': if (!item.enrichment_review_needed) return false; break
       case 'scan_failures': if (item.scan_status !== 'failed') return false; break
+      case 'stale': if (!item.is_stale) return false; break
     }
     return true
   })
@@ -213,6 +215,7 @@ export function BrowsePage() {
           <option value="needs_review">Needs review</option>
           <option value="untagged">Untagged</option>
           <option value="scan_failures">Scan failures</option>
+          <option value="stale">Stale (needs rescan)</option>
         </select>
         <LcarsToggle label="dev" active={showDev} onToggle={() => { setShowDev(!showDev); setOffset(0) }} />
         <LcarsToggle label="event" active={showEvent} onToggle={() => { setShowEvent(!showEvent); setOffset(0) }} />

@@ -262,15 +262,18 @@ class Database:
         conditions = []
         params: dict[str, Any] = {}
         if prod_only:
-            conditions.append("is_prod = TRUE")
+            conditions.append("ci.is_prod = TRUE")
         if category:
-            conditions.append("category = %(category)s")
+            conditions.append("ci.category = %(category)s")
             params["category"] = category
         if stage:
-            conditions.append("stage = %(stage)s")
+            conditions.append("ci.stage = %(stage)s")
             params["stage"] = stage
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        sql = f"SELECT * FROM catalog_items {where} ORDER BY ci_name"
+        sql = f"""SELECT ci.*, sa.is_stale, sa.enrichment_review_needed
+                  FROM catalog_items ci
+                  LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+                  {where} ORDER BY ci.ci_name"""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
@@ -656,8 +659,8 @@ class Database:
                 row = cur.fetchone()
                 last_analyzed = row["max_analyzed"] if row else None
         unanalyzed = max(0, scannable - analyzed - failed_count)
-        stale_threshold = max(5, int(scannable * 0.10))
-        analysis_stale = (stale_count > 0 or unanalyzed > stale_threshold) if scannable > 0 else True
+        incomplete = stale_count + unanalyzed + failed_count
+        analysis_stale = (incomplete / scannable > 0.10) if scannable > 0 else True
         analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
         with self._pool.connection() as conn:
             with conn.cursor() as cur:

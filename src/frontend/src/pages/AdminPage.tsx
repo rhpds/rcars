@@ -295,7 +295,12 @@ export function AdminCatalogPage() {
               <tr><td>Unanalyzed</td><td>{status.unanalyzed}</td></tr>
               <tr>
                 <td>Stale (needs rescan)</td>
-                <td style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c' }}>{status.stale_count}</td>
+                <td>
+                  <span
+                    onClick={() => status.stale_count > 0 && navigate('/browse?filter=stale')}
+                    style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c', cursor: status.stale_count > 0 ? 'pointer' : 'default', textDecoration: status.stale_count > 0 ? 'underline' : 'none' }}
+                  >{status.stale_count}</span>
+                </td>
               </tr>
               <tr>
                 <td>Scan failures</td>
