@@ -346,13 +346,6 @@ export function AdminCatalogPage() {
 
 // ── Workers Page ──
 
-interface WorkerHealth {
-  queue_depths: Record<string, number>
-  active_jobs: number
-  running_jobs: Array<{ id: string; job_type: string; ci_name: string | null; created_at: string }>
-  failed_jobs_recent: number
-}
-
 interface Job {
   id: string
   job_type: string
@@ -367,29 +360,25 @@ interface Job {
 }
 
 export function AdminWorkersPage() {
-  const [health, setHealth] = useState<WorkerHealth | null>(null)
+  const [scanProgress, setScanProgress] = useState<{ queued: number; running: number; complete: number; failed: number } | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
 
   const loadData = async () => {
-    const [wh, jb] = await Promise.all([
-      api.getWorkerHealth() as Promise<WorkerHealth>,
-      api.listJobs(30) as Promise<{ items: Job[]; total: number }>,
+    const [jb, sp] = await Promise.all([
+      api.listJobs(50) as Promise<{ items: Job[]; total: number }>,
+      api.getScanProgress(),
     ])
-    setHealth(wh)
-    setJobs(jb.items)
+    setScanProgress(sp)
+    // Sort: running first, then queued, then completed/failed
+    const statusOrder: Record<string, number> = { running: 0, queued: 1, failed: 2, complete: 3 }
+    const sorted = jb.items.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9))
+    setJobs(sorted)
   }
 
   useEffect(() => { loadData() }, [])
 
   useEffect(() => {
-    const interval = setInterval(async () => {
-      const [wh, jb] = await Promise.all([
-        api.getWorkerHealth() as Promise<WorkerHealth>,
-        api.listJobs(30) as Promise<{ items: Job[]; total: number }>,
-      ])
-      setHealth(wh)
-      setJobs(jb.items)
-    }, 10000)
+    const interval = setInterval(loadData, 10000)
     return () => clearInterval(interval)
   }, [])
 
@@ -415,37 +404,34 @@ export function AdminWorkersPage() {
     return `${m}m ${s % 60}s`
   }
 
+  const isActive = scanProgress && (scanProgress.queued > 0 || scanProgress.running > 0)
+
   return (
     <div className="admin-layout admin-layout--wide">
       <div className="admin-section">
-        <h3>Queue Depths</h3>
+        <h3>Worker Status</h3>
         <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-          Number of jobs waiting in each Redis queue. Auto-refreshes every 10 seconds.
+          Auto-refreshes every 10 seconds.
         </p>
-        {health ? (
-          <table className="status-table status-table--compact">
-            <thead><tr><th>Queue</th><th>Depth</th><th>Status</th></tr></thead>
-            <tbody>
-              {Object.entries(health.queue_depths).map(([queue, depth]) => (
-                <tr key={queue}>
-                  <td>{queue}</td>
-                  <td>{depth}</td>
-                  <td style={{ color: depth > 0 ? '#e8a838' : '#5cb85c' }}>
-                    {depth > 0 ? 'Jobs waiting' : 'Clear'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>Loading...</div>
-        )}
-        {health && (
-          <div style={{ marginTop: '10px', fontSize: '14px', color: '#aaa' }}>
-            Active jobs: {health.active_jobs} · Recent failures:{' '}
-            <span style={{ color: health.failed_jobs_recent > 0 ? '#c9190b' : '#5cb85c' }}>
-              {health.failed_jobs_recent}
+        {scanProgress && (
+          <div style={{ display: 'flex', gap: '24px', fontSize: '14px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <span style={{ color: scanProgress.running > 0 ? '#e8a838' : '#666' }}>
+              {scanProgress.running} running
             </span>
+            <span style={{ color: scanProgress.queued > 0 ? '#e8a838' : '#666' }}>
+              {scanProgress.queued} queued
+            </span>
+            <span style={{ color: '#5cb85c' }}>
+              {scanProgress.complete} complete
+            </span>
+            <span style={{ color: scanProgress.failed > 0 ? '#c9190b' : '#666' }}>
+              {scanProgress.failed} failed
+            </span>
+          </div>
+        )}
+        {isActive && (
+          <div style={{ background: '#0d1a0d', border: '1px solid #1a3a1a', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: '#5cb85c', marginBottom: '12px' }}>
+            Scan in progress — {scanProgress!.complete} of {scanProgress!.complete + scanProgress!.queued + scanProgress!.running} complete
           </div>
         )}
       </div>

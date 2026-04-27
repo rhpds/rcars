@@ -67,7 +67,17 @@ async def worker_health(request: Request, user: str = Depends(require_admin)):
 @router.get("/scan-progress")
 async def scan_progress(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    jobs = db.list_jobs(limit=500, job_type="analyze")
+
+    # Scope to the most recent scan/rescan batch by finding the latest parent job
+    parent_jobs = db.list_jobs(limit=5, job_type="scan") + db.list_jobs(limit=5, job_type="rescan_all")
+    since = None
+    if parent_jobs:
+        parent_jobs.sort(key=lambda j: j["created_at"], reverse=True)
+        since = parent_jobs[0]["created_at"]
+
+    all_jobs = db.list_jobs(limit=1000, job_type="analyze")
+    jobs = [j for j in all_jobs if since is None or j["created_at"] >= since]
+
     queued = [j for j in jobs if j["status"] == "queued"]
     running = [j for j in jobs if j["status"] == "running"]
     complete = [j for j in jobs if j["status"] == "complete"]
