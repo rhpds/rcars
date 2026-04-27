@@ -13,7 +13,7 @@ The RCARS CLI provides full control over the system: catalog sync, content scann
 
 ```bash
 KUBECONFIG=~/devel/secrets/rcars-mgmt.kubeconfig \
-  oc exec -it deployment/rcars -n rcars-dev -- rcars <command>
+  oc exec -it deployment/rcars-api -n rcars-dev -- rcars <command>
 ```
 
 **Local development:** Install the package with `pip install -e ".[dev]"` and set the required environment variables (see below).
@@ -37,8 +37,8 @@ All configuration is via environment variables. No config files.
 | `RCARS_TRIAGE_CUTOFF` | No | Minimum Haiku relevance score to keep a candidate (default: `30`). |
 | `RCARS_RATIONALE_MODEL` | No | Model for detailed rationale generation (default: `claude-sonnet-4-6`). |
 | `RCARS_RATIONALE_TOP_N` | No | Number of top candidates to generate full rationale for (default: `5`). |
-| `RCARS_CURATOR_EMAILS` | No | Comma-separated list of curator email addresses. |
-| `RCARS_ADMIN_EMAILS` | No | Comma-separated list of admin email addresses. |
+| `RCARS_CURATOR_EMAILS_STR` | No | Comma-separated list of curator email addresses. |
+| `RCARS_ADMIN_EMAILS_STR` | No | Comma-separated list of admin email addresses. |
 | `RCARS_DEV_USER` | Local dev only | Fakes the SSO email header for local testing. |
 | `RCARS_STALE_DAYS` | No | Days before catalog is considered stale (default: `3`). |
 
@@ -96,34 +96,6 @@ Run `refresh` whenever you want to pick up new or changed catalog items. It is s
 
 ---
 
-### `rcars list`
-
-Lists catalog items in a table. Useful for inspection and debugging.
-
-```bash
-rcars list                        # All items
-rcars list --prod-only            # Production items only
-rcars list --with-showroom        # Only items that have a Showroom URL
-rcars list --category "Workshops" # Filter by category
-```
-
-Flags can be combined.
-
----
-
-### `rcars show <ci-name>`
-
-Shows the full detail record for a single catalog item.
-
-```bash
-rcars show openshift-cnv.ocp4-getting-started.prod
-rcars show openshift-cnv.ocp4-getting-started.prod --full   # Include full description
-```
-
-Output includes the CI name, type (published VCI / base CI / standalone), catalog link, category, product, stage, keywords, and Showroom URL/ref. Useful for confirming what RCARS knows about a specific item before or after a scan.
-
----
-
 ### `rcars scan`
 
 Analyzes Showroom content for catalog items that have not yet been analyzed (or that have become stale). This is the AI-intensive operation — it clones Showroom repositories and calls Claude Sonnet for each item.
@@ -152,55 +124,43 @@ rcars scan --force          # Re-analyze everything, even already-analyzed items
 
 ---
 
-### `rcars check-stale`
+### `rcars untag <ci-name> <type> <value>`
 
-Checks whether analyzed Showroom content has changed since the last scan. This clones each analyzed Showroom, hashes the filtered content files, and compares against the stored hash. Items with content changes are marked stale and will be re-analyzed on the next `rcars scan`.
+Removes an enrichment tag from a catalog item.
 
 ```bash
-rcars check-stale              # Check all analyzed items, mark stale ones
-rcars check-stale --dry-run    # Report changes without marking anything
-rcars check-stale --threshold 0.10   # (Reserved for future use)
+rcars untag openshift-cnv.ocp4-getting-started.prod lifecycle retiring
 ```
-
-**First run behavior:** Items analyzed before stale detection was added will have no stored content hash. The first `check-stale` run stores the current hash for each item ("backfill") without marking anything stale. Subsequent runs compare against the stored hash to detect real changes.
-
-**What counts as a change:** The hash is computed from the filtered `.adoc` content files — the same files that feed the AI analysis. Changes to non-content files (READMEs, images, CI configs) do not trigger staleness. Whitespace-only changes (trailing spaces, blank line differences) are normalized away and do not change the hash.
-
-**Cost:** Each item requires a shallow git clone, but no API calls. A full check of ~100 items takes a few minutes depending on clone speed.
 
 ---
 
-### `rcars recommend`
+### `rcars note <ci-name> <text>`
 
-Runs a recommendation query from the command line. This is the same engine the web UI uses.
-
-```bash
-rcars recommend "OpenShift demos for a developer audience at a Kubernetes conference"
-rcars recommend "AAP hands-on lab, 90 minutes, ops audience" --include-dev
-rcars recommend "booth content for a security-focused event" --limit 20
-rcars recommend "developer workshop" --json-output
-```
-
-**With an event URL:**
+Sets a curator note on a catalog item. Notes are visible only to curators on the Browse page.
 
 ```bash
-rcars recommend "what fits this event?" --url https://events.example.com/kubecon-2026
+rcars note openshift-cnv.ocp4-getting-started.prod "Content needs updating for OCP 4.17"
 ```
 
-When `--url` is provided, RCARS fetches the event page, strips it to plain text, and asks Sonnet to extract a structured event profile: audience, themes, format details, and suggested search queries. That profile is merged with your query text before the similarity search runs.
+---
 
-**Options:**
+### `rcars flag <ci-name>`
 
-| Flag | Description |
-|---|---|
-| `--url` | Event URL to parse for context |
-| `--include-dev` | Include dev-stage catalog items (default: prod only) |
-| `--limit N` | Number of candidates to retrieve before ranking (default: 10) |
-| `--cutoff FLOAT` | Vector distance cutoff (overrides `RCARS_VECTOR_CUTOFF`) |
-| `--triage-cutoff INT` | Minimum Haiku relevance score (overrides `RCARS_TRIAGE_CUTOFF`) |
-| `--json-output` | Print raw JSON instead of formatted output |
+Flags a catalog item for enrichment review. Flagged items appear in the "Needs review" filter on the Browse page.
 
-Output shows ranked results with scores, rationale, suggested format, duration notes, and any caveats. Content gaps (topics you asked for that nothing in the catalog covers) are listed at the end.
+```bash
+rcars flag openshift-cnv.ocp4-getting-started.prod
+```
+
+---
+
+### `rcars override-url <ci-name> <url>`
+
+Overrides the Showroom URL for a catalog item. Use this when the CRD-extracted URL is wrong or when you want to point to a different repository.
+
+```bash
+rcars override-url openshift-cnv.ocp4-getting-started.prod https://github.com/rhpds/showroom_ocp4-getting-started.git
+```
 
 ---
 
@@ -209,8 +169,8 @@ Output shows ranked results with scores, rationale, suggested format, duration n
 Starts the RCARS web server.
 
 ```bash
-rcars serve                             # Binds to 127.0.0.1:8000
-rcars serve --host 0.0.0.0 --port 8080
+rcars serve                             # Binds to 0.0.0.0:8080
+rcars serve --host 127.0.0.1 --port 8000
 rcars serve --reload                    # Enable auto-reload (development only)
 ```
 
@@ -248,12 +208,11 @@ rcars scan
 
 ### Checking for Content Updates
 
-```bash
-rcars check-stale
-rcars scan              # Re-analyzes only stale items
-```
+Stale detection is triggered from the Admin UI or via the API (`POST /api/v1/analysis/check-stale`). It clones each analyzed Showroom and compares content hashes. Items whose content has changed are marked stale. The subsequent `scan` picks up stale items automatically alongside any new ones.
 
-`check-stale` clones each analyzed Showroom and compares content hashes. Items whose content has changed are marked stale. The subsequent `scan` picks up stale items automatically alongside any new ones.
+```bash
+rcars scan              # Re-analyzes stale items alongside any new ones
+```
 
 ### Force Full Rescan
 
@@ -285,8 +244,4 @@ Scan errors are logged to the database action log and visible in the Admin page 
 
 ### Testing Recommendations After a Scan
 
-```bash
-rcars recommend "OpenShift developer workshop" --limit 5
-```
-
-If results look wrong — poor scores, irrelevant items — check that `rcars status` shows a reasonable analyzed count and that embeddings are present (the similarity search requires them). If no embeddings exist, the recommendation engine has no candidates to rank.
+Use the Advisor page in the web UI to test recommendations. If results look wrong — poor scores, irrelevant items — check that `rcars status` shows a reasonable analyzed count and that embeddings are present (the similarity search requires them). If no embeddings exist, the recommendation engine has no candidates to rank.

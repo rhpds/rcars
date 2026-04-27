@@ -103,7 +103,7 @@ Examples of useful follow-ups:
 
 ## Conversation History
 
-The left sidebar shows your recent sessions. Labels are generated from the first message in each conversation. Sessions are stored in your browser — they are not shared with other users and are not stored on the server. If the server restarts, session history labels will still appear in the sidebar but clicking them will no longer restore results.
+The left sidebar shows your recent sessions. Labels are generated from the first message in each conversation. Sessions are stored server-side in PostgreSQL, tied to your SSO email — they persist across server restarts and are accessible from any device you log into.
 
 To start a fresh session, click **+ New session** (visible at the bottom of the recommendations pane).
 
@@ -119,24 +119,36 @@ If your account has curator access, you will see a curator mode toggle in the to
 
 Curator changes are saved immediately when submitted. Tags can be removed from the Curate page.
 
-## The Curate Page
+## The Browse Page (with Curator Controls)
 
-The Curate page (`/curate`) shows the full catalog — not just current recommendations — in a paginated list with numbered page navigation. The default filter shows only items with Showroom content. Use the filter bar to search by name, or switch between "Has Showroom", "All items", "Needs review", and "Untagged" views.
+The Browse page (`/browse`) shows the full catalog in a paginated list. The default filter shows only items with Showroom content. Use the filter bar to search by name, or switch between "Has Showroom", "All items", "Needs review", and "Untagged" views.
 
-Per-item controls on this page are the same as in the expanded card view: add/remove tags, edit notes, flag or unflag. Each item also has a **Re-analyze** button that triggers an individual Showroom scan for that item. This page is the right place to do bulk enrichment work, not something you'd use during an event conversation.
+For users with curator access, each item on the Browse page shows inline curation controls: add/remove tags, edit notes, flag or unflag, and a **Re-analyze** button that triggers an individual Showroom scan. This is the right place to do bulk enrichment work, not something you'd use during an event conversation.
 
-## The Admin Page
+## The Admin Pages
 
-The Admin page (`/admin`) is visible to curators and admins. It shows:
+The Admin section (`/admin`) is visible to curators and admins. It is split into four sub-pages, accessible via tabs:
+
+### Catalog (`/admin/catalog`)
 
 - **Catalog Status** — total items, production items, scannable Showrooms (excluding published CIs), analyzed count, and stale count
 - **Catalog Sync** — triggers `rcars refresh` to pull the latest catalog metadata from Babylon
 - **Showroom Analysis** — triggers `rcars scan` to analyze unscanned and stale items. Shows a live scrolling log of the scan progress.
 - **Content Updates** — triggers `rcars check-stale` to detect which analyzed Showrooms have changed since the last scan. Items with content changes are marked stale and picked up by the next scan.
-- **Token Usage** — shows Anthropic API token consumption for the selected time window (see below)
-- **Curator Access** — lists configured curator email addresses
 
-All background operations (scan, check-stale, catalog sync) run in background threads. You can navigate away from the admin page and come back — the current state of any running operation is preserved and the live log resumes from where it is.
+All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
+
+### Workers (`/admin/workers`)
+
+Shows worker health and queue depths per queue, active jobs with CI names, recent failures with error details, and job history with status and duration.
+
+### Token Usage (`/admin/tokens`)
+
+Shows Anthropic API token consumption for the selected time window (see below).
+
+### Query History (`/admin/queries`)
+
+Shows recent advisor queries with timestamps, query text, and result counts.
 
 ### Token Usage
 

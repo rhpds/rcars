@@ -392,7 +392,7 @@ The frontend is a React Single Page Application built with Vite and TypeScript, 
 
 - **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE (Server-Sent Events) from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
 - **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, and duration.
-- **Admin** — Four sub-tabs: Catalog Status (sync/scan controls), Workers (queue depths and job list with CI names), Token Usage (LLM cost tracking), Query History (advisor session log).
+- **Admin** — Four sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Workers (`/admin/workers` — queue depths and job list with CI names), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
 
 ### API Routes
 
