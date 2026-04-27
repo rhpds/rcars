@@ -6,6 +6,20 @@ interface ProgressMessage {
   done: boolean
 }
 
+export interface StreamCandidate {
+  ci_name: string
+  display_name: string
+  tier: string
+  relevance_score: number | null
+  vector_similarity_pct: number | null
+  stage: string
+  why_it_fits: string | null
+  how_to_use: string | null
+  suggested_format: string | null
+  duration_notes: string | null
+  caveats: string | null
+}
+
 interface StreamState {
   phase: string
   progress: { current?: number; total?: number } | null
@@ -14,11 +28,12 @@ interface StreamState {
   isComplete: boolean
   error: string | null
   messages: ProgressMessage[]
+  candidates: StreamCandidate[]
 }
 
 const initialState: StreamState = {
   phase: '', progress: null, userMessage: '', results: null,
-  isComplete: false, error: null, messages: [],
+  isComplete: false, error: null, messages: [], candidates: [],
 }
 
 export function useJobStream(jobId: string | null): StreamState {
@@ -48,6 +63,7 @@ export function useJobStream(jobId: string | null): StreamState {
           isComplete: data.phase === 'complete' || data.phase === 'failed',
           error: data.phase === 'failed' ? (data.error || 'Unknown error') : null,
           messages: [...prev.messages, newMessage],
+          candidates: data.candidate_data || prev.candidates,
         }
       })
 

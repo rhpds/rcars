@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { api } from '../services/api'
-import { useJobStream } from '../hooks/useJobStream'
+import { useJobStream, StreamCandidate } from '../hooks/useJobStream'
 import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCard } from '../components/advisor/RecCard'
 
@@ -11,14 +11,46 @@ interface ChatMessage {
 }
 
 interface TurnResults {
-  candidates: Array<{
-    ci_name: string; display_name: string; tier: string;
-    relevance_score: number | null; vector_similarity_pct: number | null;
-    stage: string; why_it_fits: string | null; how_to_use: string | null;
-    suggested_format: string | null; duration_notes: string | null; caveats: string | null;
-  }>
+  candidates: StreamCandidate[]
   overall_assessment: string | null
   content_gaps: string[] | null
+}
+
+function renderMarkdown(text: string) {
+  const lines = text.split('\n')
+  const elements: React.ReactElement[] = []
+  let listItems: string[] = []
+
+  const flushList = () => {
+    if (listItems.length === 0) return
+    elements.push(
+      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px' }}>
+        {listItems.map((li, i) => <li key={i} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}
+      </ul>
+    )
+    listItems = []
+  }
+
+  const inlineMd = (s: string) =>
+    s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+     .replace(/`([^`]+)`/g, '<code style="background:#1a2030;padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    const bullet = line.match(/^[-–•]\s+(.*)/)
+    if (bullet) {
+      listItems.push(bullet[1])
+      continue
+    }
+    flushList()
+    if (line.trim() === '') {
+      elements.push(<div key={`br-${i}`} style={{ height: '8px' }} />)
+    } else {
+      elements.push(<p key={`p-${i}`} style={{ margin: '4px 0' }} dangerouslySetInnerHTML={{ __html: inlineMd(line) }} />)
+    }
+  }
+  flushList()
+  return <>{elements}</>
 }
 
 export function AdvisorPage() {
@@ -39,8 +71,16 @@ export function AdvisorPage() {
           const result = data.result as TurnResults
           setTurns(prev => [...prev, result])
           setActiveTurn(turns.length)
-          const assessment = result.overall_assessment || ''
-          setMessages(prev => [...prev, { role: 'assistant', content: assessment, jobId: activeJobId }])
+
+          // Build chat message: overall assessment + content gaps
+          let text = result.overall_assessment || ''
+          if (result.content_gaps && result.content_gaps.length > 0) {
+            text += '\n\n**Content gaps:**'
+            for (const gap of result.content_gaps) {
+              text += `\n- ${gap}`
+            }
+          }
+          setMessages(prev => [...prev, { role: 'assistant', content: text, jobId: activeJobId }])
         }
         setActiveJobId(null)
         setSending(false)
@@ -77,6 +117,8 @@ export function AdvisorPage() {
   }
 
   const currentResults = turns[activeTurn] || null
+  // During streaming, show progressive candidates from SSE
+  const streamingCandidates = sending && stream.candidates.length > 0 ? stream.candidates : null
 
   return (
     <div className="advisor-layout">
@@ -109,7 +151,7 @@ export function AdvisorPage() {
           {messages.map((msg, i) => (
             <div key={i} className={msg.role === 'user' ? 'chat-turn-user' : 'chat-turn-assistant'}>
               {msg.role === 'assistant' ? (
-                <div className="assistant-content">{msg.content}</div>
+                <div className="assistant-content">{renderMarkdown(msg.content)}</div>
               ) : (
                 msg.content
               )}
@@ -170,36 +212,11 @@ export function AdvisorPage() {
           )}
         </div>
 
-        {currentResults ? (
-          <>
-            {/* Green tier */}
-            {currentResults.candidates
-              .filter(c => c.tier === 'green')
-              .map(c => <RecCard key={c.ci_name} candidate={c} isComplete={true} />)}
-
-            {/* Yellow tier - collapsible */}
-            {(() => {
-              const yellow = currentResults.candidates.filter(c => c.tier === 'yellow')
-              if (yellow.length === 0) return null
-              return <CollapsibleTier label={`Yellow (${yellow.length})`} candidates={yellow} />
-            })()}
-
-            {/* White tier - collapsible */}
-            {(() => {
-              const white = currentResults.candidates.filter(c => c.tier === 'white')
-              if (white.length === 0) return null
-              return <CollapsibleTier label={`Other (${white.length})`} candidates={white} />
-            })()}
-
-            {currentResults.content_gaps && currentResults.content_gaps.length > 0 && (
-              <div style={{ marginTop: '16px', fontSize: '14px', color: '#e8a838' }}>
-                <strong>Content gaps:</strong>
-                <ul style={{ margin: '4px 0 0 18px' }}>
-                  {currentResults.content_gaps.map((gap, i) => <li key={i}>{gap}</li>)}
-                </ul>
-              </div>
-            )}
-          </>
+        {/* Show progressive candidates during streaming */}
+        {streamingCandidates ? (
+          <RecCardList candidates={streamingCandidates} isComplete={false} streamPhase={stream.phase} />
+        ) : currentResults ? (
+          <RecCardList candidates={currentResults.candidates} isComplete={true} />
         ) : sending ? (
           <div className="rec-pane-loading">Waiting for results...</div>
         ) : (
@@ -212,8 +229,46 @@ export function AdvisorPage() {
   )
 }
 
-function CollapsibleTier({ label, candidates }: { label: string; candidates: Array<{ ci_name: string; display_name: string; tier: string; relevance_score: number | null; vector_similarity_pct: number | null; stage: string; why_it_fits: string | null; how_to_use: string | null; suggested_format: string | null; duration_notes: string | null; caveats: string | null }> }) {
-  const [open, setOpen] = useState(false)
+function RecCardList({ candidates, isComplete, streamPhase }: {
+  candidates: StreamCandidate[]
+  isComplete: boolean
+  streamPhase?: string
+}) {
+  const green = candidates.filter(c => c.tier === 'green')
+  const yellow = candidates.filter(c => c.tier === 'yellow')
+  const white = candidates.filter(c => c.tier === 'white' || c.tier === 'pending')
+
+  // During vector_search phase, all candidates are unsorted — show flat list
+  if (streamPhase === 'vector_search' || (!isComplete && green.length === 0 && yellow.length === 0)) {
+    return (
+      <>
+        {candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
+      </>
+    )
+  }
+
+  return (
+    <>
+      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} />)}
+
+      {yellow.length > 0 && (
+        <CollapsibleTier label={`Yellow (${yellow.length})`} candidates={yellow} defaultOpen={green.length === 0} isComplete={isComplete} />
+      )}
+
+      {white.length > 0 && (
+        <CollapsibleTier label={`Other (${white.length})`} candidates={white} isComplete={isComplete} />
+      )}
+    </>
+  )
+}
+
+function CollapsibleTier({ label, candidates, defaultOpen, isComplete }: {
+  label: string
+  candidates: StreamCandidate[]
+  defaultOpen?: boolean
+  isComplete: boolean
+}) {
+  const [open, setOpen] = useState(defaultOpen || false)
   return (
     <div>
       <button
@@ -225,7 +280,7 @@ function CollapsibleTier({ label, candidates }: { label: string; candidates: Arr
       >
         {open ? '▾' : '▸'} {label}
       </button>
-      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={true} />)}
+      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} />)}
     </div>
   )
 }

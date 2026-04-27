@@ -30,10 +30,23 @@ async def run_query(
 
     t0 = time.monotonic()
 
+    def serialize_candidates(candidates):
+        return [
+            {
+                "ci_name": c.ci_name, "display_name": c.display_name, "tier": c.tier,
+                "relevance_score": c.relevance_score, "vector_similarity_pct": c.vector_similarity_pct,
+                "stage": c.stage, "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
+                "suggested_format": c.suggested_format, "duration_notes": c.duration_notes,
+                "caveats": c.caveats,
+            }
+            for c in candidates
+        ]
+
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
     state = search(query, db, distance_cutoff=settings.vector_cutoff, prod_only=prod_only)
-    await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates)})
+    await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
+                "candidate_data": serialize_candidates(state.candidates)})
 
     if state.phase == "NO_MATCHES":
         await emit({"phase": "complete", "results": 0})
@@ -44,7 +57,8 @@ async def run_query(
     state = triage(state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
     relevant = len([c for c in state.candidates if c.tier in ("yellow", "green")])
     db.log_token_usage("triage", settings.triage_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if state.token_usage else None
-    await emit({"phase": "triage", "status": "complete", "relevant": relevant})
+    await emit({"phase": "triage", "status": "complete", "relevant": relevant,
+                "candidate_data": serialize_candidates(state.candidates)})
 
     if state.phase == "NO_MATCHES":
         await emit({"phase": "complete", "results": 0})
@@ -54,6 +68,12 @@ async def run_query(
     top_n = settings.rationale_top_n
     await emit({"phase": "rationale", "status": "started", "top_n": top_n})
     state = generate_rationale(state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
+
+    # Promote candidates with full rationale to green tier
+    for c in state.candidates:
+        if c.why_it_fits and c.tier == "yellow":
+            c.tier = "green"
+
     green_count = len([c for c in state.candidates if c.tier == "green"])
     db.log_token_usage("rationale", settings.rationale_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if len(state.token_usage) > 1 else None
     await emit({"phase": "complete", "results": green_count})
