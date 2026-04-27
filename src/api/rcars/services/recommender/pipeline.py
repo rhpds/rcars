@@ -69,6 +69,7 @@ async def run_query(
     anthropic_client,
     settings: Settings,
     prod_only: bool = True,
+    include_zt: bool = True,
     on_progress: Callable[[dict], Awaitable[None]] | None = None,
 ) -> QueryState:
     async def emit(data: dict):
@@ -93,7 +94,7 @@ async def run_query(
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = search(query, db, distance_cutoff=settings.vector_cutoff, prod_only=prod_only)
+    state = search(query, db, distance_cutoff=settings.vector_cutoff, prod_only=prod_only, include_zt=include_zt)
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
 

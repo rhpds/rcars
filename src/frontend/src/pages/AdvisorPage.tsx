@@ -54,10 +54,24 @@ function renderMarkdown(text: string) {
   return <>{elements}</>
 }
 
+function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  return (
+    <div className={`lcars-toggle${active ? ' active' : ''}`} onClick={onToggle}>
+      <div className="lcars-toggle-track">
+        <div className="lcars-toggle-knob" />
+      </div>
+      <span>{label}</span>
+    </div>
+  )
+}
+
 export function AdvisorPage() {
   const [searchParams] = useSearchParams()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
+  const [showDev, setShowDev] = useState(false)
+  const [showEvent, setShowEvent] = useState(false)
+  const [showZt, setShowZt] = useState(true)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
@@ -156,7 +170,8 @@ export function AdvisorPage() {
     }
 
     try {
-      const { job_id } = await api.submitQuery(searchQuery)
+      const prodOnly = !showDev && !showEvent
+      const { job_id } = await api.submitQuery(searchQuery, prodOnly, showZt)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -222,6 +237,12 @@ export function AdvisorPage() {
             </div>
           )}
           <div ref={chatEndRef} />
+        </div>
+        <div style={{ display: 'flex', gap: '12px', padding: '0 0 6px 0', alignItems: 'center' }}>
+          <span style={{ fontSize: '12px', color: '#555' }}>Include:</span>
+          <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
+          <LcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+          <LcarsToggle label="ZT" active={showZt} onToggle={() => setShowZt(!showZt)} />
         </div>
         <div className="chat-input-row">
           <textarea

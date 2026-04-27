@@ -35,6 +35,7 @@ interface ItemDetail {
   catalog_namespace: string
   showroom_url: string | null
   scan_status: string
+  content_path: string | null
   scan_error_class: string | null
   scan_error: string | null
   scan_failed_at: string | null
@@ -92,6 +93,8 @@ export function BrowsePage() {
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
   const [newTags, setNewTags] = useState<Record<string, string>>({})
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
+  const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
+  const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
   const limit = 50
@@ -145,6 +148,7 @@ export function BrowsePage() {
       const detail = await api.getCatalogItem(ciName) as ItemDetail
       setItemDetails(prev => ({ ...prev, [ciName]: detail }))
       setNoteTexts(prev => ({ ...prev, [ciName]: detail.analysis?.notes || '' }))
+      setContentPaths(prev => ({ ...prev, [ciName]: detail.content_path || '' }))
       if (detail.analysis?.enrichment_review_needed) {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
@@ -187,6 +191,18 @@ export function BrowsePage() {
 
   const handleSaveNote = async (ciName: string) => {
     await api.setNote(ciName, noteTexts[ciName] || '')
+  }
+
+  const handleSetContentPath = async (ciName: string) => {
+    const path = contentPaths[ciName]?.trim() || null
+    setScanningPath(prev => ({ ...prev, [ciName]: true }))
+    await api.setContentPath(ciName, path)
+    setTimeout(async () => {
+      const detail = await api.getCatalogItem(ciName) as ItemDetail
+      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+      setScanningPath(prev => ({ ...prev, [ciName]: false }))
+      loadItems()
+    }, 5000)
   }
 
   const handleFlag = async (ciName: string) => {
@@ -433,6 +449,32 @@ export function BrowsePage() {
                             marginBottom: '8px', outline: 'none',
                           }}
                         />
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={contentPaths[item.ci_name] ?? ''}
+                            onChange={(e) => setContentPaths(prev => ({ ...prev, [item.ci_name]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSetContentPath(item.ci_name) }}
+                            placeholder="Content path (e.g. docs/labs/)"
+                            style={{
+                              background: 'var(--bg-card)', border: '1px solid #333',
+                              color: '#aaa', padding: '6px 10px', borderRadius: '4px',
+                              fontSize: '13px', flex: 1, outline: 'none',
+                            }}
+                          />
+                          <LcarsButton
+                            variant="curator-secondary"
+                            onClick={() => handleSetContentPath(item.ci_name)}
+                            disabled={scanningPath[item.ci_name]}
+                          >
+                            {scanningPath[item.ci_name] ? 'Scanning...' : 'Set & Scan'}
+                          </LcarsButton>
+                        </div>
+                        {scanningPath[item.ci_name] && (
+                          <div style={{ fontSize: '12px', color: '#e8a838', marginBottom: '8px', animation: 'pulse-bg 1.5s ease-in-out infinite' }}>
+                            Content path updated — scanning with new path...
+                          </div>
+                        )}
                         <LcarsButton
                           variant="curator-secondary"
                           onClick={() => handleFlag(item.ci_name)}

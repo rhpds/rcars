@@ -11,6 +11,7 @@ logger = structlog.get_logger()
 
 async def run_recommendation(
     ctx: dict, job_id: str, query: str, prod_only: bool = True,
+    include_zt: bool = True,
     user_email: str | None = None, opted_out: bool = False,
 ) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
@@ -33,6 +34,7 @@ async def run_recommendation(
             anthropic_client=client,
             settings=wctx.settings,
             prod_only=prod_only,
+            include_zt=include_zt,
             on_progress=on_progress,
         )
 

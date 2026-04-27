@@ -16,6 +16,7 @@ def search(
     limit: int = 10,
     prod_only: bool = True,
     distance_cutoff: float = 0.55,
+    include_zt: bool = True,
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply distance cutoff.
 
@@ -29,6 +30,7 @@ def search(
         query_embedding=query_embedding,
         limit=limit,
         prod_only=prod_only,
+        include_zt=include_zt,
     )
 
     # Deduplicate published/base CI pairs.  Published CIs are the orderable

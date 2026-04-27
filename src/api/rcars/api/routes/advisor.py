@@ -14,6 +14,7 @@ class QueryRequest(BaseModel):
     query: str
     event_url: str | None = None
     prod_only: bool = True
+    include_zt: bool = True
     opted_out: bool = False
 
 
@@ -33,6 +34,7 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         job_id=job_id,
         query=body.query,
         prod_only=body.prod_only,
+        include_zt=body.include_zt,
         user_email=user,
         opted_out=body.opted_out,
         _queue_name="arq:queue:recommend",

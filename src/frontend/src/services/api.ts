@@ -21,10 +21,10 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[] }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, prodOnly = true, optedOut = false) =>
+  submitQuery: (query: string, prodOnly = true, includeZt = true, optedOut = false) =>
     request<{ job_id: string }>('/advisor/query', {
       method: 'POST',
-      body: JSON.stringify({ query, prod_only: prodOnly, opted_out: optedOut }),
+      body: JSON.stringify({ query, prod_only: prodOnly, include_zt: includeZt, opted_out: optedOut }),
     }),
   getQueryResult: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
@@ -64,6 +64,11 @@ export const api = {
     }),
   flagItem: (ciName: string) =>
     request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/flag`, { method: 'POST' }),
+  setContentPath: (ciName: string, path: string | null) =>
+    request<{ status: string; content_path: string | null; job_id: string }>(`/catalog/${encodeURIComponent(ciName)}/content-path`, {
+      method: 'POST',
+      body: JSON.stringify({ path }),
+    }),
 
   // Analysis
   startScan: () => request<{ job_id: string; enqueued: number }>('/analysis/scan', { method: 'POST' }),

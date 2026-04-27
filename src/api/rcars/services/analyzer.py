@@ -500,7 +500,7 @@ def analyze_showroom(
 
         response = anthropic_client.messages.create(
             model=model,
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0,
             messages=[{"role": "user", "content": prompt}],
         )

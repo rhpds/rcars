@@ -106,3 +106,18 @@ async def override_url(ci_name: str, body: OverrideUrlRequest, request: Request,
     db = request.app.state.db
     db.set_showroom_url_override(ci_name, body.url)
     return {"status": "ok"}
+
+
+class ContentPathRequest(BaseModel):
+    path: str | None
+
+
+@router.post("/{ci_name}/content-path")
+async def set_content_path(ci_name: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    path = body.path.strip().rstrip("/") if body.path else None
+    db.set_content_path(ci_name, path)
+    job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
+    await arq_redis.enqueue_job("run_analysis", job_id=job_id, ci_name=ci_name, _queue_name="arq:queue:scan")
+    return {"status": "ok", "content_path": path, "job_id": job_id}
