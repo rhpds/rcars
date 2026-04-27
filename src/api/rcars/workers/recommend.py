@@ -9,7 +9,10 @@ import structlog
 logger = structlog.get_logger()
 
 
-async def run_recommendation(ctx: dict, job_id: str, query: str, prod_only: bool = True) -> dict:
+async def run_recommendation(
+    ctx: dict, job_id: str, query: str, prod_only: bool = True,
+    user_email: str | None = None, opted_out: bool = False,
+) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
 
@@ -33,29 +36,44 @@ async def run_recommendation(ctx: dict, job_id: str, query: str, prod_only: bool
             on_progress=on_progress,
         )
 
+        candidates_json = [
+            {
+                "ci_name": c.ci_name,
+                "display_name": c.display_name,
+                "tier": c.tier,
+                "relevance_score": c.relevance_score,
+                "vector_similarity_pct": c.vector_similarity_pct,
+                "stage": c.stage,
+                "why_it_fits": c.why_it_fits,
+                "how_to_use": c.how_to_use,
+                "suggested_format": c.suggested_format,
+                "duration_notes": c.duration_notes,
+                "caveats": c.caveats,
+            }
+            for c in state.candidates
+        ]
+
         results = {
             "phase": state.phase,
-            "candidates": [
-                {
-                    "ci_name": c.ci_name,
-                    "display_name": c.display_name,
-                    "tier": c.tier,
-                    "relevance_score": c.relevance_score,
-                    "vector_similarity_pct": c.vector_similarity_pct,
-                    "stage": c.stage,
-                    "why_it_fits": c.why_it_fits,
-                    "how_to_use": c.how_to_use,
-                    "suggested_format": c.suggested_format,
-                    "duration_notes": c.duration_notes,
-                    "caveats": c.caveats,
-                }
-                for c in state.candidates
-            ],
+            "candidates": candidates_json,
             "overall_assessment": state.overall_assessment,
             "content_gaps": state.content_gaps,
         }
 
         wctx.db.complete_job(job_id, result_json=results)
+
+        # Log to advisor_sessions for query history
+        wctx.db.log_advisor_session(
+            session_id=job_id,
+            turn_index=0,
+            user_email=user_email,
+            query_text=query,
+            event_url=None,
+            results=candidates_json,
+            overall_assessment=state.overall_assessment,
+            opted_out=opted_out,
+        )
+
         log.info("job_complete", action="job_complete", results=len(state.candidates))
         return results
 

@@ -33,6 +33,8 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         job_id=job_id,
         query=body.query,
         prod_only=body.prod_only,
+        user_email=user,
+        opted_out=body.opted_out,
         _queue_name="arq:queue:recommend",
     )
     return {"job_id": job_id}
