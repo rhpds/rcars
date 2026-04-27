@@ -255,12 +255,31 @@ def clone_showroom(
         return None
 
 
+def _parse_nav_includes(nav_text: str) -> set[str]:
+    """Extract active page filenames from nav.adoc.
+
+    Parses xref: references on uncommented lines. Returns a set of
+    filenames (basename only, no subdirectories) that nav.adoc includes.
+    """
+    included = set()
+    for line in nav_text.splitlines():
+        stripped = line.lstrip(" *")
+        if stripped.startswith("//"):
+            continue
+        match = re.search(r'xref:([^\[]+)', stripped)
+        if match:
+            ref_path = match.group(1).strip()
+            included.add(Path(ref_path).name)
+    return included
+
+
 def read_showroom_content(clone_path: Path, content_path: str | None = None) -> dict[str, str]:
     """Read .adoc files from a cloned Showroom repo.
 
-    Reads from content/modules/ROOT/pages/ (standard Antora layout).
-    If content_path is set, reads from that directory instead.
-    Also reads nav.adoc if present, for structure context.
+    Uses nav.adoc as the source of truth for which pages to include.
+    Only pages referenced in active (uncommented) nav entries are read.
+    Falls back to reading all pages if nav.adoc doesn't exist or
+    contains no xref entries.
     """
     files = {}
     if content_path:
@@ -268,20 +287,43 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None) -> 
     else:
         pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
 
+    # Parse nav.adoc to determine which pages are active
+    nav_file = clone_path / "content" / "modules" / "ROOT" / "nav.adoc"
+    nav_includes: set[str] | None = None
+    if nav_file.exists():
+        try:
+            nav_text = nav_file.read_text(errors="replace")
+            files["_nav.adoc"] = nav_text
+            nav_includes = _parse_nav_includes(nav_text)
+            if nav_includes:
+                log.info("nav.adoc: %d active pages: %s", len(nav_includes), sorted(nav_includes))
+            else:
+                nav_includes = None
+        except OSError:
+            pass
+
     if pages_dir.exists():
         for adoc_file in sorted(pages_dir.glob("*.adoc")):
+            if nav_includes and adoc_file.name not in nav_includes:
+                log.info("skipping %s — not in nav.adoc", adoc_file.name)
+                continue
             try:
                 files[adoc_file.name] = adoc_file.read_text(errors="replace")
             except OSError as e:
                 log.warning("Could not read %s: %s", adoc_file, e)
 
-    # Also read nav.adoc for structure context
-    nav_file = clone_path / "content" / "modules" / "ROOT" / "nav.adoc"
-    if nav_file.exists():
-        try:
-            files["_nav.adoc"] = nav_file.read_text(errors="replace")
-        except OSError:
-            pass
+    # For nav.adoc with subdirectory xrefs (e.g. 200-ops/lab_1.adoc),
+    # also check those paths relative to ROOT/pages/
+    if nav_includes:
+        root_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
+        for inc in nav_includes:
+            if "/" in inc:
+                subpath = root_dir / inc
+                if subpath.exists() and inc not in files:
+                    try:
+                        files[inc] = subpath.read_text(errors="replace")
+                    except OSError:
+                        pass
 
     return files
 

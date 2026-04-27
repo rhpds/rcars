@@ -19,7 +19,7 @@ For each candidate, provide these SPECIFIC fields (not free-form text):
 - caveats: One sentence on concerns, prerequisites, or limitations that are relevant to the user's specific request. Empty string if none. Do not mention delivery formats (booth, presentation) unless the user asked about them. Do not repeat information from other fields.
 
 Also provide:
-- overall_assessment: Use this exact markdown structure:
+- overall_assessment: Use Display Names (not CI Names or candidate numbers) when referring to items. Use this exact markdown structure:
 
 **Response:** 1-2 sentences directly answering the user's request.
 
