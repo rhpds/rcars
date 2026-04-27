@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useJobStream, StreamCandidate } from '../hooks/useJobStream'
 import { ProgressStream } from '../components/advisor/ProgressStream'
@@ -54,15 +55,51 @@ function renderMarkdown(text: string) {
 }
 
 export function AdvisorPage() {
+  const [searchParams] = useSearchParams()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const stream = useJobStream(activeJobId)
+
+  // Load session from URL param
+  useEffect(() => {
+    const sid = searchParams.get('session')
+    if (sid && sid !== loadedSessionId) {
+      setLoadedSessionId(sid)
+      api.getSession(sid).then(data => {
+        const sessionTurns = (data as { turns: Array<{ query_text: string | null; overall_assessment: string | null; results_json: StreamCandidate[] | null; content_gaps?: string[] | null }> }).turns
+        const newMessages: ChatMessage[] = []
+        const newTurns: TurnResults[] = []
+        for (const turn of sessionTurns) {
+          if (turn.query_text) {
+            newMessages.push({ role: 'user', content: turn.query_text })
+          }
+          let text = turn.overall_assessment || ''
+          if (turn.content_gaps && turn.content_gaps.length > 0) {
+            text += '\n\n**Content gaps:**'
+            for (const gap of turn.content_gaps) text += `\n- ${gap}`
+          }
+          if (text) newMessages.push({ role: 'assistant', content: text })
+          if (turn.results_json) {
+            newTurns.push({
+              candidates: turn.results_json,
+              overall_assessment: turn.overall_assessment,
+              content_gaps: (turn as Record<string, unknown>).content_gaps as string[] | null || null,
+            })
+          }
+        }
+        setMessages(newMessages)
+        setTurns(newTurns)
+        setActiveTurn(Math.max(0, newTurns.length - 1))
+      }).catch(() => { /* session not found */ })
+    }
+  }, [searchParams])
 
   useEffect(() => {
     if (stream.isComplete && activeJobId) {
@@ -72,14 +109,12 @@ export function AdvisorPage() {
           setTurns(prev => [...prev, result])
           setActiveTurn(turns.length)
 
-          // Build chat message: overall assessment + content gaps
           let text = result.overall_assessment || ''
           if (result.content_gaps && result.content_gaps.length > 0) {
             text += '\n\n**Content gaps:**'
-            for (const gap of result.content_gaps) {
-              text += `\n- ${gap}`
-            }
+            for (const gap of result.content_gaps) text += `\n- ${gap}`
           }
+          if (!text) text = 'No matching content found for this query. Try broadening your search criteria.'
           setMessages(prev => [...prev, { role: 'assistant', content: text, jobId: activeJobId }])
         }
         setActiveJobId(null)
@@ -100,8 +135,17 @@ export function AdvisorPage() {
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: query }])
 
+    // For follow-up queries, prepend context from the original query
+    let searchQuery = query
+    if (turns.length > 0) {
+      const originalQuery = messages.find(m => m.role === 'user')?.content
+      if (originalQuery) {
+        searchQuery = `${originalQuery}\n\nAdditional context: ${query}`
+      }
+    }
+
     try {
-      const { job_id } = await api.submitQuery(query)
+      const { job_id } = await api.submitQuery(searchQuery)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -117,7 +161,6 @@ export function AdvisorPage() {
   }
 
   const currentResults = turns[activeTurn] || null
-  // During streaming, show progressive candidates from SSE
   const streamingCandidates = sending && stream.candidates.length > 0 ? stream.candidates : null
 
   return (
@@ -137,7 +180,7 @@ export function AdvisorPage() {
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
                 <strong style={{ color: '#d2d2d2' }}>Refine as you go:</strong><br/>
-                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare. If you prefer an earlier result, click on that message to restore those recommendations.
+                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare.
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
                 <strong style={{ color: '#d2d2d2' }}>Event matching:</strong><br/>
@@ -190,7 +233,7 @@ export function AdvisorPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="pane-label">Recommendations</div>
           {turns.length > 1 && (
-            <div style={{ display: 'flex', gap: '8px', fontSize: '13px' }}>
+            <div style={{ display: 'flex', gap: '6px', fontSize: '12px' }}>
               {turns.map((_, i) => (
                 <button
                   key={i}
@@ -199,20 +242,19 @@ export function AdvisorPage() {
                     background: i === activeTurn ? '#1a3a5a' : 'transparent',
                     border: '1px solid #333',
                     color: i === activeTurn ? '#73bcf7' : '#666',
-                    padding: '4px 12px',
+                    padding: '3px 10px',
                     borderRadius: '4px',
                     cursor: 'pointer',
-                    fontSize: '13px',
+                    fontSize: '12px',
                   }}
                 >
-                  Turn {i + 1}
+                  {i === turns.length - 1 ? 'Current' : `Rec ${i + 1}`}
                 </button>
               ))}
             </div>
           )}
         </div>
 
-        {/* Show progressive candidates during streaming */}
         {streamingCandidates ? (
           <RecCardList candidates={streamingCandidates} isComplete={false} streamPhase={stream.phase} />
         ) : currentResults ? (
@@ -238,11 +280,29 @@ function RecCardList({ candidates, isComplete, streamPhase }: {
   const yellow = candidates.filter(c => c.tier === 'yellow')
   const white = candidates.filter(c => c.tier === 'white' || c.tier === 'pending')
 
-  // During vector_search phase, all candidates are unsorted — show flat list
-  if (streamPhase === 'vector_search' || (!isComplete && green.length === 0 && yellow.length === 0)) {
+  // During streaming before triage, show flat list
+  if (streamPhase === 'vector_search') {
     return (
       <>
+        <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
+          Candidates ({candidates.length})
+        </div>
         {candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
+      </>
+    )
+  }
+
+  // During streaming after triage but before rationale, show all scored candidates visibly
+  if (!isComplete && green.length === 0 && yellow.length > 0) {
+    return (
+      <>
+        <div style={{ fontSize: '11px', color: '#e8a838', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
+          Evaluating top {Math.min(yellow.length, 5)} matches...
+        </div>
+        {yellow.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
+        {white.length > 0 && (
+          <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={false} />
+        )}
       </>
     )
   }
@@ -265,13 +325,12 @@ function RecCardList({ candidates, isComplete, streamPhase }: {
   )
 }
 
-function CollapsibleTier({ label, candidates, defaultOpen, isComplete }: {
+function CollapsibleTier({ label, candidates, isComplete }: {
   label: string
   candidates: StreamCandidate[]
-  defaultOpen?: boolean
   isComplete: boolean
 }) {
-  const [open, setOpen] = useState(defaultOpen || false)
+  const [open, setOpen] = useState(false)
   return (
     <div>
       <button
