@@ -72,6 +72,16 @@ export const api = {
   analyzeSingle: (ciName: string) =>
     request<{ job_id: string }>(`/analysis/${encodeURIComponent(ciName)}`, { method: 'POST' }),
 
+  // SSE streaming
+  streamJob: (jobId: string, onMessage: (msg: { user_message: string; phase: string; status: string }) => void): () => void => {
+    const es = new EventSource(`${BASE}/analysis/jobs/${jobId}/stream`)
+    es.onmessage = (e) => {
+      try { onMessage(JSON.parse(e.data)) } catch { /* ignore */ }
+    }
+    es.onerror = () => es.close()
+    return () => es.close()
+  },
+
   // Admin
   getTokenUsage: (days = 30) => request<unknown>(`/admin/token-usage?days=${days}`),
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),

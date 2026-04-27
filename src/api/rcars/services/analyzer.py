@@ -513,6 +513,10 @@ def analyze_showroom(
             "last_repo_commit": head_sha,
             "last_repo_updated": head_date,
             "content_hash": content_hash,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "content_file_count": len(content_files),
+            "elapsed_seconds": round(elapsed, 1),
         }
 
     except Exception:

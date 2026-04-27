@@ -456,8 +456,9 @@ body {
   font-size: 16px;
 }
 .btn-action:hover { background: #1f4a70; }
-.status-table { width: 100%; border-collapse: collapse; font-size: 15px; }
-.status-table td, .status-table th { padding: 10px 14px; border-bottom: 1px solid var(--border); text-align: left; }
+.status-table { max-width: 520px; border-collapse: collapse; font-size: 15px; }
+.status-table td, .status-table th { padding: 8px 12px; border-bottom: 1px solid var(--border); text-align: left; }
+.status-table td:last-child, .status-table th:last-child { text-align: right; }
 .status-table th { color: var(--text-muted); font-weight: normal; }
 
 /* Phase status line */

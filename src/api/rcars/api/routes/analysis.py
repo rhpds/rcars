@@ -14,6 +14,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
+    dedup_stats = db.get_scan_dedup_stats()
     items = db.get_items_needing_analysis()
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
 
@@ -23,8 +24,8 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
             "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="arq:queue:scan"
         )
 
-    db.complete_job(parent_job_id, result_json={"enqueued": len(items)})
-    return {"job_id": parent_job_id, "enqueued": len(items)}
+    db.complete_job(parent_job_id, result_json={"enqueued": len(items), **dedup_stats})
+    return {"job_id": parent_job_id, "enqueued": len(items), **dedup_stats}
 
 
 @router.post("/check-stale")

@@ -555,6 +555,24 @@ class Database:
         deduped.sort(key=lambda i: i.get("ci_name", ""))
         return deduped
 
+    def get_scan_dedup_stats(self) -> dict[str, int]:
+        """Return total scannable, unique (url, ref) pairs, and propagated sibling count."""
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT ci.showroom_url, COALESCE(ci.showroom_ref, '') AS showroom_ref, COUNT(*) AS cnt
+                FROM catalog_items ci
+                LEFT JOIN showroom_analysis sa ON ci.ci_name = sa.ci_name
+                WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
+                  AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                  AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
+                GROUP BY ci.showroom_url, COALESCE(ci.showroom_ref, '')
+            """)
+            groups = cur.fetchall()
+        total = sum(row["cnt"] for row in groups)
+        unique = len(groups)
+        propagated = total - unique
+        return {"total_scannable": total, "unique_pairs": unique, "will_propagate": propagated}
+
     def get_siblings_by_showroom(self, showroom_url: str, showroom_ref: str | None) -> list[dict[str, Any]]:
         with self._pool.connection() as conn:
             cur = conn.execute(

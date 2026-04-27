@@ -75,7 +75,15 @@ export function AdminCatalogPage() {
   return (
     <div className="admin-layout">
       <div className="admin-section">
-        <h3>Catalog Status</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+          <h3 style={{ margin: 0 }}>Catalog Status</h3>
+          <button
+            onClick={loadStatus}
+            style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
+          >
+            ↻ Refresh
+          </button>
+        </div>
         {status ? (
           <table className="status-table">
             <thead><tr><th>Metric</th><th>Count</th></tr></thead>
@@ -119,8 +127,18 @@ export function AdminCatalogPage() {
         onRun={async (addLog) => {
           addLog('Starting catalog refresh...')
           const result = await api.refreshCatalog()
-          addLog(`Catalog refresh enqueued: job_id=${result.job_id}`)
-          addLog('Check Workers tab for job progress.')
+          addLog(`job_id=${result.job_id}`)
+          await new Promise<void>((resolve) => {
+            const stop = api.streamJob(result.job_id, (msg) => {
+              addLog(msg.user_message)
+              if (msg.phase === 'complete' || msg.phase === 'failed') {
+                stop()
+                resolve()
+              }
+            })
+            // Fallback: resolve after 5 minutes even if SSE stalls
+            setTimeout(() => { stop(); resolve() }, 5 * 60 * 1000)
+          })
           loadStatus()
         }}
       />
@@ -131,8 +149,12 @@ export function AdminCatalogPage() {
         buttonLabel="Scan Unanalyzed"
         onRun={async (addLog) => {
           addLog('Starting scan...')
-          const result = await api.startScan() as { job_id: string; enqueued: number }
-          addLog(`${result.enqueued} items queued for analysis`)
+          const result = await api.startScan() as { job_id: string; enqueued: number; total_scannable?: number; unique_pairs?: number; will_propagate?: number }
+          if (result.total_scannable !== undefined && result.unique_pairs !== undefined) {
+            addLog(`${result.total_scannable} scannable → ${result.unique_pairs} unique Showrooms queued, ${result.will_propagate ?? 0} will propagate from siblings`)
+          } else {
+            addLog(`${result.enqueued} items queued for analysis`)
+          }
           addLog('Monitoring progress...')
 
           let lastComplete = 0
@@ -194,7 +216,17 @@ export function AdminCatalogPage() {
         onRun={async (addLog) => {
           addLog('Starting stale check...')
           const result = await api.checkStale()
-          addLog(`Stale check enqueued: job_id=${result.job_id}`)
+          addLog(`job_id=${result.job_id}`)
+          await new Promise<void>((resolve) => {
+            const stop = api.streamJob(result.job_id, (msg) => {
+              addLog(msg.user_message)
+              if (msg.phase === 'complete' || msg.phase === 'failed') {
+                stop()
+                resolve()
+              }
+            })
+            setTimeout(() => { stop(); resolve() }, 30 * 60 * 1000)
+          })
           loadStatus()
         }}
       />
@@ -206,8 +238,10 @@ export function AdminCatalogPage() {
         onRun={async (addLog) => {
           addLog('Starting rescan of stale items...')
           const result = await api.rescanStale() as { job_id: string; enqueued: number }
-          addLog(`Rescan enqueued: ${result.enqueued} stale items queued`)
-          addLog(`Parent job_id=${result.job_id}`)
+          addLog(`${result.enqueued} stale items queued (job_id=${result.job_id})`)
+          if (result.enqueued > 0) {
+            addLog('Analysis jobs running — monitor progress in the Scan Unanalyzed log above.')
+          }
           loadStatus()
         }}
       />
@@ -254,8 +288,12 @@ export function AdminWorkersPage() {
 
   useEffect(() => {
     const interval = setInterval(async () => {
-      const wh = await api.getWorkerHealth() as WorkerHealth
+      const [wh, jb] = await Promise.all([
+        api.getWorkerHealth() as Promise<WorkerHealth>,
+        api.listJobs(30) as Promise<{ items: Job[]; total: number }>,
+      ])
       setHealth(wh)
+      setJobs(jb.items)
     }, 10000)
     return () => clearInterval(interval)
   }, [])

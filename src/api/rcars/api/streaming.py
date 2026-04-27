@@ -39,6 +39,12 @@ def translate_to_user_message(msg: dict) -> str:
     phase = msg.get("phase", "")
     status = msg.get("status", "")
 
+    if phase == "catalog_refresh":
+        return msg.get("message", f"Catalog refresh: {status}")
+
+    if phase == "stale_check":
+        return msg.get("message", f"Stale check: {status}")
+
     if phase == "vector_search":
         if status == "started":
             return "Searching content library..."

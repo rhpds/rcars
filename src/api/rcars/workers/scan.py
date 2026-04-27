@@ -122,7 +122,18 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
                 propagated += 1
 
             wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
-            log.info("analysis_complete", action="job_complete", ci_name=ci_name, propagated=propagated)
+            log.info(
+                "analysis_complete",
+                action="job_complete",
+                ci_name=ci_name,
+                showroom_url=showroom_url,
+                showroom_ref=item.get("showroom_ref"),
+                content_files=result.get("content_file_count", 0),
+                input_tokens=result.get("input_tokens", 0),
+                output_tokens=result.get("output_tokens", 0),
+                elapsed_seconds=result.get("elapsed_seconds"),
+                propagated=propagated,
+            )
             return {"ci_name": ci_name, "success": True}
 
         wctx.db.set_scan_status(ci_name, "failed", error_class="no_result", error_message="Analysis returned no results")
