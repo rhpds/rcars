@@ -1,6 +1,6 @@
 # RCARS Backlog
 
-Last updated: 2026-04-27
+Last updated: 2026-04-28
 
 ## Completed
 
@@ -42,6 +42,7 @@ Last updated: 2026-04-27
 - [x] Content path API + UI — curator input to set custom content folder and trigger rescan
 - [x] Analysis max_tokens bumped to 8192 for large showrooms
 - [x] Stale item visibility — Browse filter + clickable Admin count
+- [x] Recommendation dedup across stages — group by (showroom_url, showroom_ref), prefer prod > published > best distance
 
 ## Bugs
 
