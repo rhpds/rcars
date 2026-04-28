@@ -83,3 +83,5 @@ Last updated: 2026-04-28
 - [ ] **RCARS API for vetting** — PH calls RCARS to check content overlap during intake
 - [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
 - [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
+- [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, and cluster config each CI provides). PH express mode needs a base-finding query: "what CI gives me an OpenShift cluster with operator X and Y?" This requires indexing AgnosticV catalog item definitions for infrastructure details, not just Showroom content. Enables the express "find closest base infrastructure" use case.
+- [ ] **PH ServiceAccount in SA allowlist** — add `system:serviceaccount:publishing-house-dev:<ph-backend-sa>` to `RCARS_SA_ALLOWLIST_STR` for cluster-internal auth from PH MCP server (see PH RCARS integration spec)
