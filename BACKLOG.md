@@ -43,6 +43,18 @@ Last updated: 2026-04-28
 - [x] Analysis max_tokens bumped to 8192 for large showrooms
 - [x] Stale item visibility — Browse filter + clickable Admin count
 - [x] Recommendation dedup across stages — group by (showroom_url, showroom_ref), prefer prod > published > best distance
+- [x] Admin progress logging — replaced SSE with DB-accumulated message array + polling; proxy chain was killing idle SSE connections
+- [x] Catalog refresh progress — granular "Upserting... 100/968" progress during upsert phase
+- [x] Stale check dedup — clone each unique (url, ref) once instead of per-CI; reduced 555 clones to 388
+- [x] Stale check two-phase — `git ls-remote` first to skip unchanged repos, clone only repos with new commits
+- [x] Stale check timeout — bumped from 10 minutes to 1 hour for large catalog runs
+- [x] GitHub retry with backoff — 3 retries with exponential delay on rate limit/403 errors for ls-remote and clone
+- [x] "Scan" → "Analyze" — consistent terminology across admin UI (buttons, log messages, filter labels)
+- [x] Token Usage page — Triage/Rationale columns replacing confusing nested query list
+- [x] Admin scrollbar hidden — CSS scrollbar-width:none on content area, log windows reduced to 200px
+- [x] Unanalyzed filter — clickable count on admin page + Browse filter, excludes published Virtual CIs
+- [x] New Session fix — works when already in a fresh session (custom event dispatch instead of URL navigation)
+- [x] Vector search candidates — bumped from 10 to 15 for wider triage net
 
 ## Bugs
 
@@ -68,10 +80,15 @@ Last updated: 2026-04-28
 
 ## Scanner / Pipeline
 
+- [x] **Stale detection via ls-remote** — two-phase check: `git ls-remote` to compare SHA, clone only if changed. Replaces full-clone-every-repo approach
 - [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; would avoid rescanning when `main` and `v1.0` point to same commit
-- [ ] **Stale detection improvements** — current content hash comparison requires full clone; could use GitHub API for lightweight checks
 - [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats are not scanned or indexed. These need different extraction pipelines (e.g. Arcade JSON/YAML, architecture docs from repos or Confluence). Would enable advisor responses like "here's a reference architecture for deploying X" instead of only hands-on labs
 - [ ] **Old monolith code** — `src/rcars/` should be removed once v2 is fully verified
+
+## Operations
+
+- [ ] **Scheduled catalog refresh + stale check** — automated periodic runs (e.g. daily catalog refresh, nightly stale check + analyze). Currently manual via admin UI. Could use a CronJob on OpenShift or an in-process scheduler
+
 
 ## Architecture
 
