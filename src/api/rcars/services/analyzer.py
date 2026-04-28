@@ -212,16 +212,55 @@ def classify_scan_error(
     return "unknown", f"Unexpected error scanning {url}: {msg}"
 
 
+def _is_github_throttle(stderr: str) -> bool:
+    indicators = ["rate limit", "too many requests", "403", "secondary rate"]
+    return any(ind in stderr.lower() for ind in indicators)
+
+
+def _run_git_with_retry(cmd: list[str], timeout: int = 120, max_retries: int = 3) -> subprocess.CompletedProcess:
+    """Run a git command with retry and exponential backoff for GitHub throttling."""
+    import time
+    for attempt in range(max_retries):
+        try:
+            return subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=timeout)
+        except subprocess.CalledProcessError as e:
+            if _is_github_throttle(e.stderr) and attempt < max_retries - 1:
+                wait = 10 * (2 ** attempt)
+                log.warning("GitHub throttle on attempt %d/%d, waiting %ds: %s",
+                            attempt + 1, max_retries, wait, cmd[:3])
+                time.sleep(wait)
+                continue
+            raise
+    raise RuntimeError("unreachable")
+
+
+def ls_remote_sha(url: str, ref: str | None) -> str | None:
+    """Get the current SHA for a ref without cloning. Returns None on failure."""
+    cmd = ["git", "ls-remote", url]
+    if ref:
+        cmd.append(ref)
+    else:
+        cmd.append("HEAD")
+    try:
+        result = _run_git_with_retry(cmd, timeout=30)
+        for line in result.stdout.strip().splitlines():
+            sha = line.split()[0]
+            return sha
+        return None
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        stderr = getattr(e, "stderr", "") or ""
+        log.warning("ls-remote failed for %s (ref=%s): %s", url, ref, stderr.strip()[:200])
+        return None
+
+
 def clone_showroom(
     url: str, ref: str | None, clone_dir: str = "/tmp"
 ) -> Path | None:
     """Shallow clone a Showroom repo. Returns clone path or None on failure."""
-    # Derive a safe directory name from the URL with unique suffix
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
     suffix = uuid.uuid4().hex[:8]
     clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}-{suffix}"
 
-    # Clean up any previous clone
     if clone_path.exists():
         shutil.rmtree(clone_path)
 
@@ -231,24 +270,19 @@ def clone_showroom(
     cmd.extend([url, str(clone_path)])
 
     try:
-        subprocess.run(
-            cmd, capture_output=True, text=True, check=True, timeout=120
-        )
+        _run_git_with_retry(cmd, timeout=120)
         return clone_path
     except subprocess.CalledProcessError as e:
-        # If branch not found, retry without --branch (use default)
         if ref and ("not found" in e.stderr or "could not find" in e.stderr.lower()):
             log.warning("Ref %s not found for %s, trying default branch", ref, url)
             cmd_fallback = ["git", "clone", "--depth", "1", url, str(clone_path)]
             try:
-                subprocess.run(
-                    cmd_fallback, capture_output=True, text=True, check=True, timeout=120
-                )
+                _run_git_with_retry(cmd_fallback, timeout=120)
                 return clone_path
             except subprocess.CalledProcessError as e2:
-                log.error("Failed to clone %s: %s", url, e2.stderr)
+                log.error("Failed to clone %s: %s", url, e2.stderr.strip()[:200])
                 return None
-        log.error("Failed to clone %s (ref=%s): %s", url, ref, e.stderr)
+        log.error("Failed to clone %s (ref=%s): %s", url, ref, e.stderr.strip()[:200])
         return None
     except subprocess.TimeoutExpired:
         log.error("Clone timed out for %s", url)

@@ -89,6 +89,7 @@ export const api = {
   },
 
   // Admin
+  getJob: (jobId: string) => request<{ id: string; status: string; progress_json: Record<string, unknown> | null; result_json: Record<string, unknown> | null; error: string | null }>(`/admin/jobs/${jobId}`),
   getTokenUsage: (days = 30) => request<unknown>(`/admin/token-usage?days=${days}`),
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),
   getWorkerHealth: () => request<unknown>('/admin/workers'),

@@ -81,17 +81,28 @@ export function AdvisorPage() {
 
   const stream = useJobStream(activeJobId)
 
+  const resetSession = () => {
+    setLoadedSessionId(null)
+    setMessages([])
+    setTurns([])
+    setActiveTurn(0)
+    setActiveJobId(null)
+    setSending(false)
+    setInput('')
+  }
+
+  useEffect(() => {
+    const handler = () => resetSession()
+    window.addEventListener('rcars:new-session', handler)
+    return () => window.removeEventListener('rcars:new-session', handler)
+  }, [])
+
   // Load session from URL param, or reset for new session
   useEffect(() => {
     const sid = searchParams.get('session')
     if (!sid) {
       if (loadedSessionId) {
-        setLoadedSessionId(null)
-        setMessages([])
-        setTurns([])
-        setActiveTurn(0)
-        setActiveJobId(null)
-        setSending(false)
+        resetSession()
       }
       return
     }

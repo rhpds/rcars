@@ -97,7 +97,7 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           intervalRef.current = null
           const propCount = progress.total_propagated || 0
-          addLog(`Scan complete: ${progress.complete} scanned + ${propCount} propagated = ${progress.complete + propCount} total, ${progress.failed} failed`)
+          addLog(`Analysis complete: ${progress.complete} analyzed + ${propCount} propagated = ${progress.complete + propCount} total, ${progress.failed} failed`)
           setScanning(false)
           onStatusChange()
         } else {
@@ -114,7 +114,7 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
       if ((progress.queued > 0 || progress.running > 0) && progress.total > 0) {
         lastCompleteRef.current = progress.complete
         lastFailedRef.current = progress.failed
-        addLog(`Reconnected to active scan: ${progress.complete} done, ${progress.running} running, ${progress.queued} queued`)
+        addLog(`Reconnected to active analysis: ${progress.complete} done, ${progress.running} running, ${progress.queued} queued`)
         startPolling()
       }
     }).catch(() => {})
@@ -125,14 +125,14 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     setLog([])
     lastCompleteRef.current = 0
     lastFailedRef.current = 0
-    addLog('Scanning unanalyzed and stale items...')
+    addLog('Analyzing unanalyzed and stale items...')
     const result = await api.startScan() as { job_id: string; enqueued: number; total_scannable?: number; unique_pairs?: number; will_propagate?: number }
     if (result.total_scannable !== undefined) {
       addLog(`${result.total_scannable} scannable → ${result.unique_pairs} unique Showrooms queued, ${result.will_propagate ?? 0} will propagate`)
     } else {
       addLog(`${result.enqueued} items queued`)
     }
-    if (result.enqueued === 0) { addLog('Nothing to scan — all items are current.'); return }
+    if (result.enqueued === 0) { addLog('Nothing to analyze — all items are current.'); return }
     addLog('Monitoring progress...')
     startPolling()
   }
@@ -143,15 +143,24 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     addLog('Checking for stale content...')
     const result = await api.checkStale()
     addLog(`job_id=${result.job_id}`)
+    let seen = 0
     await new Promise<void>((resolve) => {
-      const stop = api.streamJob(result.job_id, (msg) => {
-        addLog(msg.user_message)
-        if (msg.phase === 'complete' || msg.phase === 'failed') {
-          stop()
-          resolve()
-        }
-      })
-      setTimeout(() => { stop(); resolve() }, 30 * 60 * 1000)
+      const interval = setInterval(async () => {
+        try {
+          const job = await api.getJob(result.job_id)
+          const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+          for (let i = seen; i < messages.length; i++) {
+            if (messages[i].message) addLog(messages[i].message!)
+          }
+          seen = messages.length
+          if (job.status === 'complete' || job.status === 'failed') {
+            clearInterval(interval)
+            if (job.error) addLog(`Error: ${job.error}`)
+            resolve()
+          }
+        } catch { /* ignore */ }
+      }, 2000)
+      setTimeout(() => { clearInterval(interval); resolve() }, 30 * 60 * 1000)
     })
     setChecking(false)
     onStatusChange()
@@ -161,11 +170,11 @@ function ScanMonitor({ onStatusChange }: { onStatusChange: () => void }) {
     <div className="admin-section">
       <h3>Content Analysis</h3>
       <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-        Scan analyzes unanalyzed and stale items via Sonnet (~30-60s per item). Check Stale compares content hashes to detect changes since last scan.
+        Analyze processes unanalyzed and stale items via Sonnet (~30-60s per item). Check Stale compares content hashes to detect changes since last analysis.
       </p>
       <div style={{ display: 'flex', gap: '8px' }}>
         <LcarsButton onClick={handleScan} disabled={scanning || checking}>
-          {scanning ? 'Scanning...' : 'Scan'}
+          {scanning ? 'Analyzing...' : 'Analyze'}
         </LcarsButton>
         <LcarsButton onClick={handleCheckStale} disabled={scanning || checking}>
           {checking ? 'Checking...' : 'Check Stale'}
@@ -196,14 +205,14 @@ function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
     setRunning(true)
     lastCompleteRef.current = 0
     lastFailedRef.current = 0
-    addLog('Marking all items as stale and queueing full rescan...')
+    addLog('Marking all items as stale and queueing full re-analysis...')
     const result = await api.rescanAll()
     addLog(`${result.marked_stale} items marked stale`)
     if (result.total_scannable !== undefined) {
       addLog(`${result.total_scannable} scannable → ${result.unique_pairs} unique Showrooms queued`)
     }
     addLog(`${result.enqueued} analysis jobs enqueued — this will take several hours`)
-    if (result.enqueued === 0) { addLog('Nothing to scan.'); setRunning(false); return }
+    if (result.enqueued === 0) { addLog('Nothing to analyze.'); setRunning(false); return }
 
     intervalRef.current = setInterval(async () => {
       try {
@@ -224,7 +233,7 @@ function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           intervalRef.current = null
           const propCount = progress.total_propagated || 0
-          addLog(`Full rescan complete: ${progress.complete} scanned + ${propCount} propagated, ${progress.failed} failed`)
+          addLog(`Full re-analysis complete: ${progress.complete} analyzed + ${propCount} propagated, ${progress.failed} failed`)
           setRunning(false)
           onStatusChange()
         } else {
@@ -240,12 +249,12 @@ function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
 
   return (
     <div className="admin-section">
-      <h3>Full Rescan</h3>
+      <h3>Full Re-Analysis</h3>
       <p style={{ fontSize: '12px', color: '#c9190b', marginBottom: '10px' }}>
-        Marks ALL items stale and re-analyzes every Showroom from scratch. Takes several hours and consumes significant API tokens. Use only when the analysis pipeline has changed (e.g. scanner bug fix).
+        Marks ALL items stale and re-analyzes every Showroom from scratch. Takes several hours and consumes significant API tokens. Use only when the analysis pipeline has changed (e.g. analyzer bug fix).
       </p>
       <LcarsButton onClick={handleRescanAll} disabled={running}>
-        {running ? 'Rescanning...' : 'Rescan All'}
+        {running ? 'Re-Analyzing...' : 'Re-Analyze All'}
       </LcarsButton>
       <LogWindow
         lines={log}
@@ -292,7 +301,15 @@ export function AdminCatalogPage() {
                 <td>Scannable (with Showroom)</td><td>{status.scannable}</td>
               </tr>
               <tr><td>Analyzed</td><td>{status.analyzed}</td></tr>
-              <tr><td>Unanalyzed</td><td>{status.unanalyzed}</td></tr>
+              <tr>
+                <td>Unanalyzed</td>
+                <td>
+                  <span
+                    onClick={() => status.unanalyzed > 0 && navigate('/browse?filter=unanalyzed')}
+                    style={{ color: status.unanalyzed > 0 ? '#e8a838' : '#5cb85c', cursor: status.unanalyzed > 0 ? 'pointer' : 'default', textDecoration: status.unanalyzed > 0 ? 'underline' : 'none' }}
+                  >{status.unanalyzed}</span>
+                </td>
+              </tr>
               <tr>
                 <td>Stale (needs rescan)</td>
                 <td>
@@ -303,7 +320,7 @@ export function AdminCatalogPage() {
                 </td>
               </tr>
               <tr>
-                <td>Scan failures</td>
+                <td>Analysis failures</td>
                 <td>
                   <span
                     onClick={() => status.failed_count > 0 && navigate('/browse?filter=scan_failures')}
@@ -334,16 +351,24 @@ export function AdminCatalogPage() {
           addLog('Starting catalog refresh...')
           const result = await api.refreshCatalog()
           addLog(`job_id=${result.job_id}`)
+          let seen = 0
           await new Promise<void>((resolve) => {
-            const stop = api.streamJob(result.job_id, (msg) => {
-              addLog(msg.user_message)
-              if (msg.phase === 'complete' || msg.phase === 'failed') {
-                stop()
-                resolve()
-              }
-            })
-            // Fallback: resolve after 5 minutes even if SSE stalls
-            setTimeout(() => { stop(); resolve() }, 5 * 60 * 1000)
+            const interval = setInterval(async () => {
+              try {
+                const job = await api.getJob(result.job_id)
+                const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+                for (let i = seen; i < messages.length; i++) {
+                  if (messages[i].message) addLog(messages[i].message!)
+                }
+                seen = messages.length
+                if (job.status === 'complete' || job.status === 'failed') {
+                  clearInterval(interval)
+                  if (job.error) addLog(`Error: ${job.error}`)
+                  resolve()
+                }
+              } catch { /* ignore */ }
+            }, 2000)
+            setTimeout(() => { clearInterval(interval); resolve() }, 5 * 60 * 1000)
           })
           loadStatus()
         }}
@@ -443,7 +468,7 @@ export function AdminWorkersPage() {
         )}
         {isActive && (
           <div style={{ background: '#0d1a0d', border: '1px solid #1a3a1a', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: '#5cb85c', marginBottom: '12px' }}>
-            Scan in progress — {scanProgress!.complete} of {scanProgress!.complete + scanProgress!.queued + scanProgress!.running} complete
+            Analysis in progress — {scanProgress!.complete} of {scanProgress!.complete + scanProgress!.queued + scanProgress!.running} complete
           </div>
         )}
       </div>
@@ -539,32 +564,29 @@ export function AdminTokensPage() {
       {stats && stats.recent_queries.length > 0 && (
         <div className="admin-section">
           <h3>Recent Queries</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {stats.recent_queries.map((q, i) => {
-              const isFollowUp = q.query_text.includes('\nAdditional context: ')
-              const displayQuery = isFollowUp
-                ? '↳ ' + q.query_text.split('\nAdditional context: ').pop()
-                : q.query_text
-              const triageTotal = q.triage_input + q.triage_output
-              const rationaleTotal = q.rationale_input + q.rationale_output
-              const shortTime = new Date(q.query_time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-              return (
-                <div key={i} style={{
-                  display: 'flex', gap: '10px', alignItems: 'baseline', fontSize: '13px',
-                  padding: isFollowUp ? '2px 0 2px 16px' : '4px 0',
-                  borderTop: !isFollowUp && i > 0 ? '1px solid #1a1a2a' : undefined,
-                }}>
-                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0, width: '110px' }}>{shortTime}</span>
-                  <span style={{ color: isFollowUp ? '#888' : '#ccc', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {displayQuery}
-                  </span>
-                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0 }} title="Triage tokens">T:{triageTotal.toLocaleString()}</span>
-                  <span style={{ color: '#666', fontSize: '11px', flexShrink: 0 }} title="Rationale tokens">R:{rationaleTotal.toLocaleString()}</span>
-                  <span style={{ color: '#aaa', fontSize: '11px', flexShrink: 0, width: '50px', textAlign: 'right' }}>{q.total_tokens?.toLocaleString()}</span>
-                </div>
-              )
-            })}
-          </div>
+          <table className="status-table status-table--compact">
+            <thead><tr><th>Time</th><th>Query</th><th style={{ textAlign: 'right' }}>Triage</th><th style={{ textAlign: 'right' }}>Rationale</th></tr></thead>
+            <tbody>
+              {stats.recent_queries.map((q, i) => {
+                const shortTime = new Date(q.query_time).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+                const displayQuery = q.query_text.includes('\nAdditional context: ')
+                  ? q.query_text.split('\nAdditional context: ').pop()!
+                  : q.query_text
+                const triage = q.triage_input + q.triage_output
+                const rationale = q.rationale_input + q.rationale_output
+                return (
+                  <tr key={i}>
+                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime}</td>
+                    <td style={{ fontSize: '13px', maxWidth: '500px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {displayQuery}
+                    </td>
+                    <td style={{ textAlign: 'right', color: '#666', whiteSpace: 'nowrap' }}>{triage.toLocaleString()}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{rationale.toLocaleString()}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

@@ -774,6 +774,22 @@ class Database:
                 )
             conn.commit()
 
+    def append_job_progress(self, job_id: str, progress: dict) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                """UPDATE jobs
+                   SET status = 'running',
+                       started_at = COALESCE(started_at, %s),
+                       progress_json = jsonb_set(
+                           COALESCE(progress_json, '{"messages":[]}'),
+                           '{messages}',
+                           COALESCE(progress_json->'messages', '[]'::jsonb) || %s::jsonb
+                       )
+                   WHERE id = %s""",
+                (datetime.now(timezone.utc), Jsonb(progress), job_id),
+            )
+            conn.commit()
+
     def complete_job(self, job_id: str, result_json: dict | None = None, error: str | None = None) -> None:
         status = "failed" if error else "complete"
         with self._pool.connection() as conn:

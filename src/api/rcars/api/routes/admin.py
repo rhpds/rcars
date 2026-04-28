@@ -20,6 +20,15 @@ async def token_usage(
     return {"stats": stats, "recent_queries": queries, "days": days}
 
 
+@router.get("/jobs/{job_id}")
+async def get_job(job_id: str, request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    job = db.get_job(job_id)
+    if not job:
+        return {"error": "not found"}
+    return job
+
+
 @router.get("/jobs")
 async def list_jobs(
     request: Request,

@@ -22,7 +22,7 @@ class WorkerContext:
 
 async def publish_progress(relay: JobProgressRelay, job_id: str, db: Database, **kwargs) -> None:
     await relay.publish(job_id, kwargs)
-    db.update_job_status(job_id, "running", progress_json=kwargs)
+    db.append_job_progress(job_id, kwargs)
     logger.info(
         "phase_progress",
         action="phase_progress",

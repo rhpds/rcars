@@ -23,6 +23,7 @@ from rcars.api.streaming import JobProgressRelay
 from rcars.workers.base import WorkerContext
 from rcars.workers.recommend import run_recommendation
 from rcars.workers.scan import run_analysis
+from arq import func
 from rcars.workers.ops import run_catalog_refresh, run_stale_check
 
 
@@ -48,7 +49,7 @@ async def shutdown(ctx: dict) -> None:
 
 class WorkerSettings:
     """Scan/ops worker — handles analysis and catalog operations."""
-    functions = [run_analysis, run_catalog_refresh, run_stale_check]
+    functions = [run_analysis, run_catalog_refresh, func(run_stale_check, timeout=3600)]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))

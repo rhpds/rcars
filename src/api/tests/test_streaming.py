@@ -58,6 +58,8 @@ async def test_relay_publishes_and_receives():
 
     async def collect():
         async for msg in relay.subscribe(job_id):
+            if msg is None:
+                continue
             received.append(msg)
             if msg.get("phase") == "complete":
                 break

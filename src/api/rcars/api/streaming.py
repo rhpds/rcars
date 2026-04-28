@@ -19,12 +19,17 @@ class JobProgressRelay:
         channel = f"job:{job_id}"
         await self.redis.publish(channel, json.dumps(message))
 
-    async def subscribe(self, job_id: str) -> AsyncGenerator[dict, None]:
+    async def subscribe(self, job_id: str, keepalive_interval: float = 15) -> AsyncGenerator[dict | None, None]:
+        """Subscribe to job progress. Yields message dicts, or None as keepalive."""
         channel = f"job:{job_id}"
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(channel)
         try:
-            async for message in pubsub.listen():
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=keepalive_interval)
+                if message is None:
+                    yield None
+                    continue
                 if message["type"] == "message":
                     data = json.loads(message["data"])
                     yield data
@@ -78,6 +83,9 @@ def translate_to_user_message(msg: dict) -> str:
 
 async def sse_stream(relay: JobProgressRelay, job_id: str) -> AsyncGenerator[str, None]:
     async for msg in relay.subscribe(job_id):
+        if msg is None:
+            yield ": keepalive\n\n"
+            continue
         user_message = translate_to_user_message(msg)
         event_data = {**msg, "user_message": user_message}
         yield f"data: {json.dumps(event_data)}\n\n"

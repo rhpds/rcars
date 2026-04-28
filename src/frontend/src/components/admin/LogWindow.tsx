@@ -44,7 +44,7 @@ export function LogWindow({ lines, isOpen, onToggle }: LogWindowProps) {
             border: '1px solid #1e2030',
             borderRadius: '6px',
             padding: '12px',
-            maxHeight: '300px',
+            maxHeight: '200px',
             overflowY: 'auto',
             fontSize: '13px',
             fontFamily: 'monospace',

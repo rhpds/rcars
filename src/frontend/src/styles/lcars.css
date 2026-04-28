@@ -451,7 +451,8 @@ body {
 }
 
 /* Admin page */
-.admin-layout { padding: 24px; flex: 1; overflow-y: auto; max-width: 720px; }
+.admin-layout { padding: 24px; flex: 1; overflow-y: auto; max-width: 720px; scrollbar-width: none; }
+.admin-layout::-webkit-scrollbar { display: none; }
 .admin-layout--wide { max-width: 960px; }
 .admin-section { margin-bottom: 28px; }
 .admin-section h3 { font-size: 15px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }

@@ -48,7 +48,7 @@ export function LcarsSidebar() {
           <a
             href="/advisor"
             className="nav-new-session"
-            onClick={(e) => { e.preventDefault(); navigate('/advisor') }}
+            onClick={(e) => { e.preventDefault(); window.dispatchEvent(new Event('rcars:new-session')); navigate('/advisor', { replace: true }) }}
           >
             + New Session
           </a>
