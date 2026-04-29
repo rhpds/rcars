@@ -283,6 +283,8 @@ metadata:
     app: {{ app_name }}
     component: api
 spec:
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
   output:
     to:
       kind: ImageStreamTag
@@ -311,6 +313,8 @@ metadata:
     app: {{ app_name }}
     component: frontend
 spec:
+  successfulBuildsHistoryLimit: 2
+  failedBuildsHistoryLimit: 2
   output:
     to:
       kind: ImageStreamTag
