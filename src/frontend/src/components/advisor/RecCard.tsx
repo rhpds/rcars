@@ -51,7 +51,19 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
         <div>
           <div className="rec-title">{candidate.display_name}</div>
           <div className="rec-meta">
-            {candidate.stage} · {candidate.ci_name}
+            {candidate.stage !== 'prod' && (
+              <span style={{
+                display: 'inline-block',
+                background: candidate.stage === 'dev' ? '#2a4a6a' : '#5a4a1a',
+                color: candidate.stage === 'dev' ? '#99ccff' : '#ffcc66',
+                borderRadius: '10px', padding: '2px 8px', fontSize: '10px',
+                fontWeight: 600, marginRight: '6px',
+              }}>{candidate.stage.toUpperCase()}</span>
+            )}
+            {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name.startsWith('zt-')) && (
+              <span style={{ display: 'inline-block', background: '#1a3a2a', color: '#66cc99', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginRight: '6px' }}>ZT</span>
+            )}
+            {candidate.ci_name}
           </div>
         </div>
         <span className="rec-expand-hint">{expanded ? '▾' : '▸'}</span>

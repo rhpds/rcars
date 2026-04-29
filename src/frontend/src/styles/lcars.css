@@ -279,7 +279,7 @@ body {
   color: var(--text-primary);
   padding: 12px 16px;
   font-size: 16px;
-  resize: none;
+  resize: vertical;
   font-family: inherit;
 }
 .chat-input:focus { outline: none; border-color: var(--accent-blue); }
