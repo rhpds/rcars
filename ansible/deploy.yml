@@ -5,21 +5,23 @@
 # All tasks are idempotent — running the playbook twice produces the same result.
 #
 # Usage:
+#   # One-time bootstrap: create SA, RBAC, kubeconfig (requires cluster-admin)
 #   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
-#                                                        # One-time bootstrap: create SA, RBAC, kubeconfig
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags bootstrap # Apply infra (ImageStream, BuildConfig, Secrets, PG, OAuthClient)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply          # Apply app manifests + migrate (no build)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags update         # Full update: apply + build + migrate
-#   ansible-playbook ansible/deploy.yml -e env=prod --tags update        # Full prod update
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all + rollout
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend  # Rebuild frontend only
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api       # Rebuild API + workers
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run Alembic migrations
+#
+#   # Full deploy (infra + app + build + migrate) — works for first-time or updates
+#   ansible-playbook ansible/deploy.yml -e env=prod --tags deploy
+#
+#   # Individual operations
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # App manifests only (no build)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run migrations
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
 #   - cp ansible/vars/dev.yml.example ansible/vars/dev.yml  (fill in secrets)
-#   - Run mgmt-rbac tag once with personal kubeconfig, then set kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
+#   - Run mgmt-rbac tag once with personal kubeconfig
 
 - name: Deploy RCARS to OpenShift
   hosts: localhost
@@ -75,7 +77,7 @@
       ansible.builtin.set_fact:
         babylon_kubeconfig_content: "{{ lookup('file', babylon_kubeconfig_path) }}"
       when: babylon_kubeconfig_path is defined and babylon_kubeconfig_path != ''
-      tags: [apply, update]
+      tags: [always]
 
   tasks:
     - name: Bootstrap management RBAC
@@ -89,29 +91,29 @@
       ansible.builtin.include_tasks:
         file: tasks/namespace.yml
         apply:
-          tags: [namespace, apply, update]
-      tags: [namespace, apply, update]
+          tags: [deploy, apply]
+      tags: [deploy, apply]
 
     - name: Apply infra manifests
       ansible.builtin.include_tasks:
         file: tasks/apply-infra.yml
         apply:
-          tags: [bootstrap]
-      tags: [bootstrap]
+          tags: [deploy]
+      tags: [deploy]
 
     - name: Apply app manifests
       ansible.builtin.include_tasks:
         file: tasks/apply-manifests.yml
         apply:
-          tags: [apply, update]
-      tags: [apply, update]
+          tags: [deploy, apply]
+      tags: [deploy, apply]
 
     - name: Build all (API + frontend)
       ansible.builtin.include_tasks:
         file: tasks/wait-for-builds.yml
         apply:
-          tags: [builds, update]
-      tags: [builds, update]
+          tags: [deploy, builds]
+      tags: [deploy, builds]
 
     - name: Build frontend only
       ansible.builtin.include_tasks:
@@ -148,7 +150,7 @@
              | selectattr('status.phase', 'eq', 'Running')
              | selectattr('status.containerStatuses', 'defined')
              | first).status.containerStatuses[0].ready | bool
-          retries: 20
+          retries: 30
           delay: 15
           failed_when: app_pods.resources | default([]) | length == 0
 
@@ -164,7 +166,7 @@
             command: rcars status
           register: migrate_result
           changed_when: false
-      tags: [migrate, apply, update]
+      tags: [deploy, migrate]
 
   post_tasks:
     - name: Get pod status
