@@ -14,7 +14,7 @@ def search(
     query: str,
     db: Database,
     limit: int = 25,
-    prod_only: bool = True,
+    stages: list[str] | None = None,
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
 ) -> QueryState:
@@ -29,7 +29,7 @@ def search(
     rows = db.search_embeddings(
         query_embedding=query_embedding,
         limit=limit,
-        prod_only=prod_only,
+        stages=stages or ["prod"],
         include_zt=include_zt,
     )
 

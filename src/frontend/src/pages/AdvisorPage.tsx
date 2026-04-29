@@ -181,8 +181,10 @@ export function AdvisorPage() {
     }
 
     try {
-      const prodOnly = !showDev && !showEvent
-      const { job_id } = await api.submitQuery(searchQuery, prodOnly, showZt)
+      const stages = ['prod']
+      if (showDev) stages.push('dev')
+      if (showEvent) stages.push('event')
+      const { job_id } = await api.submitQuery(searchQuery, stages, showZt)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])

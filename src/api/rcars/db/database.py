@@ -407,10 +407,12 @@ class Database:
 
     def search_embeddings(
         self, query_embedding: list[float], limit: int = 25,
-        prod_only: bool = True, embed_type: str = "ci_summary",
+        stages: list[str] | None = None, embed_type: str = "ci_summary",
         include_zt: bool = True,
     ) -> list[dict[str, Any]]:
-        prod_filter = "AND ci.is_prod = TRUE" if prod_only else ""
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        stage_filter = f"AND ci.stage IN ({stage_placeholders})"
         zt_filter = "" if include_zt else "AND ci.catalog_namespace NOT LIKE 'zt-%%' AND ci.ci_name NOT LIKE 'zt-%%'"
         sql = f"""
             SELECT e.ci_name, e.content_text, e.module_title,
@@ -420,7 +422,7 @@ class Database:
                    ci.is_published, ci.published_ci_name, ci.base_ci_name
             FROM embeddings e
             JOIN catalog_items ci ON e.ci_name = ci.ci_name
-            WHERE e.embed_type = %s {prod_filter} {zt_filter}
+            WHERE e.embed_type = %s {stage_filter} {zt_filter}
             ORDER BY distance ASC
             LIMIT %s
         """
@@ -428,7 +430,7 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(sql, (
                     f"[{','.join(str(v) for v in query_embedding)}]",
-                    embed_type, limit,
+                    embed_type, *stage_list, limit,
                 ))
                 return cur.fetchall()
 

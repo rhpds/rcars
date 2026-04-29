@@ -13,7 +13,7 @@ router = APIRouter(prefix="/advisor")
 class QueryRequest(BaseModel):
     query: str
     event_url: str | None = None
-    prod_only: bool = True
+    stages: list[str] = ["prod"]
     include_zt: bool = True
     opted_out: bool = False
 
@@ -33,7 +33,7 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         "run_recommendation",
         job_id=job_id,
         query=body.query,
-        prod_only=body.prod_only,
+        stages=body.stages,
         include_zt=body.include_zt,
         user_email=user,
         opted_out=body.opted_out,
