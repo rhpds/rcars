@@ -19,7 +19,7 @@
 
 - name: Set mgmt kubeconfig output path default
   ansible.builtin.set_fact:
-    mgmt_kubeconfig_output: "{{ kubeconfig }}"
+    mgmt_kubeconfig_output: "~/devel/secrets/rcars-mgmt-{{ env }}.kubeconfig"
   when: mgmt_kubeconfig_output is not defined
 
 - name: Ensure {{ target_namespace }} namespace exists
