@@ -302,12 +302,12 @@ def _parse_nav_includes(nav_text: str) -> set[str]:
             continue
         match = re.search(r'xref:([^\[]+)', stripped)
         if match:
-            ref_path = match.group(1).strip()
+            ref_path = match.group(1).strip().split("#")[0]
             included.add(Path(ref_path).name)
     return included
 
 
-def read_showroom_content(clone_path: Path, content_path: str | None = None) -> dict[str, str]:
+def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_name: str | None = None) -> dict[str, str]:
     """Read .adoc files from a cloned Showroom repo.
 
     Uses nav.adoc as the source of truth for which pages to include.
@@ -315,6 +315,7 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None) -> 
     Falls back to reading all pages if nav.adoc doesn't exist or
     contains no xref entries.
     """
+    label = ci_name or clone_path.name
     files = {}
     if content_path:
         pages_dir = clone_path / content_path
@@ -330,7 +331,7 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None) -> 
             files["_nav.adoc"] = nav_text
             nav_includes = _parse_nav_includes(nav_text)
             if nav_includes:
-                log.info("nav.adoc: %d active pages: %s", len(nav_includes), sorted(nav_includes))
+                log.info("%s nav.adoc: %d active pages: %s", label, len(nav_includes), sorted(nav_includes))
             else:
                 nav_includes = None
         except OSError:
@@ -339,7 +340,7 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None) -> 
     if pages_dir.exists():
         for adoc_file in sorted(pages_dir.glob("*.adoc")):
             if nav_includes and adoc_file.name not in nav_includes:
-                log.info("skipping %s — not in nav.adoc", adoc_file.name)
+                log.info("%s skipping %s — not in nav.adoc", label, adoc_file.name)
                 continue
             try:
                 files[adoc_file.name] = adoc_file.read_text(errors="replace")
@@ -509,7 +510,7 @@ def analyze_showroom(
         log.info("analyze %s: cloned (HEAD=%s)", ci_name, head_sha[:8] if head_sha else "?")
 
         # Read content
-        raw_files = read_showroom_content(clone_path, content_path=content_path)
+        raw_files = read_showroom_content(clone_path, content_path=content_path, ci_name=ci_name)
         if not raw_files:
             log.warning("analyze %s: no .adoc files found in %s", ci_name, showroom_url)
             return {"error": "no_content", "message": f"No .adoc files found in {showroom_url}"}
