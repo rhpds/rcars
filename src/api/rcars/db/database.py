@@ -406,7 +406,7 @@ class Database:
             conn.commit()
 
     def search_embeddings(
-        self, query_embedding: list[float], limit: int = 15,
+        self, query_embedding: list[float], limit: int = 25,
         prod_only: bool = True, embed_type: str = "ci_summary",
         include_zt: bool = True,
     ) -> list[dict[str, Any]]:

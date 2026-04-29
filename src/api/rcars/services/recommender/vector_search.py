@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 def search(
     query: str,
     db: Database,
-    limit: int = 15,
+    limit: int = 25,
     prod_only: bool = True,
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
@@ -47,6 +47,8 @@ def search(
 
         url = row.get("showroom_url") or ""
         ref = row.get("showroom_ref") or ""
+        if ref in ("", "main", "HEAD"):
+            ref = ""
         content_key = (url, ref) if url else (row["ci_name"],)
 
         existing = rows_by_content.get(content_key)
