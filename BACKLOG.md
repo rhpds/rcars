@@ -77,6 +77,7 @@ Last updated: 2026-04-28
 - [ ] **Multi-turn conversation** — true conversational refinement with context carry-over (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop** — "Best fit" selections are stored but not yet used to improve scoring
+- [ ] **Catalog description as context** — the catalog item description (from the CRD) contains metadata not present in the Showroom content itself, such as which event it was built for (e.g. "Summit 2026"). Currently the analyzer only sees Showroom .adoc files. Indexing the catalog description alongside the analysis would let queries like "Summit 2026 labs" match even after the CI name loses its event prefix. Need to decide whether to feed it to the LLM analysis, add it to the embedding text, or use it as a structured filter
 
 ## Scanner / Pipeline
 
