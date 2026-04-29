@@ -5,10 +5,9 @@
 app_name: rcars
 app_port: 8080
 
-# Management service account (permanent home in rcars-dev, manages both envs)
+# Management service account (lives in target_namespace, one per env)
 mgmt_service_account:
   name: rcars-mgmt-sa
-  namespace: rcars-dev
 
 # Container images
 pg_image: pgvector/pgvector:pg16

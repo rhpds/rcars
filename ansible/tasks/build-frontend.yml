@@ -1,0 +1,46 @@
+---
+- name: Trigger frontend build
+  ansible.builtin.command:
+    cmd: >-
+      oc start-build {{ app_name }}-frontend-build
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+  changed_when: true
+
+- name: Wait for frontend build to complete
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: build.openshift.io/v1
+    kind: Build
+    namespace: "{{ target_namespace }}"
+    label_selectors:
+      - buildconfig={{ app_name }}-frontend-build
+  register: frontend_build_poll
+  until: >-
+    frontend_build_poll.resources | default([]) | length > 0 and
+    (frontend_build_poll.resources | default([])
+     | sort(attribute='metadata.creationTimestamp')
+     | last).status.phase in ['Complete', 'Failed', 'Error', 'Cancelled']
+  retries: 30
+  delay: 10
+  failed_when: >-
+    frontend_build_poll.resources | default([]) | length > 0 and
+    (frontend_build_poll.resources | default([])
+     | sort(attribute='metadata.creationTimestamp')
+     | last).status.phase in ['Failed', 'Error', 'Cancelled']
+  changed_when: false
+
+- name: Restart frontend deployment
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-frontend"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    merge_type: strategic-merge

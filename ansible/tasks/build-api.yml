@@ -1,0 +1,92 @@
+---
+- name: Trigger API build
+  ansible.builtin.command:
+    cmd: >-
+      oc start-build {{ app_name }}-api-build
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+  changed_when: true
+
+- name: Wait for API build to complete
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: build.openshift.io/v1
+    kind: Build
+    namespace: "{{ target_namespace }}"
+    label_selectors:
+      - buildconfig={{ app_name }}-api-build
+  register: api_build_poll
+  until: >-
+    api_build_poll.resources | default([]) | length > 0 and
+    (api_build_poll.resources | default([])
+     | sort(attribute='metadata.creationTimestamp')
+     | last).status.phase in ['Complete', 'Failed', 'Error', 'Cancelled']
+  retries: 60
+  delay: 15
+  failed_when: >-
+    api_build_poll.resources | default([]) | length > 0 and
+    (api_build_poll.resources | default([])
+     | sort(attribute='metadata.creationTimestamp')
+     | last).status.phase in ['Failed', 'Error', 'Cancelled']
+  changed_when: false
+
+- name: Restart API deployment
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-api"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    merge_type: strategic-merge
+
+- name: Restart scan worker deployment
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-scan-worker"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    merge_type: strategic-merge
+
+- name: Restart recommend worker deployment
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-recommend-worker"
+    definition:
+      spec:
+        template:
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/restartedAt: "{{ now(utc=True, fmt='%Y-%m-%dT%H:%M:%SZ') }}"
+    merge_type: strategic-merge
+
+- name: Wait for API rollout
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-api"
+  register: api_rollout
+  until: >-
+    api_rollout.resources | default([]) | length > 0 and
+    (api_rollout.resources[0].status.readyReplicas | default(0) | int) ==
+    (api_rollout.resources[0].spec.replicas | default(1) | int)
+  retries: 20
+  delay: 10
+  changed_when: false

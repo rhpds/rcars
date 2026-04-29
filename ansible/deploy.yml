@@ -106,12 +106,26 @@
           tags: [apply, update]
       tags: [apply, update]
 
-    - name: Wait for builds
+    - name: Build all (API + frontend)
       ansible.builtin.include_tasks:
         file: tasks/wait-for-builds.yml
         apply:
           tags: [builds, update]
       tags: [builds, update]
+
+    - name: Build frontend only
+      ansible.builtin.include_tasks:
+        file: tasks/build-frontend.yml
+        apply:
+          tags: [build-frontend]
+      tags: [build-frontend]
+
+    - name: Build API + workers only
+      ansible.builtin.include_tasks:
+        file: tasks/build-api.yml
+        apply:
+          tags: [build-api]
+      tags: [build-api]
 
     - name: Run database migrations
       block:

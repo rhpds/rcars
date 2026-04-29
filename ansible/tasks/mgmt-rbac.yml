@@ -1,28 +1,28 @@
 ---
 # Bootstrap RBAC for the rcars-mgmt-sa service account.
 #
-# Creates the SA (in rcars-dev), a scoped ClusterRole for cluster-level
-# operations (namespaces, OAuthClients), and an admin RoleBinding in
-# the target namespace.  Also creates a long-lived token Secret and
-# writes a ready-to-use kubeconfig to mgmt_kubeconfig_output.
+# Creates the SA in target_namespace, a scoped ClusterRole for
+# cluster-level operations (namespaces, OAuthClients), and an admin
+# RoleBinding in the target namespace.  Also creates a long-lived
+# token Secret and writes a ready-to-use kubeconfig.
 #
-# Idempotent — safe to run on every deploy.  The SA, ClusterRole, and
-# ClusterRoleBinding are created once; the per-namespace RoleBinding is
-# created per env.  The kubeconfig is (re-)written every run.
+# Each env (dev, prod) gets its own SA in its own namespace.
+# The ClusterRole and ClusterRoleBinding are shared (cluster-scoped).
+#
+# Idempotent — safe to run on every deploy.
 #
 # Prerequisites: the user running this must have cluster-admin or equivalent.
-# One-time setup:
+# One-time setup per env:
 #   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
+#   ansible-playbook ansible/deploy.yml -e env=prod -e kubeconfig=~/.kube/config --tags mgmt-rbac
 # Override output path with: -e mgmt_kubeconfig_output=~/somewhere/else.kubeconfig
-# Subsequent deploys use the generated kubeconfig:
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 
 - name: Set mgmt kubeconfig output path default
   ansible.builtin.set_fact:
-    mgmt_kubeconfig_output: "~/devel/secrets/rcars-mgmt.kubeconfig"
+    mgmt_kubeconfig_output: "{{ kubeconfig }}"
   when: mgmt_kubeconfig_output is not defined
 
-- name: Ensure rcars-dev namespace exists
+- name: Ensure {{ target_namespace }} namespace exists
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: present
@@ -30,19 +30,9 @@
       apiVersion: v1
       kind: Namespace
       metadata:
-        name: "{{ mgmt_service_account.namespace }}"
+        name: "{{ target_namespace }}"
 
-- name: Ensure rcars-prod namespace exists
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Namespace
-      metadata:
-        name: rcars-prod
-
-- name: Ensure management SA exists
+- name: Ensure management SA exists in {{ target_namespace }}
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: present
@@ -51,7 +41,7 @@
       kind: ServiceAccount
       metadata:
         name: "{{ mgmt_service_account.name }}"
-        namespace: "{{ mgmt_service_account.namespace }}"
+        namespace: "{{ target_namespace }}"
 
 - name: Ensure management ClusterRole exists
   kubernetes.core.k8s:
@@ -63,11 +53,9 @@
       metadata:
         name: rcars-mgmt
       rules:
-        # Namespace lifecycle (create rcars-dev / rcars-prod)
         - apiGroups: [""]
           resources: ["namespaces"]
           verbs: ["get", "list", "create", "update", "patch"]
-        # OAuthClient is cluster-scoped in OpenShift
         - apiGroups: ["oauth.openshift.io"]
           resources: ["oauthclients"]
           verbs: ["get", "list", "create", "update", "patch", "delete"]
@@ -80,7 +68,7 @@
       apiVersion: rbac.authorization.k8s.io/v1
       kind: ClusterRoleBinding
       metadata:
-        name: rcars-mgmt
+        name: "rcars-mgmt-{{ env }}"
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: ClusterRole
@@ -88,7 +76,7 @@
       subjects:
         - kind: ServiceAccount
           name: "{{ mgmt_service_account.name }}"
-          namespace: "{{ mgmt_service_account.namespace }}"
+          namespace: "{{ target_namespace }}"
 
 - name: Ensure management SA has admin in {{ target_namespace }}
   kubernetes.core.k8s:
@@ -107,11 +95,9 @@
       subjects:
         - kind: ServiceAccount
           name: "{{ mgmt_service_account.name }}"
-          namespace: "{{ mgmt_service_account.namespace }}"
+          namespace: "{{ target_namespace }}"
 
 # ── Long-lived token + kubeconfig generation ──────────────────────────────────
-# OpenShift / K8s 1.24+ no longer auto-creates SA token Secrets.
-# We create one explicitly; the cluster populates data.token automatically.
 
 - name: Ensure long-lived token Secret exists
   kubernetes.core.k8s:
@@ -122,7 +108,7 @@
       kind: Secret
       metadata:
         name: rcars-mgmt-sa-token
-        namespace: "{{ mgmt_service_account.namespace }}"
+        namespace: "{{ target_namespace }}"
         annotations:
           kubernetes.io/service-account.name: "{{ mgmt_service_account.name }}"
       type: kubernetes.io/service-account-token
@@ -131,7 +117,7 @@
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     kind: Secret
-    namespace: "{{ mgmt_service_account.namespace }}"
+    namespace: "{{ target_namespace }}"
     name: rcars-mgmt-sa-token
   register: token_secret
   until: token_secret.resources | length > 0 and token_secret.resources[0].data.token is defined
@@ -147,7 +133,7 @@
     kubeconfig: "{{ kubeconfig }}"
   register: mgmt_cluster_info
 
-- name: Ensure ~/secrets directory exists
+- name: Ensure output directory exists
   ansible.builtin.file:
     path: "{{ mgmt_kubeconfig_output | expanduser | dirname }}"
     state: directory
@@ -167,7 +153,7 @@
       contexts:
       - context:
           cluster: rcars
-          namespace: {{ mgmt_service_account.namespace }}
+          namespace: {{ target_namespace }}
           user: {{ mgmt_service_account.name }}
         name: rcars
       current-context: rcars
@@ -180,10 +166,8 @@
   ansible.builtin.debug:
     msg: |
       Management kubeconfig written to: {{ mgmt_kubeconfig_output }}
-
-      Update ansible/vars/dev.yml and ansible/vars/prod.yml:
-        kubeconfig: {{ mgmt_kubeconfig_output }}
+      Default namespace: {{ target_namespace }}
 
       Test with:
         KUBECONFIG={{ mgmt_kubeconfig_output | expanduser }} oc whoami
-        KUBECONFIG={{ mgmt_kubeconfig_output | expanduser }} oc get pods -n rcars-dev
+        KUBECONFIG={{ mgmt_kubeconfig_output | expanduser }} oc get pods -n {{ target_namespace }}
