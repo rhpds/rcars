@@ -11,7 +11,7 @@ router = APIRouter()
 async def auth_me(request: Request, user: str = Depends(require_auth)):
     settings: Settings = request.app.state.settings
     roles = ["user"]
-    if settings.is_curator(user):
+    if settings.is_curator(user) or settings.is_admin(user):
         roles.append("curator")
     if settings.is_admin(user):
         roles.append("admin")
