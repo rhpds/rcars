@@ -47,7 +47,7 @@ def search(
 
         url = row.get("showroom_url") or ""
         ref = row.get("showroom_ref") or ""
-        if ref in ("", "main", "HEAD"):
+        if ref in ("", "main", "master", "HEAD"):
             ref = ""
         content_key = (url, ref) if url else (row["ci_name"],)
 
