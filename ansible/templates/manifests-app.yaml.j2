@@ -105,6 +105,8 @@ spec:
               value: "{{ admin_emails | join(',') }}"
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
+            - name: RCARS_SA_ALLOWLIST_STR
+              value: "{{ sa_allowlist | default([]) | join(',') }}"
             - name: RCARS_DEV_USER
               value: ""
             - name: HF_HOME

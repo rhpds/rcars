@@ -40,6 +40,10 @@ curator_emails:
 admin_emails:
   - your-email@redhat.com
 
+# ServiceAccount allowlist for cross-namespace API access (e.g. Publishing House)
+sa_allowlist:
+  - "system:serviceaccount:your-namespace:your-service-account"
+
 # GitHub repo for BuildConfig
 github_repo: rhpds/rcars-advisory
 github_token: CHANGEME
