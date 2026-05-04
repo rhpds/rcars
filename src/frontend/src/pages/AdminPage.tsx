@@ -736,7 +736,7 @@ interface QuerySession {
 
 export function AdminQueriesPage() {
   const [sessions, setSessions] = useState<QuerySession[]>([])
-  const [expandedSession, setExpandedSession] = useState<string | null>(null)
+  const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -770,12 +770,17 @@ export function AdminQueriesPage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {sessions.map(session => {
               const firstQuery = session.turns[0]?.query_text
-              const isExpanded = expandedSession === session.session_id
+              const isExpanded = expandedSessions.has(session.session_id)
               return (
                 <div key={session.session_id} style={{ background: '#0d1117', borderRadius: '6px', border: '1px solid #1e2030' }}>
                   <div
                     style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'baseline' }}
-                    onClick={() => setExpandedSession(isExpanded ? null : session.session_id)}
+                    onClick={() => setExpandedSessions(prev => {
+                      const next = new Set(prev)
+                      if (next.has(session.session_id)) next.delete(session.session_id)
+                      else next.add(session.session_id)
+                      return next
+                    })}
                   >
                     <span style={{ color: '#666', fontSize: '12px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                       {isExpanded ? '▾' : '▸'} {shortTime(session.started_at)}
@@ -793,6 +798,11 @@ export function AdminQueriesPage() {
                         <div style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>Query redacted (user opted out)</div>
                       ) : (
                         <>
+                          {turn.query_text && (
+                            <div style={{ color: '#e8a838', fontSize: '13px', marginBottom: '8px', fontWeight: 500 }}>
+                              {turn.query_text}
+                            </div>
+                          )}
                           {turn.overall_assessment && (
                             <div style={{ color: '#aaa', fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
                               {turn.overall_assessment.slice(0, 500)}{turn.overall_assessment.length > 500 ? '...' : ''}
@@ -800,12 +810,17 @@ export function AdminQueriesPage() {
                           )}
                           {turn.results_json && Array.isArray(turn.results_json) && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number }>).map((r, ri) => (
+                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number; stage?: string }>).map((r, ri) => (
                                 <div key={ri} style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                   <span style={{ color: tierColor(r.tier || 'white'), fontWeight: 600, width: '36px' }}>
                                     {r.relevance_score ?? '?'}%
                                   </span>
                                   <span style={{ color: '#bbb' }}>{r.display_name || r.ci_name}</span>
+                                  {r.stage && r.stage !== 'prod' && (
+                                    <span style={{ color: '#666', fontSize: '10px', border: '1px solid #333', borderRadius: '3px', padding: '0 4px' }}>
+                                      {r.stage}
+                                    </span>
+                                  )}
                                   {turn.chosen_ci_name === r.ci_name && (
                                     <span style={{ color: '#5cb85c', fontSize: '10px' }}>SELECTED</span>
                                   )}
