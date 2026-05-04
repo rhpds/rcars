@@ -1,9 +1,10 @@
-"""Admin routes — token usage, jobs, worker health."""
+"""Admin routes — token usage, jobs, worker health, scheduled maintenance."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Query
 from rcars.api.middleware.auth import require_admin
+from rcars.config import Settings
 
 router = APIRouter(prefix="/admin")
 
@@ -141,3 +142,41 @@ async def query_history(
             "turns": turns,
         })
     return {"items": results, "total": len(results)}
+
+
+@router.post("/run-maintenance")
+async def run_maintenance(request: Request, user: str = Depends(require_admin)):
+    """Manually trigger the nightly maintenance pipeline (refresh → stale check → re-analyze)."""
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="maintenance", queue="ops", created_by=user)
+    await arq_redis.enqueue_job(
+        "run_nightly_pipeline", job_id=job_id, _queue_name="arq:queue:scan"
+    )
+    return {"job_id": job_id}
+
+
+@router.get("/schedule")
+async def schedule_status(request: Request, user: str = Depends(require_admin)):
+    """Return scheduled maintenance pipeline status and last run info."""
+    db = request.app.state.db
+    settings = Settings()
+
+    jobs = db.list_jobs(limit=5, job_type="maintenance")
+    last_pipeline = None
+    if jobs:
+        job = jobs[0]
+        last_pipeline = {
+            "job_id": job["id"],
+            "status": job["status"],
+            "created_at": job["created_at"],
+            "completed_at": job.get("completed_at"),
+            "result": job.get("result_json"),
+            "error": job.get("error"),
+        }
+
+    return {
+        "pipeline_enabled": settings.pipeline_enabled,
+        "pipeline_schedule": f"{settings.pipeline_hour:02d}:{settings.pipeline_minute:02d} UTC daily",
+        "last_pipeline": last_pipeline,
+    }

@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # Ops
     stale_days: int = 3
 
+    # Scheduled maintenance pipeline
+    pipeline_enabled: bool = True
+    pipeline_hour: int = 4
+    pipeline_minute: int = 0
+
     def model_post_init(self, __context) -> None:
         if not self.vertex_project_id:
             self.vertex_project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")

@@ -100,4 +100,11 @@ export const api = {
   getJobStatus: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   getQueryHistory: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/queries?limit=${limit}`),
+
+  // Scheduled maintenance
+  getScheduleStatus: () => request<{
+    pipeline_enabled: boolean; pipeline_schedule: string;
+    last_pipeline: { job_id: string; status: string; created_at: string; completed_at: string | null; result: Record<string, unknown> | null; error: string | null } | null;
+  }>('/admin/schedule'),
+  runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
 };

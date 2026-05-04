@@ -23,8 +23,8 @@ from rcars.api.streaming import JobProgressRelay
 from rcars.workers.base import WorkerContext
 from rcars.workers.recommend import run_recommendation
 from rcars.workers.scan import run_analysis
-from arq import func
-from rcars.workers.ops import run_catalog_refresh, run_stale_check
+from arq import cron, func
+from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline
 
 
 async def startup(ctx: dict) -> None:
@@ -47,9 +47,23 @@ async def shutdown(ctx: dict) -> None:
     get_logger().info("worker_stopped", action="worker_stopped")
 
 
+_pipeline_enabled = os.environ.get("RCARS_PIPELINE_ENABLED", "true").lower() == "true"
+_pipeline_hour = int(os.environ.get("RCARS_PIPELINE_HOUR", "4"))
+_pipeline_minute = int(os.environ.get("RCARS_PIPELINE_MINUTE", "0"))
+
+
 class WorkerSettings:
-    """Scan/ops worker — handles analysis and catalog operations."""
-    functions = [run_analysis, run_catalog_refresh, func(run_stale_check, timeout=3600)]
+    """Scan/ops worker — handles analysis, catalog operations, and scheduled maintenance."""
+    functions = [
+        run_analysis,
+        run_catalog_refresh,
+        func(run_stale_check, timeout=3600),
+        func(run_nightly_pipeline, timeout=7200),
+    ]
+    cron_jobs = [
+        cron(run_nightly_pipeline, hour=_pipeline_hour, minute=_pipeline_minute,
+             timeout=7200, unique=True),
+    ] if _pipeline_enabled else []
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))

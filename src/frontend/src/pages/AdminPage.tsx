@@ -265,6 +265,129 @@ function RescanAllSection({ onStatusChange }: { onStatusChange: () => void }) {
   )
 }
 
+interface ScheduleInfo {
+  pipeline_enabled: boolean
+  pipeline_schedule: string
+  last_pipeline: {
+    job_id: string; status: string; created_at: string; completed_at: string | null
+    result: { refresh?: { total_items?: number; removed_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
+    error: string | null
+  } | null
+}
+
+function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }) {
+  const [schedule, setSchedule] = useState<ScheduleInfo | null>(null)
+  const [log, setLog] = useState<string[]>([])
+  const [logOpen, setLogOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
+
+  const loadSchedule = useCallback(() => {
+    api.getScheduleStatus().then(data => setSchedule(data as ScheduleInfo))
+  }, [])
+
+  useEffect(() => { loadSchedule() }, [loadSchedule])
+
+  const handleRun = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunning(true)
+    addLog('Starting maintenance pipeline...')
+    const result = await api.runMaintenance()
+    addLog(`job_id=${result.job_id}`)
+    let seen = 0
+    await new Promise<void>((resolve) => {
+      const interval = setInterval(async () => {
+        try {
+          const job = await api.getJob(result.job_id)
+          const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+          for (let i = seen; i < messages.length; i++) {
+            if (messages[i].message) addLog(messages[i].message!)
+          }
+          seen = messages.length
+          if (job.status === 'complete' || job.status === 'failed') {
+            clearInterval(interval)
+            if (job.error) addLog(`Error: ${job.error}`)
+            resolve()
+          }
+        } catch { /* ignore */ }
+      }, 3000)
+      setTimeout(() => { clearInterval(interval); resolve() }, 3 * 60 * 60 * 1000)
+    })
+    setRunning(false)
+    loadSchedule()
+    onStatusChange()
+  }
+
+  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
+  const elapsed = (created: string, completed: string | null) => {
+    if (!completed) return 'running'
+    const ms = new Date(completed).getTime() - new Date(created).getTime()
+    const s = Math.round(ms / 1000)
+    if (s < 60) return `${s}s`
+    const m = Math.floor(s / 60)
+    return `${m}m ${s % 60}s`
+  }
+
+  return (
+    <div className="admin-section">
+      <h3>Scheduled Maintenance</h3>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+        Automated nightly pipeline: catalog refresh → stale check → re-analyze. Runs inside the scan worker via arq cron.
+      </p>
+      {schedule && (
+        <>
+          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '10px', fontSize: '13px' }}>
+            <span style={{ color: schedule.pipeline_enabled ? '#5cb85c' : '#c9190b', fontWeight: 600 }}>
+              {schedule.pipeline_enabled ? 'Enabled' : 'Disabled'}
+            </span>
+            <span style={{ color: '#888' }}>Schedule: {schedule.pipeline_schedule}</span>
+          </div>
+          {schedule.last_pipeline && (
+            <div style={{ fontSize: '12px', color: '#888', marginBottom: '10px', lineHeight: '1.6' }}>
+              <div>
+                Last run: <span style={{ color: '#ccc' }}>{shortTime(schedule.last_pipeline.created_at)}</span>
+                {' '}— <span style={{
+                  color: schedule.last_pipeline.status === 'complete' ? '#5cb85c'
+                    : schedule.last_pipeline.status === 'failed' ? '#c9190b'
+                    : schedule.last_pipeline.status === 'running' ? '#e8a838' : '#888'
+                }}>{schedule.last_pipeline.status}</span>
+                {schedule.last_pipeline.completed_at && (
+                  <span> ({elapsed(schedule.last_pipeline.created_at, schedule.last_pipeline.completed_at)})</span>
+                )}
+              </div>
+              {schedule.last_pipeline.result && (
+                <div style={{ color: '#666' }}>
+                  {schedule.last_pipeline.result.refresh && (
+                    <span>{schedule.last_pipeline.result.refresh.total_items} items synced</span>
+                  )}
+                  {schedule.last_pipeline.result.stale_check && (
+                    <span> · {schedule.last_pipeline.result.stale_check.stale} stale</span>
+                  )}
+                  {schedule.last_pipeline.result.analysis_enqueued !== undefined && (
+                    <span> · {schedule.last_pipeline.result.analysis_enqueued} re-analyzed</span>
+                  )}
+                  {schedule.last_pipeline.result.warnings && schedule.last_pipeline.result.warnings.length > 0 && (
+                    <span style={{ color: '#e8a838' }}> · {schedule.last_pipeline.result.warnings.length} warning(s)</span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+      <LcarsButton onClick={handleRun} disabled={running}>
+        {running ? 'Running...' : 'Run Maintenance Now'}
+      </LcarsButton>
+      <LogWindow
+        lines={log}
+        isOpen={logOpen}
+        onToggle={() => setLogOpen(!logOpen)}
+      />
+    </div>
+  )
+}
+
 export function AdminCatalogPage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<CatalogStatus | null>(null)
@@ -279,6 +402,8 @@ export function AdminCatalogPage() {
 
   return (
     <div className="admin-layout">
+      <ScheduledMaintenance onStatusChange={loadStatus} />
+
       <div className="admin-section">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
           <h3 style={{ margin: 0 }}>Catalog Status</h3>

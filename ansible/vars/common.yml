@@ -35,6 +35,11 @@ stale_days: 3
 curator_emails: []
 admin_emails: []
 
+# Scheduled maintenance pipeline (runs in scan-worker via arq cron)
+pipeline_enabled: true
+pipeline_hour: 4
+pipeline_minute: 0
+
 # Scaling
 api_replicas: 1
 scan_worker_replicas: 1

@@ -232,6 +232,12 @@ spec:
 {% endif %}
             - name: RCARS_CLONE_DIR
               value: /tmp/rcars-clones
+            - name: RCARS_PIPELINE_ENABLED
+              value: "{{ pipeline_enabled | default('true') }}"
+            - name: RCARS_PIPELINE_HOUR
+              value: "{{ pipeline_hour | default('4') }}"
+            - name: RCARS_PIPELINE_MINUTE
+              value: "{{ pipeline_minute | default('0') }}"
             - name: HF_HOME
               value: /opt/app-root/hf_cache
           volumeMounts:
