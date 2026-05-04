@@ -144,6 +144,22 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
 ```
 
+### Configure scheduled maintenance
+
+The scan worker includes a nightly maintenance pipeline (catalog refresh → stale check → re-analyze) that runs at 04:00 UTC by default. To change the schedule or disable it, update `ansible/vars/<env>.yml`:
+
+```yaml
+pipeline_enabled: true   # set to false to disable
+pipeline_hour: 4         # UTC hour (0-23)
+pipeline_minute: 0       # minute (0-59)
+```
+
+Then redeploy the scan worker:
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+```
+
 ### Promote to production
 
 ```bash

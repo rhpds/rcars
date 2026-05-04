@@ -88,7 +88,7 @@ Last updated: 2026-04-28
 
 ## Operations
 
-- [ ] **Scheduled catalog refresh + stale check** — automated periodic runs (e.g. daily catalog refresh, nightly stale check + analyze). Currently manual via admin UI. Could use a CronJob on OpenShift or an in-process scheduler
+- [x] **Scheduled catalog refresh + stale check** — nightly maintenance pipeline via arq cron (refresh → stale check → re-analyze at 04:00 UTC). Configurable via `RCARS_PIPELINE_*` env vars. Manual trigger via Admin UI or `POST /admin/run-maintenance`
 
 
 ## Architecture
@@ -102,4 +102,5 @@ Last updated: 2026-04-28
 - [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
 - [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
 - [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, and cluster config each CI provides). PH express mode needs a base-finding query: "what CI gives me an OpenShift cluster with operator X and Y?" This requires indexing AgnosticV catalog item definitions for infrastructure details, not just Showroom content. Enables the express "find closest base infrastructure" use case. Also enables recommending "Open Environments" (no Showroom, just infrastructure credentials) — these have no content to analyze, so catalog description + keywords + AgnosticV definition would be the only signals. Between description and infra metadata, RCARS could recommend "here's an OpenShift cluster with GPU nodes" even without guided lab content.
+- [ ] **Express mode learning data** — Store PH express mode run data (selected base CI + customization steps) so future express runs benefit from past experience. Must be stored separately from content analysis data to avoid polluting content search results (this is infrastructure/workflow data, not lab content). Could feed into infrastructure-aware catalog metadata to improve base-finding query accuracy. Coordinate with PH backlog.
 - [ ] **PH ServiceAccount in SA allowlist** — add `system:serviceaccount:publishing-house-dev:<ph-backend-sa>` to `RCARS_SA_ALLOWLIST_STR` for cluster-internal auth from PH MCP server (see PH RCARS integration spec)
