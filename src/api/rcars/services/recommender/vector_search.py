@@ -45,11 +45,20 @@ def search(
         if row["distance"] > distance_cutoff:
             continue
 
+        content_hash = row.get("content_hash")
         url = row.get("showroom_url") or ""
         ref = row.get("showroom_ref") or ""
         if ref in ("", "main", "master", "HEAD"):
             ref = ""
-        content_key = (url, ref) if url else (row["ci_name"],)
+        # Prefer content_hash for dedup — same hash means identical content
+        # regardless of ref (e.g. main vs v1.0.1 tagged from same commit).
+        # Fall back to (url, ref) when hash is unavailable (unanalyzed items).
+        if content_hash:
+            content_key = (content_hash,)
+        elif url:
+            content_key = (url, ref)
+        else:
+            content_key = (row["ci_name"],)
 
         existing = rows_by_content.get(content_key)
         if existing is None:

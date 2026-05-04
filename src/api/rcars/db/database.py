@@ -419,9 +419,11 @@ class Database:
                    e.embedding <=> %s::vector AS distance,
                    ci.display_name, ci.category, ci.stage,
                    ci.showroom_url, ci.showroom_ref,
-                   ci.is_published, ci.published_ci_name, ci.base_ci_name
+                   ci.is_published, ci.published_ci_name, ci.base_ci_name,
+                   ci.catalog_namespace, sa.content_hash
             FROM embeddings e
             JOIN catalog_items ci ON e.ci_name = ci.ci_name
+            LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
             WHERE e.embed_type = %s {stage_filter} {zt_filter}
             ORDER BY distance ASC
             LIMIT %s
