@@ -364,8 +364,8 @@ function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }
                   {schedule.last_pipeline.result.stale_check && (
                     <span> · {schedule.last_pipeline.result.stale_check.stale} stale</span>
                   )}
-                  {schedule.last_pipeline.result.analysis_enqueued !== undefined && (
-                    <span> · {schedule.last_pipeline.result.analysis_enqueued} re-analyzed</span>
+                  {schedule.last_pipeline.result.analysis_enqueued !== undefined && schedule.last_pipeline.result.analysis_enqueued > 0 && (
+                    <span> · {schedule.last_pipeline.result.analysis_enqueued} queued for re-analysis</span>
                   )}
                   {schedule.last_pipeline.result.warnings && schedule.last_pipeline.result.warnings.length > 0 && (
                     <span style={{ color: '#e8a838' }}> · {schedule.last_pipeline.result.warnings.length} warning(s)</span>
