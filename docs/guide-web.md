@@ -131,7 +131,7 @@ The Admin section (`/admin`) is visible to curators and admins. It is split into
 
 ### Catalog (`/admin/catalog`)
 
-- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary). The pipeline runs automatically at the configured time (default 04:00 UTC) and chains catalog refresh → stale check → re-analyze in sequence. Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress through all three steps.
+- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary). The pipeline runs automatically at the configured time (default 04:00 UTC) and chains three steps in sequence: catalog refresh, stale check, and enqueue re-analysis. The last-run summary shows how many items were synced, how many were found stale, and how many were queued for re-analysis. Note: "queued for re-analysis" means the analysis jobs were placed on the worker queue — they are processed afterward by the scan worker through its normal job loop, not within the pipeline itself. Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress through all three steps. To change the schedule, see [Worker Management — Changing the Schedule](workers.md#changing-the-schedule).
 - **Catalog Status** — total items, production items, scannable Showrooms (excluding published CIs), analyzed count, and stale count
 - **Catalog Sync** — triggers `rcars refresh` to pull the latest catalog metadata from Babylon
 - **Showroom Analysis** — triggers `rcars scan` to analyze unscanned and stale items. Shows a live scrolling log of the scan progress.

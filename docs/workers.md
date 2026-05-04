@@ -56,15 +56,17 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 
 1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
-3. **Re-Analyze** — enqueues analysis jobs for any items found stale or unanalyzed
+3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 
 Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking.
 
-The pipeline creates a parent `maintenance` job plus sub-jobs for each step, all visible in the Workers page job history. Progress messages stream to the Admin UI log window if an admin has it open.
+**Step 3 is an enqueue, not a blocking wait.** The pipeline creates individual `run_analysis` jobs on the `arq:queue:scan` queue and then marks itself complete. The analysis jobs are picked up by the scan worker through its normal job processing — they are identical to analysis jobs created by clicking "Analyze" in the admin UI. This means the pipeline finishes in minutes (catalog refresh + stale check), while the actual re-analysis of stale content may take much longer depending on how many items changed. You can monitor analysis progress on the Workers page or via the "Analyze" log window on the Catalog page.
 
-### Configuration
+The pipeline creates a parent `maintenance` job plus sub-jobs for each step, all visible in the Workers page job history with `created_by: maintenance`. Progress messages stream to the Admin UI log window if an admin has it open.
 
-Three environment variables control the schedule (set via Ansible vars or directly on the scan-worker deployment):
+### Changing the Schedule
+
+Three environment variables control the schedule. They are read once at worker startup — changing them requires a worker restart (which happens automatically when you redeploy via Ansible).
 
 | Variable | Default | Description |
 |---|---|---|
@@ -72,13 +74,21 @@ Three environment variables control the schedule (set via Ansible vars or direct
 | `RCARS_PIPELINE_HOUR` | `4` | Hour (UTC, 0-23) for the nightly run |
 | `RCARS_PIPELINE_MINUTE` | `0` | Minute (0-59) for the nightly run |
 
-In `ansible/vars/common.yml` (or per-env overrides):
+To change the schedule, update `ansible/vars/common.yml` (applies to all environments) or `ansible/vars/<env>.yml` (per-environment override):
 
 ```yaml
 pipeline_enabled: true
 pipeline_hour: 4
 pipeline_minute: 0
 ```
+
+Then redeploy the scan worker so it picks up the new values:
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+```
+
+The new schedule takes effect when the scan-worker pod restarts. The current schedule is visible in the Admin UI under **Scheduled Maintenance** (e.g. "Schedule: 04:00 UTC daily").
 
 ### Manual Trigger
 
