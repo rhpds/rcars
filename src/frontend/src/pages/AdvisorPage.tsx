@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useJobStream, StreamCandidate } from '../hooks/useJobStream'
+import { useAuth } from '../hooks/useAuth'
 import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCard } from '../components/advisor/RecCard'
 
@@ -67,6 +68,7 @@ function LcarsToggle({ label, active, onToggle }: { label: string; active: boole
 
 export function AdvisorPage() {
   const [searchParams] = useSearchParams()
+  const auth = useAuth()
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [showDev, setShowDev] = useState(false)
@@ -253,7 +255,7 @@ export function AdvisorPage() {
         </div>
         <div style={{ display: 'flex', gap: '12px', padding: '0 0 6px 0', alignItems: 'center' }}>
           <span style={{ fontSize: '12px', color: '#555' }}>Include:</span>
-          <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
+          {auth.isCurator && <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
           <LcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
           <LcarsToggle label="ZT" active={showZt} onToggle={() => setShowZt(!showZt)} />
         </div>

@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel
 from rcars.api.middleware.auth import require_auth
 from rcars.api.streaming import JobProgressRelay, create_sse_response
+from rcars.config import Settings
 
 router = APIRouter(prefix="/advisor")
 
@@ -27,13 +28,18 @@ class SelectRequest(BaseModel):
 async def submit_query(body: QueryRequest, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
+    settings: Settings = request.app.state.settings
+
+    stages = body.stages
+    if "dev" in stages and not settings.is_curator(user) and not settings.is_admin(user):
+        stages = [s for s in stages if s != "dev"]
 
     job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user)
     await arq_redis.enqueue_job(
         "run_recommendation",
         job_id=job_id,
         query=body.query,
-        stages=body.stages,
+        stages=stages,
         include_zt=body.include_zt,
         user_email=user,
         opted_out=body.opted_out,
