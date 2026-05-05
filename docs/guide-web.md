@@ -40,9 +40,19 @@ RCARS understands natural language. Write what you actually need, not a keyword 
 
 **Pasting an event URL:**
 
-You can paste a conference or event URL directly into the chat. RCARS will fetch the event page and follow links to schedule, program, tracks, and talks pages on the same site. It sends that content to Claude Sonnet to extract the event's themes, audience, and format details, then uses that context to find matching catalog content.
+You can paste a conference or event URL directly into the chat. RCARS will:
 
-- *`https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/`*
+1. Fetch the event landing page and follow links to schedule, program, tracks, and talks pages on the same site
+2. Send that content to Claude Sonnet to extract the event's themes, audience, format, and generate targeted search queries
+3. Show you what it found (e.g., *Parsed "KubeCon NA" — searching for: Kubernetes platform engineering, cloud-native security, ...*)
+4. Run those search queries through the normal recommendation pipeline
+
+You can also combine a URL with text. For example:
+
+- *`https://events.linuxfoundation.org/kubecon-cloudnativecon-north-america/`* — URL only, RCARS derives everything from the page
+- *"I'm presenting at this event, focus on demos under 30 minutes: https://example.com/conference"* — RCARS fetches the URL for event context and combines it with your text constraints
+
+If the URL cannot be fetched (site down, blocked, etc.), RCARS tells you and suggests describing the event in text instead. If you provided text alongside the URL, it falls through to a normal text search.
 
 For broad multi-track events, use a follow-up message to narrow results to a specific area — for example: *"Focus on platform and infrastructure content"*.
 

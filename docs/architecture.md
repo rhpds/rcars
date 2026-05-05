@@ -378,7 +378,17 @@ Sonnet also returns an overall assessment (response, top picks, adapting suggest
 
 ### Event URL Mode
 
-When a URL is detected in the user's query (in both the web UI and CLI), RCARS automatically fetches the event page and follows links to schedule, program, tracks, talks, and similar subpages on the same domain (up to 3 subpages, 80,000 characters combined). This content is sent to Sonnet with a prompt requesting a structured event profile: event name, audience, themes, format opportunities, and suggested search queries. The profile is merged with the user's query before vector search runs.
+When a URL is detected in the user's query, RCARS runs an event parsing step before the main pipeline:
+
+1. **Fetch** — the landing page is fetched and links to schedule, program, tracks, talks, and similar subpages on the same domain are followed (up to 80,000 characters combined)
+2. **Extract** — the page content is sent to Claude Sonnet with a structured prompt that returns an event profile: event name, dates, audience, themes, relevant technical topics, format opportunities, and 3-5 natural language search queries tailored to finding matching RHDP content
+3. **Search** — the generated search queries replace (URL-only) or augment (mixed text+URL) the user's query text, then vector search proceeds as normal
+
+**URL-only queries:** when the entire input is a URL, the search queries from the event profile are the sole input to vector search. The triage and rationale phases see these synthesized queries, not the raw URL.
+
+**Mixed text+URL queries:** when the input contains both text and a URL (e.g., "I need booth demos for: https://example.com/conference"), the event search queries are combined with the user's text. This lets users add constraints (duration, format, audience level) on top of the event context.
+
+**Failure handling:** if the URL cannot be fetched or Sonnet cannot extract a useful profile, and the user provided no text, the pipeline returns an error message. If the user provided text alongside the URL, the text search proceeds normally without the event context.
 
 For broad multi-track events, follow-up queries can narrow results to specific areas (e.g., "focus on platform and infrastructure content").
 
