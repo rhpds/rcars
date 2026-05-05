@@ -50,6 +50,15 @@ def translate_to_user_message(msg: dict) -> str:
     if phase == "stale_check":
         return msg.get("message", f"Stale check: {status}")
 
+    if phase == "event_parse":
+        if status == "started":
+            url = msg.get("url", "")
+            return f"Fetching event page: {url}"
+        if status == "complete":
+            event_name = msg.get("event_name", "event")
+            queries = msg.get("search_queries", [])
+            return f"Parsed \"{event_name}\" — searching for: {', '.join(queries[:3])}"
+
     if phase == "vector_search":
         if status == "started":
             return "Searching content library..."

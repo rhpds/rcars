@@ -19,20 +19,25 @@ import structlog
 logger = structlog.get_logger()
 
 
-def _is_url_only(query: str) -> bool:
-    """Check if query is just a URL with no meaningful text."""
-    stripped = query.strip()
-    lines = [l.strip() for l in stripped.splitlines() if l.strip()]
+def _extract_urls(query: str) -> tuple[list[str], str]:
+    """Extract URLs from query, return (urls, remaining_text).
+
+    Splits query into URL lines and text lines. URLs are lines that
+    parse as http(s) with a netloc.
+    """
+    lines = [l.strip() for l in query.strip().splitlines() if l.strip()]
+    urls = []
     text_parts = []
     for line in lines:
         try:
             parsed = urlparse(line)
             if parsed.scheme in ("http", "https") and parsed.netloc:
+                urls.append(line)
                 continue
         except Exception:
             pass
         text_parts.append(line)
-    return len(text_parts) == 0
+    return urls, " ".join(text_parts)
 
 
 def _extract_duration_target(query: str) -> tuple[int | None, bool]:
@@ -96,17 +101,26 @@ async def run_query(
 
     t0 = time.monotonic()
 
-    if _is_url_only(query):
-        urls = [l.strip() for l in query.strip().splitlines() if l.strip()]
+    urls, remaining_text = _extract_urls(query)
+    if urls:
         url = urls[0]
-        logger.info("query_is_url", url=url[:200])
+        logger.info("query_has_url", url=url[:200], has_text=bool(remaining_text))
         await emit({"phase": "event_parse", "status": "started", "url": url})
         try:
             event_profile = parse_event_url(url, anthropic_client, model=settings.model)
         except Exception as e:
             logger.error("event_parse_failed", url=url[:200], error=str(e))
             event_profile = None
-        if not event_profile or not event_profile.get("search_queries"):
+        if event_profile and event_profile.get("search_queries"):
+            search_queries = event_profile["search_queries"]
+            event_context = " ".join(search_queries)
+            query = f"{remaining_text} {event_context}".strip() if remaining_text else event_context
+            logger.info("event_parsed", event_name=event_profile.get("event_name"),
+                         themes=event_profile.get("themes"), queries=search_queries)
+            await emit({"phase": "event_parse", "status": "complete",
+                         "event_name": event_profile.get("event_name"),
+                         "search_queries": search_queries})
+        elif not remaining_text:
             await emit({"phase": "complete", "results": 0})
             return QueryState(
                 phase="NO_MATCHES",
@@ -115,13 +129,6 @@ async def run_query(
                 overall_assessment=f"Could not extract event content from {url}. "
                                    "Try describing what you're looking for in text instead.",
             )
-        search_queries = event_profile["search_queries"]
-        query = " ".join(search_queries)
-        logger.info("event_parsed", event_name=event_profile.get("event_name"),
-                     themes=event_profile.get("themes"), queries=search_queries)
-        await emit({"phase": "event_parse", "status": "complete",
-                     "event_name": event_profile.get("event_name"),
-                     "search_queries": search_queries})
 
     def serialize_candidates(candidates):
         return [
