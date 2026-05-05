@@ -101,7 +101,11 @@ async def run_query(
         url = urls[0]
         logger.info("query_is_url", url=url[:200])
         await emit({"phase": "event_parse", "status": "started", "url": url})
-        event_profile = parse_event_url(url, anthropic_client, model=settings.model)
+        try:
+            event_profile = parse_event_url(url, anthropic_client, model=settings.model)
+        except Exception as e:
+            logger.error("event_parse_failed", url=url[:200], error=str(e))
+            event_profile = None
         if not event_profile or not event_profile.get("search_queries"):
             await emit({"phase": "complete", "results": 0})
             return QueryState(
@@ -113,7 +117,7 @@ async def run_query(
             )
         search_queries = event_profile["search_queries"]
         query = " ".join(search_queries)
-        logger.info("event_parsed", event=event_profile.get("event_name"),
+        logger.info("event_parsed", event_name=event_profile.get("event_name"),
                      themes=event_profile.get("themes"), queries=search_queries)
         await emit({"phase": "event_parse", "status": "complete",
                      "event_name": event_profile.get("event_name"),
