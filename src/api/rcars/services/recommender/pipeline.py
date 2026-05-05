@@ -13,6 +13,7 @@ from rcars.services.recommender.models import Candidate, QueryState
 from rcars.services.recommender.vector_search import search
 from rcars.services.recommender.triage import triage
 from rcars.services.recommender.rationale import generate_rationale
+from rcars.services.event_parser import parse_event_url
 import structlog
 
 logger = structlog.get_logger()
@@ -96,16 +97,27 @@ async def run_query(
     t0 = time.monotonic()
 
     if _is_url_only(query):
-        logger.warning("query_is_url_only", query=query[:200])
-        await emit({"phase": "complete", "results": 0})
-        return QueryState(
-            phase="NO_MATCHES",
-            candidates=[],
-            query=query,
-            overall_assessment="Please describe what you're looking for in text. "
-                               "A URL alone cannot be searched — try describing the topics, "
-                               "products, or type of content you need.",
-        )
+        urls = [l.strip() for l in query.strip().splitlines() if l.strip()]
+        url = urls[0]
+        logger.info("query_is_url", url=url[:200])
+        await emit({"phase": "event_parse", "status": "started", "url": url})
+        event_profile = parse_event_url(url, anthropic_client, model=settings.model)
+        if not event_profile or not event_profile.get("search_queries"):
+            await emit({"phase": "complete", "results": 0})
+            return QueryState(
+                phase="NO_MATCHES",
+                candidates=[],
+                query=query,
+                overall_assessment=f"Could not extract event content from {url}. "
+                                   "Try describing what you're looking for in text instead.",
+            )
+        search_queries = event_profile["search_queries"]
+        query = " ".join(search_queries)
+        logger.info("event_parsed", event=event_profile.get("event_name"),
+                     themes=event_profile.get("themes"), queries=search_queries)
+        await emit({"phase": "event_parse", "status": "complete",
+                     "event_name": event_profile.get("event_name"),
+                     "search_queries": search_queries})
 
     def serialize_candidates(candidates):
         return [
