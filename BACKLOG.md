@@ -1,6 +1,6 @@
 # RCARS Backlog
 
-Last updated: 2026-04-28
+Last updated: 2026-05-04
 
 ## Completed
 
@@ -55,6 +55,10 @@ Last updated: 2026-04-28
 - [x] Unanalyzed filter — clickable count on admin page + Browse filter, excludes published Virtual CIs
 - [x] New Session fix — works when already in a fresh session (custom event dispatch instead of URL navigation)
 - [x] Vector search candidates — bumped from 10 to 15 for wider triage net
+- [x] Admin query history — full query text visible in expanded view, multiple cards expandable simultaneously
+- [x] Admin query history — stage badges (dev/event) on non-prod candidates
+- [x] Recommendation dedup by content_hash — collapses dev/prod variants with identical Showroom content while preserving genuinely different branch content
+- [x] Dev stage restricted to curators/admins — toggle hidden for regular users, API enforces server-side
 
 ## Bugs
 
@@ -77,14 +81,15 @@ Last updated: 2026-04-28
 - [ ] **Multi-turn conversation** — true conversational refinement with context carry-over (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop** — "Best fit" selections are stored but not yet used to improve scoring
-- [ ] **Catalog description as context** — the catalog item description (from the CRD) contains metadata not present in the Showroom content itself, such as which event it was built for (e.g. "Summit 2026"). Currently the analyzer only sees Showroom .adoc files. Indexing the catalog description alongside the analysis would let queries like "Summit 2026 labs" match even after the CI name loses its event prefix. Need to decide whether to feed it to the LLM analysis, add it to the embedding text, or use it as a structured filter
+- [x] **Catalog keywords in embeddings** — catalog keywords (from CRD `spec.keywords`) appended to embedding text during analysis. Enables event queries like "Summit 2026 labs" to match via keywords even when Showroom content doesn't mention the event. Requires re-analysis to take effect on existing items
+- [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
 
 ## Scanner / Pipeline
 
 - [x] **Stale detection via ls-remote** — two-phase check: `git ls-remote` to compare SHA, clone only if changed. Replaces full-clone-every-repo approach
-- [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; would avoid rescanning when `main` and `v1.0` point to same commit
+- [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; would avoid redundant clones+analysis when `main` and `v1.0` point to same commit. Recommendation dedup is already solved (content_hash), this is a scan efficiency optimization only
 - [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats are not scanned or indexed. These need different extraction pipelines (e.g. Arcade JSON/YAML, architecture docs from repos or Confluence). Would enable advisor responses like "here's a reference architecture for deploying X" instead of only hands-on labs
-- [ ] **Old monolith code** — `src/rcars/` should be removed once v2 is fully verified
+- [x] **Old monolith code** — `src/rcars/` and `tests/` removed (9,505 lines)
 
 ## Operations
 
@@ -98,9 +103,9 @@ Last updated: 2026-04-28
 
 ## Publishing House Integration
 
-- [ ] **RCARS API for vetting** — PH calls RCARS to check content overlap during intake
+- [x] **RCARS API for vetting** — PH calls RCARS to check content overlap during intake (RCARSClient + ph_rcars_query MCP tool in PH portal)
 - [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
 - [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
 - [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, and cluster config each CI provides). PH express mode needs a base-finding query: "what CI gives me an OpenShift cluster with operator X and Y?" This requires indexing AgnosticV catalog item definitions for infrastructure details, not just Showroom content. Enables the express "find closest base infrastructure" use case. Also enables recommending "Open Environments" (no Showroom, just infrastructure credentials) — these have no content to analyze, so catalog description + keywords + AgnosticV definition would be the only signals. Between description and infra metadata, RCARS could recommend "here's an OpenShift cluster with GPU nodes" even without guided lab content.
 - [ ] **Express mode learning data** — Store PH express mode run data (selected base CI + customization steps) so future express runs benefit from past experience. Must be stored separately from content analysis data to avoid polluting content search results (this is infrastructure/workflow data, not lab content). Could feed into infrastructure-aware catalog metadata to improve base-finding query accuracy. Coordinate with PH backlog.
-- [ ] **PH ServiceAccount in SA allowlist** — add `system:serviceaccount:publishing-house-dev:<ph-backend-sa>` to `RCARS_SA_ALLOWLIST_STR` for cluster-internal auth from PH MCP server (see PH RCARS integration spec)
+- [x] **PH ServiceAccount in SA allowlist** — `system:serviceaccount:publishing-house-dev:default` added to `RCARS_SA_ALLOWLIST_STR` in dev vars

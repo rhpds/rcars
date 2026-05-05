@@ -160,6 +160,7 @@ def scan(max_analyze: int | None):
             clone_dir=settings.clone_dir,
             db=db,
             content_path=item.get("content_path"),
+            keywords=item.get("keywords") or [],
         )
 
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:

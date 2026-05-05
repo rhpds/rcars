@@ -437,7 +437,7 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
     return embedding.tolist()
 
 
-def build_embedding_text(analysis: dict[str, Any]) -> str:
+def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = None) -> str:
     """Build text for CI-level embedding from analysis results."""
     parts = [
         analysis.get("summary", ""),
@@ -453,6 +453,9 @@ def build_embedding_text(analysis: dict[str, Any]) -> str:
         val = analysis.get(field, [])
         if isinstance(val, list):
             parts.extend(val)
+
+    if keywords:
+        parts.extend(keywords)
 
     return " ".join(str(p) for p in parts if p)
 
@@ -481,6 +484,7 @@ def analyze_showroom(
     clone_dir: str = "/tmp",
     db=None,
     content_path: str | None = None,
+    keywords: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -560,8 +564,8 @@ def analyze_showroom(
             log.error("analyze %s: failed to parse Sonnet response", ci_name)
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
 
-        # Generate embeddings
-        ci_embedding_text = build_embedding_text(analysis)
+        # Generate embeddings (include catalog keywords for event/metadata signal)
+        ci_embedding_text = build_embedding_text(analysis, keywords=keywords)
         ci_embedding = generate_embedding(ci_embedding_text)
 
         module_embeddings = []

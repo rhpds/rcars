@@ -43,6 +43,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str) -> dict:
                 clone_dir=wctx.settings.clone_dir,
                 db=wctx.db,
                 content_path=item.get("content_path"),
+                keywords=item.get("keywords") or [],
             )
         )
 
