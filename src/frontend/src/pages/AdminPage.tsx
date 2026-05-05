@@ -810,10 +810,10 @@ export function AdminQueriesPage() {
                           )}
                           {turn.results_json && Array.isArray(turn.results_json) && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number; stage?: string }>).map((r, ri) => (
+                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number; vector_similarity_pct?: number; stage?: string }>).map((r, ri) => (
                                 <div key={ri} style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
                                   <span style={{ color: tierColor(r.tier || 'white'), fontWeight: 600, width: '36px' }}>
-                                    {r.relevance_score ?? '?'}%
+                                    {r.relevance_score ?? r.vector_similarity_pct ?? '?'}%
                                   </span>
                                   <span style={{ color: '#bbb' }}>{r.display_name || r.ci_name}</span>
                                   {r.stage && r.stage !== 'prod' && (

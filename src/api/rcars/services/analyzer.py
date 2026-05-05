@@ -82,6 +82,15 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
     try:
         return json.loads(text)
     except json.JSONDecodeError:
+        # Try to find JSON array in the response
+        bracket_start = text.find("[")
+        bracket_end = text.rfind("]")
+        if bracket_start >= 0 and bracket_end > bracket_start:
+            try:
+                return json.loads(text[bracket_start : bracket_end + 1])
+            except json.JSONDecodeError:
+                pass
+
         # Try to find JSON object in the response
         brace_start = text.find("{")
         brace_end = text.rfind("}")
@@ -91,7 +100,7 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 pass
 
-        log.warning("Failed to parse analysis response as JSON")
+        log.warning("Failed to parse analysis response as JSON: %s", text[:200])
         return None
 
 

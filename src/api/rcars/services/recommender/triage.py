@@ -63,12 +63,17 @@ def triage(
     response_text = response.content[0].text
     triage_results = parse_analysis_response(response_text)
 
+    if triage_results is None:
+        log.error("triage: failed to parse LLM response, raw=%s", response_text[:500])
+
     # Build lookup by ci_name
     if isinstance(triage_results, list):
         scores_by_ci = {r["ci_name"]: r for r in triage_results}
     elif isinstance(triage_results, dict) and "recommendations" in triage_results:
         scores_by_ci = {r["ci_name"]: r for r in triage_results["recommendations"]}
     else:
+        log.warning("triage: unexpected result type=%s, keys=%s", type(triage_results).__name__,
+                    list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")
         scores_by_ci = {}
 
     annotated = []

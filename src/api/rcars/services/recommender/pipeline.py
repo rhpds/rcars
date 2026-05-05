@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import time
 from typing import Callable, Awaitable
+from urllib.parse import urlparse
 
 from rcars.db import Database
 from rcars.config import Settings
@@ -15,6 +16,22 @@ from rcars.services.recommender.rationale import generate_rationale
 import structlog
 
 logger = structlog.get_logger()
+
+
+def _is_url_only(query: str) -> bool:
+    """Check if query is just a URL with no meaningful text."""
+    stripped = query.strip()
+    lines = [l.strip() for l in stripped.splitlines() if l.strip()]
+    text_parts = []
+    for line in lines:
+        try:
+            parsed = urlparse(line)
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                continue
+        except Exception:
+            pass
+        text_parts.append(line)
+    return len(text_parts) == 0
 
 
 def _extract_duration_target(query: str) -> tuple[int | None, bool]:
@@ -77,6 +94,18 @@ async def run_query(
             await on_progress(data)
 
     t0 = time.monotonic()
+
+    if _is_url_only(query):
+        logger.warning("query_is_url_only", query=query[:200])
+        await emit({"phase": "complete", "results": 0})
+        return QueryState(
+            phase="NO_MATCHES",
+            candidates=[],
+            query=query,
+            overall_assessment="Please describe what you're looking for in text. "
+                               "A URL alone cannot be searched — try describing the topics, "
+                               "products, or type of content you need.",
+        )
 
     def serialize_candidates(candidates):
         return [
