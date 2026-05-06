@@ -15,7 +15,7 @@ def search(
     db: Database,
     limit: int = 25,
     stages: list[str] | None = None,
-    distance_cutoff: float = 0.65,
+    distance_cutoff: float = 0.55,
     include_zt: bool = True,
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply distance cutoff.
