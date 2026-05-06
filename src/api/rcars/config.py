@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     clone_dir: str = "/tmp/rcars-clones"
 
     # Recommender pipeline
-    vector_cutoff: float = 0.55
+    vector_cutoff: float = 0.65
     triage_model: str = "claude-haiku-4-5"
     triage_cutoff: int = 30
     rationale_model: str = "claude-sonnet-4-6"
