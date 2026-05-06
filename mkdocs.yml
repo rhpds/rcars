@@ -9,7 +9,6 @@ docs_dir: docs
 site_dir: site
 exclude_docs: |
   superpowers/
-  deployment.md
 
 theme:
   name: material
@@ -32,10 +31,16 @@ extra_css:
 nav:
   - Home: index.md
   - Overview: overview.md
-  - Web UI Guide: guide-web.md
-  - CLI Admin Guide: guide-cli.md
-  - Architecture: architecture.md
-  - Token Usage Tracking: token-usage.md
+  - Architecture:
+      - System Design: architecture/system-design.md
+      - Deployment: architecture/deployment.md
+  - User Guides:
+      - Web UI Guide: user/web-guide.md
+  - Admin Guides:
+      - CLI Reference: admin/cli-guide.md
+      - Token Usage: admin/token-usage.md
+      - Operations: admin/operations.md
+      - Development: admin/development.md
 
 markdown_extensions:
   - tables
@@ -43,4 +48,8 @@ markdown_extensions:
       permalink: true
   - pymdownx.highlight:
       anchor_linenums: true
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format

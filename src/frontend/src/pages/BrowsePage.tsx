@@ -37,6 +37,7 @@ interface ItemDetail {
   showroom_url: string | null
   scan_status: string
   content_path: string | null
+  showroom_url_override: string | null
   scan_error_class: string | null
   scan_error: string | null
   scan_failed_at: string | null
@@ -95,6 +96,7 @@ export function BrowsePage() {
   const [newTags, setNewTags] = useState<Record<string, string>>({})
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
+  const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
   const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
@@ -150,6 +152,7 @@ export function BrowsePage() {
       setItemDetails(prev => ({ ...prev, [ciName]: detail }))
       setNoteTexts(prev => ({ ...prev, [ciName]: detail.analysis?.notes || '' }))
       setContentPaths(prev => ({ ...prev, [ciName]: detail.content_path || '' }))
+      setOverrideUrls(prev => ({ ...prev, [ciName]: detail.showroom_url_override || '' }))
       if (detail.analysis?.enrichment_review_needed) {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
@@ -204,6 +207,14 @@ export function BrowsePage() {
       setScanningPath(prev => ({ ...prev, [ciName]: false }))
       loadItems()
     }, 5000)
+  }
+
+  const handleOverrideUrl = async (ciName: string) => {
+    const url = overrideUrls[ciName]?.trim()
+    if (!url) return
+    await api.overrideUrl(ciName, url)
+    const detail = await api.getCatalogItem(ciName) as ItemDetail
+    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
   }
 
   const handleFlag = async (ciName: string) => {
@@ -450,6 +461,26 @@ export function BrowsePage() {
                             marginBottom: '8px', outline: 'none',
                           }}
                         />
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={overrideUrls[item.ci_name] ?? ''}
+                            onChange={(e) => setOverrideUrls(prev => ({ ...prev, [item.ci_name]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleOverrideUrl(item.ci_name) }}
+                            placeholder="Override Showroom URL (full git repo URL)"
+                            style={{
+                              background: 'var(--bg-card)', border: '1px solid #333',
+                              color: '#aaa', padding: '6px 10px', borderRadius: '4px',
+                              fontSize: '13px', flex: 1, outline: 'none',
+                            }}
+                          />
+                          <LcarsButton
+                            variant="curator-secondary"
+                            onClick={() => handleOverrideUrl(item.ci_name)}
+                          >
+                            Set URL
+                          </LcarsButton>
+                        </div>
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
                           <input
                             type="text"

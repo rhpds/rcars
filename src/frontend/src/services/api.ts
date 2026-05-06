@@ -69,11 +69,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
+  overrideUrl: (ciName: string, url: string) =>
+    request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/override-url`, {
+      method: 'POST',
+      body: JSON.stringify({ url }),
+    }),
 
   // Analysis
   startScan: () => request<{ job_id: string; enqueued: number }>('/analysis/scan', { method: 'POST' }),
   checkStale: () => request<{ job_id: string }>('/analysis/check-stale', { method: 'POST' }),
-  rescanStale: () => request<{ job_id: string; enqueued: number }>('/analysis/rescan-stale', { method: 'POST' }),
   rescanAll: () => request<{ job_id: string; marked_stale: number; enqueued: number; total_scannable?: number; unique_pairs?: number }>('/analysis/rescan-all', { method: 'POST' }),
   analyzeSingle: (ciName: string) =>
     request<{ job_id: string }>(`/analysis/${encodeURIComponent(ciName)}`, { method: 'POST' }),
@@ -92,7 +96,6 @@ export const api = {
   getJob: (jobId: string) => request<{ id: string; status: string; progress_json: Record<string, unknown> | null; result_json: Record<string, unknown> | null; error: string | null }>(`/admin/jobs/${jobId}`),
   getTokenUsage: (days = 30) => request<unknown>(`/admin/token-usage?days=${days}`),
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),
-  getWorkerHealth: () => request<unknown>('/admin/workers'),
   getScanProgress: () => request<{
     queued: number; running: number; complete: number; failed: number;
     total: number; total_propagated: number; recent_complete: string[]; recent_failures: string[];

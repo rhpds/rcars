@@ -9,15 +9,16 @@ RCARS logs every Anthropic API call to PostgreSQL so that operators can see cumu
 
 ## What Is Tracked
 
-Three types of operations produce token usage records:
+Four types of operations produce token usage records:
 
 | Operation | Model | When it fires |
 |-----------|-------|---------------|
-| `scan` | claude-sonnet-4-6 | Each Showroom analysis run by `rcars scan` |
+| `scan` | claude-sonnet-4-6 | Each Showroom analysis run by the scan worker |
 | `triage` | claude-haiku-4-5 | Each advisor query (phase 2 — relevance scoring) |
 | `rationale` | claude-sonnet-4-6 | Each advisor query that produces results (phase 3 — rationale generation) |
+| `event_parse` | claude-sonnet-4-6 | When an advisor query contains a URL and event content is extracted |
 
-A single advisor query produces two records: one triage + one rationale. A triage call that returns no matches still logs its tokens — the API was called and resources were consumed regardless of outcome.
+A single advisor query produces two to three records: one triage, one rationale (if matches found), and one event_parse (if the query contained a URL). A triage call that returns no matches still logs its tokens — the API was called and resources were consumed regardless of outcome.
 
 Catalog sync (`rcars refresh`) and stale checks (`rcars check-stale`) make no Anthropic API calls and produce no token records.
 
@@ -26,7 +27,7 @@ Catalog sync (`rcars refresh`) and stale checks (`rcars check-stale`) make no An
 ```sql
 CREATE TABLE token_usage (
     id            SERIAL PRIMARY KEY,
-    operation     TEXT NOT NULL,        -- 'scan' | 'triage' | 'rationale'
+    operation     TEXT NOT NULL,        -- 'scan' | 'triage' | 'rationale' | 'event_parse'
     model         TEXT NOT NULL,        -- e.g. 'claude-sonnet-4-6'
     ci_name       TEXT,                 -- scan ops: the CI being analyzed
     query_text    TEXT,                 -- query ops: the user's question (≤200 chars)

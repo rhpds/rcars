@@ -17,7 +17,7 @@ RCARS solves this by doing the reading that no one has time to do. It reads the 
 
 ## How It Works
 
-RCARS runs in three stages that happen automatically:
+RCARS runs in four stages:
 
 1. **Catalog sync.** RCARS reads the live RHDP catalog directly from the platform's configuration system (Babylon). Every catalog item — its name, category, product, audience tags, and links to its lab content — is stored in a local database.
 
@@ -35,7 +35,7 @@ Each of these stages is independent. The catalog can be refreshed without re-ana
 
 **Curators** — people who maintain catalog quality — can use the web UI's curator mode to tag catalog items with custom labels, add notes, and flag content that needs review. These enrichments feed back into future recommendations.
 
-**Ops admins** who manage the RCARS deployment use the command-line interface. The CLI provides full control: syncing the catalog, running or re-running content scans, checking system status, and starting the web server. See the [CLI Admin Guide](guide-cli.md) for details.
+**Ops admins** who manage the RCARS deployment use the command-line interface and the Admin pages. The CLI provides full control: syncing the catalog, running or re-running content scans, checking system status, and starting the web server. The Admin pages in the web UI provide visual monitoring of catalog status, worker health, token usage, and query history. See the [CLI Admin Guide](admin/cli-guide.md) for details.
 
 ## What It Runs On
 

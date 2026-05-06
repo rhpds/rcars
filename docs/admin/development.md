@@ -32,8 +32,16 @@ This starts:
 | PostgreSQL | localhost:5432 | pgvector database (podman) |
 | Redis | localhost:6379 | Task queue + pub/sub (podman) |
 | API | localhost:8080 | FastAPI with auto-reload |
-| Worker | background | arq worker processing jobs |
-| Frontend | localhost:3000 | Vite dev server with HMR |
+| Scan Worker | background | arq worker on `arq:queue:scan` (analysis, refresh, stale, maintenance) |
+| Recommend Worker | background | arq worker on `arq:queue:recommend` (advisor queries) |
+| Frontend | localhost:3000 | Vite dev server with HMR, proxies `/api` to localhost:8080 |
+
+Logs are written to `/tmp/rcars-api.log`, `/tmp/rcars-scan-worker.log`, `/tmp/rcars-recommend-worker.log`, and `/tmp/rcars-frontend.log`.
+
+Dev services set: `RCARS_DEV_USER=dev@redhat.com`, `RCARS_ADMIN_EMAILS_STR=dev@redhat.com`, `RCARS_CURATOR_EMAILS_STR=dev@redhat.com` (full admin+curator access locally).
+
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- API docs: [http://localhost:8080/api/v1/docs](http://localhost:8080/api/v1/docs)
 
 ## Running Tests
 
@@ -52,20 +60,34 @@ Each component runs independently. To restart just one:
 
 ```bash
 # API — auto-restarts on Python changes (uvicorn --reload)
-# Worker — kill and restart
-pkill -f "arq rcars" && cd src/api && arq rcars.workers.WorkerSettings &
+
+# Workers — kill and restart
+pkill -f "arq rcars"
+cd src/api
+arq rcars.workers.WorkerSettings &           # scan/ops worker
+arq rcars.workers.RecommendWorkerSettings &   # recommend worker
 
 # Frontend — auto-refreshes on file changes (Vite HMR)
+```
+
+For OpenShift deployment, only build the changed component:
+
+```bash
+# Frontend only (~30s)
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
+
+# API + workers (~3min, restarts api + both workers)
+ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 ```
 
 ## Project Structure
 
 ```
-src/api/          Python backend (FastAPI + arq workers)
+src/api/rcars/    Python backend (FastAPI + arq workers)
 src/frontend/     React frontend (Vite + TypeScript)
-src/rcars/        Legacy monolith (reference only)
-ansible/          OpenShift deployment
-docs/             Documentation (MkDocs)
+ansible/          OpenShift deployment (Ansible + Jinja2 templates)
+alembic/          Database migrations
+docs/             Documentation (MkDocs Material)
 ```
 
 ## CLI Usage

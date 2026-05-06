@@ -24,6 +24,52 @@ Supporting infrastructure: PostgreSQL 16 + pgvector, Redis 7, OAuth proxy.
 
 The three main pipelines — catalog sync, content analysis, and recommendation — run independently and can be triggered separately. Nothing in the analysis pipeline depends on the state of an ongoing recommendation query, and vice versa.
 
+```mermaid
+graph TB
+    subgraph "Frontend"
+        FE[React SPA<br/>nginx :80]
+    end
+    
+    subgraph "OAuth Proxy"
+        OA[oauth-proxy :4180]
+    end
+    
+    subgraph "API Layer"
+        API[FastAPI<br/>uvicorn :8080]
+    end
+    
+    subgraph "Workers"
+        SW[Scan Worker<br/>arq:queue:scan]
+        RW[Recommend Worker<br/>arq:queue:recommend]
+    end
+    
+    subgraph "Data Stores"
+        PG[(PostgreSQL 16<br/>+ pgvector)]
+        RD[(Redis 7)]
+    end
+    
+    subgraph "External Systems"
+        K8S[Babylon K8s API<br/>CatalogItem + AgnosticV CRDs]
+        GH[GitHub<br/>Showroom repos]
+        VA[Vertex AI<br/>Claude Sonnet + Haiku]
+    end
+    
+    User -->|SSO| OA
+    OA -->|X-Forwarded-Email| FE
+    FE -->|/api/v1/*| API
+    API -->|enqueue jobs| RD
+    API -->|read/write| PG
+    API -->|SSE relay| RD
+    SW -->|process jobs| RD
+    SW -->|read/write| PG
+    SW -->|clone repos| GH
+    SW -->|LLM calls| VA
+    SW -->|read CRDs| K8S
+    RW -->|process jobs| RD
+    RW -->|read| PG
+    RW -->|LLM calls| VA
+```
+
 ---
 
 ## Data Sources
@@ -62,20 +108,20 @@ The catalog reader connects to the Babylon Kubernetes API using the configured k
 For each component, it extracts:
 
 - **Display name, category, product, description, keywords, stage** — from CatalogItem CRD metadata and labels
-- **Showroom URL and ref** — extracted from the AgnosticVComponent using a three-tier resolution strategy (see below)
+- **Showroom URL and ref** — extracted from the AgnosticVComponent using a two-path extraction strategy (see below)
 - **Published/base CI relationship** — derived from `__meta__.components[].item` references
 
 The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
 
 ### Showroom URL Extraction
 
-Showroom URLs are not stored in a single consistent field. RCARS checks three locations in priority order:
+Showroom URLs are not stored in a single consistent field. RCARS uses two extraction paths, checked in priority order:
 
-**1. Top-level `spec.definition`** — the most common pattern. URL variables checked (in order): `ocp4_workload_showroom_content_git_repo`, `showroom_git_repo`, `bookbag_git_repo`. Ref variables: `ocp4_workload_showroom_content_git_repo_ref`, `ocp4_workload_showroom_content_git_ref`, `showroom_git_ref`.
+**Path 1. Top-level `spec.definition`** — the most common pattern. URL variables checked (in order): `ocp4_workload_showroom_content_git_repo`, `showroom_git_repo`, `bookbag_git_repo`. Ref variables: `ocp4_workload_showroom_content_git_repo_ref`, `ocp4_workload_showroom_content_git_ref`, `showroom_git_ref`.
 
-**2. Template variable resolution** — some CIs use Jinja2 templates for the ref (e.g., `{{ showroom_repo_revision }}`). RCARS resolves these by looking up the variable name in `spec.definition`, with catalog parameter defaults taking precedence per stage. Example: `modernize-ocp-virt` dev has a catalog parameter defaulting to `main`, while prod/event inherit `v1.0.0` from the definition.
+*Template variable resolution:* some CIs use Jinja2 templates for the ref (e.g., `{{ showroom_repo_revision }}`). RCARS resolves these by looking up the variable name in `spec.definition`, with catalog parameter defaults taking precedence per stage. Example: `modernize-ocp-virt` dev has a catalog parameter defaulting to `main`, while prod/event inherit `v1.0.0` from the definition.
 
-**3. Component `parameter_values`** — Zero Touch (ZT) Virtual CIs have `deployer.type: null` and delegate to a base component, passing the showroom URL as a parameter override in `__meta__.components[].parameter_values`. This covers ~254 CIs (entire `zt-rhelbu` and most `zt-ansiblebu`).
+**Path 2. Component `parameter_values`** — Zero Touch (ZT) Virtual CIs have `deployer.type: null` and delegate to a base component, passing the showroom URL as a parameter override in `__meta__.components[].parameter_values`. This covers ~254 CIs (entire `zt-rhelbu` and most `zt-ansiblebu`).
 
 **Template repos skipped:** URLs containing `showroom_template_default`, `showroom_template_nookbag`, or `showroom_template_zero` are filtered out — these are placeholder defaults from shared includes, not real content.
 
@@ -113,6 +159,7 @@ One row per catalog item. The primary source of truth for everything read from t
 | `primary_bu` | TEXT | Primary business unit |
 | `secondary_bu` | TEXT | Secondary business unit |
 | `stage` | TEXT | `prod`, `dev`, or `event` |
+| `scope` | TEXT | Reserved scope field (exists in schema, currently unused) |
 | `catalog_namespace` | TEXT | Babylon namespace this item came from |
 | `keywords` | TEXT[] | Array of keyword tags |
 | `description` | TEXT | Full description from the CRD |
@@ -120,12 +167,18 @@ One row per catalog item. The primary source of truth for everything read from t
 | `owners_json` | JSONB | List of owner contacts from the CRD |
 | `showroom_url` | TEXT | Git repository URL for the Showroom lab content |
 | `showroom_ref` | TEXT | Git branch or tag for the Showroom repo |
+| `content_path` | TEXT | Custom content path override (default: `content/modules/ROOT/pages/`) |
 | `last_crd_update` | TIMESTAMPTZ | Timestamp of the last CRD change in Babylon |
 | `last_refreshed` | TIMESTAMPTZ | Timestamp of the last `rcars refresh` for this item |
 | `is_prod` | BOOLEAN | True if stage is prod |
 | `is_published` | BOOLEAN | True if this is a Published Virtual CI |
 | `published_ci_name` | TEXT | For Base CIs: the Published VCI that references them (if any) |
 | `base_ci_name` | TEXT | For Published VCIs: the Base CI they reference |
+| `scan_status` | TEXT NOT NULL DEFAULT 'not_scanned' | Scan state: `not_scanned`, `scanned`, `error`, `no_showroom` |
+| `scan_error_class` | TEXT | Error classification when `scan_status = 'error'` |
+| `scan_error` | TEXT | Error message when scan failed |
+| `scan_failed_at` | TIMESTAMPTZ | When the last scan failure occurred |
+| `showroom_url_override` | TEXT | Curator-set override for the Showroom URL |
 
 ---
 
@@ -218,24 +271,178 @@ Nothing is deleted from this table. It grows with every `rcars refresh` and `rca
 
 ### `jobs`
 
-Tracks background async jobs — primarily catalog scans triggered from the Admin UI. Allows the UI to show live progress and retrieve results after completion.
+Tracks background async jobs — catalog scans, recommendations, refreshes, maintenance runs. Allows the UI to show live progress and retrieve results after completion.
 
 | Column | Type | Description |
 |---|---|---|
-| `id` | UUID (PK) | Auto-generated job ID, passed to the client to poll for status |
-| `job_type` | TEXT | Type of job, e.g. `"scan"` |
-| `status` | TEXT | `"queued"`, `"running"`, `"complete"`, or `"failed"` |
-| `triggered_by` | TEXT | SSO email of the user who triggered the job |
-| `progress_current` | INTEGER | Items processed so far |
-| `progress_total` | INTEGER | Total items to process |
+| `id` | TEXT (PK) | Job ID string, passed to the client to poll for status |
+| `job_type` | TEXT NOT NULL | Type of job: `recommend`, `analyze`, `refresh`, `scan`, `rescan`, `maintenance` |
+| `status` | TEXT NOT NULL DEFAULT 'queued' | `"queued"`, `"running"`, `"complete"`, or `"failed"` |
+| `queue` | TEXT NOT NULL DEFAULT 'default' | Redis queue the job was enqueued to (`scan` or `recommend`) |
+| `created_by` | TEXT | SSO email of the user who triggered the job |
+| `progress_json` | JSONB | Structured progress data (e.g. `{ci_name, phase, detail}`) |
 | `result_json` | JSONB | Final result payload once the job completes |
-| `created_at` | TIMESTAMPTZ | When the job was queued |
+| `error` | TEXT | Error message when `status = 'failed'` |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the job was queued |
 | `started_at` | TIMESTAMPTZ | When execution began |
 | `completed_at` | TIMESTAMPTZ | When the job finished (success or failure) |
 
 ---
 
+### `token_usage`
+
+Tracks LLM token consumption per operation type and model. Used by the Admin Token Usage page for cost monitoring and budget planning.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | SERIAL (PK) | Auto-incrementing row ID |
+| `operation` | TEXT NOT NULL | Operation type: `scan`, `triage`, `rationale`, `event_parse` |
+| `model` | TEXT NOT NULL | LLM model used (e.g. `claude-sonnet-4-6`, `claude-haiku-4-5`) |
+| `ci_name` | TEXT | Catalog item name — populated for scan operations |
+| `query_text` | TEXT | Query text — populated for query operations |
+| `input_tokens` | INTEGER NOT NULL DEFAULT 0 | Number of input tokens consumed |
+| `output_tokens` | INTEGER NOT NULL DEFAULT 0 | Number of output tokens consumed |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the token usage was recorded |
+
+---
+
+### `advisor_sessions`
+
+Stores advisor conversation sessions and user selections. Each session contains multiple turns (multi-turn conversation), keyed by `(session_id, turn_index)`.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | SERIAL (PK) | Auto-incrementing row ID |
+| `session_id` | TEXT NOT NULL | Unique session identifier (groups turns in a conversation) |
+| `turn_index` | INTEGER NOT NULL | Turn number within the session (0-indexed) |
+| `user_email` | TEXT | SSO email of the user who submitted the query |
+| `query_text` | TEXT | The user's query text for this turn |
+| `event_url` | TEXT | Event URL extracted from the query, if present |
+| `results_json` | JSONB | Full recommendation results for this turn |
+| `overall_assessment` | TEXT | Sonnet's overall assessment text |
+| `chosen_ci_name` | TEXT | CI the user selected from recommendations |
+| `chosen_at` | TIMESTAMPTZ | When the user made their selection |
+| `opted_out` | BOOLEAN NOT NULL DEFAULT FALSE | True if the user dismissed without selecting |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When this turn was recorded |
+
+---
+
+### `api_keys` (future, not yet active)
+
+API key management for service-account-style programmatic access. Schema is defined but the key validation middleware is not yet wired up.
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | SERIAL (PK) | Auto-incrementing row ID |
+| `key_hash` | TEXT NOT NULL UNIQUE | SHA-256 hash of the API key (plaintext never stored) |
+| `name` | TEXT NOT NULL | Human-readable name for the key |
+| `created_by` | TEXT | Email of the admin who created the key |
+| `scopes` | TEXT[] | Array of allowed scopes (e.g. `["read", "advisor"]`) |
+| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the key was created |
+| `last_used_at` | TIMESTAMPTZ | Last time the key was used |
+| `revoked_at` | TIMESTAMPTZ | When the key was revoked (NULL if active) |
+
+---
+
+### Data Model
+
+```mermaid
+erDiagram
+    catalog_items ||--o| showroom_analysis : "ci_name FK"
+    catalog_items ||--o{ enrichment_tags : "ci_name FK"
+    catalog_items ||--o{ embeddings : "ci_name FK"
+    
+    catalog_items {
+        text ci_name PK
+        text display_name
+        text stage
+        text showroom_url
+        text showroom_ref
+        boolean is_published
+        text published_ci_name
+        text base_ci_name
+        text scan_status
+    }
+    
+    showroom_analysis {
+        text ci_name PK_FK
+        text summary
+        jsonb modules_json
+        text content_hash
+        boolean is_stale
+    }
+    
+    embeddings {
+        serial id PK
+        text ci_name FK
+        text embed_type
+        vector embedding
+    }
+    
+    enrichment_tags {
+        serial id PK
+        text ci_name FK
+        text tag_type
+        text tag_value
+    }
+    
+    token_usage {
+        serial id PK
+        text operation
+        text model
+        integer input_tokens
+        integer output_tokens
+    }
+    
+    advisor_sessions {
+        serial id PK
+        text session_id
+        integer turn_index
+        text user_email
+        jsonb results_json
+    }
+    
+    jobs {
+        text id PK
+        text job_type
+        text status
+        jsonb progress_json
+        jsonb result_json
+    }
+    
+    analysis_log {
+        serial id PK
+        text ci_name
+        text action
+    }
+    
+    api_keys {
+        serial id PK
+        text key_hash
+        text name
+        text scopes
+    }
+```
+
+---
+
 ## The Scan Pipeline (`analyzer.py`)
+
+```mermaid
+flowchart TD
+    Start[Catalog Item] --> Clone[Clone Showroom Repo<br/>git clone --depth 1]
+    Clone --> Read[Read .adoc Files<br/>content/modules/ROOT/pages/]
+    Read --> Filter[Filter Boilerplate<br/>login, index, credentials pages]
+    Filter --> Prompt[Build Prompt<br/>+ CI metadata]
+    Prompt --> LLM[Call Claude Sonnet<br/>max_tokens=8192, temp=0]
+    LLM --> Parse[Parse JSON Response]
+    Parse --> Embed[Generate Embeddings<br/>all-MiniLM-L6-v2, 384-dim]
+    Embed --> Store[Store Analysis +<br/>Embeddings in PostgreSQL]
+    Store --> Siblings{Has Siblings?<br/>Same URL+ref}
+    Siblings -->|Yes| Propagate[Propagate to<br/>All Siblings]
+    Siblings -->|No| Cleanup[Cleanup<br/>Delete Clone]
+    Propagate --> Cleanup
+```
 
 The scan pipeline runs per catalog item and is fully isolated — each item is processed independently with no shared state or context leakage between items.
 
@@ -245,7 +452,7 @@ The item's Showroom Git repository is shallow-cloned (`--depth 1`) to a temporar
 
 ### Step 2 — Read
 
-AsciiDoc files are read from the standard Antora content layout: `content/modules/ROOT/pages/*.adoc`. The navigation file (`nav.adoc`) is also read for structural context. Files are read with error-replacement for encoding issues. The repository HEAD commit SHA and timestamp are recorded for staleness tracking.
+AsciiDoc files are read from the standard Antora content layout: `content/modules/ROOT/pages/*.adoc`. If a `nav.adoc` navigation file exists, RCARS parses it to identify which pages are actively linked — only pages referenced in `nav.adoc` xref lines are included. This prevents reading orphaned or draft pages that are present in the repo but not part of the live content. A custom content path can be set via the `content_path` field to handle non-standard repository layouts. Files are read with error-replacement for encoding issues. The repository HEAD commit SHA and timestamp are recorded for staleness tracking.
 
 ### Step 3 — Filter Boilerplate
 
@@ -283,6 +490,28 @@ The sentence-transformers model runs locally inside the RCARS pod with no extern
 ### Step 7 — Store, Propagate, and Clean Up
 
 The analysis and embeddings are written to the database. The temporary clone directory is deleted. This cleanup runs in a `finally` block — the clone is always deleted regardless of whether earlier steps succeeded or failed.
+
+### Error Classification
+
+When a scan fails, RCARS classifies the error into one of these categories (stored in `catalog_items.scan_error_class`):
+
+| Error Class | Cause |
+|---|---|
+| `jinja_url` | Showroom URL contains unresolved Jinja2 template variables |
+| `timeout` | Git clone or LLM call exceeded timeout |
+| `private_repo` | Git repository requires authentication |
+| `http_404` | Repository URL returns 404 |
+| `clone_failed` | Git clone failed (network, permissions, other git error) |
+| `missing_antora` | Repository does not follow standard Antora layout (`content/modules/ROOT/pages/`) |
+| `no_content` | No substantive content files found after boilerplate filtering |
+| `parse_error` | LLM response could not be parsed as JSON |
+| `unknown` | Unclassified error |
+
+Error classes enable targeted debugging — `jinja_url` errors indicate a catalog metadata issue, while `no_content` errors may need a custom `content_path` override.
+
+### Git Retry Logic
+
+Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) when GitHub rate limiting is detected. The `git ls-remote` fast check during stale detection has a 30-second timeout.
 
 ---
 
@@ -342,6 +571,8 @@ The API and worker never communicate directly. Redis is the sole coordination ch
 
 The scan worker has higher resource limits because it runs `git clone` operations and loads the sentence-transformers model for embedding generation. The recommend worker is lighter — it only makes LLM API calls and runs vector searches against PostgreSQL.
 
+**Special timeouts:** `run_stale_check` has a timeout of 3600s (1 hour) because it runs `git ls-remote` and selective clones across the entire catalog. `run_nightly_pipeline` has a timeout of 7200s (2 hours) because it chains refresh + stale check + re-analysis sequentially. All other scan tasks use the default 600s.
+
 ### Scaling
 
 Workers are stateless. To increase scan throughput, increase `scan_worker_replicas` in the Ansible vars. The recommend worker typically needs only 1 replica since recommendation queries are infrequent and complete in under a minute.
@@ -352,17 +583,47 @@ Workers are stateless. To increase scan throughput, increase `scan_worker_replic
 
 Recommendation is a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results.
 
+```mermaid
+flowchart LR
+    Q[User Query] --> URLCheck{Contains URL?}
+    URLCheck -->|Yes| Fetch[Fetch Event Page]
+    Fetch --> Extract[Extract Themes<br/>via Sonnet]
+    Extract --> Merge[Merge with<br/>Query Text]
+    URLCheck -->|No| Merge
+    Merge --> P1[Phase 1<br/>Vector Search<br/>pgvector cosine]
+    P1 --> Dedup[Content Dedup<br/>+ Base→Published]
+    Dedup --> P2[Phase 2<br/>Haiku Triage<br/>Score 0-100]
+    P2 --> DurCheck{Duration<br/>Target?}
+    DurCheck -->|Yes| Rerank[Duration<br/>Penalty Rerank]
+    DurCheck -->|No| P3
+    Rerank --> P3[Phase 3<br/>Sonnet Rationale<br/>Top N]
+    P3 --> Results[Scored Results<br/>+ Assessment<br/>+ Content Gaps]
+```
+
 ### Phase 1 — Vector Search
 
 The user's query text is embedded using the same sentence-transformers model used during scanning. A pgvector cosine similarity search (`<=>` operator) finds the top candidates within a configurable distance cutoff (default: 0.55). Results beyond the cutoff are discarded — this prevents low-relevance items from reaching later phases.
 
-**Published/base CI deduplication:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data. Base CIs that have a published counterpart are never shown directly.
+**Content hash deduplication:** When multiple CIs share the same Showroom content (same `content_hash`), the vector search keeps only the best representative per unique content. Priority: prod > event > dev, published > base, lower vector distance. This prevents the same underlying lab from appearing multiple times in results under different CI names.
+
+**Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data. Base CIs that have a published counterpart are never shown directly.
+
+**Ref normalization:** For deduplication fallback (when `content_hash` is not available), refs `""`, `"main"`, `"master"`, and `"HEAD"` are all treated as equivalent.
 
 ### Phase 2 — Haiku Triage
 
 The vector search candidates are sent to Claude Haiku for fast relevance scoring. For each candidate, Haiku assigns a relevance score (0-100), a boolean relevant/not-relevant flag, and a one-line reason. Candidates below the triage cutoff (default: 30) are removed. Survivors are sorted by relevance score.
 
 This phase is fast (~1-3 seconds) and inexpensive. It filters out items that are semantically similar but not actually relevant to the request — something embedding similarity alone cannot do.
+
+### Duration-Aware Reranking
+
+If the user's query mentions a duration target (e.g., "30-minute demo", "2-hour workshop"), the pipeline extracts the target duration in minutes and applies a penalty to candidates whose estimated duration diverges significantly.
+
+- **Soft constraint** (default) — a logarithmic penalty that gently demotes mismatched durations. Coefficient 0.08, floor 0.7.
+- **Hard constraint** — triggered by keywords like "hard limit", "strict", "maximum", "no more than", "at most", "cannot exceed", "must be under". Applies a steeper penalty. Coefficient 0.15, floor 0.6.
+
+Reranking happens after triage scores are assigned and before rationale generation, so candidates are re-sorted by their adjusted scores.
 
 ### Phase 3 — Sonnet Rationale
 
@@ -408,22 +669,82 @@ The frontend is a React Single Page Application built with Vite and TypeScript, 
 
 All API routes are under `/api/v1/`:
 
+**Advisor** (require_auth):
+
 - `POST /advisor/query` — Submit recommendation query, returns `{job_id}`
 - `GET /advisor/query/{job_id}/stream` — SSE stream of recommendation progress
 - `GET /advisor/query/{job_id}/result` — Poll for final results
-- `POST /analysis/scan` — Trigger bulk scan of unanalyzed items
-- `POST /analysis/{ci_name}` — Trigger single-item analysis
-- `POST /catalog/refresh` — Trigger catalog sync from Babylon CRDs
-- `GET /catalog/stats` — Catalog status summary
-- `GET /catalog/browse` — Paginated catalog listing with filters
+- `GET /advisor/sessions` — List user's sessions
+- `GET /advisor/sessions/{session_id}` — Get session with all turns
+- `POST /advisor/sessions/{session_id}/select` — Mark chosen recommendation
+
+**Catalog** (mixed auth):
+
+- `GET /catalog` — Paginated catalog listing (require_auth)
+- `GET /catalog/stats` — Database currency stats (require_auth)
+- `GET /catalog/{ci_name}` — Single CI with analysis + tags (require_auth)
+- `GET /catalog/{ci_name}/analysis` — Analysis only (require_auth)
+- `POST /catalog/refresh` — Trigger catalog refresh (require_admin)
+- `POST /catalog/{ci_name}/tags` — Add tag (require_curator)
+- `DELETE /catalog/{ci_name}/tags/{tag_id}` — Remove tag (require_curator)
+- `PUT /catalog/{ci_name}/note` — Set curator note (require_curator)
+- `POST /catalog/{ci_name}/flag` — Flag for review (require_curator)
+- `POST /catalog/{ci_name}/override-url` — Override showroom URL (require_curator)
+- `POST /catalog/{ci_name}/content-path` — Set content path + trigger rescan (require_curator)
+
+**Analysis** (require_admin except stream):
+
+- `POST /analysis/scan` — Start scan of unanalyzed items
+- `POST /analysis/check-stale` — Check for stale content
+- `POST /analysis/rescan-stale` — Rescan stale items
+- `POST /analysis/rescan-all` — Mark all stale + full rescan
+- `POST /analysis/{ci_name}` — Analyze single CI (require_curator)
+- `GET /analysis/jobs/{job_id}/stream` — Stream analysis progress (require_auth)
+
+**Admin** (require_admin):
+
+- `GET /admin/token-usage` — Token stats by operation/model
+- `GET /admin/jobs/{job_id}` — Single job details
+- `GET /admin/jobs` — Recent jobs list
 - `GET /admin/workers` — Worker health and queue depths
-- `GET /admin/scan-progress` — Live scan progress with CI names and propagation counts
+- `GET /admin/scan-progress` — Scan batch progress
+- `GET /admin/queries` — Advisor query history
+- `POST /admin/run-maintenance` — Trigger nightly pipeline
+- `GET /admin/schedule` — Pipeline schedule status
+
+**Auth/Health**:
+
+- `GET /auth/me` — Current user email + roles
+- `GET /health` — Basic health check
+- `GET /health/ready` — Readiness probe (DB + Redis)
 
 ### Conversation Store
 
 Advisor sessions are stored in the PostgreSQL `advisor_sessions` table. Each session contains multiple turns with query text, results, and user selections. Sessions persist across server restarts.
 
 ### Authentication and Roles
+
+```mermaid
+flowchart TD
+    Req[Incoming Request] --> DevCheck{RCARS_DEV_USER<br/>set?}
+    DevCheck -->|Yes| DevUser[Use dev_user<br/>as email]
+    DevCheck -->|No| BearerCheck{Bearer token<br/>in header?}
+    BearerCheck -->|Yes| TokenReview[K8s TokenReview API<br/>validate SA token]
+    TokenReview --> SACheck{SA in<br/>allowlist?}
+    SACheck -->|Yes| SAUser[Use SA identity]
+    SACheck -->|No| Reject[401 Unauthorized]
+    BearerCheck -->|No| HeaderCheck{X-Forwarded-Email<br/>header?}
+    HeaderCheck -->|Yes| OAuthUser[Use email<br/>from header]
+    HeaderCheck -->|No| Reject
+    DevUser --> Roles[Assign Roles]
+    SAUser --> Roles
+    OAuthUser --> Roles
+    Roles --> AdminCheck{Email in<br/>ADMIN_EMAILS?}
+    AdminCheck -->|Yes| Admin[admin + curator + user]
+    AdminCheck -->|No| CuratorCheck{Email in<br/>CURATOR_EMAILS?}
+    CuratorCheck -->|Yes| Curator[curator + user]
+    CuratorCheck -->|No| Viewer[user only]
+```
 
 An OAuth proxy sits in front of the application. All requests pass through the proxy, which authenticates users against Red Hat SSO and injects the `X-Forwarded-Email` header.
 
@@ -445,9 +766,9 @@ Deployments are managed by an Ansible playbook (`ansible/deploy.yml`) with tagge
 
 | Tag | What it does |
 |---|---|
-| `update` | Full cycle: apply manifests + build images + wait for rollout + schema setup |
-| `apply` | Apply Kubernetes manifests only (no build) |
-| `build-api` | Trigger API image build (rolls API + both workers via ImageStream trigger) |
-| `build-frontend` | Trigger frontend image build |
+| `deploy` | Full deploy: namespace, infra manifests, app manifests, builds, rollout wait |
+| `mgmt-rbac` | Bootstrap management ServiceAccount, ClusterRole, and kubeconfig |
+| `build-api` | Trigger API image build, wait for build + rollout |
+| `build-frontend` | Trigger frontend image build, wait for build |
 
 ImageStream change triggers automatically roll deployments when a new image is pushed — no manual restart needed.

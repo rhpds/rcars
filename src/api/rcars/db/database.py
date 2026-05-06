@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     primary_bu TEXT,
     secondary_bu TEXT,
     stage TEXT,
-    scope TEXT,
     catalog_namespace TEXT,
     keywords TEXT[],
     description TEXT,
@@ -150,7 +149,6 @@ CREATE TABLE IF NOT EXISTS api_keys (
 );
 
 CREATE INDEX IF NOT EXISTS idx_catalog_items_stage ON catalog_items(stage);
-CREATE INDEX IF NOT EXISTS idx_catalog_items_scope ON catalog_items(scope);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_is_prod ON catalog_items(is_prod);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_category ON catalog_items(category);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_showroom_url ON catalog_items(showroom_url);
@@ -220,7 +218,7 @@ class Database:
     def upsert_catalog_item(self, item: dict[str, Any]):
         fields = [
             "ci_name", "display_name", "category", "product", "product_family",
-            "primary_bu", "secondary_bu", "stage", "scope", "catalog_namespace",
+            "primary_bu", "secondary_bu", "stage", "catalog_namespace",
             "keywords", "description", "icon_url", "owners_json",
             "showroom_url", "showroom_ref", "content_path",
             "last_crd_update", "is_prod", "is_published",

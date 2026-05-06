@@ -2,6 +2,54 @@
 
 Last updated: 2026-05-06
 
+## Pending Actions
+
+- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. Required before Summit 2026 (2026-05-12) so event keyword queries like "Summit 2026 labs" work reliably. Run overnight — ~400 unique showrooms, several hours
+
+## Bugs
+
+- [ ] **DB/worker sync divergence** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
+- [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker. Needs a timeout-based cleanup or heartbeat check
+
+## UI / UX
+
+- [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
+- [ ] **Admin query history** — show user email, session duration
+- [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
+- [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
+- [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls per CI. RCARS currently recommends all items regardless of ordering permissions. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
+
+## Recommendation Quality
+
+- [ ] **Proper recommendation system evaluation** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built approach as cost/ratings/feedback data grows
+- [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`) should be a hard boost, not just vector similarity. Consider curated keyword allowlist
+- [ ] **Scan duration data quality** — `estimated_duration_min` from LLM analysis is often inaccurate. No verification against actual lab runtimes. Consider sourcing from catalog metadata or manual curation
+- [ ] **Content overlap detection** — proposal vs. catalog comparison, lab-to-lab similarity analysis
+- [ ] **Multi-turn conversation context** — true conversational refinement with memory (currently prepends original query text as workaround)
+- [ ] **Multi-vector event search** — multiple queries per category for broad events
+- [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
+- [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
+
+## Scanner / Pipeline
+
+- [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; avoids redundant clones+analysis when `main` and `v1.0` point to same commit. Recommendation dedup already solved (content_hash), this is scan efficiency only
+- [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats not scanned or indexed. Need different extraction pipelines (Arcade JSON/YAML, architecture docs from repos/Confluence). Would enable advisor responses beyond hands-on labs
+
+## Architecture
+
+- [ ] **Migrate from Vertex AI to RHDP MaaS** — currently uses Claude via Google Vertex AI directly. Transition to RHDP's managed Model-as-a-Service endpoint. Reduces credential management and aligns with RHDP infrastructure standards
+- [ ] **Showroom live-read endpoint** — on-demand content retrieval for Publishing House "unpacking" workflow
+- [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing works, this is about deeper conversation context)
+
+## Publishing House Integration
+
+- [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
+- [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
+- [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, cluster config each CI provides). PH express mode needs: "what CI gives me an OpenShift cluster with operator X and Y?" Requires indexing AgnosticV definitions for infrastructure details. Also enables recommending Open Environments (no Showroom, just infra credentials)
+- [ ] **Express mode learning data** — store PH express mode run data (selected base CI + customization steps) for future runs. Must be separate from content analysis to avoid polluting search. Coordinate with PH backlog
+
+---
+
 ## Completed
 
 - [x] SSE streaming for admin log windows (catalog refresh, stale check)
@@ -63,60 +111,10 @@ Last updated: 2026-05-06
 - [x] Event URL parsing in advisor — paste a URL, RCARS fetches the page, extracts event profile via Sonnet, generates search queries, runs them through the pipeline
 - [x] Mixed text+URL queries — combine user text constraints with event context extracted from URL
 - [x] Admin query history score fallback — show vector_similarity_pct when relevance_score is null (white-tier items)
-
-## Bugs
-
-- [ ] **DB/worker sync** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
-- [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker
-
-## UI / UX
-
-- [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
-- [ ] **Admin query history** — show user email, session duration
-- [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
-- [x] **ZT toggle removed** — ZT items are now included by default based on their stage (prod/dev/event), no separate toggle. ZT badge still shown on Browse items for visibility
-- [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
-- [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls for each CI. RCARS currently recommends all items regardless of whether the user can order them. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
-
-## Recommendation Quality
-
-- [ ] **Proper recommendation system** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built pgvector+Sonnet as cost/ratings/feedback data grows
-- [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply them as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`, `rh1-2026`) are a high-priority case: when someone asks for "Summit 2026 content", matching against catalog item keywords should be a hard boost that triage can't override, not a vector similarity signal. Consider a curated allowlist of meaningful keywords rather than trusting all keywords equally — catalog keywords contain junk that shouldn't influence scoring
-- [ ] **Scan duration data quality** — `estimated_duration_min` from LLM analysis is often inaccurate. No verification against actual lab runtimes. Consider sourcing from catalog metadata or manual curation
-- [ ] **Content overlap detection** — proposal vs. catalog comparison, lab-to-lab similarity analysis
-- [ ] **Multi-turn conversation** — true conversational refinement with context carry-over (currently prepends original query text as workaround)
-- [ ] **Multi-vector event search** — multiple queries per category for broad events
-- [ ] **Feedback loop** — "Best fit" selections are stored but not yet used to improve scoring
-- [x] **Catalog keywords in embeddings** — catalog keywords (from CRD `spec.keywords`) appended to embedding text during analysis. Enables event queries like "Summit 2026 labs" to match via keywords even when Showroom content doesn't mention the event. Requires re-analysis to take effect on existing items
-- [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
-
-## Scanner / Pipeline
-
-- [x] **Stale detection via ls-remote** — two-phase check: `git ls-remote` to compare SHA, clone only if changed. Replaces full-clone-every-repo approach
-- [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; would avoid redundant clones+analysis when `main` and `v1.0` point to same commit. Recommendation dedup is already solved (content_hash), this is a scan efficiency optimization only
-- [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats are not scanned or indexed. These need different extraction pipelines (e.g. Arcade JSON/YAML, architecture docs from repos or Confluence). Would enable advisor responses like "here's a reference architecture for deploying X" instead of only hands-on labs
-- [x] **Old monolith code** — `src/rcars/` and `tests/` removed (9,505 lines)
-
-## Pending Actions
-
-- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. Required before Summit 2026 (2026-05-12) so event keyword queries like "Summit 2026 labs" work reliably. Run overnight — ~400 unique showrooms, several hours
-
-## Operations
-
-- [x] **Scheduled catalog refresh + stale check** — nightly maintenance pipeline via arq cron (refresh → stale check → re-analyze at 04:00 UTC). Configurable via `RCARS_PIPELINE_*` env vars. Manual trigger via Admin UI or `POST /admin/run-maintenance`
-
-
-## Architecture
-
-- [ ] **Migrate from Vertex AI to RHDP MaaS** — currently uses Claude via Google Vertex AI directly. Transition to RHDP's managed Model-as-a-Service endpoint for LLM access (scan analysis, triage, rationale, event parsing). Reduces credential management and aligns with RHDP infrastructure standards
-- [ ] **Showroom live-read endpoint** — on-demand content retrieval for PH "unpacking"
-- [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing now works, this is about deeper conversation context)
-
-## Publishing House Integration
-
-- [x] **RCARS API for vetting** — PH calls RCARS to check content overlap during intake (RCARSClient + ph_rcars_query MCP tool in PH portal)
-- [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
-- [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
-- [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, and cluster config each CI provides). PH express mode needs a base-finding query: "what CI gives me an OpenShift cluster with operator X and Y?" This requires indexing AgnosticV catalog item definitions for infrastructure details, not just Showroom content. Enables the express "find closest base infrastructure" use case. Also enables recommending "Open Environments" (no Showroom, just infrastructure credentials) — these have no content to analyze, so catalog description + keywords + AgnosticV definition would be the only signals. Between description and infra metadata, RCARS could recommend "here's an OpenShift cluster with GPU nodes" even without guided lab content.
-- [ ] **Express mode learning data** — Store PH express mode run data (selected base CI + customization steps) so future express runs benefit from past experience. Must be stored separately from content analysis data to avoid polluting content search results (this is infrastructure/workflow data, not lab content). Could feed into infrastructure-aware catalog metadata to improve base-finding query accuracy. Coordinate with PH backlog.
-- [x] **PH ServiceAccount in SA allowlist** — `system:serviceaccount:publishing-house-dev:default` added to `RCARS_SA_ALLOWLIST_STR` in dev vars
+- [x] ZT toggle removed — ZT items included by default based on stage, no separate toggle. ZT badge still shown on Browse items
+- [x] Catalog keywords in embeddings — catalog keywords from CRD `spec.keywords` appended to embedding text during analysis
+- [x] Stale detection via ls-remote — two-phase check replaces full-clone-every-repo approach
+- [x] Old monolith code removed — `src/rcars/` and `tests/` (9,505 lines)
+- [x] Scheduled catalog refresh + stale check — nightly maintenance pipeline via arq cron (refresh → stale → re-analyze at 04:00 UTC)
+- [x] RCARS API for PH vetting — PH calls RCARS to check content overlap during intake
+- [x] PH ServiceAccount in SA allowlist — `system:serviceaccount:publishing-house-dev:default` added to dev vars

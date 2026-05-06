@@ -2,18 +2,49 @@
 
 ## Architecture
 
-RCARS runs as four components on OpenShift:
+RCARS runs as four application components plus infrastructure on OpenShift:
 
-| Component | Image | What it does |
-|---|---|---|
-| `rcars-api` | `rcars-api:latest` | FastAPI JSON API (`/api/v1/*`) |
-| `rcars-scan-worker` | `rcars-api:latest` (same image) | arq worker for scan/analysis |
-| `rcars-recommend-worker` | `rcars-api:latest` (same image) | arq worker for advisor queries |
-| `rcars-frontend` | `rcars-frontend:latest` | nginx serving React SPA, proxies `/api/*` to API |
+| Component | Image | Replicas | What it does |
+|---|---|---|---|
+| `rcars-api` | `rcars-api:latest` | 1 | FastAPI JSON API (`/api/v1/*`), health probes |
+| `rcars-scan-worker` | `rcars-api:latest` (same image) | 1 | arq worker: scan, refresh, stale check, nightly maintenance |
+| `rcars-recommend-worker` | `rcars-api:latest` (same image) | 1 | arq worker: advisor recommendation queries |
+| `rcars-frontend` | `rcars-frontend:latest` | 1 | nginx serving React SPA |
+| `rcars-oauth-proxy` | `ose-oauth-proxy` | 1 | OpenShift OAuth proxy, upstream to frontend |
 
-Supporting infrastructure: PostgreSQL (pgvector), Redis 7, OAuth proxy.
+Infrastructure: PostgreSQL 16 (pgvector, 20Gi PVC), Redis 7 (1Gi PVC), OAuthClient.
 
-Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-prod` (production branch). Each has its own namespace, service account, database, and secrets.
+```mermaid
+graph TB
+    subgraph "OpenShift Namespace (rcars-dev / rcars-prod)"
+        subgraph "Application Pods"
+            OA[OAuth Proxy<br/>:4180] --> FE[Frontend<br/>nginx :80]
+            FE -->|/api/*| API[API<br/>uvicorn :8080]
+            SW[Scan Worker<br/>arq:queue:scan]
+            RW[Recommend Worker<br/>arq:queue:recommend]
+        end
+        subgraph "Infrastructure"
+            PG[(PostgreSQL 16<br/>pgvector<br/>20Gi PVC)]
+            RD[(Redis 7<br/>1Gi PVC)]
+        end
+        Route[Route<br/>TLS edge] --> OA
+        API --> PG
+        API --> RD
+        SW --> PG
+        SW --> RD
+        RW --> PG
+        RW --> RD
+    end
+    subgraph "Build"
+        IS1[ImageStream<br/>rcars-api]
+        IS2[ImageStream<br/>rcars-frontend]
+        BC1[BuildConfig<br/>src/api/Containerfile]
+        BC2[BuildConfig<br/>src/frontend/Containerfile]
+    end
+    User -->|SSO| Route
+```
+
+Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-prod` (production branch). Each has its own namespace, service account, database, and secrets. Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain secrets and are gitignored.
 
 ---
 
@@ -59,7 +90,9 @@ Fill in all values:
 | `oauth_cookie_secret` | `openssl rand -hex 16` |
 | `cluster_domain` | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
 | `babylon_kubeconfig_path` | Path to Babylon read-only kubeconfig |
-| `vertex_credentials_path` | Path to GCP service account JSON key |
+| `vertex_credentials_path` | Path to GCP Vertex AI service account JSON key |
+| `vertex_project_id` | GCP project ID for Vertex AI |
+| `vertex_region` | GCP region (default: `us-east5`) |
 | `github_token` | GitHub PAT with repo read access |
 | `curator_emails` | YAML list of curator-only emails |
 | `admin_emails` | YAML list of admin emails (admins also get curator access) |
@@ -188,6 +221,13 @@ curator_emails:
 
 admin_emails:
   - admin-user@redhat.com
+```
+
+For ServiceAccount-based API access (e.g., from automated systems), add SA identities to the allowlist:
+
+```yaml
+sa_allowlist:
+  - system:serviceaccount:my-namespace:my-sa
 ```
 
 Then redeploy to apply:

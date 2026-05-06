@@ -37,25 +37,6 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
-@router.post("/rescan-stale")
-async def rescan_stale(request: Request, user: str = Depends(require_admin)):
-    db = request.app.state.db
-    arq_redis = request.app.state.arq_redis
-    parent_job_id = db.create_job(job_type="rescan_stale", queue="ops", created_by=user)
-
-    items = db.list_catalog_items()
-    stale_items = [i for i in items if db.get_showroom_analysis(i["ci_name"]) and db.get_showroom_analysis(i["ci_name"]).get("is_stale")]
-
-    for item in stale_items:
-        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan")
-        await arq_redis.enqueue_job(
-            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"], _queue_name="arq:queue:scan"
-        )
-
-    db.complete_job(parent_job_id, result_json={"enqueued": len(stale_items)})
-    return {"job_id": parent_job_id, "enqueued": len(stale_items)}
-
-
 @router.post("/rescan-all")
 async def rescan_all(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db

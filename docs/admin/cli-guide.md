@@ -25,13 +25,13 @@ All configuration is via environment variables. No config files.
 | Variable | Required | Description |
 |---|---|---|
 | `RCARS_DATABASE_URL` | Yes | PostgreSQL connection string. Use `postgresql://` scheme (psycopg v3). |
-| `RCARS_KUBECONFIG` | For `refresh` | Path to kubeconfig with read access to Babylon namespaces. |
+| `RCARS_KUBECONFIG_PATH` | For `refresh` | Path to kubeconfig with read access to Babylon namespaces. |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | For `scan`/`recommend` | GCP project ID for Vertex AI (preferred). |
 | `CLOUD_ML_REGION` | For Vertex AI | GCP region (default: `us-east5`). |
 | `ANTHROPIC_API_KEY` | For `scan`/`recommend` | Direct Anthropic API key (fallback if Vertex not set). |
 | `RCARS_MODEL` | No | Claude model for analysis (default: `claude-sonnet-4-6`). |
 | `RCARS_MAX_PARALLEL` | No | Threads for parallel Showroom scanning (default: `5`). |
-| `RCARS_CLONE_DIR` | No | Directory for temporary Showroom clones (default: `/tmp`). |
+| `RCARS_CLONE_DIR` | No | Directory for temporary Showroom clones (default: `/tmp/rcars-clones`). |
 | `RCARS_VECTOR_CUTOFF` | No | Maximum vector distance to include in results (default: `0.55`). Lower = stricter. |
 | `RCARS_TRIAGE_MODEL` | No | Model for fast relevance triage (default: `claude-haiku-4-5`). |
 | `RCARS_TRIAGE_CUTOFF` | No | Minimum Haiku relevance score to keep a candidate (default: `30`). |
@@ -41,6 +41,13 @@ All configuration is via environment variables. No config files.
 | `RCARS_ADMIN_EMAILS_STR` | No | Comma-separated list of admin email addresses. |
 | `RCARS_DEV_USER` | Local dev only | Fakes the SSO email header for local testing. |
 | `RCARS_STALE_DAYS` | No | Days before catalog is considered stale (default: `3`). |
+| `RCARS_REDIS_URL` | No | Redis connection URL (default: `redis://localhost:6379`). |
+| `RCARS_SA_ALLOWLIST_STR` | No | Comma-separated ServiceAccount identities for API auth. |
+| `RCARS_PIPELINE_ENABLED` | No | Enable nightly maintenance pipeline (default: `true`). |
+| `RCARS_PIPELINE_HOUR` | No | UTC hour for nightly run (default: `4`). |
+| `RCARS_PIPELINE_MINUTE` | No | Minute for nightly run (default: `0`). |
+| `RCARS_CATALOG_NAMESPACES` | No | Comma-separated Babylon namespaces (default: `babylon-catalog-prod,babylon-catalog-dev,babylon-catalog-event`). |
+| `RCARS_AGNOSTICV_COMPONENT_NAMESPACE` | No | Namespace for AgnosticV components (default: `babylon-config`). |
 
 LLM credentials: RCARS prefers `ANTHROPIC_VERTEX_PROJECT_ID`. If that is not set, it falls back to `ANTHROPIC_API_KEY`. If neither is set, `scan` and `recommend` will refuse to run.
 
@@ -63,6 +70,11 @@ The `--drop` flag terminates other database connections before dropping tables, 
 
 Prints a summary of the current database state. Run this first after any operation to confirm the system is healthy.
 
+```bash
+rcars status                # Catalog summary
+rcars status --failures     # Include scan failure details
+```
+
 ```
 Metric                   Count
 ─────────────────────────────
@@ -84,13 +96,12 @@ This command also initializes the database schema (safe to run repeatedly — al
 Pulls the current catalog from Babylon Kubernetes CRDs and upserts everything into the local database. This does not trigger content analysis — it only updates catalog metadata (names, descriptions, categories, Showroom URLs, etc.).
 
 ```bash
-rcars refresh                 # Production namespace only (babylon-catalog-prod)
-rcars refresh --include-dev   # All namespaces (prod + dev + event)
+rcars refresh                 # Sync all configured namespaces (prod + dev + event)
 ```
 
-Run `refresh` whenever you want to pick up new or changed catalog items. It is safe to run repeatedly. Existing analysis results are preserved.
+Run `refresh` whenever you want to pick up new or changed catalog items. It is safe to run repeatedly. Existing analysis results are preserved. The command reads all configured namespaces (controlled by `RCARS_CATALOG_NAMESPACES`) every time — there is no flag to limit to a single namespace.
 
-**What it reads:** `AgnosticVComponent` custom resources in the configured Babylon namespaces. For each component, it extracts the display name, category, product, description, keywords, stage, and Showroom repository URL and ref (extracted from known workload variable names in the CRD spec).
+**What it reads:** `AgnosticVComponent` custom resources in all configured Babylon namespaces. For each component, it extracts the display name, category, product, description, keywords, stage, and Showroom repository URL and ref (extracted from known workload variable names in the CRD spec).
 
 **CI hierarchy:** The catalog contains three tiers of items. Published Virtual CIs are what users order from `catalog.demo.redhat.com`. Each published CI points to a Base CI, which contains the actual lab content and Showroom link. Base CIs point to Infrastructure CIs (the underlying provisioning layer). RCARS analyzes Base CIs — they're where the Showroom content lives. Published VCIs are stored in the database for recommendation output (they're what users order) but are not scanned themselves.
 
@@ -101,9 +112,8 @@ Run `refresh` whenever you want to pick up new or changed catalog items. It is s
 Analyzes Showroom content for catalog items that have not yet been analyzed (or that have become stale). This is the AI-intensive operation — it clones Showroom repositories and calls Claude Sonnet for each item.
 
 ```bash
-rcars scan                  # Analyze all pending (new + stale) items
+rcars scan                  # Analyze all unanalyzed items
 rcars scan --max 5          # Limit to 5 items (useful for testing)
-rcars scan --force          # Re-analyze everything, even already-analyzed items
 ```
 
 **What happens per item:**
@@ -121,6 +131,17 @@ rcars scan --force          # Re-analyze everything, even already-analyzed items
 **Cost:** Each item requires one Sonnet API call. A full scan of ~130 Showroom items will make ~130 calls. Use `--max` to test on a small batch before running a full scan.
 
 **Scan scope:** Only base CIs are scanned. Published VCIs are skipped because their content lives in the base CI they reference.
+
+---
+
+### `rcars tag <ci-name> <type> <value>`
+
+Adds an enrichment tag to a catalog item. Tags are visible to all users on recommendation cards and in the Browse page.
+
+```bash
+rcars tag openshift-cnv.ocp4-getting-started.prod lifecycle flagship
+rcars tag openshift-cnv.ocp4-getting-started.prod event kubecon-2026
+```
 
 ---
 
@@ -164,6 +185,16 @@ rcars override-url openshift-cnv.ocp4-getting-started.prod https://github.com/rh
 
 ---
 
+### `rcars set-content-path <ci-name> <path>`
+
+Sets a custom content path within the Showroom repository. By default, RCARS reads from `content/modules/ROOT/pages/`. Use this when a repository uses a non-standard layout.
+
+```bash
+rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/CUSTOM/pages/
+```
+
+---
+
 ### `rcars serve`
 
 Starts the RCARS web server.
@@ -172,6 +203,7 @@ Starts the RCARS web server.
 rcars serve                             # Binds to 0.0.0.0:8080
 rcars serve --host 127.0.0.1 --port 8000
 rcars serve --reload                    # Enable auto-reload (development only)
+rcars serve --workers 4                 # Number of uvicorn workers (default: 1)
 ```
 
 In production this is managed by the OpenShift deployment — you would not typically run this manually. Use it for local development or to test a configuration change before deploying.
@@ -216,31 +248,34 @@ rcars scan              # Re-analyzes stale items alongside any new ones
 
 ### Force Full Rescan
 
-Use this when the analysis prompt has changed or when you want to ensure all items reflect the current Sonnet model's output.
-
-```bash
-rcars scan --force
-```
-
-This re-analyzes every item that has a Showroom URL, regardless of whether it has been analyzed before.
+Use this when the analysis prompt has changed or when you want to ensure all items reflect the current Sonnet model's output. Full rescans are triggered from the Admin UI via "Re-Analyze All" (`POST /api/v1/analysis/rescan-all`), which marks all items as stale and enqueues them for re-analysis.
 
 ### Debugging a Failed Item
 
 If `rcars scan` reports an error for a specific item, investigate with:
 
 ```bash
-rcars show <ci-name>          # Confirm the Showroom URL is present and correct
-rcars scan --max 1 --force    # Not directly targetable by CI name, so use --max 1
-                              # after removing other pending items, or check logs
+rcars status --failures     # List all items with scan failures and error details
 ```
 
 Common failure causes:
-- The Showroom Git repository is private or has been deleted
-- The repository does not follow the standard Antora layout (no `content/modules/ROOT/pages/`)
-- The content is entirely boilerplate with no substantive pages
-- API rate limits or credential issues (check `ANTHROPIC_VERTEX_PROJECT_ID` is set)
+- **jinja_url** — the Showroom URL contains unresolved Jinja2 template variables
+- **private_repo** — the Git repository requires authentication
+- **http_404** — the repository URL returns a 404
+- **clone_failed** — git clone failed (timeout, network, or other git error)
+- **missing_antora** — repository does not follow the standard Antora layout
+- **no_content** — no substantive content files found after filtering boilerplate
+- **parse_error** — the LLM response could not be parsed as JSON
+- **timeout** — the operation exceeded the timeout limit
 
-Scan errors are logged to the database action log and visible in the Admin page of the web UI.
+To re-analyze a specific item, use the Browse page's "Re-analyze" button (curator access required) or the API:
+
+```bash
+curl -X POST https://rcars-dev.apps.<domain>/api/v1/analysis/<ci-name> \
+  -H "Authorization: Bearer <token>"
+```
+
+Scan errors are logged to the database and visible in the Admin page of the web UI and via `rcars status --failures`.
 
 ### Testing Recommendations After a Scan
 
