@@ -134,7 +134,6 @@ export function BrowsePage() {
   })
 
   const total = filteredItems.length
-  const ztCount = allItems.filter(isZtItem).length
   const pageItems = filteredItems.slice(offset, offset + limit)
 
   const handleExpand = async (ciName: string) => {
