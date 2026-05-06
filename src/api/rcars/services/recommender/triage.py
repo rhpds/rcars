@@ -55,7 +55,7 @@ def triage(
 
     response = anthropic_client.messages.create(
         model=model,
-        max_tokens=2048,
+        max_tokens=4096,
         temperature=0,
         messages=[{"role": "user", "content": prompt}],
     )

@@ -100,6 +100,20 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
             except json.JSONDecodeError:
                 pass
 
+        # Truncated JSON array recovery — extract complete objects from
+        # a response that was cut off by max_tokens before the array closed
+        if bracket_start >= 0:
+            array_text = text[bracket_start:]
+            recovered = []
+            for obj_match in re.finditer(r'\{[^{}]*\}', array_text):
+                try:
+                    recovered.append(json.loads(obj_match.group()))
+                except json.JSONDecodeError:
+                    continue
+            if recovered:
+                log.warning("Recovered %d entries from truncated JSON array", len(recovered))
+                return recovered
+
         log.warning("Failed to parse analysis response as JSON: %s", text[:200])
         return None
 
