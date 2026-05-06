@@ -73,7 +73,7 @@ export function AdvisorPage() {
   const [input, setInput] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
-  const [showZt, setShowZt] = useState(true)
+  const showZt = true
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [turns, setTurns] = useState<TurnResults[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
@@ -257,7 +257,6 @@ export function AdvisorPage() {
           <span style={{ fontSize: '12px', color: '#555' }}>Include:</span>
           {auth.isCurator && <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
           <LcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
-          <LcarsToggle label="ZT" active={showZt} onToggle={() => setShowZt(!showZt)} />
         </div>
         <div className="chat-input-row">
           <textarea

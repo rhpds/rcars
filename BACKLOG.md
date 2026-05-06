@@ -1,6 +1,6 @@
 # RCARS Backlog
 
-Last updated: 2026-05-04
+Last updated: 2026-05-06
 
 ## Completed
 
@@ -59,6 +59,10 @@ Last updated: 2026-05-04
 - [x] Admin query history — stage badges (dev/event) on non-prod candidates
 - [x] Recommendation dedup by content_hash — collapses dev/prod variants with identical Showroom content while preserving genuinely different branch content
 - [x] Dev stage restricted to curators/admins — toggle hidden for regular users, API enforces server-side
+- [x] Triage JSON parsing fix — array fallback extraction for LLM responses with preamble text; added error logging on parse failures
+- [x] Event URL parsing in advisor — paste a URL, RCARS fetches the page, extracts event profile via Sonnet, generates search queries, runs them through the pipeline
+- [x] Mixed text+URL queries — combine user text constraints with event context extracted from URL
+- [x] Admin query history score fallback — show vector_similarity_pct when relevance_score is null (white-tier items)
 
 ## Bugs
 
@@ -70,7 +74,9 @@ Last updated: 2026-05-04
 - [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
 - [ ] **Admin query history** — show user email, session duration
 - [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
+- [x] **ZT toggle removed** — ZT items are now included by default based on their stage (prod/dev/event), no separate toggle. ZT badge still shown on Browse items for visibility
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
+- [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls for each CI. RCARS currently recommends all items regardless of whether the user can order them. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
 
 ## Recommendation Quality
 
@@ -91,6 +97,10 @@ Last updated: 2026-05-04
 - [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats are not scanned or indexed. These need different extraction pipelines (e.g. Arcade JSON/YAML, architecture docs from repos or Confluence). Would enable advisor responses like "here's a reference architecture for deploying X" instead of only hands-on labs
 - [x] **Old monolith code** — `src/rcars/` and `tests/` removed (9,505 lines)
 
+## Pending Actions
+
+- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. Required before Summit 2026 (2026-05-12) so event keyword queries like "Summit 2026 labs" work reliably. Run overnight — ~400 unique showrooms, several hours
+
 ## Operations
 
 - [x] **Scheduled catalog refresh + stale check** — nightly maintenance pipeline via arq cron (refresh → stale check → re-analyze at 04:00 UTC). Configurable via `RCARS_PIPELINE_*` env vars. Manual trigger via Admin UI or `POST /admin/run-maintenance`
@@ -98,8 +108,9 @@ Last updated: 2026-05-04
 
 ## Architecture
 
+- [ ] **Migrate from Vertex AI to RHDP MaaS** — currently uses Claude via Google Vertex AI directly. Transition to RHDP's managed Model-as-a-Service endpoint for LLM access (scan analysis, triage, rationale, event parsing). Reduces credential management and aligns with RHDP infrastructure standards
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for PH "unpacking"
-- [ ] **Conversational advisor** — multi-turn refinement with memory, interactive event URL parsing
+- [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing now works, this is about deeper conversation context)
 
 ## Publishing House Integration
 

@@ -85,7 +85,7 @@ export function BrowsePage() {
   const [search, setSearch] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
-  const [showZt, setShowZt] = useState(true)
+  const showZt = true
   const initialFilter = (searchParams.get('filter') as ContentFilter) || 'all'
   const [contentFilter, setContentFilter] = useState<ContentFilter>(initialFilter)
   const [offset, setOffset] = useState(0)
@@ -238,7 +238,6 @@ export function BrowsePage() {
         </select>
         <LcarsToggle label="dev" active={showDev} onToggle={() => { setShowDev(!showDev); setOffset(0) }} />
         <LcarsToggle label="event" active={showEvent} onToggle={() => { setShowEvent(!showEvent); setOffset(0) }} />
-        <LcarsToggle label={`ZT (${ztCount})`} active={showZt} onToggle={() => { setShowZt(!showZt); setOffset(0) }} />
         <span style={{ color: '#666', fontSize: '14px', alignSelf: 'center' }}>
           {total} items
         </span>
