@@ -19,6 +19,37 @@ import structlog
 logger = structlog.get_logger()
 
 
+_ACRONYMS = {
+    "AAP": "Ansible Automation Platform",
+    "ACM": "Advanced Cluster Management for Kubernetes",
+    "RHACM": "Advanced Cluster Management for Kubernetes",
+    "ACS": "Advanced Cluster Security for Kubernetes",
+    "RHACS": "Red Hat Advanced Cluster Security for Kubernetes",
+    "RHOAI": "Red Hat OpenShift AI",
+    "OCP": "OpenShift Container Platform",
+    "ARO": "Azure Red Hat OpenShift",
+    "ROSA": "Red Hat OpenShift Service on AWS",
+    "RHEL": "Red Hat Enterprise Linux",
+    "RHDH": "Red Hat Developer Hub",
+    "SNO": "Single Node OpenShift",
+    "RHSSO": "Red Hat Single Sign-On",
+    "EDA": "Event-Driven Ansible",
+    "TAP": "Trusted Application Pipeline",
+}
+
+_ACRONYM_RE = re.compile(
+    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b'
+)
+
+
+def _expand_acronyms(query: str) -> str:
+    """Expand Red Hat product acronyms to full names for better embedding match."""
+    def _replace(m: re.Match) -> str:
+        acro = m.group(0)
+        return f"{acro} ({_ACRONYMS[acro]})"
+    return _ACRONYM_RE.sub(_replace, query)
+
+
 def _extract_urls(query: str) -> tuple[list[str], str]:
     """Extract URLs from query, return (urls, remaining_text).
 
@@ -144,9 +175,14 @@ async def run_query(
             for c in candidates
         ]
 
+    # Expand acronyms for better embedding match
+    search_query = _expand_acronyms(query)
+    if search_query != query:
+        logger.info("acronym_expansion", original=query[:200], expanded=search_query[:200])
+
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = search(query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
+    state = search(search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
 
