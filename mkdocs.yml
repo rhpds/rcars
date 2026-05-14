@@ -33,10 +33,10 @@ nav:
   - Overview: overview.md
   - Architecture:
       - System Design: architecture/system-design.md
-      - Deployment: architecture/deployment.md
   - User Guides:
       - Web UI Guide: user/web-guide.md
   - Admin Guides:
+      - Deployment: admin/deployment.md
       - CLI Reference: admin/cli-guide.md
       - Token Usage: admin/token-usage.md
       - Operations: admin/operations.md
