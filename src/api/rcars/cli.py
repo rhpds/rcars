@@ -127,19 +127,28 @@ def scan(max_analyze: int | None):
         db.close()
         sys.exit(1)
 
+    from rcars.workers.ops import sha_dedup_scan_items
+
     items = db.get_items_needing_analysis()
-    _print(f"Found {len(items)} items needing analysis")
+    _print(f"Found {len(items)} items needing analysis (ref-deduped)")
 
     items = [i for i in items if not i.get("is_published")]
+
+    scan_items, sha_siblings_map = sha_dedup_scan_items(items)
+    sha_merged = len(items) - len(scan_items)
+    if sha_merged:
+        _print(f"SHA dedup: {len(items)} ref-groups → {len(scan_items)} SHA-groups ({sha_merged} merged)")
+
     if max_analyze:
         _print(f"Limiting to first {max_analyze} items (--max)")
-        items = items[:max_analyze]
+        scan_items = scan_items[:max_analyze]
 
-    if not items:
+    if not scan_items:
         _print("Nothing to analyze.")
         db.close()
         return
 
+    items = scan_items
     _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
     completed = 0
     errors = 0
@@ -210,7 +219,7 @@ def scan(max_analyze: int | None):
                     # Propagate to siblings with same (url, ref)
                     effective_url = item.get("showroom_url_override") or item["showroom_url"]
                     siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
-                    propagated = 0
+                    propagated_set = {result["ci_name"]}
                     analysis_data = {
                         "ci_name": None,
                         "content_type": analysis.get("content_type"),
@@ -230,10 +239,8 @@ def scan(max_analyze: int | None):
                         "is_stale": False,
                         "stale_commit": None,
                     }
-                    for sibling in siblings:
-                        sib_name = sibling["ci_name"]
-                        if sib_name == result["ci_name"]:
-                            continue
+
+                    def _cli_propagate(sib_name):
                         sib_data = dict(analysis_data)
                         sib_data["ci_name"] = sib_name
                         db.upsert_showroom_analysis(sib_data)
@@ -249,8 +256,27 @@ def scan(max_analyze: int | None):
                                 content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                             )
                         db.set_scan_status(sib_name, "success")
-                        propagated += 1
 
+                    for sibling in siblings:
+                        if sibling["ci_name"] not in propagated_set:
+                            _cli_propagate(sibling["ci_name"])
+                            propagated_set.add(sibling["ci_name"])
+
+                    # Propagate to SHA siblings (different ref, same commit)
+                    sha_sibs = sha_siblings_map.get(item["ci_name"], [])
+                    for sha_sib in sha_sibs:
+                        sib_name = sha_sib["ci_name"]
+                        if sib_name not in propagated_set:
+                            _cli_propagate(sib_name)
+                            propagated_set.add(sib_name)
+                            # Also propagate to this SHA sibling's ref-based siblings
+                            ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
+                            for ref_sib in ref_sibs:
+                                if ref_sib["ci_name"] not in propagated_set:
+                                    _cli_propagate(ref_sib["ci_name"])
+                                    propagated_set.add(ref_sib["ci_name"])
+
+                    propagated = len(propagated_set) - 1
                     completed += 1
                     prop_msg = f" (+{propagated} siblings)" if propagated else ""
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
