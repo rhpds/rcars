@@ -1,10 +1,10 @@
 # RCARS Backlog
 
-Last updated: 2026-05-06
+Last updated: 2026-05-14
 
 ## Pending Actions
 
-- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. Required before Summit 2026 (2026-05-12) so event keyword queries like "Summit 2026 labs" work reliably. Run overnight — ~400 unique showrooms, several hours
+- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. ~400 unique showrooms, several hours — run overnight
 
 ## Bugs
 
@@ -32,7 +32,6 @@ Last updated: 2026-05-06
 
 ## Scanner / Pipeline
 
-- [ ] **Scan dedup by commit SHA** — resolve refs via `git ls-remote` before scanning; avoids redundant clones+analysis when `main` and `v1.0` point to same commit. Recommendation dedup already solved (content_hash), this is scan efficiency only
 - [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats not scanned or indexed. Need different extraction pipelines (Arcade JSON/YAML, architecture docs from repos/Confluence). Would enable advisor responses beyond hands-on labs
 
 ## Architecture
@@ -118,3 +117,4 @@ Last updated: 2026-05-06
 - [x] Scheduled catalog refresh + stale check — nightly maintenance pipeline via arq cron (refresh → stale → re-analyze at 04:00 UTC)
 - [x] RCARS API for PH vetting — PH calls RCARS to check content overlap during intake
 - [x] PH ServiceAccount in SA allowlist — `system:serviceaccount:publishing-house-dev:default` added to dev vars
+- [x] Scan dedup by commit SHA — resolve refs via `git ls-remote` before scanning; batch per URL, pass SHA siblings as job args for propagation
