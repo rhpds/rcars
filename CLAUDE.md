@@ -291,6 +291,9 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
 # API + workers (~3min, restarts api + scan-worker + recommend-worker)
 ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 
+# Config changes only (user lists, env vars, no builds)
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply
+
 # Full infrastructure + app update
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
