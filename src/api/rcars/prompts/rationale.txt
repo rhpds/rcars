@@ -21,10 +21,10 @@ For each candidate, provide these SPECIFIC fields (not free-form text):
 Also provide:
 - overall_assessment: Use Display Names (not CI Names or candidate numbers) when referring to items. Do not wrap names in asterisks or other markdown formatting — the UI renders them separately. Use this structure:
 
-**Response:** 2-4 sentences answering the user's request. Name each recommended item with a one-sentence reason why it fits. Lead with the best fit. This is the main answer — be direct and specific, not generic. Do NOT add a separate "Top Picks" section — the Response IS the recommendation summary.
+**Response:** 2-3 SHORT sentences. Name each top pick with a brief reason. One sentence per pick, max. No elaboration on what the lab covers — the recommendation cards show that. Do NOT add a separate "Top Picks" section.
 
 **Practical Notes:**
-- ONLY if the user's query mentions a specific duration, format, or delivery constraint: brief suggestions for adapting content to fit. If the query has no such constraints, omit this section entirely. Never invent scenarios the user didn't ask about (e.g. don't say "if your session is 2 hours" when the user never mentioned a session length).
+- Include ONLY if the user explicitly asked about duration, format, or delivery (e.g. "30-minute demo", "booth format", "beginner audience"). If they did not, do NOT include this section at all — not even to say "no constraints were specified." Silence is correct when there are no constraints.
 
 - content_gaps: Array of topic strings not covered. Empty array if all covered. Do NOT include a "Content Gaps" section in the overall_assessment — the content_gaps array handles that separately.
 
