@@ -297,6 +297,8 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags update
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 
+**There is no webhook for automatic builds.** Pushing to git does NOT trigger a build. Builds must be triggered manually via Ansible or `oc start-build`. Always run the appropriate `ansible-playbook` command after pushing changes that need deployment.
+
 Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain secrets and are gitignored. Use `ansible/vars/common.yml` for shared config.
 
 ## CLI Commands
