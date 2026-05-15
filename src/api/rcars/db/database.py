@@ -559,7 +559,7 @@ class Database:
 
         groups: dict[tuple, list[dict]] = {}
         for item in all_needing:
-            key = (item["showroom_url"], item.get("showroom_ref") or "")
+            key = (item.get("showroom_url_override") or item["showroom_url"], item.get("showroom_ref") or "")
             groups.setdefault(key, []).append(item)
 
         deduped = []
@@ -573,13 +573,14 @@ class Database:
         """Return total scannable, unique (url, ref) pairs, and propagated sibling count."""
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT ci.showroom_url, COALESCE(ci.showroom_ref, '') AS showroom_ref, COUNT(*) AS cnt
+                SELECT COALESCE(ci.showroom_url_override, ci.showroom_url) AS effective_url,
+                       COALESCE(ci.showroom_ref, '') AS showroom_ref, COUNT(*) AS cnt
                 FROM catalog_items ci
                 LEFT JOIN showroom_analysis sa ON ci.ci_name = sa.ci_name
                 WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
                   AND (ci.is_published IS NULL OR ci.is_published = FALSE)
                   AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
-                GROUP BY ci.showroom_url, COALESCE(ci.showroom_ref, '')
+                GROUP BY COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, '')
             """)
             groups = cur.fetchall()
         total = sum(row["cnt"] for row in groups)
@@ -677,9 +678,20 @@ class Database:
                 dev = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'event'")
                 event = cur.fetchone()["count"]
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(*) as cnt FROM (
+                        SELECT DISTINCT COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, '')
+                        FROM catalog_items ci
+                        WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
+                          AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                    ) sub
+                """)
+                unique_showrooms = cur.fetchone()["cnt"]
         return {
             "total": total, "prod": prod, "dev": dev, "event": event,
-            "scannable": scannable, "analyzed": analyzed,
+            "scannable": scannable, "unique_showrooms": unique_showrooms, "analyzed": analyzed,
             "last_refresh": catalog_date, "is_stale": catalog_stale,
             "catalog_stale": catalog_stale, "catalog_date": catalog_date,
             "analysis_stale": analysis_stale, "analysis_date": analysis_date,
