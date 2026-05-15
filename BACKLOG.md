@@ -4,7 +4,7 @@ Last updated: 2026-05-14
 
 ## Pending Actions
 
-- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. ~400 unique showrooms, several hours — run overnight
+- [x] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. ~400 unique showrooms, several hours — run overnight
 
 ## Bugs
 
@@ -18,6 +18,7 @@ Last updated: 2026-05-14
 - [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
 - [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls per CI. RCARS currently recommends all items regardless of ordering permissions. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
+- [ ] **Add mobile mode to UI**
 
 ## Recommendation Quality
 
