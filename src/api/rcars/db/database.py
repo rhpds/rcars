@@ -678,9 +678,18 @@ class Database:
                 dev = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'event'")
                 event = cur.fetchone()["count"]
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT COUNT(DISTINCT (COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, ''))) as cnt
+                    FROM catalog_items ci
+                    WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
+                      AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                """)
+                unique_showrooms = cur.fetchone()["cnt"]
         return {
             "total": total, "prod": prod, "dev": dev, "event": event,
-            "scannable": scannable, "analyzed": analyzed,
+            "scannable": scannable, "unique_showrooms": unique_showrooms, "analyzed": analyzed,
             "last_refresh": catalog_date, "is_stale": catalog_stale,
             "catalog_stale": catalog_stale, "catalog_date": catalog_date,
             "analysis_stale": analysis_stale, "analysis_date": analysis_date,

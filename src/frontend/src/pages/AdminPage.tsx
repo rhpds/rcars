@@ -12,6 +12,7 @@ interface CatalogStatus {
   dev: number
   event: number
   scannable: number
+  unique_showrooms: number
   analyzed: number
   last_refresh: string
   catalog_stale: boolean
@@ -423,7 +424,10 @@ export function AdminCatalogPage() {
               <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Dev</td><td>{status.dev}</td></tr>
               <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Event</td><td>{status.event}</td></tr>
               <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                <td>Scannable (with Showroom)</td><td>{status.scannable}</td>
+                <td>CIs with Showroom</td><td>{status.scannable}</td>
+              </tr>
+              <tr>
+                <td style={{ paddingLeft: '24px', color: '#888' }}>Unique Showrooms (after dedup)</td><td>{status.unique_showrooms}</td>
               </tr>
               <tr><td>Analyzed</td><td>{status.analyzed}</td></tr>
               <tr>
