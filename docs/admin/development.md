@@ -5,6 +5,9 @@ description: How to set up and run RCARS locally
 
 # Development Guide
 
+!!! note "Most development happens on the dev cluster"
+    Day-to-day feature work is tested by pushing to `main` and building in the `rcars-dev` namespace on OpenShift. The local setup described here is only needed for major architectural changes, database schema work, or debugging issues that are difficult to reproduce on the cluster.
+
 ## Prerequisites
 
 - Python 3.11+ with a virtualenv at `~/.virtualenvs/rcars-v2`
