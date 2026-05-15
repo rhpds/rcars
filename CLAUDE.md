@@ -363,11 +363,11 @@ docs/
 ├── index.md                    # Landing page
 ├── overview.md                 # System overview
 ├── architecture/               # Technical design
-│   ├── system-design.md        # Architecture deep dive
-│   └── deployment.md           # OpenShift deployment details
+│   └── system-design.md        # Architecture deep dive
 ├── user/                       # End-user guides
 │   └── web-guide.md            # Web UI walkthrough
 ├── admin/                      # Operator guides
+│   ├── deployment.md           # OpenShift deployment details
 │   ├── cli-guide.md            # CLI reference
 │   ├── token-usage.md          # Token usage tracking
 │   ├── operations.md           # Workers, maintenance, monitoring
