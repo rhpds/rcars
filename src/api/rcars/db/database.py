@@ -681,10 +681,12 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
-                    SELECT COUNT(DISTINCT (COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, ''))) as cnt
-                    FROM catalog_items ci
-                    WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
-                      AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                    SELECT COUNT(*) as cnt FROM (
+                        SELECT DISTINCT COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, '')
+                        FROM catalog_items ci
+                        WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
+                          AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                    ) sub
                 """)
                 unique_showrooms = cur.fetchone()["cnt"]
         return {
