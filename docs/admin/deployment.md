@@ -60,12 +60,11 @@ Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-pr
 
 ## Playbook Tags
 
-There are only 4 tags:
-
 | Tag | What it does | When to use |
 |---|---|---|
 | `mgmt-rbac` | Creates management SA, RBAC, kubeconfig | One-time per env |
 | `deploy` | Full deploy: infra + app + build + migrate | First-time deploy or full update |
+| `apply` | Apply namespace + app manifests only (no builds, no infra) | Config changes: user lists, env vars, resource limits |
 | `build-frontend` | Build and deploy frontend only (~30s) | Frontend-only code changes |
 | `build-api` | Build and deploy API + workers (~5 min) | Backend-only code changes |
 
@@ -195,8 +194,11 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 
 ### Promote to production
 
+Production merges must go through a pull request:
+
 ```bash
-git checkout production && git merge main && git push && git checkout main
+gh pr create --base production --head main --title "Promote main to production"
+# Wait for CodeRabbit review, then merge via GitHub
 ansible-playbook ansible/deploy.yml -e env=prod --tags deploy
 ```
 
@@ -230,11 +232,13 @@ sa_allowlist:
   - system:serviceaccount:my-namespace:my-sa
 ```
 
-Then redeploy to apply:
+Then apply the updated manifests:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 ```
+
+This updates the deployment env vars and triggers a rollout — no image rebuilds or infrastructure changes.
 
 ---
 

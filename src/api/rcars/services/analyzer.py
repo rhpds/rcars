@@ -276,6 +276,82 @@ def ls_remote_sha(url: str, ref: str | None) -> str | None:
         return None
 
 
+def resolve_refs_to_shas(
+    url_ref_pairs: list[tuple[str, str | None]],
+) -> dict[tuple[str, str | None], str | None]:
+    """Batch-resolve git refs to commit SHAs via ls-remote.
+
+    Groups pairs by URL so each unique URL needs only one ls-remote call.
+    Falls back to individual ls_remote_sha() on failure.
+
+    Returns {(url, ref): sha_or_none}.
+    """
+    import time
+
+    by_url: dict[str, list[str | None]] = {}
+    for url, ref in url_ref_pairs:
+        by_url.setdefault(url, []).append(ref)
+
+    result: dict[tuple[str, str | None], str | None] = {}
+    t0 = time.monotonic()
+
+    for url, refs in by_url.items():
+        ref_lookup: dict[str, str] | None = None
+        head_sha: str | None = None
+
+        try:
+            proc = _run_git_with_retry(["git", "ls-remote", url], timeout=30)
+            ref_lookup = {}
+            for line in proc.stdout.strip().splitlines():
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+                sha, refname = parts[0], parts[1]
+                if refname == "HEAD":
+                    head_sha = sha
+                elif refname.endswith("^{}"):
+                    base = refname[:-3]
+                    ref_lookup[base] = sha
+                else:
+                    ref_lookup.setdefault(refname, sha)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+            stderr = getattr(e, "stderr", "") or ""
+            log.warning("ls-remote batch failed for %s: %s", url, stderr.strip()[:200])
+
+        for ref in refs:
+            if ref_lookup is not None:
+                sha = _resolve_ref_from_lookup(ref, ref_lookup, head_sha)
+                result[(url, ref)] = sha
+            else:
+                result[(url, ref)] = ls_remote_sha(url, ref)
+
+    elapsed_ms = int((time.monotonic() - t0) * 1000)
+    resolved = sum(1 for v in result.values() if v is not None)
+    log.info("resolve_refs_to_shas complete: %d pairs, %d resolved, %d failed, %dms",
+             len(result), resolved, len(result) - resolved, elapsed_ms)
+    return result
+
+
+def _resolve_ref_from_lookup(
+    ref: str | None,
+    ref_lookup: dict[str, str],
+    head_sha: str | None,
+) -> str | None:
+    """Resolve a single ref against the parsed ls-remote output."""
+    if ref is None:
+        return head_sha
+
+    candidates = [
+        f"refs/heads/{ref}",
+        f"refs/tags/{ref}",
+        ref,
+    ]
+    for candidate in candidates:
+        if candidate in ref_lookup:
+            return ref_lookup[candidate]
+    return None
+
+
 def clone_showroom(
     url: str, ref: str | None, clone_dir: str = "/tmp"
 ) -> Path | None:

@@ -6,10 +6,81 @@ import shutil
 import traceback
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
-from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha
+from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
 import structlog
 
 logger = structlog.get_logger()
+
+STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
+
+
+def sha_dedup_scan_items(
+    items: list[dict],
+) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Further deduplicate ref-based scan items by resolving refs to commit SHAs.
+
+    Returns (items_to_scan, sha_siblings_map).
+    sha_siblings_map keys are representative ci_names, values are lists of
+    skipped item dicts with keys: ci_name, effective_url, showroom_ref.
+    """
+    log = logger.bind(action="sha_dedup")
+
+    url_ref_pairs = []
+    items_by_key: dict[tuple[str, str | None], list[dict]] = {}
+    for item in items:
+        effective_url = item.get("showroom_url_override") or item["showroom_url"]
+        ref = item.get("showroom_ref")
+        key = (effective_url, ref)
+        url_ref_pairs.append(key)
+        items_by_key.setdefault(key, []).append(item)
+
+    unique_pairs = list(set(url_ref_pairs))
+    log.info("sha_dedup_started", input_items=len(items), unique_url_ref_pairs=len(unique_pairs))
+
+    sha_map = resolve_refs_to_shas(unique_pairs)
+
+    sha_groups: dict[tuple[str, str], list[dict]] = {}
+    for (url, ref), group_items in items_by_key.items():
+        sha = sha_map.get((url, ref))
+        if sha:
+            group_key = (url, sha)
+        else:
+            group_key = (url, f"ref:{ref or ''}")
+        sha_groups.setdefault(group_key, []).extend(group_items)
+
+    scan_items = []
+    sha_siblings_map: dict[str, list[dict]] = {}
+
+    for group_key, group_items in sha_groups.items():
+        group_items.sort(key=lambda i: STAGE_PRIORITY.get(i.get("stage", "dev"), 99))
+        representative = group_items[0]
+        scan_items.append(representative)
+
+        if len(group_items) > 1:
+            skipped = []
+            for item in group_items[1:]:
+                effective_url = item.get("showroom_url_override") or item["showroom_url"]
+                skipped.append({
+                    "ci_name": item["ci_name"],
+                    "effective_url": effective_url,
+                    "showroom_ref": item.get("showroom_ref"),
+                })
+            sha_siblings_map[representative["ci_name"]] = skipped
+            refs_in_group = list({i.get("showroom_ref") for i in group_items})
+            if len(refs_in_group) > 1:
+                log.info("sha_group_merged",
+                         url=group_key[0], sha=group_key[1][:12],
+                         refs=refs_in_group,
+                         representative=representative["ci_name"],
+                         merged_count=len(group_items) - 1)
+
+    scan_items.sort(key=lambda i: i.get("ci_name", ""))
+    merged = len(items) - len(scan_items)
+    log.info("sha_dedup_complete",
+             input_groups=len(items), output_groups=len(scan_items),
+             sha_merged=merged)
+
+    return scan_items, sha_siblings_map
 
 
 async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
@@ -217,26 +288,29 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:stale_check", status="failed", message=msg)
 
-    # Step 3: Enqueue analysis for items that need it
+    # Step 3: Enqueue analysis for items that need it (with SHA dedup)
     try:
         items = wctx.db.get_items_needing_analysis()
         if items:
+            scan_items, sha_siblings_map = sha_dedup_scan_items(items)
+            sha_merged = len(items) - len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",
-                                   message=f"Step 3/3: Enqueuing {len(items)} items for re-analysis...")
+                                   message=f"Step 3/3: Enqueuing {len(scan_items)} items for re-analysis ({sha_merged} merged by SHA)...")
             arq_redis = ctx["redis"]
-            for item in items:
+            for item in scan_items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
                 await arq_redis.enqueue_job(
                     "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"],
+                    sha_siblings=sha_siblings_map.get(item["ci_name"]),
                     _queue_name="arq:queue:scan"
                 )
-            analysis_enqueued = len(items)
+            analysis_enqueued = len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
-                                   message=f"Step 3/3 complete: {analysis_enqueued} analysis jobs enqueued")
+                                   message=f"Step 3/3 complete: {analysis_enqueued} analysis jobs enqueued ({sha_merged} merged by SHA)")
             log.info("pipeline_analysis_enqueued", action="pipeline_step_complete",
-                     step="analysis", enqueued=analysis_enqueued)
+                     step="analysis", enqueued=analysis_enqueued, sha_merged=sha_merged)
         else:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",

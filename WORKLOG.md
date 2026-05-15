@@ -89,8 +89,24 @@ Session handoff notes between developers. Read before starting work. Write befor
 - **mkdocs.yml** — added Mermaid support via pymdownx.superfences custom_fences
 
 **Notes:**
-- The `usePrivateMode` hook exists in the frontend code but is not connected to any UI — it's scaffolding for a future privacy feature. Not documented intentionally.
-- The `api.rescanStale()` function exists in the API client but is never called by any frontend component.
-- The `api.getWorkerHealth()` function exists but is never called — the Workers page uses `getScanProgress()` instead.
-- The `/catalog/{ci_name}/override-url` endpoint exists in the backend but has no frontend UI — only available via CLI or API.
-- The `catalog_items.scope` column exists in the schema but is never populated by any code path.
+- The `usePrivateMode` hook exists in the frontend code but is not connected to any UI — scaffolding for a future privacy feature.
+
+---
+
+### 2026-05-06 — Claude (dead code cleanup + acronym fix)
+
+**Done:**
+- Added override-url input to Browse page curator controls (was API/CLI only, now has UI)
+- Removed dead `catalog_items.scope` column from DDL, index, and upsert (never populated)
+- Removed dead `getWorkerHealth()` from frontend api.ts (never called)
+- Removed dead `rescanStale()` from frontend api.ts (redundant with `startScan`)
+- Removed redundant `POST /analysis/rescan-stale` backend endpoint (scan already picks up stale items)
+- Diagnosed AAP query returning zero results — the all-MiniLM-L6-v2 embedding model doesn't recognize product acronyms. "AAP" produces distance 0.66 vs "Ansible Automation Platform" at 0.28.
+- Added acronym expansion to recommendation pipeline (`_expand_acronyms` in pipeline.py). Expands 15 Red Hat product acronyms inline before embedding: "AAP" → "AAP (Ansible Automation Platform)". Drops AAP query distance from 0.77 to 0.44.
+- Briefly raised `vector_cutoff` from 0.55 to 0.65, then reverted — acronym expansion is the correct fix, not loosening the cutoff.
+- Promoted to production and deployed both environments.
+
+**Notes:**
+- `scope` column still exists in the live database — removed from code only, not migrated. Harmless.
+- Acronym list: AAP, ACM, RHACM, ACS, RHACS, RHOAI, OCP, ARO, ROSA, RHEL, RHDH, SNO, RHSSO, EDA, TAP. Add new acronyms to `_ACRONYMS` dict in `pipeline.py`.
+- RHEL was the only acronym already recognized by the embedding model (distance 0.46 vs 0.37 expanded). Expansion still helps slightly.
