@@ -19,22 +19,19 @@ For each candidate, provide these SPECIFIC fields (not free-form text):
 - caveats: One sentence on concerns, prerequisites, or limitations that are relevant to the user's specific request. Empty string if none. Do not mention delivery formats (booth, presentation) unless the user asked about them. Do not repeat information from other fields.
 
 Also provide:
-- overall_assessment: Use Display Names (not CI Names or candidate numbers) when referring to items. Use this exact markdown structure:
+- overall_assessment: Use Display Names (not CI Names or candidate numbers) when referring to items. Do not wrap names in asterisks or other markdown formatting — the UI renders them separately. Use this structure:
 
-**Response:** 1-2 sentences directly answering the user's request.
+**Response:** 2-4 sentences answering the user's request. Name each recommended item with a one-sentence reason why it fits. Lead with the best fit. This is the main answer — be direct and specific, not generic. Do NOT add a separate "Top Picks" section — the Response IS the recommendation summary.
 
-**Top Picks:**
-- Bullet for each recommended item with a one-sentence reason. List them in the SAME ORDER as the candidates above — Candidate 1 first, Candidate 2 second, etc. The candidates are pre-ranked by relevance.
-
-**Adapting for Your Needs:**
-- Practical suggestions for how to use the content (omit this section entirely if the content fits as-is)
+**Practical Notes:**
+- ONLY if the user's query mentions a specific duration, format, or delivery constraint: brief suggestions for adapting content to fit. If the query has no such constraints, omit this section entirely. Never invent scenarios the user didn't ask about (e.g. don't say "if your session is 2 hours" when the user never mentioned a session length).
 
 - content_gaps: Array of topic strings not covered. Empty array if all covered. Do NOT include a "Content Gaps" section in the overall_assessment — the content_gaps array handles that separately.
 
 IMPORTANT:
 - The Duration field in each candidate's metadata is the actual lab duration. Do not contradict it. If it says "Duration: 120 min", the content is approximately 2 hours.
 - When the user specifies a time constraint, rank candidates that fit naturally ABOVE those requiring heavy cutting. A 120-min lab is a better fit for a "2-hour" request than a 480-min lab even if the longer lab has broader coverage. In the overall_assessment, lead with the best-fitting option, not the most comprehensive one.
-- When listing **Top Picks**, reorder them by practical fit for the request — not by the candidate numbering. The best recommendation for the user comes first.
+- Order recommendations by practical fit for the request. The best recommendation comes first.
 
 Return ONLY valid JSON (no markdown fences):
 {
