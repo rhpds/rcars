@@ -194,8 +194,11 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 
 ### Promote to production
 
+Production merges must go through a pull request:
+
 ```bash
-git checkout production && git merge main && git push && git checkout main
+gh pr create --base production --head main --title "Promote main to production"
+# Wait for CodeRabbit review, then merge via GitHub
 ansible-playbook ansible/deploy.yml -e env=prod --tags deploy
 ```
 
