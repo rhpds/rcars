@@ -6,7 +6,7 @@ RHDP Content Advisory & Recommendation System. Matches Red Hat Demo Platform cat
 
 Four deployments on OpenShift. React frontend → FastAPI API → arq workers + Redis → PostgreSQL with pgvector.
 
-```
+```text
 ┌─────────────┐     ┌─────────────┐     ┌──────────────────┐     ┌──────────────┐
 │  React SPA  │────▶│  FastAPI API │────▶│  arq Workers     │────▶│  PostgreSQL  │
 │  (Vite+TS)  │     │  (uvicorn)  │     │  scan + recommend│     │  + pgvector  │
@@ -30,7 +30,7 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
 
 ## Repository Structure
 
-```
+```text
 rcars-advisory/
 ├── src/
 │   ├── api/                  # FastAPI backend + arq workers (Python 3.11)
@@ -60,7 +60,7 @@ rcars-advisory/
 
 ## Backend Layout
 
-```
+```text
 src/api/rcars/
 ├── api/
 │   ├── app.py                # App factory (create_app), lifespan, route registration
@@ -227,7 +227,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 Three-phase pipeline executed by the recommend worker:
 
-```
+```text
 Query → [URL extraction] → [Duration extraction] → Phase 1 → Phase 2 → Phase 3 → Results
 ```
 
@@ -267,12 +267,13 @@ Template/placeholder repos are skipped: `showroom_template_default`, `showroom_t
 
 ## Scan Deduplication
 
-Scanning deduplicates by `(showroom_url, showroom_ref)`. Multiple CIs sharing the same URL and ref are scanned once, and analysis is propagated to all siblings.
+Scanning deduplicates by resolved commit SHA. Before scanning, refs are resolved to commit SHAs via batch `git ls-remote` per unique URL. CIs sharing the same effective showroom URL and resolved SHA are scanned once, and analysis is propagated to all siblings.
 
-- Different ref = different scan (e.g. dev `ref=main` vs prod `ref=v1.0.0`)
-- Same ref = scan once, propagate analysis + embeddings to all siblings
+- Different SHA = different scan (e.g. `ref=main` resolves to `abc123` vs `ref=v1.0` resolves to `def456`)
+- Same SHA = scan once, propagate `showroom_analysis` + `embeddings` to all siblings — even if refs differ (e.g. `main` and `v1.0` both pointing to the same commit)
 - Each CI gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable
-- `ref=NULL` (HEAD) is treated as its own group, separate from `ref=main`
+- If SHA resolution fails (private repo, network error), falls back to ref-based grouping for that URL
+- Effective URL uses `showroom_url_override` when set, otherwise `showroom_url`
 
 ## Nightly Maintenance Pipeline
 
@@ -337,8 +338,8 @@ Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 
 - **Verbose logging always.** Every worker operation, every LLM call, every database mutation should log with structured fields.
 - **Only build changed components.** Frontend change = `--tags build-frontend`. API change = `--tags build-api`.
-- **Commit and push before building.** OpenShift builds from git. Never use `--from-dir` with uncommitted changes.
-- **Batch commits, push at milestones.** Every push triggers an OpenShift build — don't push individual commits.
+- **Commit and push, then manually trigger the build.** OpenShift builds from git but there are no webhooks — builds must be started via Ansible. Never use `--from-dir` with uncommitted changes.
+- **Batch commits, push at milestones.** Each build pulls the latest from git, so batch related changes into one push before triggering.
 - **JSON responses from LLMs.** All prompts must request structured JSON output. Use `parse_analysis_response()` for safe extraction.
 - **No direct LLM calls in API.** API creates jobs, workers call LLMs. This keeps the API responsive.
 
@@ -358,7 +359,7 @@ Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 
 Published docs via MkDocs Material at https://rhpds.github.io/rcars/. Source in `docs/`.
 
-```
+```text
 docs/
 ├── index.md                    # Landing page
 ├── overview.md                 # System overview
