@@ -33,6 +33,7 @@ nav:
   - Overview: overview.md
   - Architecture:
       - System Design: architecture/system-design.md
+      - Schema Reference: architecture/schema-reference.md
   - User Guides:
       - Web UI Guide: user/web-guide.md
   - Admin Guides:

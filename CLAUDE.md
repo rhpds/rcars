@@ -162,7 +162,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## API Endpoints
 
-27 endpoints across 6 route modules. All prefixed with `/api/v1`.
+35 endpoints across 6 route modules. All prefixed with `/api/v1`.
 
 **Advisor** (require_auth):
 - `POST /advisor/query` — Submit recommendation query, returns job_id
@@ -175,7 +175,14 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 **Catalog** (mixed auth):
 - `GET /catalog` — List catalog items (paginated, filterable)
 - `GET /catalog/stats` — Database currency/staleness stats
-- `GET /catalog/{ci_name}` — Single CI with analysis + tags
+- `GET /catalog/search/infrastructure` — Faceted search by workloads, config, cloud, OCP version, OS image
+- `GET /catalog/facets` — Available filter values with counts (workloads, configs, cloud providers, OS images)
+- `GET /catalog/workload-mappings` — List all workload mappings + aliases
+- `POST /catalog/workload-mappings` — Add/update workload mapping (curator)
+- `DELETE /catalog/workload-mappings/{role}` — Remove workload mapping (admin)
+- `GET /catalog/workload-mappings/unmapped` — Unmapped workloads with CI counts (curator)
+- `GET /catalog/infra-stats` — Infrastructure metadata coverage stats
+- `GET /catalog/{ci_name}` — Single CI with analysis + tags + workloads + ACL groups
 - `GET /catalog/{ci_name}/analysis` — Showroom analysis only
 - `POST /catalog/refresh` — Trigger catalog refresh (admin)
 - `POST /catalog/{ci_name}/tags` — Add enrichment tag (curator)
@@ -201,6 +208,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 - `GET /admin/scan-progress` — Scan batch progress
 - `GET /admin/queries` — Advisor query history
 - `POST /admin/run-maintenance` — Trigger nightly pipeline manually
+- `POST /admin/scan-workloads` — Trigger workload repo scan
 - `GET /admin/schedule` — Pipeline schedule status + last run
 
 **Auth/Health**:
@@ -210,18 +218,23 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## Database Schema
 
-9 tables in PostgreSQL with pgvector extension:
+14 tables in PostgreSQL with pgvector extension:
 
 | Table | Purpose |
 |-------|---------|
-| `catalog_items` | CatalogItem CRDs from Babylon. PK: ci_name. Metadata, stage, showroom URL/ref, scan status |
-| `showroom_analysis` | LLM analysis results. PK: ci_name (FK). Summary, modules, learning objectives, content_hash, stale tracking |
-| `enrichment_tags` | Curator-added tags (tag_type, tag_value). Unique per (ci_name, tag_type, tag_value) |
-| `embeddings` | 384-dim vectors (vector(384)). Types: ci_summary, module. Used for pgvector cosine search |
+| `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, showroom URL/ref, scan status, v2 infra fields |
+| `showroom_analysis` | LLM analysis results. Summary, modules, learning objectives, content_hash, stale tracking |
+| `enrichment_tags` | Curator-added tags (tag_type, tag_value) |
+| `embeddings` | 384-dim vectors for pgvector cosine search (ci_summary + module types) |
+| `catalog_item_workloads` | Junction: which workload roles each v2 CI deploys (FQCN + role + collection) |
+| `workload_mapping` | Curated mapping: workload role → product name, description, category. Verified by code analysis |
+| `workload_aliases` | Product name aliases for query resolution (e.g. RHOAI → OpenShift AI) |
+| `catalog_item_acl_groups` | ACL groups per CI from `__meta__.access_control.allow_groups` |
+| `workload_scan_state` | Last-scanned SHA per agDv2 collection repo for change detection |
 | `analysis_log` | Audit trail of analysis actions |
-| `token_usage` | LLM token tracking per operation (scan/triage/rationale/event_parse) |
+| `token_usage` | LLM token tracking per operation (scan/triage/rationale/event_parse/workload_scan) |
 | `advisor_sessions` | User queries + results. Keyed by (session_id, turn_index) for multi-turn |
-| `jobs` | Background job tracking. Types: recommend, analyze, refresh, scan, rescan, maintenance |
+| `jobs` | Background job tracking. Types: recommend, analyze, refresh, maintenance, workload_scan |
 | `api_keys` | API key management (future, not yet active) |
 
 ## Recommendation Pipeline
@@ -278,11 +291,12 @@ Scanning deduplicates by resolved commit SHA. Before scanning, refs are resolved
 
 ## Nightly Maintenance Pipeline
 
-Three-step pipeline, runs daily at 04:00 UTC (configurable). Triggered via arq cron or manually via `POST /admin/run-maintenance`.
+Four-step pipeline, runs daily at 04:00 UTC (configurable). Triggered via arq cron or manually via `POST /admin/run-maintenance`.
 
-1. **Catalog refresh** — read all AgnosticV CRDs, upsert to database, remove deleted items
+1. **Catalog refresh** — read all AgnosticV CRDs, upsert to database (including v2 infra metadata + workloads), remove deleted items
 2. **Stale check** — `git ls-remote` first (skip unchanged repos), clone only repos with new commits, compare content hash
 3. **Re-analysis** — enqueue stale items to scan worker for fresh analysis
+4. **Workload scan** — scan agDv2 collection repos for workload role changes, LLM-analyze new/changed roles, update mappings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true). Uses SHA-based change detection to skip unchanged repos
 
 ## Build & Deploy
 
@@ -315,19 +329,43 @@ Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain sec
 
 Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 
+**Core commands:**
+
 | Command | Purpose |
 |---------|---------|
 | `rcars init-db [--drop]` | Initialize or reset database schema |
-| `rcars refresh` | Refresh catalog from Babylon CRDs |
+| `rcars refresh` | Refresh catalog from Babylon CRDs (includes v2 infra extraction) |
 | `rcars scan [--max N]` | Analyze showroom content (parallel) |
 | `rcars status [--failures]` | Show catalog status summary |
 | `rcars serve [--port 8080] [--reload]` | Start API server |
+
+**Curation commands:**
+
+| Command | Purpose |
+|---------|---------|
 | `rcars tag CI_NAME TYPE VALUE` | Add enrichment tag |
 | `rcars untag CI_NAME TYPE VALUE` | Remove enrichment tag |
 | `rcars note CI_NAME TEXT` | Set curator note |
 | `rcars flag CI_NAME` | Flag for enrichment review |
 | `rcars override-url CI_NAME URL` | Override showroom URL |
 | `rcars set-content-path CI_NAME PATH` | Set custom content path |
+
+**Infrastructure commands** (`rcars infra`):
+
+| Command | Purpose |
+|---------|---------|
+| `rcars infra stats` | Show v2/workload coverage stats |
+
+**Workload commands** (`rcars workload`):
+
+| Command | Purpose |
+|---------|---------|
+| `rcars workload sync [--seed-only]` | Load workload_mapping.yaml into DB |
+| `rcars workload scan [--collection X] [--force]` | Clone agDv2 repos, LLM-analyze roles, update mappings |
+| `rcars workload unmapped` | List workloads with no mapping, sorted by CI count |
+| `rcars workload map ROLE PRODUCT [--category CAT]` | Add/update a single workload mapping |
+| `rcars workload alias PRODUCT ALIAS` | Add a product name alias |
+| `rcars workload list` | List all current mappings with verified status |
 
 ## Frontend Pages
 
