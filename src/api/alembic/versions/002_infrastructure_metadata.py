@@ -78,8 +78,17 @@ def upgrade() -> None:
         CREATE INDEX IF NOT EXISTS idx_ciag_group_name ON catalog_item_acl_groups(group_name);
     """)
 
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS workload_scan_state (
+            collection TEXT PRIMARY KEY,
+            last_sha TEXT,
+            last_scanned TIMESTAMPTZ DEFAULT NOW()
+        );
+    """)
+
 
 def downgrade() -> None:
+    op.execute("DROP TABLE IF EXISTS workload_scan_state CASCADE")
     op.execute("DROP TABLE IF EXISTS catalog_item_acl_groups CASCADE")
     op.execute("DROP TABLE IF EXISTS workload_aliases CASCADE")
     op.execute("DROP TABLE IF EXISTS workload_mapping CASCADE")

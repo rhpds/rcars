@@ -24,7 +24,7 @@ from rcars.workers.base import WorkerContext
 from rcars.workers.recommend import run_recommendation
 from rcars.workers.scan import run_analysis
 from arq import cron, func
-from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline
+from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan
 
 
 async def startup(ctx: dict) -> None:
@@ -59,6 +59,7 @@ class WorkerSettings:
         run_catalog_refresh,
         func(run_stale_check, timeout=3600),
         func(run_nightly_pipeline, timeout=7200),
+        func(run_workload_scan, timeout=3600),
     ]
     cron_jobs = [
         cron(run_nightly_pipeline, hour=_pipeline_hour, minute=_pipeline_minute,

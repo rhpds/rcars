@@ -31,6 +31,135 @@ async def catalog_stats(request: Request, user: str = Depends(require_auth)):
     return db.get_db_currency()
 
 
+@router.get("/search/infrastructure")
+async def search_infrastructure(
+    request: Request,
+    user: str = Depends(require_auth),
+    workloads: str | None = Query(None, description="Comma-separated product names or aliases (AND)"),
+    agd_config: str | None = Query(None, description="Config type: openshift-workloads, openshift-cluster, etc."),
+    cloud_provider: str | None = Query(None),
+    ocp_version: str | None = Query(None, description="OCP version prefix, e.g. 4.20"),
+    os_image: str | None = Query(None, description="OS image prefix, e.g. rhel-9"),
+    stage: str | None = None,
+    limit: int = Query(50, le=200),
+):
+    db = request.app.state.db
+    workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
+    items = db.search_by_infrastructure(
+        workloads=workload_list,
+        agd_config=agd_config,
+        cloud_provider=cloud_provider,
+        ocp_version=ocp_version,
+        os_image=os_image,
+        stage=stage,
+        limit=limit,
+    )
+    for item in items:
+        raw_workloads = db.get_workloads(item["ci_name"])
+        mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
+        item["workloads"] = [
+            {
+                "role": w["workload_role"],
+                "product_name": mappings_by_role.get(w["workload_role"], {}).get("product_name"),
+                "mapped": w["workload_role"] in mappings_by_role,
+            }
+            for w in raw_workloads
+        ]
+    return {"items": items, "total": len(items)}
+
+
+@router.get("/facets")
+async def catalog_facets(request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    with db.pool.connection() as conn:
+        cur = conn.execute("""
+            SELECT wm.product_name, wm.category, COUNT(DISTINCT ciw.ci_name) AS ci_count
+            FROM workload_mapping wm
+            JOIN catalog_item_workloads ciw ON ciw.workload_role = wm.workload_role
+            JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.is_prod = TRUE
+            GROUP BY wm.product_name, wm.category
+            ORDER BY ci_count DESC
+        """)
+        workloads = cur.fetchall()
+
+        cur = conn.execute("""
+            SELECT agd_config, COUNT(*) AS ci_count
+            FROM catalog_items WHERE is_agd_v2 = TRUE AND is_prod = TRUE
+            GROUP BY agd_config ORDER BY ci_count DESC
+        """)
+        configs = cur.fetchall()
+
+        cur = conn.execute("""
+            SELECT cloud_provider, COUNT(*) AS ci_count
+            FROM catalog_items WHERE is_agd_v2 = TRUE AND cloud_provider IS NOT NULL
+              AND cloud_provider != 'none' AND is_prod = TRUE
+            GROUP BY cloud_provider ORDER BY ci_count DESC
+        """)
+        cloud_providers = cur.fetchall()
+
+        cur = conn.execute("""
+            SELECT os_image, COUNT(*) AS ci_count
+            FROM catalog_items WHERE is_agd_v2 = TRUE AND os_image IS NOT NULL
+              AND is_prod = TRUE
+            GROUP BY os_image ORDER BY ci_count DESC
+        """)
+        os_images = cur.fetchall()
+
+    return {
+        "workloads": workloads,
+        "configs": configs,
+        "cloud_providers": cloud_providers,
+        "os_images": os_images,
+    }
+
+
+@router.get("/workload-mappings")
+async def list_workload_mappings(request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    return {"mappings": db.list_workload_mappings(), "aliases": db.list_workload_aliases()}
+
+
+@router.get("/workload-mappings/unmapped")
+async def list_unmapped_workloads(request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    return {"unmapped": db.get_unmapped_workloads()}
+
+
+class WorkloadMappingRequest(BaseModel):
+    workload_role: str
+    product_name: str
+    description: str | None = None
+    category: str | None = None
+
+
+@router.post("/workload-mappings")
+async def add_workload_mapping(
+    body: WorkloadMappingRequest, request: Request, user: str = Depends(require_curator),
+):
+    db = request.app.state.db
+    db.upsert_workload_mapping(
+        workload_role=body.workload_role,
+        product_name=body.product_name,
+        description=body.description,
+        category=body.category,
+        added_by=user,
+    )
+    return {"status": "ok"}
+
+
+@router.delete("/workload-mappings/{role}")
+async def delete_workload_mapping(role: str, request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    db.delete_workload_mapping(role)
+    return {"status": "ok"}
+
+
+@router.get("/infra-stats")
+async def infra_stats(request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    return db.get_infra_stats()
+
+
 @router.get("/{ci_name}")
 async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db

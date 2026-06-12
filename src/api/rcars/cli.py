@@ -539,6 +539,52 @@ def workload_alias(product: str, alias_name: str):
     db.close()
 
 
+@workload_group.command("scan")
+@click.option("--collection", "-c", default=None, help="Scan only this collection (e.g. agnosticd.core_workloads)")
+@click.option("--force", is_flag=True, default=False, help="Skip SHA check, rescan everything")
+def workload_scan(collection: str | None, force: bool):
+    """Scan agDv2 workload repos, analyze roles via LLM, update mappings."""
+    from rcars.services.workload_scanner import scan_all_collections
+
+    settings = Settings()
+    db = get_db()
+
+    anthropic_client = settings.get_anthropic_client()
+    if not anthropic_client:
+        console.print("[red]Error:[/red] No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+        db.close()
+        sys.exit(1)
+
+    model = settings.triage_model
+    _print(f"Scanning workload repos (model={model}, force={force})")
+    if collection:
+        _print(f"  filtering to collection: {collection}")
+
+    results = scan_all_collections(
+        clone_dir=settings.clone_dir,
+        anthropic_client=anthropic_client,
+        model=model,
+        db=db,
+        force=force,
+        collection_filter=collection,
+    )
+
+    for r in results:
+        status = r.get("status", "?")
+        if status == "unchanged":
+            _print(f"  {r['collection']}: unchanged (skipped)")
+        elif status == "clone_failed":
+            _print(f"  {r['collection']}: [red]clone failed[/red]")
+        else:
+            _print(f"  {r['collection']}: {r.get('roles_scanned', 0)} scanned, "
+                   f"{r.get('roles_mapped', 0)} mapped, {r.get('roles_plumbing', 0)} plumbing")
+
+    total_scanned = sum(r.get("roles_scanned", 0) for r in results)
+    total_mapped = sum(r.get("roles_mapped", 0) for r in results)
+    _print(f"Done. {total_scanned} roles scanned, {total_mapped} new/updated mappings.")
+    db.close()
+
+
 @workload_group.command("list")
 def workload_list():
     """List all workload mappings."""
