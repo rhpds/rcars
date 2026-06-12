@@ -1,0 +1,300 @@
+# Curated mapping: AgnosticD v2 workload roles -> human-readable product names.
+# Descriptions are placeholders from meta/main.yml — will be replaced with
+# LLM-verified descriptions from code analysis once the scanner runs.
+# Only verified+mapped workloads are queryable by Publishing House.
+#
+# Run `rcars workload sync` to load into the database.
+
+mappings:
+  # --- agnosticd.core_workloads ---
+
+  - role: ocp4_workload_openshift_gitops
+    product: OpenShift GitOps
+    description: Set up OpenShift GitOps (Operator)
+    category: cicd
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_gitops_bootstrap
+    product: OpenShift GitOps Bootstrap
+    description: Bootstrap OpenShift resources from GitOps repositories
+    category: cicd
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_pipelines
+    product: OpenShift Pipelines
+    description: Set up OpenShift Pipelines (Operator)
+    category: cicd
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_builds
+    product: OpenShift Builds
+    description: Set up OpenShift Builds (Operator)
+    category: cicd
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_rhacs
+    product: Advanced Cluster Security
+    description: Set up ACS on OpenShift 4
+    category: security
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_cert_manager
+    product: cert-manager Operator
+    description: Requests and installs Let's Encrypt or ZeroSSL certificates using the Red Hat Cert Manager operator
+    category: platform
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_openshift_virtualization
+    product: OpenShift Virtualization
+    description: Deploys OpenShift Virtualization on an OCP4 cluster
+    category: virtualization
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_mtv
+    product: Migration Toolkit for Virtualization
+    description: Deploys Migration Toolkit for Virtualization on an OCP4 cluster
+    category: virtualization
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_openshift_data_foundation
+    product: OpenShift Data Foundation
+    description: Deploys OpenShift Data Foundation (ODF)
+    category: storage
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_external_odf
+    product: OpenShift Data Foundation (External)
+    description: Configure ODF after being installed
+    category: storage
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_serverless
+    product: OpenShift Serverless
+    description: Set up OpenShift Serverless (KNative Serving, KNative Eventing)
+    category: runtime
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_servicemesh2
+    product: OpenShift Service Mesh 2
+    description: Set up Red Hat OpenShift Service Mesh (OSSM)
+    category: networking
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_servicemesh3
+    product: OpenShift Service Mesh 3
+    description: Set up Red Hat OpenShift Service Mesh 3 on OpenShift
+    category: networking
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_rhacm
+    product: Advanced Cluster Management
+    description: Set up ACM on OpenShift 4
+    category: management
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_devspaces
+    product: OpenShift Dev Spaces
+    description: Set up Red Hat OpenShift Dev Spaces
+    category: developer_tools
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_web_terminal
+    product: Web Terminal
+    description: Set up Web Terminal on OpenShift Container Platform
+    category: developer_tools
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_gitea_operator
+    product: Gitea
+    description: Deploys the Gitea Operator into a cluster
+    category: developer_tools
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_gitlab
+    product: GitLab
+    description: Deploys GitLab on OpenShift
+    category: developer_tools
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_quay_operator
+    product: Quay
+    description: Deploy the Quay Operator into OpenShift
+    category: registry
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_metallb
+    product: MetalLB
+    description: Deploys MetalLB Operator to an OCP4 cluster
+    category: networking
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_nfd
+    product: Node Feature Discovery
+    description: Set up OpenShift NFD Operator
+    category: platform
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_nmstate
+    product: NMState
+    description: Deploys Kubernetes NMState Operator to an OCP4 cluster
+    category: networking
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_minio
+    product: MinIO
+    description: Set up MinIO (S3 Storage) on an OpenShift Cluster
+    category: storage
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_kiali
+    product: Kiali
+    description: Set up Red Hat Kiali Operator on OpenShift
+    category: networking
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_amq_streams
+    product: AMQ Streams
+    description: Set up AMQ Streams on OpenShift
+    category: messaging
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_ansible_automation_platform
+    product: Ansible Automation Platform
+    description: Set up AAP on OpenShift
+    category: automation
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_machinesets
+    product: Additional MachineSets
+    description: Set up additional MachineSets for OpenShift
+    category: platform
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_authentication_htpasswd
+    product: HTPasswd Authentication
+    description: Set up htpasswd Authentication for OpenShift
+    category: auth
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_authentication_keycloak
+    product: Keycloak Authentication
+    description: Installs Keycloak Operator on OpenShift and configures it for authentication
+    category: auth
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_authentication_rhsso
+    product: Red Hat SSO Authentication
+    description: Set up Authentication on OpenShift using Red Hat SSO (KeyCloak)
+    category: auth
+    collection: agnosticd.core_workloads
+    verified: true
+
+  - role: ocp4_workload_authorino
+    product: Authorino
+    description: Deploy Authorino authorization service
+    category: auth
+    collection: agnosticd.core_workloads
+    verified: true
+
+  # --- agnosticd.ai_workloads ---
+
+  - role: ocp4_workload_openshift_ai
+    product: OpenShift AI
+    description: Set up OpenShift AI on an OpenShift Cluster
+    category: ai_ml
+    collection: agnosticd.ai_workloads
+    verified: true
+
+  - role: ocp4_workload_nvidia_gpu_operator
+    product: NVIDIA GPU Operator
+    description: Set up NVIDIA GPU on an OpenShift Cluster
+    category: ai_ml
+    collection: agnosticd.ai_workloads
+    verified: true
+
+  - role: ocp4_workload_ols
+    product: OpenShift Lightspeed
+    description: Set up OpenShift Lightspeed
+    category: ai_ml
+    collection: agnosticd.ai_workloads
+    verified: true
+
+  - role: ocp4_workload_toolhive
+    product: ToolHive
+    description: Deploy ToolHive MCP server manager
+    category: ai_ml
+    collection: agnosticd.ai_workloads
+    verified: true
+
+# Aliases: alternate names that resolve to canonical product_name.
+aliases:
+  - product: OpenShift AI
+    aliases: [RHOAI, Red Hat OpenShift AI]
+
+  - product: Advanced Cluster Security
+    aliases: [RHACS, ACS, StackRox]
+
+  - product: OpenShift Pipelines
+    aliases: [Tekton]
+
+  - product: OpenShift GitOps
+    aliases: [ArgoCD, Argo CD]
+
+  - product: OpenShift Virtualization
+    aliases: [KubeVirt, CNV]
+
+  - product: OpenShift Data Foundation
+    aliases: [ODF]
+
+  - product: OpenShift Serverless
+    aliases: [KNative, Knative]
+
+  - product: OpenShift Service Mesh 2
+    aliases: [OSSM, Istio]
+
+  - product: Advanced Cluster Management
+    aliases: [RHACM, ACM]
+
+  - product: OpenShift Dev Spaces
+    aliases: [DevSpaces, CRW, CodeReady Workspaces]
+
+  - product: OpenShift Lightspeed
+    aliases: [OLS]
+
+  - product: Ansible Automation Platform
+    aliases: [AAP, AAP2]
+
+  - product: Migration Toolkit for Virtualization
+    aliases: [MTV]
+
+  - product: Node Feature Discovery
+    aliases: [NFD]

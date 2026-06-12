@@ -1,10 +1,15 @@
 # RCARS Backlog
 
-Last updated: 2026-05-14
+Last updated: 2026-06-12
 
-## Pending Actions
+## Active Work (June 2026)
 
-- [x] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. ~400 unique showrooms, several hours — run overnight
+Items selected for current development cycle. Investigations complete, design/implementation in progress.
+
+- [ ] **Infrastructure-aware catalog metadata** — Extract infra fields (workloads, env_type, cloud_provider, OCP version, cluster sizing, ACL groups) from AgnosticVComponent CRDs during catalog refresh. Curated workload mapping for PH-facing queries, faceted search for "give me a cluster with operator X." Investigation complete: all data available in existing CRDs, no new data sources needed. Design spec in progress. *Also covers ACL-aware recommendations (access_control groups found in 516/1210 CRDs).*
+- [ ] **Rec card template + duration labels + Best Fit button** — Three related UI changes: (1) Rigid card template so follow-up queries render identically to first turn. (2) Hybrid curated/LLM duration: add `curated_duration_min` column, only apply duration scoring penalty on curated values, label as "AI estimate" vs "estimated". (3) Rename "Best fit" → "This is the best fit", make it a prominent action button instead of a passive label.
+- [ ] **Content overlap detection** — Pairwise cosine similarity on existing ci_summary embeddings. New `content_similarity` table, admin overlap report, Browse "similar content" section. ~400 unique showrooms = ~80K comparisons, computed periodically. Configurable thresholds: 0.85+ likely overlap, 0.75-0.85 related.
+- [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
 
 ## Bugs
 
@@ -13,27 +18,19 @@ Last updated: 2026-05-14
 
 ## UI / UX
 
-- [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
 - [ ] **Admin query history** — show user email, session duration
 - [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
-- [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls per CI. RCARS currently recommends all items regardless of ordering permissions. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
 - [ ] **Add mobile mode to UI**
 
 ## Recommendation Quality
 
 - [ ] **Proper recommendation system evaluation** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built approach as cost/ratings/feedback data grows
 - [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`) should be a hard boost, not just vector similarity. Consider curated keyword allowlist
-- [ ] **Scan duration data quality** — `estimated_duration_min` from LLM analysis is often inaccurate. No verification against actual lab runtimes. Consider sourcing from catalog metadata or manual curation
-- [ ] **Content overlap detection** — proposal vs. catalog comparison, lab-to-lab similarity analysis
 - [ ] **Multi-turn conversation context** — true conversational refinement with memory (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
-
-## Scanner / Pipeline
-
-- [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats not scanned or indexed. Need different extraction pipelines (Arcade JSON/YAML, architecture docs from repos/Confluence). Would enable advisor responses beyond hands-on labs
 
 ## Architecture
 
@@ -45,7 +42,6 @@ Last updated: 2026-05-14
 
 - [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
 - [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
-- [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, cluster config each CI provides). PH express mode needs: "what CI gives me an OpenShift cluster with operator X and Y?" Requires indexing AgnosticV definitions for infrastructure details. Also enables recommending Open Environments (no Showroom, just infra credentials)
 - [ ] **Express mode learning data** — store PH express mode run data (selected base CI + customization steps) for future runs. Must be separate from content analysis to avoid polluting search. Coordinate with PH backlog
 
 ---

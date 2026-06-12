@@ -39,7 +39,10 @@ async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(r
         raise HTTPException(status_code=404, detail="Catalog item not found")
     analysis = db.get_showroom_analysis(ci_name)
     tags = db.get_enrichment_tags(ci_name)
-    return {**item, "analysis": analysis, "tags": tags}
+    workloads = db.get_workloads(ci_name) if item.get("is_agd_v2") else []
+    acl_groups = db.get_acl_groups(ci_name) if item.get("is_agd_v2") else []
+    return {**item, "analysis": analysis, "tags": tags,
+            "workloads": workloads, "acl_groups": acl_groups}
 
 
 @router.get("/{ci_name}/analysis")
