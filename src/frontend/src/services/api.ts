@@ -110,4 +110,42 @@ export const api = {
     last_pipeline: { job_id: string; status: string; created_at: string; completed_at: string | null; result: Record<string, unknown> | null; error: string | null } | null;
   }>('/admin/schedule'),
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
+
+  // Infrastructure
+  searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.workloads) qs.set('workloads', params.workloads);
+    if (params?.agd_config) qs.set('agd_config', params.agd_config);
+    if (params?.cloud_provider) qs.set('cloud_provider', params.cloud_provider);
+    if (params?.ocp_version) qs.set('ocp_version', params.ocp_version);
+    if (params?.os_image) qs.set('os_image', params.os_image);
+    if (params?.stage) qs.set('stage', params.stage);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    return request<{ items: unknown[]; total: number }>(`/catalog/search/infrastructure?${qs}`);
+  },
+  getCatalogFacets: () => request<{
+    workloads: Array<{ product_name: string; category: string; ci_count: number }>;
+    configs: Array<{ agd_config: string; ci_count: number }>;
+    cloud_providers: Array<{ cloud_provider: string; ci_count: number }>;
+    os_images: Array<{ os_image: string; ci_count: number }>;
+  }>('/catalog/facets'),
+  getInfraStats: () => request<{
+    v2_items: number; with_workloads: number;
+    mapped_workloads: number; verified_workloads: number; unmapped_workloads: number;
+  }>('/catalog/infra-stats'),
+  getWorkloadMappings: () => request<{
+    mappings: Array<{ workload_role: string; product_name: string; description: string | null; category: string | null; verified: boolean }>;
+    aliases: Array<{ product_name: string; alias: string }>;
+  }>('/catalog/workload-mappings'),
+  addWorkloadMapping: (body: { workload_role: string; product_name: string; description?: string; category?: string }) =>
+    request<{ status: string }>('/catalog/workload-mappings', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  deleteWorkloadMapping: (role: string) =>
+    request<{ status: string }>(`/catalog/workload-mappings/${encodeURIComponent(role)}`, { method: 'DELETE' }),
+  getUnmappedWorkloads: () => request<{
+    unmapped: Array<{ workload_role: string; workload_collection: string | null; ci_count: number }>;
+  }>('/catalog/workload-mappings/unmapped'),
+  scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 };
