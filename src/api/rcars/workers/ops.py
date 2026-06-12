@@ -107,8 +107,14 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
 
         current_ci_names = set()
         for i, item in enumerate(items, 1):
+            workloads = item.pop("_workloads", [])
+            acl_groups = item.pop("_acl_groups", [])
             wctx.db.upsert_catalog_item(item)
             current_ci_names.add(item["ci_name"])
+            if workloads:
+                wctx.db.sync_workloads(item["ci_name"], workloads)
+            if acl_groups:
+                wctx.db.sync_acl_groups(item["ci_name"], acl_groups)
             if i % 100 == 0:
                 await publish_progress(wctx.relay, job_id, wctx.db,
                                        phase="catalog_refresh", status="upserting",

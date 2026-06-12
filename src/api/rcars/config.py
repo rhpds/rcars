@@ -63,6 +63,8 @@ class Settings(BaseSettings):
 
     # Ops
     stale_days: int = 3
+    workload_scan_enabled: bool = True
+    workload_scan_interval_days: int = 1
 
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True

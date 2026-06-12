@@ -43,7 +43,15 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     scan_error_class TEXT,
     scan_error TEXT,
     scan_failed_at TIMESTAMPTZ,
-    showroom_url_override TEXT
+    showroom_url_override TEXT,
+    is_agd_v2 BOOLEAN DEFAULT FALSE,
+    agd_config TEXT,
+    cloud_provider TEXT,
+    ocp_version TEXT,
+    os_image TEXT,
+    worker_instance_count TEXT,
+    control_plane_instance_count TEXT,
+    instances_json JSONB
 );
 
 CREATE TABLE IF NOT EXISTS showroom_analysis (
@@ -148,6 +156,42 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS catalog_item_workloads (
+    id SERIAL PRIMARY KEY,
+    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
+    workload_fqcn TEXT NOT NULL,
+    workload_role TEXT NOT NULL,
+    workload_collection TEXT,
+    UNIQUE(ci_name, workload_fqcn)
+);
+
+CREATE TABLE IF NOT EXISTS workload_mapping (
+    id SERIAL PRIMARY KEY,
+    workload_role TEXT NOT NULL UNIQUE,
+    product_name TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    source_collection TEXT,
+    verified BOOLEAN DEFAULT FALSE,
+    added_by TEXT,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    verified_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS workload_aliases (
+    id SERIAL PRIMARY KEY,
+    product_name TEXT NOT NULL,
+    alias TEXT NOT NULL UNIQUE,
+    added_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS catalog_item_acl_groups (
+    id SERIAL PRIMARY KEY,
+    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
+    group_name TEXT NOT NULL,
+    UNIQUE(ci_name, group_name)
+);
+
 CREATE INDEX IF NOT EXISTS idx_catalog_items_stage ON catalog_items(stage);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_is_prod ON catalog_items(is_prod);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_category ON catalog_items(category);
@@ -163,6 +207,13 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_em
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_ciw_ci_name ON catalog_item_workloads(ci_name);
+CREATE INDEX IF NOT EXISTS idx_ciw_workload_role ON catalog_item_workloads(workload_role);
+CREATE INDEX IF NOT EXISTS idx_ciw_workload_collection ON catalog_item_workloads(workload_collection);
+CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name);
+CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
+CREATE INDEX IF NOT EXISTS idx_ciag_ci_name ON catalog_item_acl_groups(ci_name);
+CREATE INDEX IF NOT EXISTS idx_ciag_group_name ON catalog_item_acl_groups(group_name);
 """
 
 STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
@@ -199,7 +250,9 @@ class Database:
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys", "catalog_items", "alembic_version",
+            "api_keys", "catalog_item_workloads", "catalog_item_acl_groups",
+            "workload_aliases", "workload_mapping",
+            "catalog_items", "alembic_version",
         ]
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -223,12 +276,17 @@ class Database:
             "showroom_url", "showroom_ref", "content_path",
             "last_crd_update", "is_prod", "is_published",
             "published_ci_name", "base_ci_name",
+            "is_agd_v2", "agd_config", "cloud_provider", "ocp_version",
+            "os_image", "worker_instance_count", "control_plane_instance_count",
+            "instances_json",
         ]
         present = {k: item.get(k) for k in fields if k in item}
         present["last_refreshed"] = datetime.now(timezone.utc)
 
         if "owners_json" in present and present["owners_json"] is not None:
             present["owners_json"] = Jsonb(present["owners_json"])
+        if "instances_json" in present and present["instances_json"] is not None:
+            present["instances_json"] = Jsonb(present["instances_json"])
 
         columns = list(present.keys())
         placeholders = [f"%({k})s" for k in columns]
@@ -494,6 +552,154 @@ class Database:
                 (needed, ci_name),
             )
             conn.commit()
+
+    # ── Infrastructure metadata (workloads, ACL groups, mapping) ──
+
+    def sync_workloads(self, ci_name: str, workloads: list[dict]) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM catalog_item_workloads WHERE ci_name = %s", (ci_name,)
+            )
+            for w in workloads:
+                conn.execute(
+                    "INSERT INTO catalog_item_workloads (ci_name, workload_fqcn, workload_role, workload_collection) "
+                    "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
+                    (ci_name, w["fqcn"], w["role"], w.get("collection")),
+                )
+            conn.commit()
+
+    def sync_acl_groups(self, ci_name: str, groups: list[str]) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM catalog_item_acl_groups WHERE ci_name = %s", (ci_name,)
+            )
+            for g in groups:
+                conn.execute(
+                    "INSERT INTO catalog_item_acl_groups (ci_name, group_name) "
+                    "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    (ci_name, g),
+                )
+            conn.commit()
+
+    def get_workloads(self, ci_name: str) -> list[dict]:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT workload_fqcn, workload_role, workload_collection "
+                "FROM catalog_item_workloads WHERE ci_name = %s ORDER BY workload_role",
+                (ci_name,),
+            )
+            return cur.fetchall()
+
+    def get_acl_groups(self, ci_name: str) -> list[str]:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT group_name FROM catalog_item_acl_groups "
+                "WHERE ci_name = %s ORDER BY group_name",
+                (ci_name,),
+            )
+            return [row["group_name"] for row in cur.fetchall()]
+
+    def upsert_workload_mapping(
+        self, workload_role: str, product_name: str,
+        description: str | None = None, category: str | None = None,
+        source_collection: str | None = None, verified: bool = False,
+        added_by: str | None = None,
+    ) -> None:
+        with self._pool.connection() as conn:
+            now = datetime.now(timezone.utc)
+            conn.execute(
+                "INSERT INTO workload_mapping "
+                "(workload_role, product_name, description, category, source_collection, verified, added_by, added_at, verified_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (workload_role) DO UPDATE SET "
+                "product_name = EXCLUDED.product_name, description = EXCLUDED.description, "
+                "category = EXCLUDED.category, source_collection = EXCLUDED.source_collection, "
+                "verified = EXCLUDED.verified, verified_at = EXCLUDED.verified_at",
+                (workload_role, product_name, description, category, source_collection,
+                 verified, added_by, now, now if verified else None),
+            )
+            conn.commit()
+
+    def delete_workload_mapping(self, workload_role: str) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "DELETE FROM workload_mapping WHERE workload_role = %s",
+                (workload_role,),
+            )
+            conn.commit()
+
+    def list_workload_mappings(self) -> list[dict]:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM workload_mapping ORDER BY product_name"
+            )
+            return cur.fetchall()
+
+    def get_unmapped_workloads(self) -> list[dict]:
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT ciw.workload_role, ciw.workload_collection,
+                       COUNT(DISTINCT ciw.ci_name) AS ci_count
+                FROM catalog_item_workloads ciw
+                LEFT JOIN workload_mapping wm ON wm.workload_role = ciw.workload_role
+                WHERE wm.id IS NULL
+                GROUP BY ciw.workload_role, ciw.workload_collection
+                ORDER BY ci_count DESC
+            """)
+            return cur.fetchall()
+
+    def upsert_workload_alias(self, product_name: str, alias: str) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO workload_aliases (product_name, alias) "
+                "VALUES (%s, %s) ON CONFLICT (alias) DO NOTHING",
+                (product_name, alias),
+            )
+            conn.commit()
+
+    def list_workload_aliases(self) -> list[dict]:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM workload_aliases ORDER BY product_name, alias"
+            )
+            return cur.fetchall()
+
+    def _resolve_workload_aliases(self, names: list[str]) -> list[str]:
+        if not names:
+            return names
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT alias, product_name FROM workload_aliases WHERE alias = ANY(%s)",
+                (names,),
+            )
+            alias_map = {row["alias"]: row["product_name"] for row in cur.fetchall()}
+        return [alias_map.get(n, n) for n in names]
+
+    def get_infra_stats(self) -> dict:
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS count FROM catalog_items WHERE is_agd_v2 = TRUE")
+                v2_items = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(DISTINCT ci_name) AS count FROM catalog_item_workloads")
+                with_workloads = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping")
+                mapped_count = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping WHERE verified = TRUE")
+                verified_count = cur.fetchone()["count"]
+                cur.execute("""
+                    SELECT COUNT(DISTINCT ciw.workload_role) AS count
+                    FROM catalog_item_workloads ciw
+                    LEFT JOIN workload_mapping wm ON wm.workload_role = ciw.workload_role
+                    WHERE wm.id IS NULL
+                """)
+                unmapped_count = cur.fetchone()["count"]
+        return {
+            "v2_items": v2_items,
+            "with_workloads": with_workloads,
+            "mapped_workloads": mapped_count,
+            "verified_workloads": verified_count,
+            "unmapped_workloads": unmapped_count,
+        }
 
     # ── Token usage ──
 
