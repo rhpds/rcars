@@ -331,11 +331,36 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:analysis", status="failed", message=msg)
 
+    # Step 4: Workload repo scan (if enabled)
+    workload_scan_result = None
+    if wctx.settings.workload_scan_enabled:
+        try:
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:workload_scan", status="running",
+                                   message="Step 4: Scanning workload repos for changes...")
+            workload_job_id = wctx.db.create_job(job_type="workload_scan", queue="ops", created_by="maintenance")
+            workload_scan_result = await run_workload_scan(ctx, workload_job_id)
+            scanned = sum(r.get("roles_scanned", 0) for r in workload_scan_result.get("collections", []))
+            mapped = sum(r.get("roles_mapped", 0) for r in workload_scan_result.get("collections", []))
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:workload_scan", status="complete",
+                                   message=f"Step 4 complete: {scanned} roles scanned, {mapped} new mappings")
+            log.info("pipeline_workload_scan_complete", action="pipeline_step_complete",
+                     step="workload_scan", scanned=scanned, mapped=mapped)
+        except Exception as e:
+            msg = f"Step 4 failed (workload scan): {e}"
+            warnings.append(msg)
+            log.error("pipeline_workload_scan_failed", action="pipeline_step_failed", step="workload_scan",
+                      error=str(e), traceback=traceback.format_exc())
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:workload_scan", status="failed", message=msg)
+
     # Complete pipeline
     result = {
         "refresh": refresh_result,
         "stale_check": stale_result,
         "analysis_enqueued": analysis_enqueued,
+        "workload_scan": workload_scan_result,
         "warnings": warnings,
     }
 
@@ -355,3 +380,57 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
 
     wctx.db.complete_job(job_id, result_json=result)
     return result
+
+
+async def run_workload_scan(ctx: dict, job_id: str) -> dict:
+    """Scan agDv2 workload repos, analyze roles via LLM, update mappings."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("picked_up", action="picked_up", queue="ops")
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        from rcars.services.workload_scanner import scan_all_collections
+
+        anthropic_client = wctx.settings.get_anthropic_client()
+        if not anthropic_client:
+            raise RuntimeError("No Anthropic credentials configured")
+
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="workload_scan", status="started",
+                               message="Scanning agDv2 workload repos...")
+
+        results = scan_all_collections(
+            clone_dir=wctx.settings.clone_dir,
+            anthropic_client=anthropic_client,
+            model=wctx.settings.triage_model,
+            db=wctx.db,
+        )
+
+        total_scanned = sum(r.get("roles_scanned", 0) for r in results)
+        total_mapped = sum(r.get("roles_mapped", 0) for r in results)
+        unchanged = sum(1 for r in results if r.get("status") == "unchanged")
+
+        result = {
+            "collections": results,
+            "total_scanned": total_scanned,
+            "total_mapped": total_mapped,
+            "unchanged": unchanged,
+        }
+
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="complete", status="complete",
+                               message=f"Workload scan complete: {total_scanned} roles scanned, "
+                                       f"{total_mapped} mapped, {unchanged} unchanged repos",
+                               **result)
+        wctx.db.complete_job(job_id, result_json=result)
+        log.info("workload_scan_complete", action="job_complete", **result)
+        return result
+
+    except Exception as e:
+        log.error("workload_scan_failed", action="job_failed", error=str(e))
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="failed", status="failed", message=str(e), error=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        raise

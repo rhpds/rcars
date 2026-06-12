@@ -192,6 +192,12 @@ CREATE TABLE IF NOT EXISTS catalog_item_acl_groups (
     UNIQUE(ci_name, group_name)
 );
 
+CREATE TABLE IF NOT EXISTS workload_scan_state (
+    collection TEXT PRIMARY KEY,
+    last_sha TEXT,
+    last_scanned TIMESTAMPTZ DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_catalog_items_stage ON catalog_items(stage);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_is_prod ON catalog_items(is_prod);
 CREATE INDEX IF NOT EXISTS idx_catalog_items_category ON catalog_items(category);
@@ -251,7 +257,7 @@ class Database:
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "catalog_item_workloads", "catalog_item_acl_groups",
-            "workload_aliases", "workload_mapping",
+            "workload_aliases", "workload_mapping", "workload_scan_state",
             "catalog_items", "alembic_version",
         ]
         with self._pool.connection() as conn:
@@ -700,6 +706,93 @@ class Database:
             "verified_workloads": verified_count,
             "unmapped_workloads": unmapped_count,
         }
+
+    def search_by_infrastructure(
+        self,
+        workloads: list[str] | None = None,
+        agd_config: str | None = None,
+        cloud_provider: str | None = None,
+        ocp_version: str | None = None,
+        os_image: str | None = None,
+        stage: str | None = None,
+        prod_only: bool = True,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        conditions = ["ci.is_agd_v2 = TRUE"]
+        params: dict[str, Any] = {}
+        joins = []
+
+        if prod_only:
+            conditions.append("ci.is_prod = TRUE")
+        if stage:
+            conditions.append("ci.stage = %(stage)s")
+            params["stage"] = stage
+        if agd_config:
+            conditions.append("ci.agd_config = %(agd_config)s")
+            params["agd_config"] = agd_config
+        if cloud_provider:
+            conditions.append("ci.cloud_provider = %(cloud_provider)s")
+            params["cloud_provider"] = cloud_provider
+        if ocp_version:
+            conditions.append("ci.ocp_version LIKE %(ocp_version)s")
+            params["ocp_version"] = f"{ocp_version}%"
+        if os_image:
+            conditions.append("ci.os_image LIKE %(os_image)s")
+            params["os_image"] = f"{os_image}%"
+
+        if workloads:
+            resolved = self._resolve_workload_aliases(workloads)
+            for i, wl in enumerate(resolved):
+                alias_w = f"w{i}"
+                alias_m = f"m{i}"
+                joins.append(
+                    f"JOIN catalog_item_workloads {alias_w} "
+                    f"ON {alias_w}.ci_name = ci.ci_name "
+                    f"JOIN workload_mapping {alias_m} "
+                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
+                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
+                )
+                params[f"{alias_m}_name"] = wl
+
+        join_sql = "\n".join(joins)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        sql = f"""
+            SELECT DISTINCT ci.*, sa.summary, sa.content_type,
+                   sa.estimated_duration_min, sa.difficulty
+            FROM catalog_items ci
+            LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+            {join_sql}
+            {where}
+            ORDER BY ci.display_name
+            LIMIT %(limit)s
+        """
+        params["limit"] = limit
+
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    # ── Workload scan state ──
+
+    def get_scan_state(self, collection: str) -> dict | None:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM workload_scan_state WHERE collection = %s",
+                (collection,),
+            )
+            return cur.fetchone()
+
+    def upsert_scan_state(self, collection: str, last_sha: str) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO workload_scan_state (collection, last_sha, last_scanned) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (collection) DO UPDATE SET last_sha = EXCLUDED.last_sha, last_scanned = EXCLUDED.last_scanned",
+                (collection, last_sha, datetime.now(timezone.utc)),
+            )
+            conn.commit()
 
     # ── Token usage ──
 
