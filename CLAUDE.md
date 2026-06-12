@@ -35,6 +35,7 @@ rcars-advisory/
 ├── src/
 │   ├── api/                  # FastAPI backend + arq workers (Python 3.11)
 │   │   ├── rcars/            # Main package
+│   │   ├── alembic/          # Database migrations (runs in container)
 │   │   ├── tests/            # pytest test suite
 │   │   └── scripts/          # One-off migration scripts
 │   └── frontend/             # React SPA (Vite + TypeScript)
@@ -49,7 +50,7 @@ rcars-advisory/
 │   ├── tasks/                # build-api, build-frontend, apply-manifests, etc.
 │   ├── templates/            # manifests-app.yaml.j2, manifests-infra.yaml.j2
 │   └── vars/                 # common.yml, dev.yml (gitignored), prod.yml (gitignored)
-├── alembic/                  # Database migrations
+
 ├── docs/                     # MkDocs documentation (see docs/ structure below)
 ├── BACKLOG.md                # Project roadmap — open items by priority, completed at bottom
 ├── WORKLOG.md                # Session handoff notes between developers

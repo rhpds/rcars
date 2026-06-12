@@ -154,7 +154,7 @@
           delay: 15
           failed_when: app_pods.resources | default([]) | length == 0
 
-        - name: Run database schema setup
+        - name: Run database schema setup (create tables)
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
@@ -163,9 +163,22 @@
                   | selectattr('status.phase', 'eq', 'Running')
                   | selectattr('status.containerStatuses', 'defined')
                   | first).metadata.name }}
-            command: rcars status
-          register: migrate_result
+            command: rcars init-db
+          register: schema_result
           changed_when: false
+
+        - name: Run alembic migrations (alter existing tables)
+          kubernetes.core.k8s_exec:
+            kubeconfig: "{{ kubeconfig }}"
+            namespace: "{{ target_namespace }}"
+            pod: >-
+              {{ (app_pods.resources
+                  | selectattr('status.phase', 'eq', 'Running')
+                  | selectattr('status.containerStatuses', 'defined')
+                  | first).metadata.name }}
+            command: alembic upgrade head
+          register: migrate_result
+          changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"
       tags: [deploy, migrate]
 
   post_tasks:
