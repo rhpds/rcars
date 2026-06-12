@@ -27,6 +27,84 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-12 — Nate + Claude (infrastructure-aware catalog metadata — full implementation)
+
+**Done:**
+- Design spec written and reviewed: `docs/superpowers/specs/2026-06-12-infrastructure-aware-catalog-metadata-design.md`
+- **Session 1 — Data layer + extraction:**
+  - Alembic migration 002: 8 new columns on `catalog_items`, 5 new tables (`catalog_item_workloads`, `workload_mapping`, `workload_aliases`, `catalog_item_acl_groups`, `workload_scan_state`)
+  - Moved `alembic/` from repo root into `src/api/` so it ships in the container image
+  - Fixed `alembic/env.py` to use SQLAlchemy engine with psycopg3 dialect
+  - Updated Ansible `--tags migrate` to run `rcars init-db` + `alembic upgrade head`
+  - V2 detection (`is_agnosticd_v2`), FQCN workload parsing, infra extraction for OCP + RHEL/VM items
+  - 35 verified workload mappings + 25 product aliases in seed file
+  - CLI: `rcars infra stats`, `rcars workload {sync,scan,unmapped,map,alias,list}`
+  - Deployed to dev, refreshed catalog: 188 v2 items, 173 with workloads
+- **Session 2 — API + faceted search + workload scanner:**
+  - `search_by_infrastructure()` with AND workload semantics, alias resolution, os_image filter
+  - 7 new catalog API endpoints (search, facets, mappings CRUD, infra-stats)
+  - `POST /admin/scan-workloads` endpoint
+  - Workload scanner (`services/workload_scanner.py`): clones agDv2 repos from GitHub, reads Ansible code (defaults/tasks/templates), Haiku analysis, SHA change detection
+  - Integrated as Step 4 in nightly maintenance pipeline
+  - Deployed to dev, tested: 22 OpenShift AI results, RHOAI alias resolves correctly, AND semantics works, RHEL os_image filtering works
+  - Scanner tested: 69 roles across 6 repos, 46 mapped (all verified), 13 plumbing excluded
+- **Session 3 — Frontend:**
+  - Browse: [v2] badge on item headers, infrastructure detail panel (config, cloud, OCP/OS, workloads, ACL), v2 filter toggle
+  - Admin: "Scan Workload Repos" button with job polling + log, infra stats in Catalog Status table
+  - API client: 8 new methods, extended TypeScript interfaces
+  - Deployed to dev
+- **Documentation:**
+  - New `docs/architecture/schema-reference.md` — column-level reference for all 14 tables
+  - `system-design.md` — replaced inline table descriptions with summary + link, added Infrastructure Metadata Extraction section
+  - Updated CLAUDE.md (14 tables, 35 endpoints, CLI groups, 4-step pipeline)
+  - Updated cli-guide.md, operations.md, development.md, mkdocs.yml
+  - Docs published to GitHub Pages
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Browse filter dropdowns (config/cloud/OS/workload) from facets API
+- Admin workload mapping management UI (mapping table, unmapped table, inline edit)
+- Combined query support (infra filter in advisor) — lower priority
+- Consider: rec card template + duration labels + Best Fit button (next backlog item)
+
+**Notes:**
+- All 6 public agDv2 repos are scanned: core_workloads(42), ai_workloads(5), cloud_vm_workloads(5), namespaced_workloads(11), cnv_workloads(1), showroom(5). `rhpds.*` repos are private and not scanned.
+- Workload scan runs nightly as pipeline Step 4 with SHA change detection. First full scan was manual via `--force`.
+- The dev DB was init-db --drop'd during this session (to apply schema changes before alembic was wired up). All analysis data was lost and needs a full rescan — the nightly pipeline will handle this automatically.
+- `RCARS_WORKLOAD_SCAN_INTERVAL_DAYS` config exists but isn't used yet in the pipeline — the scan runs every nightly cycle. Low priority to add interval gating since change detection makes daily scans cheap.
+
+---
+
+### 2026-06-12 — Nate (return from vacation, planning session)
+
+**Done:**
+- Pulled latest (1 commit delta — only BACKLOG.md update from May 15)
+- Confirmed no other contributors worked on RCARS during absence (all 390 commits since May 15 are Nate's)
+- Dropped stale git stash (curator role fix already merged in commit 4430e6d)
+- Reviewed full backlog and selected 5 items for current development cycle
+- **Infra metadata investigation** — queried 1210 AgnosticVComponents from babylon-config via `babydev.kubeconfig`. Found all needed data already in CRDs: `infra_workloads`/`workloads` (496 CIs), `env_type` (~95%), `cloud_provider` (~85%), `ocp4_installer_version` (252), `__meta__.access_control` (516). Top workloads: cert_manager(295), authentication(268), gitops(195), pipelines(124), openshift_ai(61). No new data sources needed. CRD dump saved to `/tmp/all-components.json`. Design spec session started separately.
+- **Scan duration investigation** — traced full pipeline from prompt → analyzer → DB → recommendation scoring. Confirmed zero ground truth: no duration metadata in CRDs, catalog params, or CatalogItem spec. `lab_duration` and `litellm_duration` fields are environment provisioning lifetimes, not lab completion times. Decision: hybrid approach — `curated_duration_min` column overrides LLM guess for scoring, labeled "AI estimate" vs "estimated" on cards.
+- Generated self-contained handoff prompts for 3 implementation sessions: (1) infra metadata design spec, (2) rec card template + duration labels + Best Fit button, (3) content overlap detection
+- Updated BACKLOG.md with new "Active Work" section, reorganized items (ACL folded into infra metadata, duration/formatting moved to active)
+- Saved sprint context and investigation findings to memory
+
+**In progress:**
+- Infrastructure-aware catalog metadata design spec (running in separate session)
+
+**Next:**
+- Rec card template + duration labels + Best Fit button (implementation)
+- Content overlap detection (implementation)
+- Portfolio Architecture ingest from OSSPA GitLab (implementation, after above)
+
+**Notes:**
+- Config changes detected in other session: `workload_scan_enabled`/`workload_scan_interval_days` added to config.py, `alembic/` moved under `src/api/`, `--tags migrate` added to Ansible deploy
+- Arcade/interactive demo ingest deferred — needs video access strategy before committing
+- Key constraint for infra metadata: curated workload mapping required, don't guess operator names from role names. Faceted search for PH, not vector search.
+
+---
+
 ### 2026-05-06 — Nate
 
 **Done:**
