@@ -389,12 +389,80 @@ function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }
   )
 }
 
+interface InfraStats {
+  v2_items: number
+  with_workloads: number
+  mapped_workloads: number
+  verified_workloads: number
+  unmapped_workloads: number
+}
+
+function WorkloadScanSection({ onStatusChange }: { onStatusChange: () => void }) {
+  const [log, setLog] = useState<string[]>([])
+  const [logOpen, setLogOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
+
+  const handleScan = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunning(true)
+    addLog('Starting workload repository scan...')
+    try {
+      const result = await api.scanWorkloads()
+      addLog(`job_id=${result.job_id}`)
+      let seen = 0
+      await new Promise<void>((resolve) => {
+        const interval = setInterval(async () => {
+          try {
+            const job = await api.getJob(result.job_id)
+            const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+            for (let i = seen; i < messages.length; i++) {
+              if (messages[i].message) addLog(messages[i].message!)
+            }
+            seen = messages.length
+            if (job.status === 'complete' || job.status === 'failed') {
+              clearInterval(interval)
+              if (job.error) addLog(`Error: ${job.error}`)
+              resolve()
+            }
+          } catch { /* ignore */ }
+        }, 3000)
+        setTimeout(() => { clearInterval(interval); resolve() }, 30 * 60 * 1000)
+      })
+    } catch (err) {
+      addLog(`Error: ${err}`)
+    }
+    setRunning(false)
+    onStatusChange()
+  }
+
+  return (
+    <div className="admin-section">
+      <h3>Workload Repos</h3>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+        Scan AgnosticD v2 workload repos for role changes. Reads Ansible code and uses Haiku to determine what each role installs. Updates the workload mapping table with verified product names.
+      </p>
+      <LcarsButton onClick={handleScan} disabled={running}>
+        {running ? 'Scanning...' : 'Scan Workload Repos'}
+      </LcarsButton>
+      <LogWindow
+        lines={log}
+        isOpen={logOpen}
+        onToggle={() => setLogOpen(!logOpen)}
+      />
+    </div>
+  )
+}
+
 export function AdminCatalogPage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<CatalogStatus | null>(null)
+  const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
 
   const loadStatus = () => {
     api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
+    api.getInfraStats().then(data => setInfraStats(data as InfraStats))
   }
 
   useEffect(() => { loadStatus() }, [])
@@ -404,6 +472,8 @@ export function AdminCatalogPage() {
   return (
     <div className="admin-layout">
       <ScheduledMaintenance onStatusChange={loadStatus} />
+
+      <WorkloadScanSection onStatusChange={loadStatus} />
 
       <div className="admin-section">
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
@@ -465,6 +535,24 @@ export function AdminCatalogPage() {
                 <td style={{ color: '#666' }}>Last analysis run</td>
                 <td style={{ color: statusColor(status.analysis_stale) }}>{status.analysis_date}</td>
               </tr>
+              {infraStats && (
+                <>
+                  <tr style={{ borderTop: '1px solid #2a2a3a' }}>
+                    <td>AgnosticD v2 items</td><td>{infraStats.v2_items}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingLeft: '24px', color: '#888' }}>With workloads</td><td>{infraStats.with_workloads}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingLeft: '24px', color: '#888' }}>Mapped roles</td>
+                    <td>{infraStats.mapped_workloads} ({infraStats.verified_workloads} verified)</td>
+                  </tr>
+                  <tr>
+                    <td style={{ paddingLeft: '24px', color: '#888' }}>Unmapped roles</td>
+                    <td style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</td>
+                  </tr>
+                </>
+              )}
             </tbody>
           </table>
         ) : (

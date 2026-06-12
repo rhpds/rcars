@@ -15,6 +15,9 @@ interface CatalogItem {
   is_published?: boolean
   is_stale?: boolean
   enrichment_review_needed?: boolean
+  is_agd_v2?: boolean
+  agd_config?: string | null
+  cloud_provider?: string | null
 }
 
 interface Module {
@@ -56,6 +59,15 @@ interface ItemDetail {
     enrichment_review_needed: boolean
   } | null
   tags: Array<{ id: number; tag_type: string; tag_value: string; added_by: string | null }>
+  is_agd_v2?: boolean
+  agd_config?: string | null
+  cloud_provider?: string | null
+  ocp_version?: string | null
+  os_image?: string | null
+  worker_instance_count?: string | null
+  control_plane_instance_count?: string | null
+  workloads?: Array<{ workload_fqcn: string; workload_role: string; workload_collection: string | null }>
+  acl_groups?: string[]
 }
 
 type ContentFilter = 'all' | 'has_showroom' | 'analyzed' | 'unanalyzed' | 'needs_review' | 'untagged' | 'scan_failures' | 'stale'
@@ -86,6 +98,7 @@ export function BrowsePage() {
   const [search, setSearch] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
+  const [showV2Only, setShowV2Only] = useState(false)
   const showZt = true
   const initialFilter = (searchParams.get('filter') as ContentFilter) || 'all'
   const [contentFilter, setContentFilter] = useState<ContentFilter>(initialFilter)
@@ -119,6 +132,7 @@ export function BrowsePage() {
     if (item.stage === 'dev' && !showDev) return false
     if (item.stage === 'event' && !showEvent) return false
     if (!showZt && isZtItem(item)) return false
+    if (showV2Only && !item.is_agd_v2) return false
     if (search) {
       const q = search.toLowerCase()
       if (!(item.display_name || '').toLowerCase().includes(q) &&
@@ -248,6 +262,7 @@ export function BrowsePage() {
         </select>
         <LcarsToggle label="dev" active={showDev} onToggle={() => { setShowDev(!showDev); setOffset(0) }} />
         <LcarsToggle label="event" active={showEvent} onToggle={() => { setShowEvent(!showEvent); setOffset(0) }} />
+        <LcarsToggle label="v2" active={showV2Only} onToggle={() => { setShowV2Only(!showV2Only); setOffset(0) }} />
         <span style={{ color: '#666', fontSize: '14px', alignSelf: 'center' }}>
           {total} items
         </span>
@@ -284,6 +299,9 @@ export function BrowsePage() {
                       )}
                       {isZt && (
                         <span style={{ display: 'inline-block', background: '#1a3a2a', color: '#66cc99', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>ZT</span>
+                      )}
+                      {item.is_agd_v2 && (
+                        <span style={{ display: 'inline-block', background: '#1a2a3a', color: '#73bcf7', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>v2</span>
                       )}
                       {item.scan_status === 'failed' && (
                         <span style={{ display: 'inline-block', background: '#5a2020', color: '#ff9999', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>FAILED</span>
@@ -326,6 +344,41 @@ export function BrowsePage() {
                         {detail.scan_failed_at && (
                           <div style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>
                             Failed: {new Date(detail.scan_failed_at).toLocaleString()}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    {detail.is_agd_v2 && (
+                      <div style={{ background: '#111a2a', border: '1px solid #1a3050', borderRadius: '6px', padding: '10px 14px', marginBottom: '12px' }}>
+                        <div style={{ fontSize: '11px', color: '#73bcf7', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Infrastructure</div>
+                        <div style={{ fontSize: '12px', color: '#ccc', display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                          <span>Config: <strong>{detail.agd_config || '—'}</strong></span>
+                          {detail.cloud_provider && detail.cloud_provider !== 'none' && (
+                            <span>Cloud: <strong>{detail.cloud_provider}</strong></span>
+                          )}
+                          {detail.ocp_version && <span>OCP: <strong>{detail.ocp_version}</strong></span>}
+                          {detail.os_image && <span>OS: <strong>{detail.os_image}</strong></span>}
+                          {detail.worker_instance_count && <span>Workers: <strong>{detail.worker_instance_count}</strong></span>}
+                          {detail.control_plane_instance_count && <span>Control plane: <strong>{detail.control_plane_instance_count}</strong></span>}
+                        </div>
+                        {detail.workloads && detail.workloads.length > 0 && (
+                          <div style={{ marginBottom: '6px' }}>
+                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>Workloads ({detail.workloads.length})</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                              {detail.workloads.map((w, i) => (
+                                <span key={i} style={{
+                                  display: 'inline-block',
+                                  background: '#1a2a1a', color: '#88bb88',
+                                  border: '1px solid #2a4a2a',
+                                  borderRadius: '10px', padding: '2px 8px', fontSize: '11px',
+                                }}>{w.workload_role}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {detail.acl_groups && detail.acl_groups.length > 0 && (
+                          <div style={{ fontSize: '11px', color: '#888' }}>
+                            ACL: {detail.acl_groups.join(', ')}
                           </div>
                         )}
                       </div>
