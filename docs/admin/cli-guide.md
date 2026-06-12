@@ -87,7 +87,7 @@ Stale                        3
 
 **Stale** means the item's Showroom repository has been updated since RCARS last analyzed it. Stale items continue to appear in recommendations using their last-known analysis; run `rcars scan` to update them.
 
-This command also initializes the database schema (safe to run repeatedly — all DDL uses `IF NOT EXISTS`). The Ansible deployment playbook runs `rcars status` as the schema migration step.
+This command also initializes the database schema (safe to run repeatedly — all DDL uses `IF NOT EXISTS`). The Ansible deployment playbook runs `rcars init-db` followed by `alembic upgrade head` as the schema migration step.
 
 ---
 

@@ -87,9 +87,9 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 
 ```
 src/api/rcars/    Python backend (FastAPI + arq workers)
+src/api/alembic/  Database migrations (ships in container image)
 src/frontend/     React frontend (Vite + TypeScript)
 ansible/          OpenShift deployment (Ansible + Jinja2 templates)
-alembic/          Database migrations
 docs/             Documentation (MkDocs Material)
 ```
 
