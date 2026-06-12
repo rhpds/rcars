@@ -296,9 +296,14 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 # Config changes only (user lists, env vars, no builds)
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 
+# Database migrations only (runs rcars init-db + alembic upgrade head)
+ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
+
 # Full infrastructure + app update
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
+
+**Database migrations:** Schema changes use Alembic (`src/api/alembic/versions/`). The Ansible `--tags migrate` task runs `rcars init-db` (CREATE TABLE IF NOT EXISTS for new installs) then `alembic upgrade head` (ALTER TABLE for existing schemas). Always run `--tags migrate` after deploying API changes that include schema modifications. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 
@@ -384,6 +389,7 @@ Historical design documents in `docs/superpowers/specs/`. Key reference:
 
 | Spec | Topic |
 |------|-------|
+| `2026-06-12-infrastructure-aware-catalog-metadata-design.md` | Infrastructure metadata extraction from AgnosticD v2 CRDs for PH express mode |
 | `2026-04-25-rearchitecture-api-design.md` | Current v2 architecture (FastAPI + arq + React) |
 | `2026-04-11-recommender-redesign-design.md` | 3-phase recommendation pipeline |
 | `2026-04-14-token-usage-tracking-design.md` | Token usage tracking system |

@@ -129,7 +129,10 @@ Showroom URLs are not stored in a single consistent field. RCARS uses two extrac
 
 ## PostgreSQL Schema
 
-RCARS uses PostgreSQL with the pgvector extension. Schema is managed with **Alembic** — the baseline migration (`alembic/versions/001_initial_schema.py`) defines the complete initial schema. On OpenShift, the Ansible playbook runs Alembic via `k8s_exec` as the `migrate` deploy tag. For local development, `rcars status` (via `db.create_schema()`) applies the same schema directly and stamps the Alembic version table so the two paths stay in sync.
+RCARS uses PostgreSQL with the pgvector extension. Schema is managed with two complementary mechanisms:
+
+- **`db.create_schema()`** — `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` for all tables. Handles fresh installs. Called by `rcars init-db` and on API startup.
+- **Alembic** — `ALTER TABLE` migrations for schema changes to existing tables (new columns, new tables on running databases). Migration files live in `src/api/alembic/versions/`. On OpenShift, the Ansible playbook runs `rcars init-db` then `alembic upgrade head` via `k8s_exec` as the `migrate` deploy tag (`ansible-playbook ansible/deploy.yml -e env=dev --tags migrate`). Both steps are idempotent — safe to run repeatedly.
 
 ### Understanding Vector Embeddings
 
