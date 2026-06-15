@@ -85,10 +85,7 @@ export function LcarsSidebar() {
           {isAdminSection && (
             <>
               <NavLink to="/admin/catalog" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
-                Catalog Status
-              </NavLink>
-              <NavLink to="/admin/workers" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
-                Workers
+                Catalog
               </NavLink>
               <NavLink to="/admin/tokens" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
                 Token Usage
