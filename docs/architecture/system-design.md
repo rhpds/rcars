@@ -171,7 +171,7 @@ Cosine similarity measures the angle between two vectors regardless of their mag
 
 ### Tables
 
-RCARS uses 14 tables. For full column-level details, see the [Schema Reference](schema-reference.md).
+RCARS uses 15 tables. For full column-level details, see the [Schema Reference](schema-reference.md).
 
 | Table | Purpose |
 |---|---|
@@ -187,6 +187,7 @@ RCARS uses 14 tables. For full column-level details, see the [Schema Reference](
 | `analysis_log` | Append-only audit trail of operations |
 | `token_usage` | LLM token tracking per operation/model |
 | `advisor_sessions` | User queries, results, and selections (multi-turn) |
+| `content_similarity` | Pairwise cosine similarity scores between CI embeddings, for overlap detection |
 | `jobs` | Background job tracking (recommend, analyze, refresh, maintenance, workload_scan) |
 | `api_keys` | API key management (future, not yet active) |
 
@@ -483,6 +484,80 @@ For broad multi-track events, follow-up queries can narrow results to specific a
 
 ---
 
+## Content Overlap Detection
+
+Content overlap detection identifies catalog items that teach substantially the same material. It is a curator tool for consolidating duplicate labs — not part of the recommendation pipeline.
+
+### Architecture
+
+The overlap system is built entirely on top of infrastructure that already exists from the scan and recommendation pipelines. No new models, no new external API calls, and no new data collection steps are required.
+
+During the scan pipeline (described above), every analyzed Showroom lab gets a **CI-level embedding** — a 384-dimensional vector that captures what the lab is about. These embeddings live in the `embeddings` table and are the same vectors used by the recommendation engine's vector search. The overlap system reuses them for a different purpose: instead of comparing a user's query against lab embeddings, it compares lab embeddings against each other.
+
+### How Cosine Similarity Works
+
+Each embedding is a list of 384 numbers produced by the sentence-transformer model. These numbers position the lab in a high-dimensional semantic space where similar content clusters together. To measure how similar two labs are, RCARS computes the **cosine similarity** between their embedding vectors.
+
+Cosine similarity measures the angle between two vectors, ignoring their magnitude. Two vectors pointing in the same direction have a cosine similarity of 1.0 (identical meaning). Two vectors at right angles have a cosine similarity of 0.0 (unrelated topics). In practice, scores below 0.5 indicate little meaningful overlap.
+
+pgvector provides a native cosine distance operator (`<=>`) that computes `1 - cosine_similarity` directly in SQL. RCARS converts this back to similarity (`1.0 - distance`) for human-readable percentage scores.
+
+The key insight is that this comparison captures semantic similarity, not textual similarity. Two labs can use completely different wording, different module structures, and different examples — but if they teach the same concepts (e.g., "deploying applications on OpenShift with GitOps"), their embeddings will point in similar directions and the cosine similarity will be high.
+
+### Computation
+
+The computation is a single SQL query that joins the `embeddings` table against itself, computes pairwise cosine distance, filters to pairs above the threshold, and inserts results into `content_similarity`. With ~100 prod items, this produces about 5,000 pairwise comparisons and completes in under a second.
+
+```sql
+-- Simplified version of the actual query
+INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score)
+SELECT a.ci_name, b.ci_name, 1.0 - (a.embedding <=> b.embedding)
+FROM embeddings a
+JOIN embeddings b ON a.ci_name < b.ci_name   -- each pair once
+WHERE a.embed_type = 'ci_summary'
+  AND b.embed_type = 'ci_summary'
+  AND 1.0 - (a.embedding <=> b.embedding) >= 0.75  -- threshold
+  AND ci_a.stage = 'prod'                           -- same stage
+  AND ci_b.stage = 'prod'
+```
+
+The `a.ci_name < b.ci_name` condition ensures each pair is stored exactly once (A↔B, never both A→B and B→A). Published Virtual CIs are excluded because they have no Showroom content — they are ordering wrappers that point to a base CI.
+
+### Stage Scoping
+
+Comparisons are scoped to a single stage at a time: prod vs prod, event vs event, or dev vs dev. This is by design — the goal is to find different labs that overlap, not to flag that a dev and prod version of the same lab are similar (which is expected and uninteresting).
+
+The stage is selected at computation time via the `stage` parameter on the API endpoint or CLI command. Switching stages clears and recomputes the entire `content_similarity` table.
+
+### Similarity Tiers
+
+Results are classified into two tiers based on configurable thresholds:
+
+| Tier | Score | Meaning | Color |
+|---|---|---|---|
+| High overlap | ≥ 85% | Near-duplicate content, candidates for consolidation | Red |
+| Related | 75–84% | Similar topics with some differentiation | Amber |
+
+Pairs below 75% are not stored.
+
+### Integration Points
+
+- **Admin UI** (`/analysis/overlap`) — stage selector, compute button, expandable pair list with side-by-side summaries
+- **Browse page** — expanded items show a "Similar Content" section listing overlapping items with similarity scores
+- **API** — `GET /admin/overlap` (global report), `GET /catalog/{ci_name}/similar` (per-item), `POST /admin/compute-similarity` (trigger)
+- **CLI** — `rcars compute-similarity [--stage prod] [--threshold 0.75]`
+
+### Relationship to the Recommendation Pipeline
+
+The overlap system and the recommendation pipeline both use pgvector cosine similarity on the same embeddings, but they serve different purposes:
+
+- **Recommendation** compares a *query embedding* (from user text) against *lab embeddings* to find relevant content for a specific request. It runs on demand, per user query.
+- **Overlap** compares *lab embeddings* against each other to find duplicate content across the catalog. It runs on demand by an admin, and results are cached in the `content_similarity` table.
+
+The recommendation pipeline has its own deduplication logic (content hash grouping, base-to-published promotion) that operates during query time. The overlap system does not need this — it simply compares all items within a stage.
+
+---
+
 ## Frontend (`src/frontend/`)
 
 The frontend is a React Single Page Application built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
@@ -490,8 +565,9 @@ The frontend is a React Single Page Application built with Vite and TypeScript, 
 ### Pages
 
 - **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE (Server-Sent Events) from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
-- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, and duration.
-- **Admin** — Four sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Workers (`/admin/workers` — queue depths and job list with CI names), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
+- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, duration, and similar content (when overlap data exists).
+- **Content Analysis** — Tools for analyzing catalog content at scale. Currently contains Overlap (`/analysis/overlap` — pairwise similarity between catalog items within a selected stage). The sidebar expands to show sub-pages when active.
+- **Admin** — Three sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
 
 ### API Routes
 
@@ -539,6 +615,12 @@ All API routes are under `/api/v1/`:
 - `GET /admin/queries` — Advisor query history
 - `POST /admin/run-maintenance` — Trigger nightly pipeline
 - `GET /admin/schedule` — Pipeline schedule status
+- `GET /admin/overlap` — Content overlap report (all similar pairs)
+- `POST /admin/compute-similarity` — Trigger similarity recomputation
+
+**Catalog** (additional):
+
+- `GET /catalog/{ci_name}/similar` — Similar items for a specific CI (require_auth)
 
 **Auth/Health**:
 

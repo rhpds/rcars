@@ -197,11 +197,13 @@ rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/C
 
 ### `rcars compute-similarity`
 
-Computes pairwise content similarity between unique Showroom labs. Deduplicates by showroom URL and content hash first, then compares representative embeddings using pgvector cosine distance. No LLM calls — runs entirely in PostgreSQL.
+Computes pairwise cosine similarity between catalog item embeddings within a selected stage. Compares every item against every other item in that stage and stores pairs above the threshold. No LLM calls — runs entirely in PostgreSQL using pgvector.
 
 ```bash
-rcars compute-similarity                # Default threshold 0.75
-rcars compute-similarity --threshold 0.80  # Higher threshold = fewer pairs
+rcars compute-similarity                        # Prod items, default threshold 0.75
+rcars compute-similarity --stage event          # Event items
+rcars compute-similarity --stage dev            # Dev items
+rcars compute-similarity --threshold 0.80       # Higher threshold = fewer pairs
 ```
 
 ```
@@ -209,13 +211,13 @@ Content Similarity
 ┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
 ┃ Metric                ┃ Count ┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
-│ Total pairs           │   937 │
-│ High overlap (≥0.85)  │    52 │
-│ Related (0.75–0.85)   │   885 │
+│ Total pairs           │   142 │
+│ High overlap (≥0.85)  │    18 │
+│ Related (0.75–0.85)   │   124 │
 └───────────────────────┴───────┘
 ```
 
-Recompute after scans or re-analysis since embeddings may have changed. Also available via the Admin UI Overlap tab or the API (`POST /api/v1/admin/compute-similarity`).
+Recompute after scans or re-analysis since the underlying embeddings may have changed. Also available via the Content Analysis UI (`/analysis/overlap`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`).
 
 ---
 
