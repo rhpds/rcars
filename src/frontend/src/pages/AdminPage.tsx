@@ -616,8 +616,11 @@ function WorkloadMappingSection({ onStatusChange }: { onStatusChange: () => void
   )
 }
 
+type AdminTab = 'status' | 'sync' | 'workloads'
+
 export function AdminCatalogPage() {
   const navigate = useNavigate()
+  const [tab, setTab] = useState<AdminTab>('status')
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
 
@@ -640,103 +643,116 @@ export function AdminCatalogPage() {
 
   return (
     <div className="admin-layout admin-layout--flex">
-      {/* Status Cards */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-        <h3 style={{ margin: 0, fontSize: '15px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Status</h3>
-        <button
-          onClick={loadStatus}
-          style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
-        >↻ Refresh</button>
+      <div className="admin-tabs">
+        <button className={`admin-tab${tab === 'status' ? ' active' : ''}`} onClick={() => setTab('status')}>Status</button>
+        <button className={`admin-tab${tab === 'sync' ? ' active' : ''}`} onClick={() => setTab('sync')}>Sync & Analysis</button>
+        <button className={`admin-tab${tab === 'workloads' ? ' active' : ''}`} onClick={() => setTab('workloads')}>Workloads</button>
       </div>
 
-      {status ? (
-        <div className="admin-stat-cards">
-          {/* Catalog Card */}
-          <div className="admin-stat-card">
-            <div className="admin-stat-card-title">Catalog</div>
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{status.total}</span></div>
-            <div className="admin-stat-row"><span className="admin-stat-row-indent">Production</span><span className="admin-stat-row-value">{status.prod}</span></div>
-            <div className="admin-stat-row"><span className="admin-stat-row-indent">Dev</span><span className="admin-stat-row-value">{status.dev}</span></div>
-            <div className="admin-stat-row"><span className="admin-stat-row-indent">Event</span><span className="admin-stat-row-value">{status.event}</span></div>
-            <div className="admin-stat-row-divider" />
-            <div className="admin-stat-row"><span className="admin-stat-row-label">With Showroom</span><span className="admin-stat-row-value">{status.scannable}</span></div>
-            <div className="admin-stat-row"><span className="admin-stat-row-indent">Unique</span><span className="admin-stat-row-value">{status.unique_showrooms}</span></div>
-            <div className="admin-stat-row-divider" />
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Last sync</span><span style={{ color: statusColor(status.catalog_stale), fontSize: '12px' }}>{status.catalog_date}</span></div>
+      {tab === 'status' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <button
+              onClick={loadStatus}
+              style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
+            >↻ Refresh</button>
           </div>
 
-          {/* Analysis Card */}
-          <div className="admin-stat-card">
-            <div className="admin-stat-card-title">Analysis</div>
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Analyzed</span><span className="admin-stat-row-value">{status.analyzed}</span></div>
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Unanalyzed</span>{clickableCount(status.unanalyzed, 'unanalyzed')}</div>
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Stale</span>{clickableCount(status.stale_count, 'stale')}</div>
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Failures</span>{clickableCount(status.failed_count, 'scan_failures', '#c9190b')}</div>
-            <div className="admin-stat-row-divider" />
-            <div className="admin-stat-row"><span className="admin-stat-row-label">Last run</span><span style={{ color: statusColor(status.analysis_stale), fontSize: '12px' }}>{status.analysis_date}</span></div>
-          </div>
-
-          {/* Infrastructure Card */}
-          <div className="admin-stat-card">
-            <div className="admin-stat-card-title">Infrastructure</div>
-            {infraStats ? (
-              <>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-indent">With workloads</span><span className="admin-stat-row-value">{infraStats.with_workloads}</span></div>
+          {status ? (
+            <div className="admin-stat-cards">
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Catalog</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{status.total}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Production</span><span className="admin-stat-row-value">{status.prod}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Dev</span><span className="admin-stat-row-value">{status.dev}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Event</span><span className="admin-stat-row-value">{status.event}</span></div>
                 <div className="admin-stat-row-divider" />
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Mapped roles</span><span className="admin-stat-row-value">{infraStats.mapped_workloads}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</span></div>
-              </>
-            ) : (
-              <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div style={{ color: '#666', marginBottom: '24px' }}>Loading...</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">With Showroom</span><span className="admin-stat-row-value">{status.scannable}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Unique</span><span className="admin-stat-row-value">{status.unique_showrooms}</span></div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Last sync</span><span style={{ color: statusColor(status.catalog_stale), fontSize: '12px' }}>{status.catalog_date}</span></div>
+              </div>
+
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Analysis</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Analyzed</span><span className="admin-stat-row-value">{status.analyzed}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Unanalyzed</span>{clickableCount(status.unanalyzed, 'unanalyzed')}</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Stale</span>{clickableCount(status.stale_count, 'stale')}</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Failures</span>{clickableCount(status.failed_count, 'scan_failures', '#c9190b')}</div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Last run</span><span style={{ color: statusColor(status.analysis_stale), fontSize: '12px' }}>{status.analysis_date}</span></div>
+              </div>
+
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Infrastructure</div>
+                {infraStats ? (
+                  <>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-indent">With workloads</span><span className="admin-stat-row-value">{infraStats.with_workloads}</span></div>
+                    <div className="admin-stat-row-divider" />
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Mapped roles</span><span className="admin-stat-row-value">{infraStats.mapped_workloads}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</span></div>
+                  </>
+                ) : (
+                  <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: '#666' }}>Loading...</div>
+          )}
+
+          <ScheduledMaintenance onStatusChange={loadStatus} />
+        </>
       )}
 
-      <ScheduledMaintenance onStatusChange={loadStatus} />
+      {tab === 'sync' && (
+        <>
+          <AdminAction
+            title="Catalog Sync"
+            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
+            buttonLabel="Refresh Catalog"
+            onRun={async (addLog) => {
+              addLog('Starting catalog refresh...')
+              const result = await api.refreshCatalog()
+              addLog(`job_id=${result.job_id}`)
+              let seen = 0
+              await new Promise<void>((resolve) => {
+                const interval = setInterval(async () => {
+                  try {
+                    const job = await api.getJob(result.job_id)
+                    const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+                    for (let i = seen; i < messages.length; i++) {
+                      if (messages[i].message) addLog(messages[i].message!)
+                    }
+                    seen = messages.length
+                    if (job.status === 'complete' || job.status === 'failed') {
+                      clearInterval(interval)
+                      if (job.error) addLog(`Error: ${job.error}`)
+                      resolve()
+                    }
+                  } catch { /* ignore */ }
+                }, 2000)
+                setTimeout(() => { clearInterval(interval); resolve() }, 5 * 60 * 1000)
+              })
+              loadStatus()
+            }}
+          />
 
-      <AdminAction
-        title="Catalog Sync"
-        description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
-        buttonLabel="Refresh Catalog"
-        onRun={async (addLog) => {
-          addLog('Starting catalog refresh...')
-          const result = await api.refreshCatalog()
-          addLog(`job_id=${result.job_id}`)
-          let seen = 0
-          await new Promise<void>((resolve) => {
-            const interval = setInterval(async () => {
-              try {
-                const job = await api.getJob(result.job_id)
-                const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
-                for (let i = seen; i < messages.length; i++) {
-                  if (messages[i].message) addLog(messages[i].message!)
-                }
-                seen = messages.length
-                if (job.status === 'complete' || job.status === 'failed') {
-                  clearInterval(interval)
-                  if (job.error) addLog(`Error: ${job.error}`)
-                  resolve()
-                }
-              } catch { /* ignore */ }
-            }, 2000)
-            setTimeout(() => { clearInterval(interval); resolve() }, 5 * 60 * 1000)
-          })
-          loadStatus()
-        }}
-      />
+          <ScanMonitor onStatusChange={loadStatus} />
 
-      <ScanMonitor onStatusChange={loadStatus} />
+          <RescanAllSection onStatusChange={loadStatus} />
+        </>
+      )}
 
-      <RescanAllSection onStatusChange={loadStatus} />
+      {tab === 'workloads' && (
+        <>
+          <WorkloadScanSection onStatusChange={loadStatus} />
 
-      <WorkloadScanSection onStatusChange={loadStatus} />
-
-      <WorkloadMappingSection onStatusChange={loadStatus} />
+          <WorkloadMappingSection onStatusChange={loadStatus} />
+        </>
+      )}
     </div>
   )
 }
