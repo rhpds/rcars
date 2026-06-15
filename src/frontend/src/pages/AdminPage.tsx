@@ -743,6 +743,8 @@ export function AdminCatalogPage() {
           <ScanMonitor onStatusChange={loadStatus} />
 
           <RescanAllSection onStatusChange={loadStatus} />
+
+          <RecentJobsSection />
         </>
       )}
 
@@ -757,7 +759,7 @@ export function AdminCatalogPage() {
   )
 }
 
-// ── Workers Page ──
+// ── Recent Jobs (embedded in Sync & Analysis tab) ──
 
 interface Job {
   id: string
@@ -772,40 +774,27 @@ interface Job {
   result_json: { ci_name?: string; status?: string; propagated?: number } | null
 }
 
-export function AdminWorkersPage() {
-  const [scanProgress, setScanProgress] = useState<{ queued: number; running: number; complete: number; failed: number } | null>(null)
+function RecentJobsSection() {
   const [jobs, setJobs] = useState<Job[]>([])
+  const [expanded, setExpanded] = useState(false)
 
-  const loadData = async () => {
-    const [jb, sp] = await Promise.all([
-      api.listJobs(50) as Promise<{ items: Job[]; total: number }>,
-      api.getScanProgress(),
-    ])
-    setScanProgress(sp)
-    // Sort: running first, then queued, then completed/failed
+  const loadJobs = useCallback(async () => {
+    const jb = await api.listJobs(50) as { items: Job[]; total: number }
     const statusOrder: Record<string, number> = { running: 0, queued: 1, failed: 2, complete: 3 }
-    const sorted = jb.items.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9))
-    setJobs(sorted)
-  }
-
-  useEffect(() => { loadData() }, [])
-
-  useEffect(() => {
-    const interval = setInterval(loadData, 10000)
-    return () => clearInterval(interval)
+    setJobs(jb.items.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)))
   }, [])
 
-  const jobStatusColor = (status: string) => {
-    if (status === 'complete') return '#5cb85c'
-    if (status === 'failed') return '#c9190b'
-    if (status === 'running') return '#e8a838'
-    return '#666'
-  }
+  useEffect(() => {
+    if (expanded) {
+      loadJobs()
+      const interval = setInterval(loadJobs, 10000)
+      return () => clearInterval(interval)
+    }
+  }, [expanded, loadJobs])
 
-  const shortTime = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  }
+  const jobStatusColor = (s: string) => s === 'complete' ? '#5cb85c' : s === 'failed' ? '#c9190b' : s === 'running' ? '#e8a838' : '#666'
+
+  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   const elapsed = (created: string, completed: string | null) => {
     if (!completed) return '-'
@@ -817,67 +806,46 @@ export function AdminWorkersPage() {
     return `${m}m ${s % 60}s`
   }
 
-  const isActive = scanProgress && (scanProgress.queued > 0 || scanProgress.running > 0)
-
   return (
-    <div className="admin-layout admin-layout--wide">
-      <div className="admin-section">
-        <h3>Worker Status</h3>
-        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-          Auto-refreshes every 10 seconds.
-        </p>
-        {scanProgress && (
-          <div style={{ display: 'flex', gap: '24px', fontSize: '14px', marginBottom: '12px', flexWrap: 'wrap' }}>
-            <span style={{ color: scanProgress.running > 0 ? '#e8a838' : '#666' }}>
-              {scanProgress.running} running
-            </span>
-            <span style={{ color: scanProgress.queued > 0 ? '#e8a838' : '#666' }}>
-              {scanProgress.queued} queued
-            </span>
-            <span style={{ color: '#5cb85c' }}>
-              {scanProgress.complete} complete
-            </span>
-            <span style={{ color: scanProgress.failed > 0 ? '#c9190b' : '#666' }}>
-              {scanProgress.failed} failed
-            </span>
-          </div>
-        )}
-        {isActive && (
-          <div style={{ background: '#0d1a0d', border: '1px solid #1a3a1a', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: '#5cb85c', marginBottom: '12px' }}>
-            Analysis in progress — {scanProgress!.complete} of {scanProgress!.complete + scanProgress!.queued + scanProgress!.running} complete
-          </div>
-        )}
-      </div>
-
-      <div className="admin-section">
-        <h3>Recent Jobs</h3>
-        {jobs.length > 0 ? (
-          <table className="status-table status-table--compact">
-            <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
-            <tbody>
-              {jobs.map(job => {
-                const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
-                return (
-                  <tr key={job.id} title={job.error || undefined}>
-                    <td>{job.job_type}</td>
-                    <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {ciName || '-'}
-                    </td>
-                    <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
-                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
-                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
-                    <td style={{ color: '#888', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>No recent jobs.</div>
-        )}
-      </div>
+    <div className="admin-section">
+      <h3 style={{ cursor: 'pointer' }} onClick={() => setExpanded(!expanded)}>
+        {expanded ? '▾' : '▸'} Recent Jobs
+      </h3>
+      {expanded && (
+        <>
+          <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>Auto-refreshes every 10 seconds.</p>
+          {jobs.length > 0 ? (
+            <table className="status-table status-table--compact">
+              <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
+              <tbody>
+                {jobs.map(job => {
+                  const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
+                  return (
+                    <tr key={job.id} title={job.error || undefined}>
+                      <td>{job.job_type}</td>
+                      <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ciName || '-'}</td>
+                      <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
+                      <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
+                      <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
+                      <td style={{ color: '#888', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ color: '#666' }}>No recent jobs.</div>
+          )}
+        </>
+      )}
     </div>
   )
+}
+
+export function AdminWorkersPage() {
+  const navigate = useNavigate()
+  useEffect(() => { navigate('/admin/catalog', { replace: true }) }, [navigate])
+  return null
 }
 
 // ── Token Usage Page ──
