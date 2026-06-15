@@ -168,4 +168,28 @@ export const api = {
     unmapped: Array<{ workload_role: string; workload_collection: string | null; ci_count: number }>;
   }>('/catalog/workload-mappings/unmapped'),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
+
+  // Content similarity / overlap
+  getSimilarItems: (ciName: string, minScore = 0.75) =>
+    request<{
+      ci_name: string
+      similar: Array<{
+        ci_name: string; display_name: string; category: string; stage: string
+        summary: string | null; similarity_score: number; computed_at: string
+      }>
+      count: number
+    }>(`/catalog/${encodeURIComponent(ciName)}/similar?min_score=${minScore}`),
+  getOverlapReport: (minScore = 0.75) =>
+    request<{
+      pairs: Array<{
+        ci_name_a: string; ci_name_b: string; similarity_score: number; computed_at: string
+        display_name_a: string; category_a: string; stage_a: string; summary_a: string | null
+        display_name_b: string; category_b: string; stage_b: string; summary_b: string | null
+      }>
+      total: number
+      stats: { total_pairs: number; high_overlap: number; related: number; last_computed: string | null }
+      thresholds: { related: number; high_overlap: number }
+    }>(`/admin/overlap?min_score=${minScore}`),
+  computeSimilarity: (threshold = 0.75) =>
+    request<{ pairs_stored: number; threshold: number }>(`/admin/compute-similarity?threshold=${threshold}`, { method: 'POST' }),
 };

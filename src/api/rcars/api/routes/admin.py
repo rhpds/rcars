@@ -168,6 +168,38 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
+@router.get("/overlap")
+async def overlap_report(
+    request: Request,
+    user: str = Depends(require_admin),
+    min_score: float = Query(0.75, ge=0.0, le=1.0),
+):
+    db = request.app.state.db
+    pairs = db.get_overlap_report(min_score=min_score)
+    stats = db.get_similarity_stats()
+    settings = Settings()
+    return {
+        "pairs": pairs,
+        "total": len(pairs),
+        "stats": stats,
+        "thresholds": {
+            "related": settings.similarity_threshold,
+            "high_overlap": settings.similarity_high_threshold,
+        },
+    }
+
+
+@router.post("/compute-similarity")
+async def compute_similarity(
+    request: Request,
+    user: str = Depends(require_admin),
+    threshold: float = Query(0.75, ge=0.0, le=1.0),
+):
+    db = request.app.state.db
+    result = db.compute_content_similarity(threshold=threshold)
+    return result
+
+
 @router.get("/schedule")
 async def schedule_status(request: Request, user: str = Depends(require_admin)):
     """Return scheduled maintenance pipeline status and last run info."""

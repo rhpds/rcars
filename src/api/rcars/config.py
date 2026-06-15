@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     dev_user: str = ""
     sa_allowlist_str: str = ""
 
+    # Content overlap
+    similarity_threshold: float = 0.75
+    similarity_high_threshold: float = 0.85
+
     # Ops
     stale_days: int = 3
     workload_scan_enabled: bool = True

@@ -221,6 +221,18 @@ CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name)
 CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
 CREATE INDEX IF NOT EXISTS idx_ciag_ci_name ON catalog_item_acl_groups(ci_name);
 CREATE INDEX IF NOT EXISTS idx_ciag_group_name ON catalog_item_acl_groups(group_name);
+
+CREATE TABLE IF NOT EXISTS content_similarity (
+    id SERIAL PRIMARY KEY,
+    ci_name_a TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
+    ci_name_b TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
+    similarity_score REAL NOT NULL,
+    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(ci_name_a, ci_name_b)
+);
+CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(ci_name_a);
+CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(ci_name_b);
+CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
 """
 
 STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
@@ -255,6 +267,7 @@ class Database:
 
     def drop_schema(self):
         tables = [
+            "content_similarity",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "catalog_item_workloads", "catalog_item_acl_groups",
@@ -880,6 +893,104 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 return cur.fetchall()
+
+    # ── Content similarity ──
+
+    def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
+        """Compute pairwise cosine similarity between all ci_summary embeddings.
+
+        Stores pairs above threshold. Returns counts.
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM content_similarity")
+
+                # pgvector <=> returns cosine distance (0 = identical, 2 = opposite).
+                # Similarity = 1 - distance.
+                cur.execute("""
+                    INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)
+                    SELECT a.ci_name, b.ci_name,
+                           1.0 - (a.embedding <=> b.embedding) AS similarity,
+                           NOW()
+                    FROM embeddings a
+                    JOIN embeddings b ON a.ci_name < b.ci_name
+                    WHERE a.embed_type = 'ci_summary'
+                      AND b.embed_type = 'ci_summary'
+                      AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
+                """, {"threshold": threshold})
+                inserted = cur.rowcount
+            conn.commit()
+
+        logger.info("content_similarity_computed", pairs_stored=inserted, threshold=threshold)
+        return {"pairs_stored": inserted, "threshold": threshold}
+
+    def get_similar_items(self, ci_name: str, min_score: float = 0.75) -> list[dict[str, Any]]:
+        sql = """
+            SELECT cs.ci_name_a, cs.ci_name_b, cs.similarity_score, cs.computed_at,
+                   ci.display_name, ci.category, ci.stage, sa.summary
+            FROM content_similarity cs
+            JOIN catalog_items ci ON ci.ci_name = CASE
+                WHEN cs.ci_name_a = %(ci_name)s THEN cs.ci_name_b
+                ELSE cs.ci_name_a END
+            LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+            WHERE (cs.ci_name_a = %(ci_name)s OR cs.ci_name_b = %(ci_name)s)
+              AND cs.similarity_score >= %(min_score)s
+            ORDER BY cs.similarity_score DESC
+        """
+        with self._pool.connection() as conn:
+            cur = conn.execute(sql, {"ci_name": ci_name, "min_score": min_score})
+            rows = cur.fetchall()
+
+        results = []
+        for row in rows:
+            other_ci = row["ci_name_b"] if row["ci_name_a"] == ci_name else row["ci_name_a"]
+            results.append({
+                "ci_name": other_ci,
+                "display_name": row["display_name"],
+                "category": row["category"],
+                "stage": row["stage"],
+                "summary": row["summary"],
+                "similarity_score": round(row["similarity_score"], 4),
+                "computed_at": row["computed_at"],
+            })
+        return results
+
+    def get_overlap_report(self, min_score: float = 0.75) -> list[dict[str, Any]]:
+        sql = """
+            SELECT cs.ci_name_a, cs.ci_name_b, cs.similarity_score, cs.computed_at,
+                   ci_a.display_name AS display_name_a, ci_a.category AS category_a, ci_a.stage AS stage_a,
+                   sa_a.summary AS summary_a,
+                   ci_b.display_name AS display_name_b, ci_b.category AS category_b, ci_b.stage AS stage_b,
+                   sa_b.summary AS summary_b
+            FROM content_similarity cs
+            JOIN catalog_items ci_a ON ci_a.ci_name = cs.ci_name_a
+            JOIN catalog_items ci_b ON ci_b.ci_name = cs.ci_name_b
+            LEFT JOIN showroom_analysis sa_a ON sa_a.ci_name = cs.ci_name_a
+            LEFT JOIN showroom_analysis sa_b ON sa_b.ci_name = cs.ci_name_b
+            WHERE cs.similarity_score >= %(min_score)s
+            ORDER BY cs.similarity_score DESC
+        """
+        with self._pool.connection() as conn:
+            cur = conn.execute(sql, {"min_score": min_score})
+            return cur.fetchall()
+
+    def get_similarity_stats(self) -> dict[str, Any]:
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) AS count FROM content_similarity")
+                total_pairs = cur.fetchone()["count"]
+                cur.execute("SELECT MAX(computed_at) AS last_computed FROM content_similarity")
+                last = cur.fetchone()["last_computed"]
+                cur.execute("SELECT COUNT(*) AS count FROM content_similarity WHERE similarity_score >= 0.85")
+                high_overlap = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM content_similarity WHERE similarity_score >= 0.75 AND similarity_score < 0.85")
+                related = cur.fetchone()["count"]
+        return {
+            "total_pairs": total_pairs,
+            "high_overlap": high_overlap,
+            "related": related,
+            "last_computed": last,
+        }
 
     # ── Workload scan state ──
 

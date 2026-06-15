@@ -136,6 +136,11 @@ export function BrowsePage() {
   const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
+  const [similarItems, setSimilarItems] = useState<Record<string, Array<{
+    ci_name: string; display_name: string; category: string; stage: string
+    summary: string | null; similarity_score: number
+  }>>>({})
+  const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRef = useRef(search)
@@ -245,6 +250,16 @@ export function BrowsePage() {
       if (detail.analysis?.enrichment_review_needed) {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
+    }
+    if (similarItems[ciName] === undefined && !similarLoading.has(ciName)) {
+      setSimilarLoading(prev => new Set(prev).add(ciName))
+      api.getSimilarItems(ciName).then(data => {
+        setSimilarItems(prev => ({ ...prev, [ciName]: data.similar }))
+        setSimilarLoading(prev => { const next = new Set(prev); next.delete(ciName); return next })
+      }).catch(() => {
+        setSimilarItems(prev => ({ ...prev, [ciName]: [] }))
+        setSimilarLoading(prev => { const next = new Set(prev); next.delete(ciName); return next })
+      })
     }
   }
 
@@ -584,6 +599,32 @@ export function BrowsePage() {
                           </div>
                         )}
                       </>
+                    )}
+
+                    {/* Similar Content */}
+                    {similarItems[item.ci_name] && similarItems[item.ci_name].length > 0 && (
+                      <div style={{ marginBottom: '10px', background: '#111520', border: '1px solid #1e2030', borderRadius: '6px', padding: '10px 14px' }}>
+                        <div style={{ fontSize: '11px', color: '#e8a838', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                          Similar Content ({similarItems[item.ci_name].length})
+                        </div>
+                        {similarItems[item.ci_name].map(sim => (
+                          <div key={sim.ci_name} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', marginBottom: '4px', fontSize: '12px' }}>
+                            <span style={{ color: sim.similarity_score >= 0.85 ? '#c9190b' : '#e8a838', fontWeight: 600, width: '36px', textAlign: 'right', flexShrink: 0 }}>
+                              {Math.round(sim.similarity_score * 100)}%
+                            </span>
+                            <span
+                              style={{ color: '#73bcf7', cursor: 'pointer' }}
+                              onClick={() => { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) }}
+                            >
+                              {sim.display_name || sim.ci_name}
+                            </span>
+                            <span style={{ color: '#555' }}>{sim.category}</span>
+                            {sim.stage !== 'prod' && (
+                              <span style={{ background: sim.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: sim.stage === 'dev' ? '#99ccff' : '#ffcc66', borderRadius: '10px', padding: '1px 6px', fontSize: '10px' }}>{sim.stage}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
                     )}
 
                     <div className="tag-list" style={{ marginBottom: '8px' }}>
