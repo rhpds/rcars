@@ -20,6 +20,8 @@ export interface StreamCandidate {
   suggested_format: string | null
   duration_notes: string | null
   caveats: string | null
+  duration_min: number | null
+  duration_source: string | null
 }
 
 interface StreamState {

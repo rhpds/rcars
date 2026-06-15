@@ -16,6 +16,8 @@ interface Candidate {
   suggested_format: string | null
   duration_notes: string | null
   caveats: string | null
+  duration_min: number | null
+  duration_source: string | null
 }
 
 interface RecCardProps {
@@ -66,6 +68,11 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             {candidate.ci_name}
           </div>
         </div>
+        {candidate.duration_min && (
+          <span style={{ fontSize: '14px', color: '#999', fontWeight: 500, flexShrink: 0 }}>
+            ~{candidate.duration_min} min
+          </span>
+        )}
         <span className="rec-expand-hint">{expanded ? '▾' : '▸'}</span>
       </div>
 
@@ -85,9 +92,14 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               <span className="rec-analysis-value">{candidate.how_to_use}</span>
             </div>
           )}
-          {candidate.suggested_format && (
+          {(candidate.suggested_format || candidate.duration_min) && (
             <div className="rec-pill-row">
-              <span className="rec-pill pill-format">{candidate.suggested_format}</span>
+              {candidate.duration_min && (
+                <span className="rec-pill">
+                  ~{candidate.duration_min} min ({candidate.duration_source === 'curated' ? 'estimated' : 'AI estimate'})
+                </span>
+              )}
+              {candidate.suggested_format && <span className="rec-pill pill-format">{candidate.suggested_format}</span>}
               {candidate.duration_notes && <span className="rec-pill">{candidate.duration_notes}</span>}
             </div>
           )}
