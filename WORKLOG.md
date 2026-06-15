@@ -27,6 +27,51 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-15 — Nate + Claude (Code review remediation + RecCard cleanup)
+
+**Done:**
+- **Code review remediation (2 rounds, 21 findings):**
+  - Migration 003: CHECK constraint for non-negative curated_duration_min
+  - admin.py: orphaned job fix (try/except around enqueue_job), structured logging
+  - catalog.py: N+1 query fix (list_workload_mappings outside loop), moved facets SQL to Database class
+  - cli.py + ops.py: always call sync_workloads/sync_acl_groups even with empty lists (prevents stale data)
+  - config.py: validation for similarity thresholds and workload_scan_interval_days
+  - database.py: stage-scoped DELETE in compute_content_similarity (was deleting all stages), structured logging on set_curated_duration, new get_catalog_facets() method
+  - vector_search.py: `is not None` instead of `or` for curated_duration_min=0 edge case
+  - workload_scanner.py: operator precedence bug fix (and/or without parens in discover_roles), SHA race condition fix (local HEAD instead of remote post-scan), structured logging
+  - ops.py: asyncio.to_thread() for scan_all_collections to unblock event loop
+  - RecCard.tsx: keyboard accessibility (role, tabIndex, onKeyDown, aria-expanded)
+  - ContentAnalysisPage.tsx: stale closure fix in loadData useCallback
+  - lcars.css: defined --text-secondary CSS variable
+  - test_db.py: dynamic table discovery in fixture
+  - web-guide.md: client-side → server-side pagination
+  - Skipped 4 findings with justification (.gitignore works correctly, compute_similarity is sub-second SQL, verified filter would reduce recall, BrowsePage useEffect deps not a real bug)
+- **RecCard layout cleanup (3 iterations):**
+  - Removed duplicate duration pill (was in header AND expanded body)
+  - Format type (Hands-on Lab, Booth Demo) displayed as colored badge in header instead of gray text
+  - "AI estimate" → "AI duration estimate" for clarity
+  - Unified all expanded sections into consistent two-column rec-row layout (label 85px + value)
+  - Learning objectives expanded by default, positioned right after "Why it fits"
+  - Duration notes shown as dim continuation under "How to use" (same row), not a separate pill
+  - Caveat moved to bottom with truncation at 200 chars + "more" toggle
+  - Best-fit button shrunk: no uppercase, thinner border, smaller padding
+  - Removed old pill/analysis CSS in favor of unified rec-row pattern
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Execute retirement analysis implementation plan (10 tasks, starting from Task 1)
+- Further RecCard refinements if needed after user testing
+- Portfolio Architecture ingest from OSSPA GitLab
+
+**Notes:**
+- BrowsePage duration label convention is intentional: curated → "(estimated)", AI → "(AI estimate)". Documented in web-guide.md and consistent across RecCard and BrowsePage. Do not "fix" this.
+- All changes deployed to dev via `--tags build-frontend` and `--tags update` as appropriate
+- The RecCard now uses rec-row/rec-row-label/rec-row-value CSS classes instead of the old rec-analysis-row/rec-analysis-label/rec-analysis-value pattern
+
+---
+
 ### 2026-06-15 — Nate + Claude (Retirement analysis — design + planning)
 
 **Done:**
