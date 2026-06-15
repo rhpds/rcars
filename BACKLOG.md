@@ -28,6 +28,7 @@ Items selected for current development cycle. Investigations complete, design/im
 - [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
 - [ ] **Add mobile mode to UI**
+- [ ] **Contextual sidebar navigation** — Redesign the app sidebar so it changes content based on the active section: Advisor shows session history, Browse shows filter controls, Admin shows sub-page links. Top-level nav moves to sidebar header or app header with a back button between sections. Eliminates the double-sidebar problem and gives each section full sidebar width for its own controls
 
 ## Recommendation Quality
 
