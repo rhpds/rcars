@@ -45,8 +45,8 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
   }
 
   return (
-    <LcarsCard tier={tier} onClick={() => setExpanded(!expanded)}>
-      <div className="rec-card-header">
+    <LcarsCard tier={tier}>
+      <div className="rec-card-header" onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer' }}>
         <span className="rec-score">{score}%</span>
         <div>
           <div className="rec-title">{candidate.display_name}</div>
