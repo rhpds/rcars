@@ -602,14 +602,15 @@ body {
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
+  min-width: 280px;
   background: var(--bg-secondary);
   border: 1px solid #2a4a6a;
   border-top: none;
   border-radius: 0 0 4px 4px;
-  max-height: 240px;
+  max-height: 300px;
   overflow-y: auto;
-  z-index: 10;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 .wl-multiselect-option {
   display: flex;
@@ -633,7 +634,7 @@ body {
   border: 1px solid #1a3050;
   border-radius: 6px;
   margin-bottom: 10px;
-  overflow: hidden;
+  overflow: visible;
 }
 .filter-panel-header {
   display: flex;
@@ -712,7 +713,7 @@ body {
   border: 1px solid #3a3a1a;
   border-radius: 6px;
   margin-bottom: 10px;
-  overflow: hidden;
+  overflow: visible;
 }
 .curator-panel .filter-panel-label {
   color: var(--lcars-amber);
