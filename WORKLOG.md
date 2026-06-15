@@ -27,6 +27,40 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-15 — Nate + Claude (Rec card duration + best fit + concurrency)
+
+**Done:**
+- **Curated duration system** — full stack: Alembic migration (`curated_duration_min` on `showroom_analysis`), `PUT /catalog/{ci_name}/duration` curator endpoint, `duration_source` field threaded through Candidate model → vector search → pipeline → serialization → SSE → frontend
+- **Duration labels on rec cards** — header shows `~120 min` (always visible), expanded pill shows `~120 min (AI estimate)` or `~120 min (estimated)` with source label
+- **Browse page curator duration input** — inline number input in curator section, placeholder shows AI estimate
+- **Browse page duration source label** — analysis summary shows "(AI estimate)" or "(estimated)"
+- **Best Fit button redesign** — renamed to "★ This is the best fit", bold green outline, uppercase, visually prominent
+- **Duration penalty guard** — only curated durations affect scoring, AI guesses never penalize
+- **Acronym case fix** — `re.IGNORECASE` on `_ACRONYM_RE`, `rhoai` now expands like `RHOAI`
+- **Card copy/paste fix** — click handler scoped to header only, expanded content is selectable
+- **Concurrent query fix** — sync LLM calls (`search`, `triage`, `generate_rationale`) wrapped in `asyncio.to_thread()` so arq can run multiple recommendation jobs simultaneously
+- **Nginx HTTP/1.1 upstream** — added `proxy_http_version 1.1` for concurrent SSE streams through nginx
+- **Recommend worker replicas** — `recommend_worker_replicas` variable in Ansible vars (default 1, configurable per env)
+- **Chat formatting** — prompt updated to separate picks with line breaks and drop "Response:" label; frontend `cleanAssessment()` strips it locally as fallback
+- **No-results message** — improved to guide users toward adding more context
+- Updated CLAUDE.md (new endpoint, schema, scaling notes)
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Content overlap detection
+- Portfolio Architecture ingest from OSSPA GitLab
+- Consider removing caveats from rec cards (deferred this session)
+
+**Notes:**
+- `recommend_worker_replicas` defaults to 1 in common.yml. For production, set higher in prod.yml (each replica handles 3 concurrent queries)
+- The "fraud detection with rhoai" (lowercase) no-results issue was NOT an acronym bug — the acronym expansion works, but the short query doesn't produce enough vector similarity to match. Follow-up turns work because they prepend the original query as context
+- Design spec: `docs/superpowers/specs/2026-06-15-rec-card-duration-bestfit-design.md`
+- Implementation plan: `docs/superpowers/plans/2026-06-15-rec-card-duration-bestfit.md`
+
+---
+
 ### 2026-06-15 — Nate + Claude (Browse + Admin page redesign)
 
 **Done:**
