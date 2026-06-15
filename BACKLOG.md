@@ -1,6 +1,6 @@
 # RCARS Backlog
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 ## Active Work (June 2026)
 
@@ -34,6 +34,11 @@ Items selected for current development cycle. Investigations complete, design/im
 - [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
 - [ ] **Combined query (infra + vector in Advisor)** — Deferred. For queries like "fraud detection on OpenShift AI", the content vector search already captures product mentions naturally (via Showroom content + acronym expansion). Infrastructure hard-filtering in the Advisor pipeline would either be redundant (content already matches) or harmful (eliminating good content matches that happen to lack the workload metadata). The real use case is PH express mode ("what demos can run on this cluster?") which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically, and consider a soft boost (triage score bump) rather than hard filter
+
+## Retirement Analysis
+
+- [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard.
+- [ ] **Enhanced retirement scoring** — Replace fixed thresholds (provisions < 60, closed < $1M, etc.) with a more robust scoring model. Consider: weighted scoring with configurable thresholds, percentile-based scoring relative to catalog peers, category-aware thresholds (workshops vs demos vs open envs have different usage profiles), trend detection (declining usage over time vs stable low usage).
 
 ## Architecture
 
