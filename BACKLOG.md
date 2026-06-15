@@ -1,10 +1,17 @@
 # RCARS Backlog
 
-Last updated: 2026-05-14
+Last updated: 2026-06-16
 
-## Pending Actions
+## Active Work (June 2026)
 
-- [ ] **Full re-analysis for keyword embeddings** — catalog keywords were added to embedding text but existing embeddings predate this change. Run "Rescan All" from Admin to rebuild all embeddings with keywords included. ~400 unique showrooms, several hours — run overnight
+Items selected for current development cycle. Investigations complete, design/implementation in progress.
+
+- [x] **Infrastructure-aware catalog metadata** — Fully deployed (2026-06-15). AgnosticD v2 items: infra extraction, curated workload mapping (46 verified), faceted search API, workload scanner in nightly pipeline. Browse page redesigned with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination, curator-only filter panel. Admin page reorganized with stat cards, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI, Workers page merged into Sync & Analysis tab.
+- [x] **Rec card duration labels + Best Fit button** — Deployed (2026-06-15). Curated duration system (Alembic migration, curator endpoint, `duration_source` threaded through pipeline). Duration in card header + source-labeled pill. Best Fit button redesigned with bold green outline. Duration penalty only on curated values. Acronym case fix, card copy/paste fix, concurrent query fix (`asyncio.to_thread`), nginx HTTP/1.1 for SSE, `recommend_worker_replicas` configurable.
+- [x] **Content overlap detection (Phase 1)** — Deployed (2026-06-15). Pairwise cosine similarity on ci_summary embeddings within a single stage (prod/event/dev selector). New `content_similarity` table, admin Overlap tab with expandable side-by-side comparison, Browse "similar content" section, CLI `rcars compute-similarity`, API endpoints. Stage-scoped comparison eliminates false positives from stage variants.
+- [ ] **Retirement analysis (Phase 1)** — Nightly sync from RHDP reporting MCP server, `reporting_metrics` table, retirement scoring (0-100), retirement dashboard under Content Analysis (curator+), rec card enrichment (provisions, cost/provision, sales impact badge), Browse detail enrichment (nice-to-have). Spec: `docs/superpowers/specs/2026-06-15-retirement-analysis-integration-design.md`. Plan: `docs/superpowers/plans/2026-06-15-retirement-analysis-integration.md`. Join key: RCARS ci_name (strip stage suffix) → reporting DB `catalog_items.name`.
+- [ ] **Content overlap detection (Phase 2)** — Cross-stage overlap analysis. Compare dev items against prod items from *different* catalog items to flag "this dev lab duplicates an existing prod lab — reconsider before promoting." Also compare event items against prod. Requires smarter dedup: same-item stage variants must be excluded while cross-item cross-stage pairs are surfaced. Consider a "promotion risk" flag in Browse for dev items that overlap significantly with existing prod content. May also want overlap scores integrated into the nightly pipeline as an automated check rather than manual compute.
+- [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
 
 ## Bugs
 
@@ -13,26 +20,26 @@ Last updated: 2026-05-14
 
 ## UI / UX
 
-- [ ] **Rec card formatting in follow-up queries** — second response can differ from first in formatting quality
 - [ ] **Admin query history** — show user email, session duration
 - [ ] **Browse "untagged" filter** — dropdown option exists but filter logic is missing (no switch case)
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
-- [ ] **ACL-aware recommendations** — AgnosticV CRDs define group-based access controls per CI. RCARS currently recommends all items regardless of ordering permissions. Needs: extract ACL data during catalog refresh, store group membership per CI, filter or flag recommendations based on user's group membership. Complex — requires understanding AgnosticV RBAC model and mapping SSO groups to catalog permissions
+- [ ] **Add mobile mode to UI**
+- [ ] **Contextual sidebar navigation** — Redesign the app sidebar so it changes content based on the active section: Advisor shows session history, Browse shows filter controls, Admin shows sub-page links. Top-level nav moves to sidebar header or app header with a back button between sections. Eliminates the double-sidebar problem and gives each section full sidebar width for its own controls
 
 ## Recommendation Quality
 
 - [ ] **Proper recommendation system evaluation** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built approach as cost/ratings/feedback data grows
 - [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`) should be a hard boost, not just vector similarity. Consider curated keyword allowlist
-- [ ] **Scan duration data quality** — `estimated_duration_min` from LLM analysis is often inaccurate. No verification against actual lab runtimes. Consider sourcing from catalog metadata or manual curation
-- [ ] **Content overlap detection** — proposal vs. catalog comparison, lab-to-lab similarity analysis
 - [ ] **Multi-turn conversation context** — true conversational refinement with memory (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
+- [ ] **Combined query (infra + vector in Advisor)** — Deferred. For queries like "fraud detection on OpenShift AI", the content vector search already captures product mentions naturally (via Showroom content + acronym expansion). Infrastructure hard-filtering in the Advisor pipeline would either be redundant (content already matches) or harmful (eliminating good content matches that happen to lack the workload metadata). The real use case is PH express mode ("what demos can run on this cluster?") which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically, and consider a soft boost (triage score bump) rather than hard filter
 
-## Scanner / Pipeline
+## Retirement Analysis
 
-- [ ] **Non-Showroom content types** — Arcade demos, reference architectures, and other content formats not scanned or indexed. Need different extraction pipelines (Arcade JSON/YAML, architecture docs from repos/Confluence). Would enable advisor responses beyond hands-on labs
+- [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard.
+- [ ] **Enhanced retirement scoring** — Replace fixed thresholds (provisions < 60, closed < $1M, etc.) with a more robust scoring model. Consider: weighted scoring with configurable thresholds, percentile-based scoring relative to catalog peers, category-aware thresholds (workshops vs demos vs open envs have different usage profiles), trend detection (declining usage over time vs stable low usage).
 
 ## Architecture
 
@@ -44,7 +51,6 @@ Last updated: 2026-05-14
 
 - [ ] **Prototyping workflow** — find closest match, read Showroom/automation, order and modify environment
 - [ ] **Showroom unpacking service** — PH delegates content reading to RCARS
-- [ ] **Infrastructure-aware catalog metadata** — RCARS currently analyzes Showroom content (what a lab teaches) but not environment infrastructure (what operators, workloads, cluster config each CI provides). PH express mode needs: "what CI gives me an OpenShift cluster with operator X and Y?" Requires indexing AgnosticV definitions for infrastructure details. Also enables recommending Open Environments (no Showroom, just infra credentials)
 - [ ] **Express mode learning data** — store PH express mode run data (selected base CI + customization steps) for future runs. Must be separate from content analysis to avoid polluting search. Coordinate with PH backlog
 
 ---
@@ -118,3 +124,7 @@ Last updated: 2026-05-14
 - [x] RCARS API for PH vetting — PH calls RCARS to check content overlap during intake
 - [x] PH ServiceAccount in SA allowlist — `system:serviceaccount:publishing-house-dev:default` added to dev vars
 - [x] Scan dedup by commit SHA — resolve refs via `git ls-remote` before scanning; batch per URL, pass SHA siblings as job args for propagation
+- [x] Browse page redesign — collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering replacing client-side load-all, numbered pagination, curator-only filter panel (amber), URL state sync, debounced search
+- [x] Admin page reorganization — stat cards (Catalog/Analysis/Infrastructure) replacing monolithic table, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI (mapped + unmapped tables, inline map form), Workers page merged into Sync & Analysis tab
+- [x] Browse filter dropdowns — Cloud Provider, Workloads (multi-select with AND semantics + alias resolution), AgnosticD Config populated from `/catalog/facets` API
+- [x] Admin workload mapping management UI — mapped workloads table with delete, unmapped workloads table sorted by CI count with inline Map form

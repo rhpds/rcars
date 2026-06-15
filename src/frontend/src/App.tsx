@@ -5,6 +5,7 @@ import { LcarsHeader, LcarsSidebar } from './components/lcars'
 import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { AdminCatalogPage, AdminWorkersPage, AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
+import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import './styles/lcars.css'
 
 export default function App() {
@@ -33,6 +34,8 @@ export default function App() {
                 <Route path="/browse" element={<BrowsePage />} />
                 {auth.isAdmin && (
                   <>
+                    <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
+                    <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
                     <Route path="/admin" element={<Navigate to="/admin/catalog" replace />} />
                     <Route path="/admin/catalog" element={<AdminCatalogPage />} />
                     <Route path="/admin/workers" element={<AdminWorkersPage />} />

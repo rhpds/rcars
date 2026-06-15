@@ -87,9 +87,13 @@ def refresh():
     refreshed_ci_names = set()
     count_with_showroom = 0
     for i, item in enumerate(items, 1):
+        workloads = item.pop("_workloads", [])
+        acl_groups = item.pop("_acl_groups", [])
         db.upsert_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
         refreshed_ci_names.add(item["ci_name"])
+        db.sync_workloads(item["ci_name"], workloads)
+        db.sync_acl_groups(item["ci_name"], acl_groups)
         if item.get("showroom_url"):
             count_with_showroom += 1
         if i % 25 == 0 or i == len(items):
@@ -333,6 +337,27 @@ def status(failures: bool):
     db.close()
 
 
+@cli.command("compute-similarity")
+@click.option("--threshold", "-t", default=0.75, type=float, help="Minimum similarity score to store")
+@click.option("--stage", "-s", default="prod", type=click.Choice(["prod", "event", "dev"]), help="Stage to compare")
+def compute_similarity(threshold: float, stage: str):
+    """Compute pairwise content similarity between catalog items in a stage."""
+    db = get_db()
+    _print(f"Computing content similarity (stage={stage}, threshold={threshold})...")
+    result = db.compute_content_similarity(threshold=threshold, stage=stage)
+    _print(f"Done. {result['pairs_stored']} pairs stored above {threshold} threshold.")
+
+    stats = db.get_similarity_stats()
+    table = Table(title="Content Similarity")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("Total pairs", str(stats["total_pairs"]))
+    table.add_row("High overlap (≥0.85)", str(stats["high_overlap"]))
+    table.add_row("Related (0.75–0.85)", str(stats["related"]))
+    console.print(table)
+    db.close()
+
+
 # ── Curation commands ──
 
 @cli.command()
@@ -399,6 +424,206 @@ def set_content_path(ci_name: str, path: str):
     db = get_db()
     db.set_content_path(ci_name, path)
     console.print(f"Content path set for [cyan]{ci_name}[/cyan]: {path}")
+    db.close()
+
+
+# ── Infrastructure commands ──
+
+@cli.group(name="infra")
+def infra_group():
+    """Infrastructure metadata commands."""
+    pass
+
+
+@infra_group.command("stats")
+def infra_stats():
+    """Show infrastructure metadata coverage stats."""
+    db = get_db()
+    stats = db.get_infra_stats()
+
+    table = Table(title="Infrastructure Metadata Stats")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("AgnosticD v2 items", str(stats["v2_items"]))
+    table.add_row("Items with workloads", str(stats["with_workloads"]))
+    table.add_row("Mapped workload roles", str(stats["mapped_workloads"]))
+    table.add_row("Verified workload roles", str(stats["verified_workloads"]))
+    unmapped = stats["unmapped_workloads"]
+    style = "red" if unmapped > 0 else "green"
+    table.add_row("Unmapped workload roles", f"[{style}]{unmapped}[/{style}]")
+    console.print(table)
+    db.close()
+
+
+# ── Workload commands ──
+
+@cli.group(name="workload")
+def workload_group():
+    """Workload mapping and scanning commands."""
+    pass
+
+
+@workload_group.command("sync")
+@click.option("--seed-only", is_flag=True, default=False, help="Skip existing roles (preserve curator edits)")
+def workload_sync(seed_only: bool):
+    """Load workload_mapping.yaml into the database."""
+    from importlib.resources import files
+    import yaml
+
+    data_dir = files("rcars.data")
+    yaml_path = data_dir.joinpath("workload_mapping.yaml")
+    content = yaml_path.read_text()
+    data = yaml.safe_load(content)
+
+    db = get_db()
+    existing = {m["workload_role"] for m in db.list_workload_mappings()} if seed_only else set()
+
+    loaded = 0
+    skipped = 0
+    for entry in data.get("mappings", []):
+        role = entry["role"]
+        if seed_only and role in existing:
+            skipped += 1
+            continue
+        db.upsert_workload_mapping(
+            workload_role=role,
+            product_name=entry["product"],
+            description=entry.get("description"),
+            category=entry.get("category"),
+            source_collection=entry.get("collection"),
+            verified=entry.get("verified", False),
+            added_by="seed",
+        )
+        loaded += 1
+
+    alias_count = 0
+    for group in data.get("aliases", []):
+        product = group["product"]
+        for alias in group.get("aliases", []):
+            db.upsert_workload_alias(product, alias)
+            alias_count += 1
+
+    msg = f"Loaded {loaded} mappings, {alias_count} aliases"
+    if skipped:
+        msg += f" (skipped {skipped} existing)"
+    console.print(f"[green]{msg}[/green]")
+    db.close()
+
+
+@workload_group.command("unmapped")
+def workload_unmapped():
+    """List workload roles that have no mapping yet."""
+    db = get_db()
+    unmapped = db.get_unmapped_workloads()
+
+    if not unmapped:
+        console.print("[green]All workload roles are mapped.[/green]")
+        db.close()
+        return
+
+    table = Table(title=f"Unmapped Workloads ({len(unmapped)})")
+    table.add_column("Role", style="cyan")
+    table.add_column("Collection")
+    table.add_column("CIs", justify="right")
+    for row in unmapped:
+        table.add_row(row["workload_role"], row.get("workload_collection") or "", str(row["ci_count"]))
+    console.print(table)
+    db.close()
+
+
+@workload_group.command("map")
+@click.argument("role")
+@click.argument("product")
+@click.option("--category", "-c", default=None, help="Category grouping")
+@click.option("--description", "-d", default=None, help="What this workload does")
+def workload_map(role: str, product: str, category: str | None, description: str | None):
+    """Add or update a workload mapping."""
+    db = get_db()
+    db.upsert_workload_mapping(
+        workload_role=role, product_name=product,
+        description=description, category=category,
+    )
+    console.print(f"Mapped [cyan]{role}[/cyan] → {product}")
+    db.close()
+
+
+@workload_group.command("alias")
+@click.argument("product")
+@click.argument("alias_name")
+def workload_alias(product: str, alias_name: str):
+    """Add a product name alias."""
+    db = get_db()
+    db.upsert_workload_alias(product, alias_name)
+    console.print(f"Alias [cyan]{alias_name}[/cyan] → {product}")
+    db.close()
+
+
+@workload_group.command("scan")
+@click.option("--collection", "-c", default=None, help="Scan only this collection (e.g. agnosticd.core_workloads)")
+@click.option("--force", is_flag=True, default=False, help="Skip SHA check, rescan everything")
+def workload_scan(collection: str | None, force: bool):
+    """Scan agDv2 workload repos, analyze roles via LLM, update mappings."""
+    from rcars.services.workload_scanner import scan_all_collections
+
+    settings = Settings()
+    db = get_db()
+
+    anthropic_client = settings.get_anthropic_client()
+    if not anthropic_client:
+        console.print("[red]Error:[/red] No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+        db.close()
+        sys.exit(1)
+
+    model = settings.triage_model
+    _print(f"Scanning workload repos (model={model}, force={force})")
+    if collection:
+        _print(f"  filtering to collection: {collection}")
+
+    results = scan_all_collections(
+        clone_dir=settings.clone_dir,
+        anthropic_client=anthropic_client,
+        model=model,
+        db=db,
+        force=force,
+        collection_filter=collection,
+    )
+
+    for r in results:
+        status = r.get("status", "?")
+        if status == "unchanged":
+            _print(f"  {r['collection']}: unchanged (skipped)")
+        elif status == "clone_failed":
+            _print(f"  {r['collection']}: [red]clone failed[/red]")
+        else:
+            _print(f"  {r['collection']}: {r.get('roles_scanned', 0)} scanned, "
+                   f"{r.get('roles_mapped', 0)} mapped, {r.get('roles_plumbing', 0)} plumbing")
+
+    total_scanned = sum(r.get("roles_scanned", 0) for r in results)
+    total_mapped = sum(r.get("roles_mapped", 0) for r in results)
+    _print(f"Done. {total_scanned} roles scanned, {total_mapped} new/updated mappings.")
+    db.close()
+
+
+@workload_group.command("list")
+def workload_list():
+    """List all workload mappings."""
+    db = get_db()
+    mappings = db.list_workload_mappings()
+
+    if not mappings:
+        console.print("[yellow]No workload mappings found. Run 'rcars workload sync' first.[/yellow]")
+        db.close()
+        return
+
+    table = Table(title=f"Workload Mappings ({len(mappings)})")
+    table.add_column("Role", style="cyan")
+    table.add_column("Product")
+    table.add_column("Category")
+    table.add_column("Verified", justify="center")
+    for m in mappings:
+        verified = "[green]yes[/green]" if m.get("verified") else "[dim]no[/dim]"
+        table.add_row(m["workload_role"], m["product_name"], m.get("category") or "", verified)
+    console.print(table)
     db.close()
 
 

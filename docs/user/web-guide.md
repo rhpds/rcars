@@ -88,6 +88,7 @@ Each card shows:
 
 - **Relevance score** — percentage, color-coded by tier
 - **Name** — the display name of the catalog item
+- **Duration** — estimated duration in minutes (e.g., "~120 min"), shown in the card header
 - **Stage badge** — DEV or EVENT badges for non-production items (visible to curators who toggle dev/event stages)
 - **CI name** — the internal identifier
 
@@ -95,17 +96,18 @@ For green-tier cards (expanded):
 
 - **Why it fits** — a structured explanation of why this content matches your request
 - **How to use** — a practical delivery suggestion
+- **Duration pill** — duration with source label: "(AI estimate)" for LLM-guessed durations, "(estimated)" for curator-set durations
 - **Suggested format** and **duration notes** — shown as pills
 - **Caveats** — anything flagged as a potential concern
 - **Learning objectives** — up to 5 objectives from the analysis
 - **Catalog link** — direct link to order on `demo.redhat.com`
-- **"Best fit" button** — mark this as your selected recommendation (feedback for future improvement)
+- **"★ This is the best fit" button** — mark this as your selected recommendation (feedback for future improvement)
 
 Cards appear progressively as the system works through its pipeline. During vector search, candidates appear as a flat list. During triage, they are evaluated and scored. After completion, they are grouped into tiers with full detail on the best matches.
 
 ## Expanding a Card
 
-Click anywhere on a card to expand it. Click again to collapse it. Green-tier cards show the full rationale (why it fits, how to use, caveats, learning objectives). Yellow and white cards show the triage score and one-line reason.
+Click on a card's header to expand it. Click the header again to collapse it. Text inside expanded cards can be selected and copied. Green-tier cards show the full rationale (why it fits, how to use, caveats, learning objectives). Yellow and white cards show the triage score and one-line reason.
 
 ## Refining Results
 
@@ -133,8 +135,10 @@ Curator controls are available in the **Browse page** (not the Advisor page). If
 
 - **Add/remove tags** — short labels that describe the content. Tags are visible to all users. Examples: `booth-tested`, `kubecon-2026`, `needs-update`, `flagship`.
 - **Add notes** — free-text observations visible on the Browse page.
+- **Set curated duration** — override the AI-estimated duration with a known value (in minutes). Curated durations are labeled "(estimated)" on rec cards and in Browse; AI guesses are labeled "(AI estimate)". Only curated durations affect duration-based scoring penalties.
 - **Flag for review** — marks an item as needing attention. Flagged items appear in the "Needs review" filter.
 - **Re-analyze** — trigger a fresh Showroom scan for a single item.
+- **Override Showroom URL** — point to a different git repository for Showroom content.
 - **Set content path** — override the default Antora content path for a Showroom repository.
 
 Curator changes are saved immediately. Tags can be removed by clicking the X on the tag pill.
@@ -143,12 +147,12 @@ Curator changes are saved immediately. Tags can be removed by clicking the X on 
 
 ## The Browse Page
 
-The Browse page (`/browse`) shows the full catalog in a searchable, filterable list with client-side pagination (50 items per page).
+The Browse page (`/browse`) shows the full catalog in a searchable, filterable list with server-side pagination (50 items per page).
 
 **Filter bar:**
 
 - **Text search** — filters by display name or CI name (case-insensitive substring match)
-- **Content filter dropdown** — filter by: All items, Has Showroom, Analyzed, Unanalyzed, Needs review, Scan failures, Stale
+- **Curator filters** (curator only) — filter by: Unanalyzed, Scan Failures, Stale, Needs Review
 - **Dev toggle** — show/hide dev-stage items
 - **Event toggle** — show/hide event-stage items
 
@@ -156,33 +160,83 @@ Each item in the list shows its display name, stage badges (DEV/EVENT), ZT badge
 
 **Expanded item view** (click to expand):
 
-- Analysis data: content type, difficulty, estimated duration
+- Analysis data: content type, difficulty, duration with source label ("AI estimate" or "estimated")
 - Summary text
 - Products (purple pills) and topics (blue pills)
 - Learning objectives (stated + inferred)
 - Module list with per-module topics
 - Links to RHDP Catalog and Showroom repository
 
-**Curator controls** (visible to curators only): add/remove tags, edit notes, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
+**Similar Content** — if overlap detection has been run (see Admin section below), expanded items may show a "Similar Content" panel listing other catalog items with similar Showroom content, ranked by similarity percentage. High overlap (≥85%) is shown in red; related content (75–85%) in amber. Click a similar item's name to search for it in Browse.
+
+**Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
+
+## Content Analysis
+
+The Content Analysis section (`/analysis`) is a top-level section in the sidebar, visible to admins. It contains tools for analyzing catalog content at scale — identifying overlap, assessing retirement candidates, and understanding the catalog's content landscape.
+
+### Content Overlap (`/analysis/overlap`)
+
+The Overlap page helps curators identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built separate OpenShift Pipelines labs with 85% topic overlap.
+
+#### Understanding how similarity works
+
+When RCARS scans a Showroom lab, it sends the lab's content to Claude Sonnet, which returns a structured analysis: summary, topics, products, modules, and learning objectives. RCARS then feeds that analysis text into a sentence-transformer model (all-MiniLM-L6-v2), which converts it into a list of 384 numbers called an **embedding**. Think of this as a fingerprint that captures *what the lab is about* — not the exact words used, but the underlying meaning. Two labs about "deploying containerized applications on OpenShift" will get similar fingerprints even if they use completely different wording.
+
+Every analyzed lab in the catalog already has one of these fingerprints stored in the database from its original scan. The overlap detection reuses them — it does not call Claude or any external API. The entire computation runs inside PostgreSQL.
+
+To compare two labs, RCARS uses **cosine similarity**, which measures how closely two fingerprints point in the same direction. Imagine each fingerprint as an arrow in a high-dimensional space. If two arrows point the same way, the angle between them is small and the cosine similarity is close to 1.0 (100%). If they point in unrelated directions, the similarity drops toward 0. In practice:
+
+- **90%+** — the labs cover nearly identical material
+- **85–90%** — strong overlap, likely candidates for consolidation
+- **75–85%** — related topics with some differentiation
+- **Below 75%** — different enough that overlap is not a concern (these pairs are not stored)
+
+The computation compares every lab against every other lab within the selected stage. With ~100 prod labs, that is about 5,000 comparisons — pgvector handles this in under a second.
+
+#### Stage selection
+
+The stage dropdown controls which catalog items are compared:
+
+- **Production** (default) — compares prod items against other prod items. This is the most actionable view: two prod items with high overlap means two orderable labs on demo.redhat.com cover the same material.
+- **Event** — compares event items against other event items.
+- **Dev** — compares dev items against other dev items.
+
+Each stage is compared within itself. Published Virtual CIs are excluded because they have no Showroom content of their own — they are wrappers that point to a base CI. The comparison happens between the base CIs that own the actual lab content.
+
+#### Using the Overlap page
+
+1. Select a **stage** from the dropdown (default: Production).
+2. Click **Compute Similarity** to run the comparison. This is fast (seconds) and consumes no LLM tokens.
+3. The stats bar shows how many high-overlap and related pairs were found.
+4. Use the second dropdown to filter between "All pairs" and "High overlap only."
+5. Click any pair to expand it and see both summaries side by side.
+6. Click a lab name to navigate to it in Browse for detailed review.
+
+**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--stage prod] [--threshold 0.75]`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`). The overlap report is available at `GET /api/v1/admin/overlap`, and per-item similarity at `GET /api/v1/catalog/{ci_name}/similar`.
+
+**When to recompute:** After a full scan or re-analysis, since the underlying fingerprints may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
 ## The Admin Pages
 
-The Admin section (`/admin`) is visible to admins only (not curators). It is split into four sub-pages, accessible via the sidebar navigation:
+The Admin section (`/admin`) is visible to admins only (not curators). It is split into three sub-pages, accessible via the sidebar navigation:
 
 ### Catalog (`/admin/catalog`)
 
-- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary with items synced, stale found, and analysis queued). Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress. To change the schedule, see [Operations — Changing the Schedule](../admin/operations.md#changing-the-schedule).
+The Catalog admin page has three tabs: **Status**, **Sync & Analysis**, and **Workloads**.
+
+**Status tab:**
+
 - **Catalog Status** — total items, prod/dev/event breakdown, scannable count, analyzed, unanalyzed (clickable link to Browse filtered view), stale count, analysis failures, and last sync/analysis timestamps with CURRENT/STALE indicators
+- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary with items synced, stale found, and analysis queued). Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress. To change the schedule, see [Operations — Changing the Schedule](../admin/operations.md#changing-the-schedule).
+
+**Sync & Analysis tab:**
+
 - **Catalog Sync** — triggers catalog refresh from Babylon CRDs
 - **Content Analysis** — two buttons: "Analyze" (scan unanalyzed items) and "Check Stale" (detect changed Showrooms). Shows a live scrolling log.
 - **Full Re-Analysis** — "Re-Analyze All" button that marks every item stale and enqueues a complete rescan. Warning: consumes significant tokens.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
-
-### Workers (`/admin/workers`)
-
-- **Worker Status** — auto-refreshes every 10 seconds. Shows summary counts (running, queued, complete, failed) with color-coded indicators and an active analysis banner when jobs are in progress.
-- **Recent Jobs** — table of the last 50 jobs with type, CI name, status (color-coded), created/completed timestamps, and duration. Running and queued jobs sort to the top.
 
 ### Token Usage (`/admin/tokens`)
 

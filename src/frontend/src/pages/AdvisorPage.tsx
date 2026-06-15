@@ -55,6 +55,12 @@ function renderMarkdown(text: string) {
   return <>{elements}</>
 }
 
+function cleanAssessment(text: string): string {
+  let cleaned = text.replace(/^\*?\*?Response:\*?\*?\s*/i, '')
+  cleaned = cleaned.replace(/^\*?\*?Practical Notes:\*?\*?\s*/im, '\n**Practical Notes:**\n')
+  return cleaned
+}
+
 function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
   return (
     <div className={`lcars-toggle${active ? ' active' : ''}`} onClick={onToggle}>
@@ -118,7 +124,7 @@ export function AdvisorPage() {
           if (turn.query_text) {
             newMessages.push({ role: 'user', content: turn.query_text })
           }
-          let text = turn.overall_assessment || ''
+          let text = cleanAssessment(turn.overall_assessment || '')
           if (turn.content_gaps && turn.content_gaps.length > 0) {
             text += '\n\n**Content gaps:**'
             for (const gap of turn.content_gaps) text += `\n- ${gap}`
@@ -147,12 +153,12 @@ export function AdvisorPage() {
           setTurns(prev => [...prev, result])
           setActiveTurn(turns.length)
 
-          let text = result.overall_assessment || ''
+          let text = cleanAssessment(result.overall_assessment || '')
           if (result.content_gaps && result.content_gaps.length > 0) {
             text += '\n\n**Content gaps:**'
             for (const gap of result.content_gaps) text += `\n- ${gap}`
           }
-          if (!text) text = 'No matching content found for this query. Try broadening your search criteria.'
+          if (!text) text = 'No matching content found. Try adding more detail — describe the topic, audience, product area, or format you need. Short queries often lack enough context for RCARS to find a strong match.'
           setMessages(prev => [...prev, { role: 'assistant', content: text, jobId: activeJobId }])
         }
         setActiveJobId(null)

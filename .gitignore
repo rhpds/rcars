@@ -18,6 +18,7 @@ venv/
 
 # Data (never commit)
 data/
+!src/api/rcars/data/
 *.db
 *.sqlite
 
@@ -48,4 +49,4 @@ ansible/vars/dev.yml
 ansible/vars/prod.yml
 node_modules
 tsconfig.tsbuildinfo
-OPERATIONS.md
+/OPERATIONS.md

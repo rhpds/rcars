@@ -19,6 +19,7 @@ class Candidate:
     duration_min: int | None
     content_type: str
     stage: str = "prod"
+    duration_source: str = "ai"  # "curated" | "ai"
     catalog_namespace: str = ""
     learning_objectives: list[str] = field(default_factory=list)
     tier: str = "white"  # white | yellow | green — set by pipeline phases

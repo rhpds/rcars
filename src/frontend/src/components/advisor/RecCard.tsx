@@ -16,6 +16,8 @@ interface Candidate {
   suggested_format: string | null
   duration_notes: string | null
   caveats: string | null
+  duration_min: number | null
+  duration_source: string | null
 }
 
 interface RecCardProps {
@@ -31,9 +33,22 @@ function catalogUrl(ciName: string, namespace: string): string {
   return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
 }
 
+const FORMAT_LABELS: Record<string, string> = {
+  hands_on_lab: 'Hands-on Lab',
+  booth_demo: 'Booth Demo',
+  presentation: 'Presentation',
+}
+
+const FORMAT_COLORS: Record<string, { bg: string; color: string }> = {
+  hands_on_lab: { bg: '#1a2a3a', color: '#73bcf7' },
+  booth_demo: { bg: '#2a2a1a', color: '#e8a838' },
+  presentation: { bg: '#2a1a2a', color: '#cc88cc' },
+}
+
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
+  const [showFullCaveat, setShowFullCaveat] = useState(false)
 
   const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
@@ -44,89 +59,130 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
     setSelected(true)
   }
 
+  const caveatText = candidate.caveats || ''
+  const caveatTruncated = caveatText.length > 200 && !showFullCaveat
+
+  const durationSourceLabel = candidate.duration_min
+    ? (candidate.duration_source === 'curated' ? 'Curated duration' : 'AI duration estimate')
+    : null
+
+  const formatKey = candidate.suggested_format || ''
+  const formatLabel = FORMAT_LABELS[formatKey] || (formatKey ? formatKey.replace(/_/g, ' ') : null)
+  const formatStyle = FORMAT_COLORS[formatKey] || { bg: '#1a2a3a', color: '#73bcf7' }
+
   return (
-    <LcarsCard tier={tier} onClick={() => setExpanded(!expanded)}>
-      <div className="rec-card-header">
+    <LcarsCard tier={tier}>
+      <div
+        className="rec-card-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
+        style={{ cursor: 'pointer' }}
+      >
         <span className="rec-score">{score}%</span>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="rec-title">{candidate.display_name}</div>
           <div className="rec-meta">
             {candidate.stage !== 'prod' && (
-              <span style={{
-                display: 'inline-block',
-                background: candidate.stage === 'dev' ? '#2a4a6a' : '#5a4a1a',
-                color: candidate.stage === 'dev' ? '#99ccff' : '#ffcc66',
-                borderRadius: '10px', padding: '2px 8px', fontSize: '10px',
-                fontWeight: 600, marginRight: '6px',
-              }}>{candidate.stage.toUpperCase()}</span>
+              <span className="rec-badge" style={{ background: candidate.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: candidate.stage === 'dev' ? '#99ccff' : '#ffcc66' }}>
+                {candidate.stage.toUpperCase()}
+              </span>
             )}
             {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name.startsWith('zt-')) && (
-              <span style={{ display: 'inline-block', background: '#1a3a2a', color: '#66cc99', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginRight: '6px' }}>ZT</span>
+              <span className="rec-badge" style={{ background: '#1a3a2a', color: '#66cc99' }}>ZT</span>
             )}
-            {candidate.ci_name}
+            {formatLabel && (
+              <span className="rec-badge" style={{ background: formatStyle.bg, color: formatStyle.color }}>{formatLabel}</span>
+            )}
+            <span>{candidate.ci_name}</span>
+            {durationSourceLabel && (
+              <><span style={{ color: '#444', margin: '0 4px' }}>·</span><span>{durationSourceLabel}</span></>
+            )}
           </div>
         </div>
+        {candidate.duration_min && (
+          <span style={{ fontSize: '14px', color: '#999', fontWeight: 500, flexShrink: 0 }}>
+            ~{candidate.duration_min} min
+          </span>
+        )}
         <span className="rec-expand-hint">{expanded ? '▾' : '▸'}</span>
       </div>
 
       {expanded && (
         <div className="rec-expanded">
           {candidate.why_it_fits && (
-            <div className="rec-analysis">
-              <div className="rec-analysis-row">
-                <span className="rec-analysis-label">Why it fits</span>
-                <span className="rec-analysis-value">{candidate.why_it_fits}</span>
+            <div className="rec-row">
+              <span className="rec-row-label">Why it fits</span>
+              <span className="rec-row-value">{candidate.why_it_fits}</span>
+            </div>
+          )}
+
+          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
+            <div className="rec-row">
+              <span className="rec-row-label">Objectives</span>
+              <div className="rec-row-value">
+                <ul className="rec-objectives-list">
+                  {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
+                    <li key={i}>{obj}</li>
+                  ))}
+                </ul>
               </div>
             </div>
           )}
+
           {candidate.how_to_use && (
-            <div className="rec-analysis-row">
-              <span className="rec-analysis-label">How to use</span>
-              <span className="rec-analysis-value">{candidate.how_to_use}</span>
-            </div>
-          )}
-          {candidate.suggested_format && (
-            <div className="rec-pill-row">
-              <span className="rec-pill pill-format">{candidate.suggested_format}</span>
-              {candidate.duration_notes && <span className="rec-pill">{candidate.duration_notes}</span>}
-            </div>
-          )}
-          {candidate.caveats && (
-            <div className="rec-caveat">Caveat: {candidate.caveats}</div>
-          )}
-
-          {/* Learning objectives for green tier */}
-          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Relevant Learning Objectives</div>
-              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
-                {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
-                  <li key={i}>{obj}</li>
-                ))}
-              </ul>
+            <div className="rec-row">
+              <span className="rec-row-label">How to use</span>
+              <div className="rec-row-value">
+                <div>{candidate.how_to_use}</div>
+                {candidate.duration_notes && (
+                  <div style={{ color: '#777', marginTop: '2px' }}>{candidate.duration_notes}</div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* Links + feedback button */}
-          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {!candidate.how_to_use && candidate.duration_notes && (
+            <div className="rec-row">
+              <span className="rec-row-label">Timing</span>
+              <span className="rec-row-value" style={{ color: '#777' }}>{candidate.duration_notes}</span>
+            </div>
+          )}
+
+          {caveatText && (
+            <div className="rec-caveat">
+              <span>⚠ {caveatTruncated ? caveatText.slice(0, 200) + '...' : caveatText}</span>
+              {caveatText.length > 200 && (
+                <button
+                  className="rec-caveat-toggle"
+                  onClick={(e) => { e.stopPropagation(); setShowFullCaveat(!showFullCaveat) }}
+                >
+                  {showFullCaveat ? 'less' : 'more'}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="rec-footer">
             <a
               href={catalogUrl(candidate.ci_name, candidate.catalog_namespace)}
               target="_blank" rel="noopener noreferrer"
-              style={{ color: '#73bcf7', fontSize: '13px' }}
               onClick={(e) => e.stopPropagation()}
             >
               View in RHDP Catalog
             </a>
             {isComplete && (tier === 'green' || tier === 'yellow') && (
               selected ? (
-                <span style={{ color: '#5cb85c', fontSize: '13px' }}>✓ Best fit</span>
+                <span style={{ color: '#5cb85c', fontSize: '13px', fontWeight: 500 }}>✓ Best fit</span>
               ) : (
                 <button
-                  className="btn-curator"
+                  className="btn-best-fit"
                   title="Helps us improve recommendations by tracking which results are most useful"
                   onClick={(e) => { e.stopPropagation(); handleSelect() }}
                 >
-                  Best fit
+                  ★ Best fit
                 </button>
               )
             )}

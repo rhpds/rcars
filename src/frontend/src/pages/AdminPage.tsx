@@ -334,7 +334,7 @@ function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }
     <div className="admin-section">
       <h3>Scheduled Maintenance</h3>
       <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-        Automated nightly pipeline: catalog refresh → stale check → re-analyze. Runs inside the scan worker via arq cron.
+        Automated nightly pipeline: catalog refresh → stale check → re-analyze → workload scan. Runs inside the scan worker via arq cron.
       </p>
       {schedule && (
         <>
@@ -389,128 +389,378 @@ function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }
   )
 }
 
+interface InfraStats {
+  v2_items: number
+  with_workloads: number
+  mapped_workloads: number
+  verified_workloads: number
+  unmapped_workloads: number
+}
+
+interface WorkloadMapping {
+  workload_role: string
+  product_name: string
+  description: string | null
+  category: string | null
+  verified: boolean
+}
+
+interface UnmappedWorkload {
+  workload_role: string
+  workload_collection: string | null
+  ci_count: number
+}
+
+function WorkloadScanSection({ onStatusChange }: { onStatusChange: () => void }) {
+  const [log, setLog] = useState<string[]>([])
+  const [logOpen, setLogOpen] = useState(false)
+  const [running, setRunning] = useState(false)
+  const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
+
+  const handleScan = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunning(true)
+    addLog('Starting workload repository scan...')
+    try {
+      const result = await api.scanWorkloads()
+      addLog(`job_id=${result.job_id}`)
+      let seen = 0
+      await new Promise<void>((resolve) => {
+        const interval = setInterval(async () => {
+          try {
+            const job = await api.getJob(result.job_id)
+            const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+            for (let i = seen; i < messages.length; i++) {
+              if (messages[i].message) addLog(messages[i].message!)
+            }
+            seen = messages.length
+            if (job.status === 'complete' || job.status === 'failed') {
+              clearInterval(interval)
+              if (job.error) addLog(`Error: ${job.error}`)
+              resolve()
+            }
+          } catch { /* ignore */ }
+        }, 3000)
+        setTimeout(() => { clearInterval(interval); resolve() }, 30 * 60 * 1000)
+      })
+    } catch (err) {
+      addLog(`Error: ${err}`)
+    }
+    setRunning(false)
+    onStatusChange()
+  }
+
+  return (
+    <div className="admin-section">
+      <h3>Workload Repos</h3>
+      <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+        Scan AgnosticD v2 workload repos for role changes. Reads Ansible code and uses Haiku to determine what each role installs. Updates the workload mapping table with verified product names.
+      </p>
+      <LcarsButton onClick={handleScan} disabled={running}>
+        {running ? 'Scanning...' : 'Scan Workload Repos'}
+      </LcarsButton>
+      <LogWindow
+        lines={log}
+        isOpen={logOpen}
+        onToggle={() => setLogOpen(!logOpen)}
+      />
+    </div>
+  )
+}
+
+function WorkloadMappingSection({ onStatusChange }: { onStatusChange: () => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const [mappings, setMappings] = useState<WorkloadMapping[]>([])
+  const [unmapped, setUnmapped] = useState<UnmappedWorkload[]>([])
+  const [loading, setLoading] = useState(false)
+  const [mappingForm, setMappingForm] = useState<Record<string, { product: string; category: string }>>({})
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [mapData, unmapData] = await Promise.all([
+        api.getWorkloadMappings() as Promise<{ mappings: WorkloadMapping[]; aliases: unknown[] }>,
+        api.getUnmappedWorkloads() as Promise<{ unmapped: UnmappedWorkload[] }>,
+      ])
+      setMappings(mapData.mappings.sort((a, b) => a.product_name.localeCompare(b.product_name)))
+      setUnmapped(unmapData.unmapped.sort((a, b) => b.ci_count - a.ci_count))
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  const handleExpand = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && mappings.length === 0) loadData()
+  }
+
+  const handleDelete = async (role: string) => {
+    await api.deleteWorkloadMapping(role)
+    loadData()
+    onStatusChange()
+  }
+
+  const handleMap = async (role: string) => {
+    const form = mappingForm[role]
+    if (!form?.product?.trim()) return
+    await api.addWorkloadMapping({
+      workload_role: role,
+      product_name: form.product.trim(),
+      category: form.category?.trim() || undefined,
+    })
+    setMappingForm(prev => { const next = { ...prev }; delete next[role]; return next })
+    loadData()
+    onStatusChange()
+  }
+
+  return (
+    <div className="admin-section">
+      <h3
+        style={{ cursor: 'pointer' }}
+        onClick={handleExpand}
+      >
+        {expanded ? '▾' : '▸'} Workload Mappings
+        {mappings.length > 0 && (
+          <span style={{ fontSize: '12px', color: '#666', fontWeight: 'normal', textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>
+            {mappings.length} mapped · {unmapped.length} unmapped
+          </span>
+        )}
+      </h3>
+      {expanded && (
+        loading ? (
+          <div style={{ color: '#666' }}>Loading...</div>
+        ) : (
+          <>
+            {unmapped.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '13px', color: '#e8a838', marginBottom: '8px', fontWeight: 600 }}>
+                  Unmapped Workloads ({unmapped.length})
+                </div>
+                <table className="status-table status-table--compact">
+                  <thead><tr><th>Role</th><th>Collection</th><th style={{ textAlign: 'right' }}>CIs</th><th></th></tr></thead>
+                  <tbody>
+                    {unmapped.map(u => (
+                      <tr key={u.workload_role}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{u.workload_role}</td>
+                        <td style={{ color: '#666', fontSize: '11px' }}>{u.workload_collection || '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{u.ci_count}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {mappingForm[u.workload_role] !== undefined ? (
+                            <div className="mapping-inline-form">
+                              <input
+                                placeholder="Product name"
+                                value={mappingForm[u.workload_role]?.product || ''}
+                                onChange={(e) => setMappingForm(prev => ({
+                                  ...prev, [u.workload_role]: { ...prev[u.workload_role], product: e.target.value }
+                                }))}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                              />
+                              <input
+                                placeholder="Category"
+                                value={mappingForm[u.workload_role]?.category || ''}
+                                onChange={(e) => setMappingForm(prev => ({
+                                  ...prev, [u.workload_role]: { ...prev[u.workload_role], category: e.target.value }
+                                }))}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                                style={{ width: '100px' }}
+                              />
+                              <button onClick={() => handleMap(u.workload_role)}>Save</button>
+                              <button
+                                onClick={() => setMappingForm(prev => { const next = { ...prev }; delete next[u.workload_role]; return next })}
+                                style={{ background: 'none', color: '#666' }}
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              className="mapping-delete-btn"
+                              style={{ color: '#73bcf7' }}
+                              onClick={() => setMappingForm(prev => ({ ...prev, [u.workload_role]: { product: '', category: '' } }))}
+                            >
+                              Map
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div>
+              <div style={{ fontSize: '13px', color: '#5cb85c', marginBottom: '8px', fontWeight: 600 }}>
+                Mapped Workloads ({mappings.length})
+              </div>
+              <table className="status-table status-table--compact">
+                <thead><tr><th>Role</th><th>Product Name</th><th>Category</th><th></th><th></th></tr></thead>
+                <tbody>
+                  {mappings.map(m => (
+                    <tr key={m.workload_role}>
+                      <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{m.workload_role}</td>
+                      <td>{m.product_name}</td>
+                      <td style={{ color: '#666' }}>{m.category || '—'}</td>
+                      <td>{m.verified && <span className="verified-badge">verified</span>}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button className="mapping-delete-btn" onClick={() => handleDelete(m.workload_role)} title="Remove mapping">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  )
+}
+
+type AdminTab = 'status' | 'sync' | 'workloads'
+
 export function AdminCatalogPage() {
   const navigate = useNavigate()
+  const [tab, setTab] = useState<AdminTab>('status')
   const [status, setStatus] = useState<CatalogStatus | null>(null)
+  const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
 
   const loadStatus = () => {
     api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
+    api.getInfraStats().then(data => setInfraStats(data as InfraStats))
   }
 
   useEffect(() => { loadStatus() }, [])
 
   const statusColor = (stale: boolean) => stale ? '#c9190b' : '#5cb85c'
 
-  return (
-    <div className="admin-layout">
-      <ScheduledMaintenance onStatusChange={loadStatus} />
+  const clickableCount = (count: number, filter: string, warnColor = '#e8a838') => (
+    <span
+      onClick={() => count > 0 && navigate(`/browse?content_filter=${filter}`)}
+      className={count > 0 ? 'admin-stat-row-link' : undefined}
+      style={{ color: count > 0 ? warnColor : '#5cb85c' }}
+    >{count}</span>
+  )
 
-      <div className="admin-section">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <h3 style={{ margin: 0 }}>Catalog Status</h3>
-          <button
-            onClick={loadStatus}
-            style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
-          >
-            ↻ Refresh
-          </button>
-        </div>
-        {status ? (
-          <table className="status-table">
-            <thead><tr><th>Metric</th><th>Count</th></tr></thead>
-            <tbody>
-              <tr><td>Total catalog items</td><td>{status.total}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Production</td><td>{status.prod}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Dev</td><td>{status.dev}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Event</td><td>{status.event}</td></tr>
-              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                <td>CIs with Showroom</td><td>{status.scannable}</td>
-              </tr>
-              <tr>
-                <td style={{ paddingLeft: '24px', color: '#888' }}>Unique Showrooms (after dedup)</td><td>{status.unique_showrooms}</td>
-              </tr>
-              <tr><td>Analyzed</td><td>{status.analyzed}</td></tr>
-              <tr>
-                <td>Unanalyzed</td>
-                <td>
-                  <span
-                    onClick={() => status.unanalyzed > 0 && navigate('/browse?filter=unanalyzed')}
-                    style={{ color: status.unanalyzed > 0 ? '#e8a838' : '#5cb85c', cursor: status.unanalyzed > 0 ? 'pointer' : 'default', textDecoration: status.unanalyzed > 0 ? 'underline' : 'none' }}
-                  >{status.unanalyzed}</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Stale (needs rescan)</td>
-                <td>
-                  <span
-                    onClick={() => status.stale_count > 0 && navigate('/browse?filter=stale')}
-                    style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c', cursor: status.stale_count > 0 ? 'pointer' : 'default', textDecoration: status.stale_count > 0 ? 'underline' : 'none' }}
-                  >{status.stale_count}</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Analysis failures</td>
-                <td>
-                  <span
-                    onClick={() => status.failed_count > 0 && navigate('/browse?filter=scan_failures')}
-                    style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c', cursor: status.failed_count > 0 ? 'pointer' : 'default', textDecoration: status.failed_count > 0 ? 'underline' : 'none' }}
-                  >{status.failed_count}</span>
-                </td>
-              </tr>
-              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                <td style={{ color: '#666' }}>Last catalog sync</td>
-                <td style={{ color: statusColor(status.catalog_stale) }}>{status.catalog_date}</td>
-              </tr>
-              <tr>
-                <td style={{ color: '#666' }}>Last analysis run</td>
-                <td style={{ color: statusColor(status.analysis_stale) }}>{status.analysis_date}</td>
-              </tr>
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>Loading...</div>
-        )}
+  return (
+    <div className="admin-layout admin-layout--flex">
+      <div className="admin-tabs">
+        <button className={`admin-tab${tab === 'status' ? ' active' : ''}`} onClick={() => setTab('status')}>Status</button>
+        <button className={`admin-tab${tab === 'sync' ? ' active' : ''}`} onClick={() => setTab('sync')}>Sync & Analysis</button>
+        <button className={`admin-tab${tab === 'workloads' ? ' active' : ''}`} onClick={() => setTab('workloads')}>Workloads</button>
       </div>
 
-      <AdminAction
-        title="Catalog Sync"
-        description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
-        buttonLabel="Refresh Catalog"
-        onRun={async (addLog) => {
-          addLog('Starting catalog refresh...')
-          const result = await api.refreshCatalog()
-          addLog(`job_id=${result.job_id}`)
-          let seen = 0
-          await new Promise<void>((resolve) => {
-            const interval = setInterval(async () => {
-              try {
-                const job = await api.getJob(result.job_id)
-                const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
-                for (let i = seen; i < messages.length; i++) {
-                  if (messages[i].message) addLog(messages[i].message!)
-                }
-                seen = messages.length
-                if (job.status === 'complete' || job.status === 'failed') {
-                  clearInterval(interval)
-                  if (job.error) addLog(`Error: ${job.error}`)
-                  resolve()
-                }
-              } catch { /* ignore */ }
-            }, 2000)
-            setTimeout(() => { clearInterval(interval); resolve() }, 5 * 60 * 1000)
-          })
-          loadStatus()
-        }}
-      />
+      {tab === 'status' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+            <button
+              onClick={loadStatus}
+              style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
+            >↻ Refresh</button>
+          </div>
 
-      <ScanMonitor onStatusChange={loadStatus} />
+          {status ? (
+            <div className="admin-stat-cards">
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Catalog</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{status.total}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Production</span><span className="admin-stat-row-value">{status.prod}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Dev</span><span className="admin-stat-row-value">{status.dev}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Event</span><span className="admin-stat-row-value">{status.event}</span></div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">With Showroom</span><span className="admin-stat-row-value">{status.scannable}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Unique</span><span className="admin-stat-row-value">{status.unique_showrooms}</span></div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Last sync</span><span style={{ color: statusColor(status.catalog_stale), fontSize: '12px' }}>{status.catalog_date}</span></div>
+              </div>
 
-      <RescanAllSection onStatusChange={loadStatus} />
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Analysis</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Analyzed</span><span className="admin-stat-row-value">{status.analyzed}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Unanalyzed</span>{clickableCount(status.unanalyzed, 'unanalyzed')}</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Stale</span>{clickableCount(status.stale_count, 'stale')}</div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Failures</span>{clickableCount(status.failed_count, 'scan_failures', '#c9190b')}</div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Last run</span><span style={{ color: statusColor(status.analysis_stale), fontSize: '12px' }}>{status.analysis_date}</span></div>
+              </div>
+
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Infrastructure</div>
+                {infraStats ? (
+                  <>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-indent">With workloads</span><span className="admin-stat-row-value">{infraStats.with_workloads}</span></div>
+                    <div className="admin-stat-row-divider" />
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Mapped roles</span><span className="admin-stat-row-value">{infraStats.mapped_workloads}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</span></div>
+                  </>
+                ) : (
+                  <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ color: '#666' }}>Loading...</div>
+          )}
+
+          <ScheduledMaintenance onStatusChange={loadStatus} />
+        </>
+      )}
+
+      {tab === 'sync' && (
+        <>
+          <AdminAction
+            title="Catalog Sync"
+            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
+            buttonLabel="Refresh Catalog"
+            onRun={async (addLog) => {
+              addLog('Starting catalog refresh...')
+              const result = await api.refreshCatalog()
+              addLog(`job_id=${result.job_id}`)
+              let seen = 0
+              await new Promise<void>((resolve) => {
+                const interval = setInterval(async () => {
+                  try {
+                    const job = await api.getJob(result.job_id)
+                    const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
+                    for (let i = seen; i < messages.length; i++) {
+                      if (messages[i].message) addLog(messages[i].message!)
+                    }
+                    seen = messages.length
+                    if (job.status === 'complete' || job.status === 'failed') {
+                      clearInterval(interval)
+                      if (job.error) addLog(`Error: ${job.error}`)
+                      resolve()
+                    }
+                  } catch { /* ignore */ }
+                }, 2000)
+                setTimeout(() => { clearInterval(interval); resolve() }, 5 * 60 * 1000)
+              })
+              loadStatus()
+            }}
+          />
+
+          <ScanMonitor onStatusChange={loadStatus} />
+
+          <RescanAllSection onStatusChange={loadStatus} />
+
+          <RecentJobsSection />
+        </>
+      )}
+
+      {tab === 'workloads' && (
+        <>
+          <WorkloadScanSection onStatusChange={loadStatus} />
+
+          <WorkloadMappingSection onStatusChange={loadStatus} />
+        </>
+      )}
+
     </div>
   )
 }
 
-// ── Workers Page ──
+// ── Recent Jobs (embedded in Sync & Analysis tab) ──
 
 interface Job {
   id: string
@@ -525,40 +775,27 @@ interface Job {
   result_json: { ci_name?: string; status?: string; propagated?: number } | null
 }
 
-export function AdminWorkersPage() {
-  const [scanProgress, setScanProgress] = useState<{ queued: number; running: number; complete: number; failed: number } | null>(null)
+function RecentJobsSection() {
   const [jobs, setJobs] = useState<Job[]>([])
+  const [expanded, setExpanded] = useState(false)
 
-  const loadData = async () => {
-    const [jb, sp] = await Promise.all([
-      api.listJobs(50) as Promise<{ items: Job[]; total: number }>,
-      api.getScanProgress(),
-    ])
-    setScanProgress(sp)
-    // Sort: running first, then queued, then completed/failed
+  const loadJobs = useCallback(async () => {
+    const jb = await api.listJobs(50) as { items: Job[]; total: number }
     const statusOrder: Record<string, number> = { running: 0, queued: 1, failed: 2, complete: 3 }
-    const sorted = jb.items.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9))
-    setJobs(sorted)
-  }
-
-  useEffect(() => { loadData() }, [])
-
-  useEffect(() => {
-    const interval = setInterval(loadData, 10000)
-    return () => clearInterval(interval)
+    setJobs(jb.items.sort((a, b) => (statusOrder[a.status] ?? 9) - (statusOrder[b.status] ?? 9)))
   }, [])
 
-  const jobStatusColor = (status: string) => {
-    if (status === 'complete') return '#5cb85c'
-    if (status === 'failed') return '#c9190b'
-    if (status === 'running') return '#e8a838'
-    return '#666'
-  }
+  useEffect(() => {
+    if (expanded) {
+      loadJobs()
+      const interval = setInterval(loadJobs, 10000)
+      return () => clearInterval(interval)
+    }
+  }, [expanded, loadJobs])
 
-  const shortTime = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-  }
+  const jobStatusColor = (s: string) => s === 'complete' ? '#5cb85c' : s === 'failed' ? '#c9190b' : s === 'running' ? '#e8a838' : '#666'
+
+  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   const elapsed = (created: string, completed: string | null) => {
     if (!completed) return '-'
@@ -570,67 +807,46 @@ export function AdminWorkersPage() {
     return `${m}m ${s % 60}s`
   }
 
-  const isActive = scanProgress && (scanProgress.queued > 0 || scanProgress.running > 0)
-
   return (
-    <div className="admin-layout admin-layout--wide">
-      <div className="admin-section">
-        <h3>Worker Status</h3>
-        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-          Auto-refreshes every 10 seconds.
-        </p>
-        {scanProgress && (
-          <div style={{ display: 'flex', gap: '24px', fontSize: '14px', marginBottom: '12px', flexWrap: 'wrap' }}>
-            <span style={{ color: scanProgress.running > 0 ? '#e8a838' : '#666' }}>
-              {scanProgress.running} running
-            </span>
-            <span style={{ color: scanProgress.queued > 0 ? '#e8a838' : '#666' }}>
-              {scanProgress.queued} queued
-            </span>
-            <span style={{ color: '#5cb85c' }}>
-              {scanProgress.complete} complete
-            </span>
-            <span style={{ color: scanProgress.failed > 0 ? '#c9190b' : '#666' }}>
-              {scanProgress.failed} failed
-            </span>
-          </div>
-        )}
-        {isActive && (
-          <div style={{ background: '#0d1a0d', border: '1px solid #1a3a1a', borderRadius: '6px', padding: '8px 12px', fontSize: '13px', color: '#5cb85c', marginBottom: '12px' }}>
-            Analysis in progress — {scanProgress!.complete} of {scanProgress!.complete + scanProgress!.queued + scanProgress!.running} complete
-          </div>
-        )}
-      </div>
-
-      <div className="admin-section">
-        <h3>Recent Jobs</h3>
-        {jobs.length > 0 ? (
-          <table className="status-table status-table--compact">
-            <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
-            <tbody>
-              {jobs.map(job => {
-                const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
-                return (
-                  <tr key={job.id} title={job.error || undefined}>
-                    <td>{job.job_type}</td>
-                    <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {ciName || '-'}
-                    </td>
-                    <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
-                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
-                    <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
-                    <td style={{ color: '#888', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>No recent jobs.</div>
-        )}
-      </div>
+    <div className="admin-section">
+      <h3 style={{ cursor: 'pointer' }} onClick={() => setExpanded(!expanded)}>
+        {expanded ? '▾' : '▸'} Recent Jobs
+      </h3>
+      {expanded && (
+        <>
+          <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>Auto-refreshes every 10 seconds.</p>
+          {jobs.length > 0 ? (
+            <table className="status-table status-table--compact">
+              <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
+              <tbody>
+                {jobs.map(job => {
+                  const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
+                  return (
+                    <tr key={job.id} title={job.error || undefined}>
+                      <td>{job.job_type}</td>
+                      <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ciName || '-'}</td>
+                      <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
+                      <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
+                      <td style={{ color: '#666', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
+                      <td style={{ color: '#888', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : (
+            <div style={{ color: '#666' }}>No recent jobs.</div>
+          )}
+        </>
+      )}
     </div>
   )
+}
+
+export function AdminWorkersPage() {
+  const navigate = useNavigate()
+  useEffect(() => { navigate('/admin/catalog', { replace: true }) }, [navigate])
+  return null
 }
 
 // ── Token Usage Page ──

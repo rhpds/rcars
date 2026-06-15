@@ -229,6 +229,128 @@ def extract_showroom_url(
     return None, None
 
 
+AGD_V2_SCM_URL = "https://github.com/agnosticd/agnosticd-v2"
+
+VM_WORKLOAD_FIELDS = [
+    "software_workloads",
+    "pre_software_workloads",
+    "post_software_workloads",
+    "post_software_final_workloads",
+]
+
+
+def is_agnosticd_v2(component_crd: dict[str, Any]) -> bool:
+    """Check if a component uses the canonical AgnosticD v2 deployer."""
+    definition = component_crd.get("spec", {}).get("definition", {}) or {}
+    scm_url = definition.get("__meta__", {}).get("deployer", {}).get("scm_url", "")
+    return scm_url == AGD_V2_SCM_URL
+
+
+def parse_workload_fqcn(fqcn: str) -> tuple[str, str, str | None]:
+    """Parse an Ansible FQCN workload reference into (fqcn, role, collection).
+
+    'agnosticd.core_workloads.ocp4_workload_openshift_ai'
+        → ('agnosticd.core_workloads.ocp4_workload_openshift_ai',
+           'ocp4_workload_openshift_ai', 'agnosticd.core_workloads')
+    'ocp4_workload_showroom'
+        → ('ocp4_workload_showroom', 'ocp4_workload_showroom', None)
+    """
+    parts = fqcn.rsplit(".", 1)
+    if len(parts) == 2 and "." in parts[0]:
+        return fqcn, parts[1], parts[0]
+    elif len(parts) == 2:
+        return fqcn, parts[1], parts[0]
+    else:
+        return fqcn, fqcn, None
+
+
+def extract_infrastructure_metadata(
+    component_crd: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Extract infrastructure metadata from an AgnosticD v2 component CRD.
+
+    Returns None if the component is not AgnosticD v2.
+    """
+    if not is_agnosticd_v2(component_crd):
+        return None
+
+    definition = component_crd.get("spec", {}).get("definition", {}) or {}
+    result: dict[str, Any] = {"is_agd_v2": True}
+
+    field_mapping = {
+        "config": "agd_config",
+        "cloud_provider": "cloud_provider",
+        "host_ocp4_installer_version": "ocp_version",
+        "worker_instance_count": "worker_instance_count",
+        "control_plane_instance_count": "control_plane_instance_count",
+    }
+    for crd_field, col_name in field_mapping.items():
+        value = definition.get(crd_field)
+        if value is not None:
+            result[col_name] = str(value) if not isinstance(value, str) else value
+
+    config = definition.get("config", "")
+
+    if config == "cloud-vms-base":
+        os_image = (
+            definition.get("bastion_instance_image")
+            or definition.get("default_instance_image")
+        )
+        if os_image and isinstance(os_image, str):
+            result["os_image"] = os_image
+
+        instances = definition.get("instances")
+        if isinstance(instances, list):
+            result["instances_json"] = [
+                {k: v for k, v in inst.items()
+                 if k in ("name", "cores", "memory", "image", "image_size", "count")}
+                for inst in instances if isinstance(inst, dict)
+            ]
+
+    workloads: list[dict[str, Any]] = []
+    seen_fqcns: set[str] = set()
+
+    if config == "cloud-vms-base":
+        for field in VM_WORKLOAD_FIELDS:
+            raw = definition.get(field)
+            if not isinstance(raw, dict):
+                continue
+            for _host_group, wl_list in raw.items():
+                if not isinstance(wl_list, list):
+                    continue
+                for entry in wl_list:
+                    if isinstance(entry, str) and entry not in seen_fqcns:
+                        seen_fqcns.add(entry)
+                        fqcn, role, collection = parse_workload_fqcn(entry)
+                        workloads.append({"fqcn": fqcn, "role": role, "collection": collection})
+
+        owd = definition.get("openshift_workload_deployer_workloads")
+        if isinstance(owd, list):
+            for entry in owd:
+                name = entry.get("name") if isinstance(entry, dict) else None
+                if name and isinstance(name, str) and name not in seen_fqcns:
+                    seen_fqcns.add(name)
+                    fqcn, role, collection = parse_workload_fqcn(name)
+                    workloads.append({"fqcn": fqcn, "role": role, "collection": collection})
+    else:
+        raw = definition.get("workloads")
+        if isinstance(raw, list):
+            for entry in raw:
+                if isinstance(entry, str) and entry not in seen_fqcns:
+                    seen_fqcns.add(entry)
+                    fqcn, role, collection = parse_workload_fqcn(entry)
+                    workloads.append({"fqcn": fqcn, "role": role, "collection": collection})
+
+    result["workloads"] = workloads
+
+    meta = definition.get("__meta__", {})
+    access_control = meta.get("access_control", {}) or {}
+    acl_groups = access_control.get("allow_groups", []) or []
+    result["acl_groups"] = [g for g in acl_groups if isinstance(g, str)]
+
+    return result
+
+
 class CatalogReader:
     """Reads catalog data from Babylon K8s CRDs."""
 
@@ -306,6 +428,19 @@ class CatalogReader:
                     item["showroom_ref"] = ref
                     if url:
                         log.debug("  %s: showroom=%s ref=%s", ci_name, url, ref)
+
+                    infra = extract_infrastructure_metadata(component)
+                    if infra:
+                        item["is_agd_v2"] = True
+                        item["agd_config"] = infra.get("agd_config")
+                        item["cloud_provider"] = infra.get("cloud_provider")
+                        item["ocp_version"] = infra.get("ocp_version")
+                        item["os_image"] = infra.get("os_image")
+                        item["worker_instance_count"] = infra.get("worker_instance_count")
+                        item["control_plane_instance_count"] = infra.get("control_plane_instance_count")
+                        item["instances_json"] = infra.get("instances_json")
+                        item["_workloads"] = infra.get("workloads", [])
+                        item["_acl_groups"] = infra.get("acl_groups", [])
 
                     if item["is_published"]:
                         base_refs = extract_base_ci_refs(component)

@@ -43,6 +43,7 @@ pipeline_minute: 0
 # Scaling
 api_replicas: 1
 scan_worker_replicas: 1
+recommend_worker_replicas: 1
 frontend_replicas: 1
 
 # Resource limits

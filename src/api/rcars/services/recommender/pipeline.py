@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Callable, Awaitable
@@ -38,14 +39,15 @@ _ACRONYMS = {
 }
 
 _ACRONYM_RE = re.compile(
-    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b'
+    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b',
+    re.IGNORECASE,
 )
 
 
 def _expand_acronyms(query: str) -> str:
     """Expand Red Hat product acronyms to full names for better embedding match."""
     def _replace(m: re.Match) -> str:
-        acro = m.group(0)
+        acro = m.group(0).upper()
         return f"{acro} ({_ACRONYMS[acro]})"
     return _ACRONYM_RE.sub(_replace, query)
 
@@ -99,6 +101,8 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
     """
     for c in candidates:
         if c.relevance_score is None or c.duration_min is None:
+            continue
+        if c.duration_source != "curated":
             continue
         if c.duration_min <= target_min:
             continue
@@ -167,6 +171,7 @@ async def run_query(
                 "ci_name": c.ci_name, "display_name": c.display_name, "tier": c.tier,
                 "relevance_score": c.relevance_score, "vector_similarity_pct": c.vector_similarity_pct,
                 "stage": c.stage, "catalog_namespace": c.catalog_namespace,
+                "duration_min": c.duration_min, "duration_source": c.duration_source,
                 "learning_objectives": c.learning_objectives,
                 "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
                 "suggested_format": c.suggested_format, "duration_notes": c.duration_notes,
@@ -182,7 +187,7 @@ async def run_query(
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = search(search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
+    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
 
@@ -192,7 +197,7 @@ async def run_query(
 
     # Phase 2: Triage
     await emit({"phase": "triage", "status": "started", "total": len(state.candidates)})
-    state = triage(state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
+    state = await asyncio.to_thread(triage, state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
     relevant = len([c for c in state.candidates if c.tier in ("yellow", "green")])
     db.log_token_usage("triage", settings.triage_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if state.token_usage else None
     await emit({"phase": "triage", "status": "complete", "relevant": relevant,
@@ -215,7 +220,7 @@ async def run_query(
     # Phase 3: Rationale
     top_n = settings.rationale_top_n
     await emit({"phase": "rationale", "status": "started", "top_n": top_n})
-    state = generate_rationale(state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
+    state = await asyncio.to_thread(generate_rationale, state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
 
     # Promote candidates with full rationale to green tier
     for c in state.candidates:
