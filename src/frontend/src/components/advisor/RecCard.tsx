@@ -131,14 +131,14 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             </a>
             {isComplete && (tier === 'green' || tier === 'yellow') && (
               selected ? (
-                <span style={{ color: '#5cb85c', fontSize: '13px' }}>✓ Best fit</span>
+                <span style={{ color: '#5cb85c', fontSize: '14px', fontWeight: 600 }}>✓ Best fit</span>
               ) : (
                 <button
-                  className="btn-curator"
+                  className="btn-best-fit"
                   title="Helps us improve recommendations by tracking which results are most useful"
                   onClick={(e) => { e.stopPropagation(); handleSelect() }}
                 >
-                  Best fit
+                  ★ This is the best fit
                 </button>
               )
             )}
