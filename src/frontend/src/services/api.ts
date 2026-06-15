@@ -190,6 +190,6 @@ export const api = {
       stats: { total_pairs: number; high_overlap: number; related: number; last_computed: string | null }
       thresholds: { related: number; high_overlap: number }
     }>(`/admin/overlap?min_score=${minScore}`),
-  computeSimilarity: (threshold = 0.75) =>
-    request<{ pairs_stored: number; threshold: number }>(`/admin/compute-similarity?threshold=${threshold}`, { method: 'POST' }),
+  computeSimilarity: (threshold = 0.75, stage = 'prod') =>
+    request<{ pairs_stored: number; threshold: number; stage: string }>(`/admin/compute-similarity?threshold=${threshold}&stage=${stage}`, { method: 'POST' }),
 };

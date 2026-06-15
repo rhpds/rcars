@@ -783,6 +783,7 @@ function OverlapSection() {
   const [computing, setComputing] = useState(false)
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set())
   const [filterLevel, setFilterLevel] = useState<'all' | 'high'>('all')
+  const [stage, setStage] = useState<'prod' | 'event' | 'dev'>('prod')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -800,7 +801,7 @@ function OverlapSection() {
   const handleCompute = async () => {
     setComputing(true)
     try {
-      await api.computeSimilarity(thresholds.related)
+      await api.computeSimilarity(thresholds.related, stage)
       loadData()
     } catch (err) {
       console.error('Compute similarity failed:', err)
@@ -839,7 +840,17 @@ function OverlapSection() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <select
+            className="filter-select"
+            value={stage}
+            onChange={(e) => setStage(e.target.value as 'prod' | 'event' | 'dev')}
+            style={{ width: 'auto' }}
+          >
+            <option value="prod">Production</option>
+            <option value="event">Event</option>
+            <option value="dev">Dev</option>
+          </select>
           <LcarsButton onClick={handleCompute} disabled={computing}>
             {computing ? 'Computing...' : 'Compute Similarity'}
           </LcarsButton>
