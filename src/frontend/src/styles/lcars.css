@@ -385,6 +385,18 @@ body {
   cursor: pointer;
 }
 .btn-curator.secondary { background: var(--bg-card); border-color: #333; color: var(--text-muted); }
+.btn-best-fit {
+  background: transparent;
+  border: 2px solid #5cb85c;
+  color: #5cb85c;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
 
 .new-session-btn {
   background: transparent;
