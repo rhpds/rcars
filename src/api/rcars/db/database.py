@@ -897,42 +897,69 @@ class Database:
     # ── Content similarity ──
 
     def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
-        """Compute pairwise cosine similarity between unique Showroom content.
+        """Compute pairwise cosine similarity between unique catalog items.
 
-        Deduplicates in two layers before comparing:
-          1. Group by content_hash — identical content regardless of CI name/stage
-          2. Group by effective showroom URL — same repo even if hashes differ
-             (e.g. dev on main vs prod on a tag with minor drift)
-        Picks one representative per group (prefer prod > event > dev, published
-        over base). Compares only between representatives.
+        This is about finding *different* labs that overlap — not stage variants
+        (dev/prod/event) of the same item.  Two dedup passes collapse all
+        variants of a single item into one representative before comparing:
+
+          Pass 1 — group by effective showroom URL.  Same git repo = same item,
+                   regardless of stage, ref, or content-hash drift.
+          Pass 2 — merge groups that share a content_hash.  Catches forks,
+                   renamed repos, and URL suffix differences (.git vs not)
+                   that point to identical content.
+
+        One representative per merged group (prefer prod > event > dev,
+        published over base) enters the pairwise comparison.
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM content_similarity")
 
+                # Two-pass dedup via DENSE_RANK then MIN to merge groups.
+                #
+                # url_group: assigns a group number per effective showroom URL
+                # merged_group: for each url_group, if any member shares a
+                #   content_hash with a member of another url_group, they get
+                #   the same (minimum) group number — merging forks/renames.
+                # Final PARTITION BY merged_group picks one representative.
                 cur.execute("""
-                    WITH ranked AS (
+                    WITH base AS (
                         SELECT e.ci_name, e.embedding,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY COALESCE(
-                                       -- Primary: group by effective showroom URL (same repo =
-                                       -- same item, even if hashes differ from branch/tag drift)
-                                       NULLIF(COALESCE(ci.showroom_url_override, ci.showroom_url), ''),
-                                       -- Fallback: group by content_hash (catches identical
-                                       -- content served from different URLs)
-                                       sa.content_hash,
-                                       -- Last resort: each CI is its own group
-                                       e.ci_name
-                                   )
-                                   ORDER BY
-                                       CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
-                                       CASE WHEN ci.is_published THEN 0 ELSE 1 END,
-                                       e.ci_name
-                               ) AS rn
+                               COALESCE(NULLIF(COALESCE(ci.showroom_url_override, ci.showroom_url), ''), e.ci_name) AS effective_url,
+                               sa.content_hash,
+                               ci.stage, ci.is_published
                         FROM embeddings e
                         JOIN catalog_items ci ON ci.ci_name = e.ci_name
                         LEFT JOIN showroom_analysis sa ON sa.ci_name = e.ci_name
                         WHERE e.embed_type = 'ci_summary'
+                    ),
+                    url_grouped AS (
+                        SELECT *, DENSE_RANK() OVER (ORDER BY effective_url) AS url_group
+                        FROM base
+                    ),
+                    hash_bridge AS (
+                        -- For each url_group, find the minimum url_group that shares
+                        -- the same content_hash.  This bridges groups across URL boundaries.
+                        SELECT ug.url_group,
+                               COALESCE(MIN(other.url_group), ug.url_group) AS merged_group
+                        FROM (SELECT DISTINCT url_group, content_hash FROM url_grouped) ug
+                        LEFT JOIN (SELECT DISTINCT url_group, content_hash FROM url_grouped) other
+                            ON other.content_hash = ug.content_hash
+                               AND other.content_hash IS NOT NULL
+                        GROUP BY ug.url_group
+                    ),
+                    ranked AS (
+                        SELECT ug.ci_name, ug.embedding,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY hb.merged_group
+                                   ORDER BY
+                                       CASE ug.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
+                                       CASE WHEN ug.is_published THEN 0 ELSE 1 END,
+                                       ug.ci_name
+                               ) AS rn
+                        FROM url_grouped ug
+                        JOIN hash_bridge hb ON hb.url_group = ug.url_group
                     ),
                     representatives AS (
                         SELECT ci_name, embedding FROM ranked WHERE rn = 1
