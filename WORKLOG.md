@@ -27,6 +27,47 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-15 — Nate + Claude (Browse + Admin page redesign)
+
+**Done:**
+- **Browse page redesign** — Design spec + implementation:
+  - Replaced flat filter bar with collapsible filter panel: Cloud Provider (single-select), Workloads (multi-select with AND semantics), AgnosticD Config (single-select)
+  - Moved from client-side load-all (1000 items) to server-side filtering with new `list_catalog_items_filtered()` DB method and extended `GET /catalog` route
+  - Added numbered pagination replacing prev/next buttons
+  - Curator-only filter panel (amber) with Unanalyzed/Failures/Stale/Needs Review pills — hidden from regular users
+  - URL state sync for shareable filtered views, 300ms debounced search
+  - Removed v2 toggle (infrastructure filters implicitly scope), removed content-state dropdown from regular users
+  - WorkloadMultiSelect component (click-outside/escape to close, checkbox list, sorted alphabetically)
+  - Fixed workload dropdown clipping (overflow:visible on filter panel)
+  - 9 new database tests for filtered queries (search, stage, cloud, config, workloads, content filters, pagination)
+- **Admin Catalog page reorganization:**
+  - Split monolithic Catalog Status table into 3 stat cards (Catalog, Analysis, Infrastructure) in responsive grid
+  - Added tabbed navigation: Status | Sync & Analysis | Workloads
+  - Added Workload Mapping Management section: mapped workloads table (with delete), unmapped workloads table (sorted by CI count, inline Map form)
+  - Merged Workers page into Sync & Analysis tab as collapsible "Recent Jobs" section, removed Workers from sidebar
+  - Fixed maintenance pipeline description to include workload scan step
+  - Flexible-width layout scaling with browser window
+- **Investigation:** v2 items without workloads (15 of 188) are base clusters, summit tenant CIs, and test infrastructure — confirmed Virtual/tenant CIs that reference parent CIs don't carry their own workload lists
+- **Combined query (infra + vector) deferred** with rationale: content vector search already captures product mentions naturally; infrastructure hard-filtering in advisor would be redundant or harmful. PH express mode already served by `/catalog/search/infrastructure`
+- Updated BACKLOG.md, design specs committed
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Rec card template + duration labels + Best Fit button
+- Content overlap detection
+- Portfolio Architecture ingest from OSSPA GitLab
+
+**Notes:**
+- Admin sidebar now has 3 items: Catalog, Token Usage, Query History (Workers removed)
+- Admin Catalog page has 3 tabs: Status (stat cards + scheduled maintenance), Sync & Analysis (catalog sync + content analysis + full re-analysis + recent jobs), Workloads (workload scan + mapping management)
+- Browse page OS Image filter was intentionally excluded — not useful for users. Config dropdown renamed to "AgnosticD Config"
+- Design specs: `docs/superpowers/specs/2026-06-15-browse-page-redesign-design.md`
+- Implementation plan: `docs/superpowers/plans/2026-06-15-browse-page-redesign.md`
+
+---
+
 ### 2026-06-12 — Nate + Claude (infrastructure-aware catalog metadata — full implementation)
 
 **Done:**

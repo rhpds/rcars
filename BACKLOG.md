@@ -1,21 +1,15 @@
 # RCARS Backlog
 
-Last updated: 2026-06-12
+Last updated: 2026-06-15
 
 ## Active Work (June 2026)
 
 Items selected for current development cycle. Investigations complete, design/implementation in progress.
 
-- [x] **Infrastructure-aware catalog metadata** — Deployed to dev (2026-06-12). AgnosticD v2 items: infra extraction (config, cloud, OCP version, OS image, workloads, ACL groups), curated workload mapping (46 verified via Haiku code analysis), faceted search API with AND semantics + alias resolution, workload scanner in nightly pipeline, Browse UI (v2 badge, infra panel, filter toggle), Admin UI (scan button, infra stats). Remaining: Browse filter dropdowns (config/cloud/OS/workload), Admin mapping management table, combined query (infra+vector) in Advisor.
+- [x] **Infrastructure-aware catalog metadata** — Fully deployed (2026-06-15). AgnosticD v2 items: infra extraction, curated workload mapping (46 verified), faceted search API, workload scanner in nightly pipeline. Browse page redesigned with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination, curator-only filter panel. Admin page reorganized with stat cards, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI, Workers page merged into Sync & Analysis tab.
 - [ ] **Rec card template + duration labels + Best Fit button** — Three related UI changes: (1) Rigid card template so follow-up queries render identically to first turn. (2) Hybrid curated/LLM duration: add `curated_duration_min` column, only apply duration scoring penalty on curated values, label as "AI estimate" vs "estimated". (3) Rename "Best fit" → "This is the best fit", make it a prominent action button instead of a passive label.
 - [ ] **Content overlap detection** — Pairwise cosine similarity on existing ci_summary embeddings. New `content_similarity` table, admin overlap report, Browse "similar content" section. ~400 unique showrooms = ~80K comparisons, computed periodically. Configurable thresholds: 0.85+ likely overlap, 0.75-0.85 related.
 - [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
-
-## Infrastructure Metadata — Remaining
-
-- [ ] **Browse filter dropdowns** — Config, cloud provider, OS image, and workload dropdowns populated from `/catalog/facets` API. Currently only the v2 toggle exists
-- [ ] **Admin workload mapping management UI** — Table of all mappings (role/product/description/category/verified), inline edit, unmapped workloads with [Map] button
-- [ ] **Combined query (infra + vector)** — Add `infra_filter` parameter to advisor queries so PH can ask "OpenShift AI cluster for fraud detection" and get both infrastructure and content matching. Deferred from Session 3
 
 ## Bugs
 
@@ -38,6 +32,7 @@ Items selected for current development cycle. Investigations complete, design/im
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
+- [ ] **Combined query (infra + vector in Advisor)** — Deferred. For queries like "fraud detection on OpenShift AI", the content vector search already captures product mentions naturally (via Showroom content + acronym expansion). Infrastructure hard-filtering in the Advisor pipeline would either be redundant (content already matches) or harmful (eliminating good content matches that happen to lack the workload metadata). The real use case is PH express mode ("what demos can run on this cluster?") which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically, and consider a soft boost (triage score bump) rather than hard filter
 
 ## Architecture
 
@@ -122,3 +117,7 @@ Items selected for current development cycle. Investigations complete, design/im
 - [x] RCARS API for PH vetting — PH calls RCARS to check content overlap during intake
 - [x] PH ServiceAccount in SA allowlist — `system:serviceaccount:publishing-house-dev:default` added to dev vars
 - [x] Scan dedup by commit SHA — resolve refs via `git ls-remote` before scanning; batch per URL, pass SHA siblings as job args for propagation
+- [x] Browse page redesign — collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering replacing client-side load-all, numbered pagination, curator-only filter panel (amber), URL state sync, debounced search
+- [x] Admin page reorganization — stat cards (Catalog/Analysis/Infrastructure) replacing monolithic table, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI (mapped + unmapped tables, inline map form), Workers page merged into Sync & Analysis tab
+- [x] Browse filter dropdowns — Cloud Provider, Workloads (multi-select with AND semantics + alias resolution), AgnosticD Config populated from `/catalog/facets` API
+- [x] Admin workload mapping management UI — mapped workloads table with delete, unmapped workloads table sorted by CI count with inline Map form
