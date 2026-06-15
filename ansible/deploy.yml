@@ -17,6 +17,7 @@
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # App manifests only (no build)
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run migrations
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update          # Build all + migrate (correct order)
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
@@ -119,15 +120,15 @@
       ansible.builtin.include_tasks:
         file: tasks/build-frontend.yml
         apply:
-          tags: [build-frontend]
-      tags: [build-frontend]
+          tags: [build-frontend, update]
+      tags: [build-frontend, update]
 
     - name: Build API + workers only
       ansible.builtin.include_tasks:
         file: tasks/build-api.yml
         apply:
-          tags: [build-api]
-      tags: [build-api]
+          tags: [build-api, update]
+      tags: [build-api, update]
 
     - name: Run database migrations
       block:
@@ -179,7 +180,7 @@
             command: alembic upgrade head
           register: migrate_result
           changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"
-      tags: [deploy, migrate]
+      tags: [deploy, migrate, update]
 
   post_tasks:
     - name: Get pod status

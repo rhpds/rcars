@@ -316,13 +316,16 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 
 # Database migrations only (runs rcars init-db + alembic upgrade head)
+# NOTE: migrations run on the CURRENT pod — if you have schema changes in new code,
+# build the API first so the pod has the new migration files
 ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
 
-# Full infrastructure + app update
+# Build all + migrate (correct order: build API, build frontend, then run migrations)
+# Use this when changes span API code + schema — it ensures migrations run on the new code
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
 
-**Database migrations:** Schema changes use Alembic (`src/api/alembic/versions/`). The Ansible `--tags migrate` task runs `rcars init-db` (CREATE TABLE IF NOT EXISTS for new installs) then `alembic upgrade head` (ALTER TABLE for existing schemas). Always run `--tags migrate` after deploying API changes that include schema modifications. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
+**Database migrations:** Schema changes use Alembic (`src/api/alembic/versions/`). The Ansible `--tags migrate` task runs `rcars init-db` (CREATE TABLE IF NOT EXISTS for new installs) then `alembic upgrade head` (ALTER TABLE for existing schemas). **Important:** migrations execute on the running API pod, so the pod must have the new code. When deploying changes that include schema modifications, use `--tags update` (builds API + frontend, then migrates) — never run `--tags migrate` before `--tags build-api`. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 

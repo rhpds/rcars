@@ -899,6 +899,8 @@ class Database:
     def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
         """Compute pairwise cosine similarity between all ci_summary embeddings.
 
+        Excludes sibling pairs: same content_hash, same effective showroom URL,
+        or published/base relationships (these are the same content by definition).
         Stores pairs above threshold. Returns counts.
         """
         with self._pool.connection() as conn:
@@ -907,6 +909,10 @@ class Database:
 
                 # pgvector <=> returns cosine distance (0 = identical, 2 = opposite).
                 # Similarity = 1 - distance.
+                # Exclude siblings that share the same underlying content:
+                #   1. Same content_hash = identical Showroom content
+                #   2. Same effective showroom URL+ref = same repo checkout
+                #   3. Published/base relationship = same item, different tier
                 cur.execute("""
                     INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)
                     SELECT a.ci_name, b.ci_name,
@@ -914,9 +920,28 @@ class Database:
                            NOW()
                     FROM embeddings a
                     JOIN embeddings b ON a.ci_name < b.ci_name
+                    JOIN catalog_items ci_a ON ci_a.ci_name = a.ci_name
+                    JOIN catalog_items ci_b ON ci_b.ci_name = b.ci_name
+                    LEFT JOIN showroom_analysis sa_a ON sa_a.ci_name = a.ci_name
+                    LEFT JOIN showroom_analysis sa_b ON sa_b.ci_name = b.ci_name
                     WHERE a.embed_type = 'ci_summary'
                       AND b.embed_type = 'ci_summary'
                       AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
+                      -- Exclude same content_hash (identical showroom content)
+                      AND (sa_a.content_hash IS NULL OR sa_b.content_hash IS NULL
+                           OR sa_a.content_hash != sa_b.content_hash)
+                      -- Exclude same effective showroom URL+ref
+                      AND (
+                          COALESCE(ci_a.showroom_url_override, ci_a.showroom_url, '') !=
+                          COALESCE(ci_b.showroom_url_override, ci_b.showroom_url, '')
+                          OR COALESCE(ci_a.showroom_url, '') = ''
+                          OR COALESCE(ci_b.showroom_url, '') = ''
+                      )
+                      -- Exclude published/base pairs
+                      AND COALESCE(ci_a.published_ci_name, '') != b.ci_name
+                      AND COALESCE(ci_b.published_ci_name, '') != a.ci_name
+                      AND COALESCE(ci_a.base_ci_name, '') != b.ci_name
+                      AND COALESCE(ci_b.base_ci_name, '') != a.ci_name
                 """, {"threshold": threshold})
                 inserted = cur.rowcount
             conn.commit()
