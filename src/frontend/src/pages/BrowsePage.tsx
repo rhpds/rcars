@@ -530,7 +530,12 @@ export function BrowsePage() {
                           <div style={{ fontSize: '12px', color: '#73bcf7', marginBottom: '6px', display: 'flex', gap: '8px' }}>
                             <span>{detail.analysis.content_type}</span>
                             {detail.analysis.difficulty && <span style={{ color: '#888' }}>{detail.analysis.difficulty}</span>}
-                            {detail.analysis.estimated_duration_min && <span style={{ color: '#888' }}>~{detail.analysis.estimated_duration_min} min</span>}
+                            {(detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min) && (
+                              <span style={{ color: '#888' }}>
+                                ~{detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min} min
+                                {detail.analysis.curated_duration_min ? ' (estimated)' : ' (AI estimate)'}
+                              </span>
+                            )}
                           </div>
                         )}
                         {detail.analysis.summary && <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px', lineHeight: '1.5' }}>{detail.analysis.summary}</p>}
