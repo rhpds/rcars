@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
     learning_objectives_json JSONB,
     difficulty TEXT,
     estimated_duration_min INTEGER,
+    curated_duration_min INTEGER,
     event_fit_json JSONB,
     use_cases_json JSONB,
     last_repo_commit TEXT,
