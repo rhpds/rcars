@@ -27,6 +27,37 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-15 — Nate + Claude (Retirement analysis — design + planning)
+
+**Done:**
+- **Standalone analysis tool** (`~/devel/working/catalog_2026/build_analysis.py`) — replaced 3 CSV imports with live queries from the RHDP reporting MCP server. Auto-pagination past the 500-row server cap, `--csv` fallback flag, 2026-01-01 start date. Verified end-to-end: 528 CIs from Babylon, 500 matched with live reporting data
+- **MCP server investigation** — explored reporting DB schema (`provisions`, `catalog_items`, `provision_cost`, `provision_sales`, `sales_opportunity`). Discovered `catalog_items.name` in the reporting DB matches RCARS ci_name (strip stage suffix) — much more reliable join key than `display_name`
+- **Design spec** — `docs/superpowers/specs/2026-06-15-retirement-analysis-integration-design.md`. Full brainstorm covering: data model (`reporting_metrics` table), nightly sync (step 5 in maintenance pipeline), join key (base name extraction), retirement scoring (ported from build_analysis.py), API endpoints (retirement dashboard, sync trigger, catalog detail extension, rec card enrichment), frontend (Content Analysis > Retirement page, rec card metrics line, Browse detail), CLI (`reporting-db sync/status/show`), config vars, Ansible deployment, data retention (rolling window, orphan cleanup), graceful degradation, no PII
+- **Implementation plan** — `docs/superpowers/plans/2026-06-15-retirement-analysis-integration.md`. 10 tasks from Alembic migration through deployment verification, with concrete code in every step
+- **BACKLOG.md** — added Phase 2 backlog items: retirement workflow actions (statuses + curator notes) and enhanced retirement scoring (percentile-based, category-aware)
+
+**In progress:**
+- Nothing — clean handoff. Implementation ready to start from Task 1
+
+**Next:**
+- Execute the 10-task implementation plan (Tasks 1-3 are independent, then sequential from 4 onward)
+- Task 1: Alembic migration + config variables
+- Task 2: Base name utility + retirement scoring + tests
+- Task 3: MCP client with auto-pagination
+- Then: DB methods → sync service → CLI → API → frontend → deploy
+
+**Notes:**
+- The reporting MCP server returns plain JSON (not SSE), so `urllib.request` works without SSE parsing
+- MCP server caps at 500 rows per response — auto-pagination wraps SQL in CTE with LIMIT/OFFSET
+- Cost query uses CTE pre-aggregation to avoid timeout on flat 3-way join (17s vs timeout)
+- Sales queries use `DISTINCT` on `sales_opportunity.number` to prevent double-counting
+- Retirement scoring thresholds were tuned for a 6-month window — will need recalibration with trailing-year data
+- Rec cards degrade gracefully: if no reporting data exists, the metrics line simply doesn't render
+- MCP token is stored as Ansible vault secret, never in code
+- The Content Analysis nav section already exists (from overlap session) — retirement is a sibling route at `/analysis/retirement`
+
+---
+
 ### 2026-06-15 — Nate + Claude (Content overlap detection — full implementation)
 
 **Done:**
