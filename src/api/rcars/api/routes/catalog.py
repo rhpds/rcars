@@ -13,16 +13,30 @@ router = APIRouter(prefix="/catalog")
 async def list_catalog(
     request: Request,
     user: str = Depends(require_auth),
-    stage: str | None = None,
+    search: str | None = Query(None, description="Case-insensitive text search on name and CI"),
+    stage: str | None = Query(None, description="Comma-separated stages: prod,dev,event"),
+    cloud_provider: str | None = Query(None, description="Filter by cloud provider"),
+    workloads: str | None = Query(None, description="Comma-separated product names (AND semantics)"),
+    agd_config: str | None = Query(None, description="Filter by AgnosticD config type"),
+    content_filter: str | None = Query(None, description="Curator filter: unanalyzed, scan_failures, stale, needs_review"),
     category: str | None = None,
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
 ):
     db = request.app.state.db
-    items = db.list_catalog_items(stage=stage, category=category)
-    total = len(items)
-    page = items[offset : offset + limit]
-    return {"items": page, "total": total}
+    stage_list = [s.strip() for s in stage.split(",")] if stage else None
+    workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
+
+    return db.list_catalog_items_filtered(
+        search=search,
+        stages=stage_list,
+        cloud_provider=cloud_provider,
+        agd_config=agd_config,
+        workloads=workload_list,
+        content_filter=content_filter,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get("/stats")
