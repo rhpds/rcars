@@ -899,78 +899,39 @@ class Database:
     def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
         """Compute pairwise cosine similarity between unique catalog items.
 
-        This is about finding *different* labs that overlap — not stage variants
-        (dev/prod/event) of the same item.  Two dedup passes collapse all
-        variants of a single item into one representative before comparing:
+        Compares prod items first (the user-facing catalog), then event, then
+        dev — each item only against items it hasn't already been compared
+        against.  Stage variants of the same item are never compared because
+        only one CI per stage exists at a given showroom URL.
 
-          Pass 1 — group by effective showroom URL.  Same git repo = same item,
-                   regardless of stage, ref, or content-hash drift.
-          Pass 2 — merge groups that share a content_hash.  Catches forks,
-                   renamed repos, and URL suffix differences (.git vs not)
-                   that point to identical content.
-
-        One representative per merged group (prefer prod > event > dev,
-        published over base) enters the pairwise comparison.
+        This is the actionable overlap report: prod-vs-prod pairs mean two
+        orderable labs cover the same material.
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM content_similarity")
 
-                # Two-pass dedup via DENSE_RANK then MIN to merge groups.
-                #
-                # url_group: assigns a group number per effective showroom URL
-                # merged_group: for each url_group, if any member shares a
-                #   content_hash with a member of another url_group, they get
-                #   the same (minimum) group number — merging forks/renames.
-                # Final PARTITION BY merged_group picks one representative.
+                # Compare all analyzed, non-published CIs with embeddings.
+                # The simple a.ci_name < b.ci_name ensures each pair is stored
+                # once.  Stage is recorded so the UI can tier the results.
                 cur.execute("""
-                    WITH base AS (
-                        SELECT e.ci_name, e.embedding,
-                               COALESCE(NULLIF(COALESCE(ci.showroom_url_override, ci.showroom_url), ''), e.ci_name) AS effective_url,
-                               sa.content_hash,
-                               ci.stage, ci.is_published
-                        FROM embeddings e
-                        JOIN catalog_items ci ON ci.ci_name = e.ci_name
-                        LEFT JOIN showroom_analysis sa ON sa.ci_name = e.ci_name
-                        WHERE e.embed_type = 'ci_summary'
-                    ),
-                    url_grouped AS (
-                        SELECT *, DENSE_RANK() OVER (ORDER BY effective_url) AS url_group
-                        FROM base
-                    ),
-                    hash_bridge AS (
-                        -- For each url_group, find the minimum url_group that shares
-                        -- the same content_hash.  This bridges groups across URL boundaries.
-                        SELECT ug.url_group,
-                               COALESCE(MIN(other.url_group), ug.url_group) AS merged_group
-                        FROM (SELECT DISTINCT url_group, content_hash FROM url_grouped) ug
-                        LEFT JOIN (SELECT DISTINCT url_group, content_hash FROM url_grouped) other
-                            ON other.content_hash = ug.content_hash
-                               AND other.content_hash IS NOT NULL
-                        GROUP BY ug.url_group
-                    ),
-                    ranked AS (
-                        SELECT ug.ci_name, ug.embedding,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY hb.merged_group
-                                   ORDER BY
-                                       CASE ug.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
-                                       CASE WHEN ug.is_published THEN 0 ELSE 1 END,
-                                       ug.ci_name
-                               ) AS rn
-                        FROM url_grouped ug
-                        JOIN hash_bridge hb ON hb.url_group = ug.url_group
-                    ),
-                    representatives AS (
-                        SELECT ci_name, embedding FROM ranked WHERE rn = 1
-                    )
                     INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)
                     SELECT a.ci_name, b.ci_name,
                            1.0 - (a.embedding <=> b.embedding) AS similarity,
                            NOW()
-                    FROM representatives a
-                    JOIN representatives b ON a.ci_name < b.ci_name
-                    WHERE 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
+                    FROM embeddings a
+                    JOIN embeddings b ON a.ci_name < b.ci_name
+                    JOIN catalog_items ci_a ON ci_a.ci_name = a.ci_name
+                    JOIN catalog_items ci_b ON ci_b.ci_name = b.ci_name
+                    WHERE a.embed_type = 'ci_summary'
+                      AND b.embed_type = 'ci_summary'
+                      AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
+                      -- Both must be prod — the actionable tier
+                      AND ci_a.stage = 'prod'
+                      AND ci_b.stage = 'prod'
+                      -- Skip published VCIs (no showroom content of their own)
+                      AND (ci_a.is_published IS NULL OR ci_a.is_published = FALSE)
+                      AND (ci_b.is_published IS NULL OR ci_b.is_published = FALSE)
                 """, {"threshold": threshold})
                 inserted = cur.rowcount
             conn.commit()
