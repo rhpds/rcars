@@ -387,6 +387,7 @@ Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 - **Batch commits, push at milestones.** Each build pulls the latest from git, so batch related changes into one push before triggering.
 - **JSON responses from LLMs.** All prompts must request structured JSON output. Use `parse_analysis_response()` for safe extraction.
 - **No direct LLM calls in API.** API creates jobs, workers call LLMs. This keeps the API responsive.
+- **Deploy to dev to test changes.** Except for unit tests (`pytest`), always deploy to the dev environment to verify changes work end-to-end. The dev environment exists for this purpose — don't rely solely on local testing. Commit, push, then run the appropriate `ansible-playbook` deploy commands.
 
 ## Git Workflow
 
