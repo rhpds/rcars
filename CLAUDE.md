@@ -24,7 +24,7 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
 - **Frontend** — React 19 SPA with LCARS theme. Three pages: Advisor (chat + recommendations), Browse (catalog + curation), Admin (operations + monitoring). Vite dev server proxies `/api` to backend.
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
 - **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline. Max 5 concurrent jobs, 600s timeout.
-- **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs, 120s timeout.
+- **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`) to avoid blocking the event loop. Scale via `recommend_worker_replicas` in Ansible vars.
 - **PostgreSQL** — pgvector extension for 384-dim embeddings (all-MiniLM-L6-v2). 9 tables.
 - **Redis** — Job queue (arq), pub/sub relay for SSE streaming, job progress channel.
 
@@ -35,6 +35,7 @@ rcars-advisory/
 ├── src/
 │   ├── api/                  # FastAPI backend + arq workers (Python 3.11)
 │   │   ├── rcars/            # Main package
+│   │   ├── alembic/          # Database migrations (runs in container)
 │   │   ├── tests/            # pytest test suite
 │   │   └── scripts/          # One-off migration scripts
 │   └── frontend/             # React SPA (Vite + TypeScript)
@@ -49,7 +50,7 @@ rcars-advisory/
 │   ├── tasks/                # build-api, build-frontend, apply-manifests, etc.
 │   ├── templates/            # manifests-app.yaml.j2, manifests-infra.yaml.j2
 │   └── vars/                 # common.yml, dev.yml (gitignored), prod.yml (gitignored)
-├── alembic/                  # Database migrations
+
 ├── docs/                     # MkDocs documentation (see docs/ structure below)
 ├── BACKLOG.md                # Project roadmap — open items by priority, completed at bottom
 ├── WORKLOG.md                # Session handoff notes between developers
@@ -161,7 +162,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## API Endpoints
 
-27 endpoints across 6 route modules. All prefixed with `/api/v1`.
+39 endpoints across 6 route modules. All prefixed with `/api/v1`.
 
 **Advisor** (require_auth):
 - `POST /advisor/query` — Submit recommendation query, returns job_id
@@ -174,14 +175,23 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 **Catalog** (mixed auth):
 - `GET /catalog` — List catalog items (paginated, filterable)
 - `GET /catalog/stats` — Database currency/staleness stats
-- `GET /catalog/{ci_name}` — Single CI with analysis + tags
+- `GET /catalog/search/infrastructure` — Faceted search by workloads, config, cloud, OCP version, OS image
+- `GET /catalog/facets` — Available filter values with counts (workloads, configs, cloud providers, OS images)
+- `GET /catalog/workload-mappings` — List all workload mappings + aliases
+- `POST /catalog/workload-mappings` — Add/update workload mapping (curator)
+- `DELETE /catalog/workload-mappings/{role}` — Remove workload mapping (admin)
+- `GET /catalog/workload-mappings/unmapped` — Unmapped workloads with CI counts (curator)
+- `GET /catalog/infra-stats` — Infrastructure metadata coverage stats
+- `GET /catalog/{ci_name}` — Single CI with analysis + tags + workloads + ACL groups
 - `GET /catalog/{ci_name}/analysis` — Showroom analysis only
+- `GET /catalog/{ci_name}/similar` — Similar CIs by content overlap
 - `POST /catalog/refresh` — Trigger catalog refresh (admin)
 - `POST /catalog/{ci_name}/tags` — Add enrichment tag (curator)
 - `DELETE /catalog/{ci_name}/tags/{tag_id}` — Remove tag (curator)
 - `PUT /catalog/{ci_name}/note` — Set curator note (curator)
 - `POST /catalog/{ci_name}/flag` — Flag for review (curator)
 - `POST /catalog/{ci_name}/override-url` — Override showroom URL (curator)
+- `PUT /catalog/{ci_name}/duration` — Set/clear curated duration (curator)
 - `POST /catalog/{ci_name}/content-path` — Set content path + trigger rescan (curator)
 
 **Analysis** (require_admin except stream):
@@ -200,6 +210,9 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 - `GET /admin/scan-progress` — Scan batch progress
 - `GET /admin/queries` — Advisor query history
 - `POST /admin/run-maintenance` — Trigger nightly pipeline manually
+- `POST /admin/scan-workloads` — Trigger workload repo scan
+- `GET /admin/overlap` — Content overlap report (all similar pairs)
+- `POST /admin/compute-similarity` — Trigger similarity recomputation
 - `GET /admin/schedule` — Pipeline schedule status + last run
 
 **Auth/Health**:
@@ -209,18 +222,24 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## Database Schema
 
-9 tables in PostgreSQL with pgvector extension:
+15 tables in PostgreSQL with pgvector extension:
 
 | Table | Purpose |
 |-------|---------|
-| `catalog_items` | CatalogItem CRDs from Babylon. PK: ci_name. Metadata, stage, showroom URL/ref, scan status |
-| `showroom_analysis` | LLM analysis results. PK: ci_name (FK). Summary, modules, learning objectives, content_hash, stale tracking |
-| `enrichment_tags` | Curator-added tags (tag_type, tag_value). Unique per (ci_name, tag_type, tag_value) |
-| `embeddings` | 384-dim vectors (vector(384)). Types: ci_summary, module. Used for pgvector cosine search |
+| `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, showroom URL/ref, scan status, v2 infra fields |
+| `showroom_analysis` | LLM analysis results. Summary, modules, learning objectives, content_hash, stale tracking, curated_duration_min |
+| `enrichment_tags` | Curator-added tags (tag_type, tag_value) |
+| `embeddings` | 384-dim vectors for pgvector cosine search (ci_summary + module types) |
+| `catalog_item_workloads` | Junction: which workload roles each v2 CI deploys (FQCN + role + collection) |
+| `workload_mapping` | Curated mapping: workload role → product name, description, category. Verified by code analysis |
+| `workload_aliases` | Product name aliases for query resolution (e.g. RHOAI → OpenShift AI) |
+| `catalog_item_acl_groups` | ACL groups per CI from `__meta__.access_control.allow_groups` |
+| `workload_scan_state` | Last-scanned SHA per agDv2 collection repo for change detection |
 | `analysis_log` | Audit trail of analysis actions |
-| `token_usage` | LLM token tracking per operation (scan/triage/rationale/event_parse) |
+| `token_usage` | LLM token tracking per operation (scan/triage/rationale/event_parse/workload_scan) |
 | `advisor_sessions` | User queries + results. Keyed by (session_id, turn_index) for multi-turn |
-| `jobs` | Background job tracking. Types: recommend, analyze, refresh, scan, rescan, maintenance |
+| `jobs` | Background job tracking. Types: recommend, analyze, refresh, maintenance, workload_scan |
+| `content_similarity` | Pairwise cosine similarity between CI summary embeddings, for overlap detection |
 | `api_keys` | API key management (future, not yet active) |
 
 ## Recommendation Pipeline
@@ -277,11 +296,12 @@ Scanning deduplicates by resolved commit SHA. Before scanning, refs are resolved
 
 ## Nightly Maintenance Pipeline
 
-Three-step pipeline, runs daily at 04:00 UTC (configurable). Triggered via arq cron or manually via `POST /admin/run-maintenance`.
+Four-step pipeline, runs daily at 04:00 UTC (configurable). Triggered via arq cron or manually via `POST /admin/run-maintenance`.
 
-1. **Catalog refresh** — read all AgnosticV CRDs, upsert to database, remove deleted items
+1. **Catalog refresh** — read all AgnosticV CRDs, upsert to database (including v2 infra metadata + workloads), remove deleted items
 2. **Stale check** — `git ls-remote` first (skip unchanged repos), clone only repos with new commits, compare content hash
 3. **Re-analysis** — enqueue stale items to scan worker for fresh analysis
+4. **Workload scan** — scan agDv2 collection repos for workload role changes, LLM-analyze new/changed roles, update mappings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true). Uses SHA-based change detection to skip unchanged repos
 
 ## Build & Deploy
 
@@ -295,9 +315,17 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 # Config changes only (user lists, env vars, no builds)
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply
 
-# Full infrastructure + app update
+# Database migrations only (runs rcars init-db + alembic upgrade head)
+# NOTE: migrations run on the CURRENT pod — if you have schema changes in new code,
+# build the API first so the pod has the new migration files
+ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
+
+# Build all + migrate (correct order: build API, build frontend, then run migrations)
+# Use this when changes span API code + schema — it ensures migrations run on the new code
 ansible-playbook ansible/deploy.yml -e env=dev --tags update
 ```
+
+**Database migrations:** Schema changes use Alembic (`src/api/alembic/versions/`). The Ansible `--tags migrate` task runs `rcars init-db` (CREATE TABLE IF NOT EXISTS for new installs) then `alembic upgrade head` (ALTER TABLE for existing schemas). **Important:** migrations execute on the running API pod, so the pod must have the new code. When deploying changes that include schema modifications, use `--tags update` (builds API + frontend, then migrates) — never run `--tags migrate` before `--tags build-api`. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 
@@ -309,19 +337,43 @@ Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain sec
 
 Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 
+**Core commands:**
+
 | Command | Purpose |
 |---------|---------|
 | `rcars init-db [--drop]` | Initialize or reset database schema |
-| `rcars refresh` | Refresh catalog from Babylon CRDs |
+| `rcars refresh` | Refresh catalog from Babylon CRDs (includes v2 infra extraction) |
 | `rcars scan [--max N]` | Analyze showroom content (parallel) |
 | `rcars status [--failures]` | Show catalog status summary |
 | `rcars serve [--port 8080] [--reload]` | Start API server |
+
+**Curation commands:**
+
+| Command | Purpose |
+|---------|---------|
 | `rcars tag CI_NAME TYPE VALUE` | Add enrichment tag |
 | `rcars untag CI_NAME TYPE VALUE` | Remove enrichment tag |
 | `rcars note CI_NAME TEXT` | Set curator note |
 | `rcars flag CI_NAME` | Flag for enrichment review |
 | `rcars override-url CI_NAME URL` | Override showroom URL |
 | `rcars set-content-path CI_NAME PATH` | Set custom content path |
+
+**Infrastructure commands** (`rcars infra`):
+
+| Command | Purpose |
+|---------|---------|
+| `rcars infra stats` | Show v2/workload coverage stats |
+
+**Workload commands** (`rcars workload`):
+
+| Command | Purpose |
+|---------|---------|
+| `rcars workload sync [--seed-only]` | Load workload_mapping.yaml into DB |
+| `rcars workload scan [--collection X] [--force]` | Clone agDv2 repos, LLM-analyze roles, update mappings |
+| `rcars workload unmapped` | List workloads with no mapping, sorted by CI count |
+| `rcars workload map ROLE PRODUCT [--category CAT]` | Add/update a single workload mapping |
+| `rcars workload alias PRODUCT ALIAS` | Add a product name alias |
+| `rcars workload list` | List all current mappings with verified status |
 
 ## Frontend Pages
 
@@ -342,6 +394,7 @@ Entry point: `rcars` (installed via `pip install -e ".[dev]"`).
 - **Batch commits, push at milestones.** Each build pulls the latest from git, so batch related changes into one push before triggering.
 - **JSON responses from LLMs.** All prompts must request structured JSON output. Use `parse_analysis_response()` for safe extraction.
 - **No direct LLM calls in API.** API creates jobs, workers call LLMs. This keeps the API responsive.
+- **Deploy to dev to test changes.** Except for unit tests (`pytest`), always deploy to the dev environment to verify changes work end-to-end. The dev environment exists for this purpose — don't rely solely on local testing. Commit, push, then run the appropriate `ansible-playbook` deploy commands.
 
 ## Git Workflow
 
@@ -383,6 +436,7 @@ Historical design documents in `docs/superpowers/specs/`. Key reference:
 
 | Spec | Topic |
 |------|-------|
+| `2026-06-12-infrastructure-aware-catalog-metadata-design.md` | Infrastructure metadata extraction from AgnosticD v2 CRDs for PH express mode |
 | `2026-04-25-rearchitecture-api-design.md` | Current v2 architecture (FastAPI + arq + React) |
 | `2026-04-11-recommender-redesign-design.md` | 3-phase recommendation pipeline |
 | `2026-04-14-token-usage-tracking-design.md` | Token usage tracking system |

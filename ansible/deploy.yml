@@ -17,6 +17,7 @@
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # App manifests only (no build)
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run migrations
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update          # Build all + migrate (correct order)
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
@@ -119,15 +120,15 @@
       ansible.builtin.include_tasks:
         file: tasks/build-frontend.yml
         apply:
-          tags: [build-frontend]
-      tags: [build-frontend]
+          tags: [build-frontend, update]
+      tags: [build-frontend, update]
 
     - name: Build API + workers only
       ansible.builtin.include_tasks:
         file: tasks/build-api.yml
         apply:
-          tags: [build-api]
-      tags: [build-api]
+          tags: [build-api, update]
+      tags: [build-api, update]
 
     - name: Run database migrations
       block:
@@ -154,7 +155,7 @@
           delay: 15
           failed_when: app_pods.resources | default([]) | length == 0
 
-        - name: Run database schema setup
+        - name: Run database schema setup (create tables)
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
@@ -163,10 +164,23 @@
                   | selectattr('status.phase', 'eq', 'Running')
                   | selectattr('status.containerStatuses', 'defined')
                   | first).metadata.name }}
-            command: rcars status
-          register: migrate_result
+            command: rcars init-db
+          register: schema_result
           changed_when: false
-      tags: [deploy, migrate]
+
+        - name: Run alembic migrations (alter existing tables)
+          kubernetes.core.k8s_exec:
+            kubeconfig: "{{ kubeconfig }}"
+            namespace: "{{ target_namespace }}"
+            pod: >-
+              {{ (app_pods.resources
+                  | selectattr('status.phase', 'eq', 'Running')
+                  | selectattr('status.containerStatuses', 'defined')
+                  | first).metadata.name }}
+            command: alembic upgrade head
+          register: migrate_result
+          changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"
+      tags: [deploy, migrate, update]
 
   post_tasks:
     - name: Get pod status

@@ -125,11 +125,37 @@ Showroom URLs are not stored in a single consistent field. RCARS uses two extrac
 
 **Template repos skipped:** URLs containing `showroom_template_default`, `showroom_template_nookbag`, or `showroom_template_zero` are filtered out — these are placeholder defaults from shared includes, not real content.
 
+### Infrastructure Metadata Extraction (AgnosticD v2)
+
+In addition to Showroom content analysis, RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This enables Publishing House to query by infrastructure characteristics — "give me a cluster with OpenShift AI and Pipelines installed" — using faceted filters rather than vector search.
+
+**Scope:** Only items using the canonical AgnosticD v2 deployer (`__meta__.deployer.scm_url == https://github.com/agnosticd/agnosticd-v2`). V1 items have inconsistent field names and are excluded.
+
+**What's extracted during catalog refresh:**
+
+- **Config type** (`agd_config`) — what kind of environment: `openshift-workloads` (deploy onto shared OCP), `openshift-cluster` (provision dedicated OCP), `cloud-vms-base` (provision RHEL VMs), `namespace` (deploy into existing namespace)
+- **Cloud provider** — `aws`, `openshift_cnv`, or `none`
+- **OCP version** — for cluster-provisioning configs (from `host_ocp4_installer_version`)
+- **OS image** — for `cloud-vms-base` items only (e.g. `rhel-9.6`, `rhel-10.0`). Not set for OCP items even if they have a RHEL bastion
+- **Cluster sizing** — worker count, control plane count (can be Jinja2 templates)
+- **VM topology** — for `cloud-vms-base`, full instance specs (cores, memory, image per VM)
+- **Workloads** — the list of Ansible roles deployed (FQCN format like `agnosticd.core_workloads.ocp4_workload_openshift_ai`). OCP items use a flat `workloads` list; RHEL/VM items use dict-based fields keyed by host group (`software_workloads`, `post_software_workloads`, etc.)
+- **ACL groups** — from `__meta__.access_control.allow_groups`
+
+**Workload mapping:** Raw role names are mapped to human-readable product names via a curated `workload_mapping` table (e.g. `ocp4_workload_openshift_ai` → "OpenShift AI"). Product aliases allow queries using any common name (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in PH-facing queries; unmapped roles are stored but invisible until curated.
+
+**Workload scanner:** RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`) to verify what each role actually installs. The scanner reads the Ansible code (defaults, tasks, templates) and uses Haiku to determine the product name, description, and category. This runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
+
+**Faceted search API:** `GET /catalog/search/infrastructure` supports AND-semantics workload queries (CI must have ALL requested workloads), config/cloud/OCP version/OS image filters, and automatic alias resolution. This is distinct from the vector-based content search used by the Advisor — faceted search answers "what has this infrastructure?" while vector search answers "what teaches this topic?"
+
 ---
 
 ## PostgreSQL Schema
 
-RCARS uses PostgreSQL with the pgvector extension. Schema is managed with **Alembic** — the baseline migration (`alembic/versions/001_initial_schema.py`) defines the complete initial schema. On OpenShift, the Ansible playbook runs Alembic via `k8s_exec` as the `migrate` deploy tag. For local development, `rcars status` (via `db.create_schema()`) applies the same schema directly and stamps the Alembic version table so the two paths stay in sync.
+RCARS uses PostgreSQL with the pgvector extension. Schema is managed with two complementary mechanisms:
+
+- **`db.create_schema()`** — `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` for all tables. Handles fresh installs. Called by `rcars init-db` and on API startup.
+- **Alembic** — `ALTER TABLE` migrations for schema changes to existing tables (new columns, new tables on running databases). Migration files live in `src/api/alembic/versions/`. On OpenShift, the Ansible playbook runs `rcars init-db` then `alembic upgrade head` via `k8s_exec` as the `migrate` deploy tag (`ansible-playbook ansible/deploy.yml -e env=dev --tags migrate`). Both steps are idempotent — safe to run repeatedly.
 
 ### Understanding Vector Embeddings
 
@@ -143,284 +169,83 @@ RCARS generates these vectors for every analyzed Showroom using a locally-runnin
 
 Cosine similarity measures the angle between two vectors regardless of their magnitude. A score of 1.0 means identical direction (perfect match); 0.0 means orthogonal (unrelated). pgvector's `<=>` operator returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index on the embedding column makes this search fast even with thousands of stored vectors.
 
----
+### Tables
 
-### `catalog_items`
+RCARS uses 15 tables. For full column-level details, see the [Schema Reference](schema-reference.md).
 
-One row per catalog item. The primary source of truth for everything read from the Babylon CRDs.
-
-| Column | Type | Description |
-|---|---|---|
-| `ci_name` | TEXT (PK) | Unique CI identifier, e.g. `openshift-cnv.ocp4-getting-started.prod` |
-| `display_name` | TEXT | Human-readable name shown in the UI and catalog |
-| `category` | TEXT | Catalog category (e.g. "Workshops", "Demos") |
-| `product` | TEXT | Primary Red Hat product |
-| `product_family` | TEXT | Red Hat product family grouping |
-| `primary_bu` | TEXT | Primary business unit |
-| `secondary_bu` | TEXT | Secondary business unit |
-| `stage` | TEXT | `prod`, `dev`, or `event` |
-| `scope` | TEXT | Reserved scope field (exists in schema, currently unused) |
-| `catalog_namespace` | TEXT | Babylon namespace this item came from |
-| `keywords` | TEXT[] | Array of keyword tags |
-| `description` | TEXT | Full description from the CRD |
-| `icon_url` | TEXT | URL to the catalog item's icon image |
-| `owners_json` | JSONB | List of owner contacts from the CRD |
-| `showroom_url` | TEXT | Git repository URL for the Showroom lab content |
-| `showroom_ref` | TEXT | Git branch or tag for the Showroom repo |
-| `content_path` | TEXT | Custom content path override (default: `content/modules/ROOT/pages/`) |
-| `last_crd_update` | TIMESTAMPTZ | Timestamp of the last CRD change in Babylon |
-| `last_refreshed` | TIMESTAMPTZ | Timestamp of the last `rcars refresh` for this item |
-| `is_prod` | BOOLEAN | True if stage is prod |
-| `is_published` | BOOLEAN | True if this is a Published Virtual CI |
-| `published_ci_name` | TEXT | For Base CIs: the Published VCI that references them (if any) |
-| `base_ci_name` | TEXT | For Published VCIs: the Base CI they reference |
-| `scan_status` | TEXT NOT NULL DEFAULT 'not_scanned' | Scan state: `not_scanned`, `scanned`, `error`, `no_showroom` |
-| `scan_error_class` | TEXT | Error classification when `scan_status = 'error'` |
-| `scan_error` | TEXT | Error message when scan failed |
-| `scan_failed_at` | TIMESTAMPTZ | When the last scan failure occurred |
-| `showroom_url_override` | TEXT | Curator-set override for the Showroom URL |
-
----
-
-### `showroom_analysis`
-
-One row per analyzed catalog item. Stores the full structured output from the Sonnet analysis, plus staleness tracking and curator notes.
-
-| Column | Type | Description |
-|---|---|---|
-| `ci_name` | TEXT (PK, FK) | References `catalog_items.ci_name` |
-| `content_type` | TEXT | `"workshop"` or `"demo"` |
-| `summary` | TEXT | 2–3 sentence human-readable summary of the lab |
-| `products_json` | JSONB | List of Red Hat products covered, e.g. `["OpenShift", "RHEL"]` |
-| `audience_json` | JSONB | List of target audience descriptors, e.g. `["developers", "platform engineers"]` |
-| `topics_json` | JSONB | Specific technical topics covered |
-| `modules_json` | JSONB | Array of module objects: `[{title, topics, learning_objectives, estimated_duration_min}]` |
-| `learning_objectives_json` | JSONB | `{stated: [...], inferred: [...]}` — what the lab claims vs. what it actually teaches |
-| `difficulty` | TEXT | `"beginner"`, `"intermediate"`, or `"advanced"` |
-| `estimated_duration_min` | INTEGER | Estimated time to complete the full lab, in minutes |
-| `event_fit_json` | JSONB | Suitability assessments: `{booth_demo: {suitable, notes}, hands_on_lab: {...}, presentation_support: {...}}` |
-| `use_cases_json` | JSONB | Business problems or scenarios this content addresses |
-| `last_repo_commit` | TEXT | Git HEAD SHA at the time of analysis — used for staleness detection |
-| `last_repo_updated` | TIMESTAMPTZ | Commit date of the HEAD at time of analysis |
-| `last_analyzed` | TIMESTAMPTZ | When RCARS last ran the analysis pipeline for this item |
-| `is_stale` | BOOLEAN | True if the Showroom content has changed since last analysis |
-| `stale_commit` | TEXT | HEAD commit SHA at the time staleness was detected |
-| `content_hash` | TEXT | SHA-256 hash of the filtered .adoc content — used for change detection |
-| `enrichment_review_needed` | BOOLEAN | Curator-set flag indicating this item needs manual review |
-| `notes` | TEXT | Free-text curator note — visible only to curators on the Curate page |
-
-JSONB columns are stored as native PostgreSQL JSON and can be queried with JSON operators, though RCARS currently reads them as Python objects rather than querying inside them at the SQL level.
-
----
-
-### `embeddings`
-
-Stores vector embeddings alongside the text they were generated from. Each row represents one embedded piece of content for one catalog item.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `ci_name` | TEXT (FK) | References `catalog_items.ci_name` |
-| `embed_type` | TEXT | `"ci_summary"` (item-level) or `"module"` (per-module) |
-| `module_title` | TEXT | Module name — populated only for `embed_type = 'module'` |
-| `content_text` | TEXT | The text that was fed to the embedding model — stored for inspection and debugging |
-| `embedding` | vector(384) | The 384-dimensional vector produced by sentence-transformers |
-
-Two embedding types are generated per analyzed item:
-
-- **`ci_summary`** — one embedding per catalog item, built from the full analysis (summary, learning objectives, topics, products, audience, use cases) plus catalog keywords from the CRD. This is what the similarity search runs against.
-- **`module`** — one embedding per lab module, built from the module title, topics, and learning objectives. Stored for potential future use in module-level matching; not used in the current default search.
-
-The `embedding` column uses pgvector's native `vector(384)` type. An IVFFlat index on this column enables approximate nearest-neighbor search, which is significantly faster than exact search at scale and precise enough for this use case.
-
----
-
-### `enrichment_tags`
-
-Curator-applied labels attached to catalog items. Tags have a type and a value, allowing structured labeling. Tags are visible to all users on recommendation cards.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `ci_name` | TEXT (FK) | References `catalog_items.ci_name` |
-| `tag_type` | TEXT | Label category, e.g. `"lifecycle"`, `"event"`, `"quality"` |
-| `tag_value` | TEXT | Label value, e.g. `"retiring"`, `"kubecon-2026"`, `"flagship"` |
-| `added_by` | TEXT | Email address of the curator who added the tag |
-| `added_at` | TIMESTAMPTZ | When the tag was added |
-
-A unique constraint on `(ci_name, tag_type, tag_value)` prevents duplicates. Tags are additive — multiple curators can tag the same item and all tags are retained.
-
----
-
-### `analysis_log`
-
-An append-only audit trail of every operation RCARS performs. Used by the Admin UI for scan status and by engineers debugging failed items.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `ci_name` | TEXT | The catalog item involved (not a FK — preserved even if the item is removed) |
-| `action` | TEXT | `"refresh"`, `"analyze"`, or `"error"` |
-| `user_id` | TEXT | Identity of who or what triggered the action (SSO email or system) |
-| `details` | TEXT | Optional extra context — error messages, commit SHAs, etc. |
-| `created_at` | TIMESTAMPTZ | When the action was recorded |
-
-Nothing is deleted from this table. It grows with every `rcars refresh` and `rcars scan` run.
-
----
-
-### `jobs`
-
-Tracks background async jobs — catalog scans, recommendations, refreshes, maintenance runs. Allows the UI to show live progress and retrieve results after completion.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | TEXT (PK) | Job ID string, passed to the client to poll for status |
-| `job_type` | TEXT NOT NULL | Type of job: `recommend`, `analyze`, `refresh`, `scan`, `rescan`, `maintenance` |
-| `status` | TEXT NOT NULL DEFAULT 'queued' | `"queued"`, `"running"`, `"complete"`, or `"failed"` |
-| `queue` | TEXT NOT NULL DEFAULT 'default' | Redis queue the job was enqueued to (`scan` or `recommend`) |
-| `created_by` | TEXT | SSO email of the user who triggered the job |
-| `progress_json` | JSONB | Structured progress data (e.g. `{ci_name, phase, detail}`) |
-| `result_json` | JSONB | Final result payload once the job completes |
-| `error` | TEXT | Error message when `status = 'failed'` |
-| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the job was queued |
-| `started_at` | TIMESTAMPTZ | When execution began |
-| `completed_at` | TIMESTAMPTZ | When the job finished (success or failure) |
-
----
-
-### `token_usage`
-
-Tracks LLM token consumption per operation type and model. Used by the Admin Token Usage page for cost monitoring and budget planning.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `operation` | TEXT NOT NULL | Operation type: `scan`, `triage`, `rationale`, `event_parse` |
-| `model` | TEXT NOT NULL | LLM model used (e.g. `claude-sonnet-4-6`, `claude-haiku-4-5`) |
-| `ci_name` | TEXT | Catalog item name — populated for scan operations |
-| `query_text` | TEXT | Query text — populated for query operations |
-| `input_tokens` | INTEGER NOT NULL DEFAULT 0 | Number of input tokens consumed |
-| `output_tokens` | INTEGER NOT NULL DEFAULT 0 | Number of output tokens consumed |
-| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the token usage was recorded |
-
----
-
-### `advisor_sessions`
-
-Stores advisor conversation sessions and user selections. Each session contains multiple turns (multi-turn conversation), keyed by `(session_id, turn_index)`.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `session_id` | TEXT NOT NULL | Unique session identifier (groups turns in a conversation) |
-| `turn_index` | INTEGER NOT NULL | Turn number within the session (0-indexed) |
-| `user_email` | TEXT | SSO email of the user who submitted the query |
-| `query_text` | TEXT | The user's query text for this turn |
-| `event_url` | TEXT | Event URL extracted from the query, if present |
-| `results_json` | JSONB | Full recommendation results for this turn |
-| `overall_assessment` | TEXT | Sonnet's overall assessment text |
-| `chosen_ci_name` | TEXT | CI the user selected from recommendations |
-| `chosen_at` | TIMESTAMPTZ | When the user made their selection |
-| `opted_out` | BOOLEAN NOT NULL DEFAULT FALSE | True if the user dismissed without selecting |
-| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When this turn was recorded |
-
----
-
-### `api_keys` (future, not yet active)
-
-API key management for service-account-style programmatic access. Schema is defined but the key validation middleware is not yet wired up.
-
-| Column | Type | Description |
-|---|---|---|
-| `id` | SERIAL (PK) | Auto-incrementing row ID |
-| `key_hash` | TEXT NOT NULL UNIQUE | SHA-256 hash of the API key (plaintext never stored) |
-| `name` | TEXT NOT NULL | Human-readable name for the key |
-| `created_by` | TEXT | Email of the admin who created the key |
-| `scopes` | TEXT[] | Array of allowed scopes (e.g. `["read", "advisor"]`) |
-| `created_at` | TIMESTAMPTZ DEFAULT NOW() | When the key was created |
-| `last_used_at` | TIMESTAMPTZ | Last time the key was used |
-| `revoked_at` | TIMESTAMPTZ | When the key was revoked (NULL if active) |
-
----
+| Table | Purpose |
+|---|---|
+| `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, Showroom URL, scan status, infrastructure fields (v2 items) |
+| `showroom_analysis` | LLM analysis results — summary, modules, learning objectives, staleness tracking |
+| `embeddings` | 384-dim vectors for semantic search (ci_summary + module types) |
+| `enrichment_tags` | Curator-applied labels (tag_type + tag_value per CI) |
+| `catalog_item_workloads` | Junction table: which workload roles each v2 CI deploys (FQCN + role + collection) |
+| `workload_mapping` | Curated mapping: workload role → product name, description, category. Verified by code analysis |
+| `workload_aliases` | Product name aliases for query resolution (e.g. RHOAI → OpenShift AI) |
+| `catalog_item_acl_groups` | ACL groups per CI from `__meta__.access_control.allow_groups` |
+| `workload_scan_state` | Last-scanned SHA per agDv2 collection repo for change detection |
+| `analysis_log` | Append-only audit trail of operations |
+| `token_usage` | LLM token tracking per operation/model |
+| `advisor_sessions` | User queries, results, and selections (multi-turn) |
+| `content_similarity` | Pairwise cosine similarity scores between CI embeddings, for overlap detection |
+| `jobs` | Background job tracking (recommend, analyze, refresh, maintenance, workload_scan) |
+| `api_keys` | API key management (future, not yet active) |
 
 ### Data Model
 
 ```mermaid
 erDiagram
-    catalog_items ||--o| showroom_analysis : "ci_name FK"
-    catalog_items ||--o{ enrichment_tags : "ci_name FK"
-    catalog_items ||--o{ embeddings : "ci_name FK"
+    catalog_items ||--o| showroom_analysis : "analysis"
+    catalog_items ||--o{ enrichment_tags : "tags"
+    catalog_items ||--o{ embeddings : "vectors"
+    catalog_items ||--o{ catalog_item_workloads : "workloads"
+    catalog_items ||--o{ catalog_item_acl_groups : "acl"
+    catalog_item_workloads }o--o| workload_mapping : "role mapping"
+    workload_mapping ||--o{ workload_aliases : "aliases"
     
     catalog_items {
         text ci_name PK
         text display_name
         text stage
         text showroom_url
-        text showroom_ref
-        boolean is_published
-        text published_ci_name
-        text base_ci_name
-        text scan_status
+        boolean is_agd_v2
+        text agd_config
+        text cloud_provider
+        text os_image
     }
     
     showroom_analysis {
         text ci_name PK_FK
         text summary
         jsonb modules_json
-        text content_hash
         boolean is_stale
     }
     
+    catalog_item_workloads {
+        serial id PK
+        text ci_name FK
+        text workload_fqcn
+        text workload_role
+    }
+    
+    workload_mapping {
+        serial id PK
+        text workload_role UK
+        text product_name
+        boolean verified
+    }
+    
+    workload_aliases {
+        serial id PK
+        text product_name
+        text alias UK
+    }
+
     embeddings {
         serial id PK
         text ci_name FK
         text embed_type
         vector embedding
-    }
-    
-    enrichment_tags {
-        serial id PK
-        text ci_name FK
-        text tag_type
-        text tag_value
-    }
-    
-    token_usage {
-        serial id PK
-        text operation
-        text model
-        integer input_tokens
-        integer output_tokens
-    }
-    
-    advisor_sessions {
-        serial id PK
-        text session_id
-        integer turn_index
-        text user_email
-        jsonb results_json
-    }
-    
-    jobs {
-        text id PK
-        text job_type
-        text status
-        jsonb progress_json
-        jsonb result_json
-    }
-    
-    analysis_log {
-        serial id PK
-        text ci_name
-        text action
-    }
-    
-    api_keys {
-        serial id PK
-        text key_hash
-        text name
-        text scopes
     }
 ```
 
@@ -659,6 +484,80 @@ For broad multi-track events, follow-up queries can narrow results to specific a
 
 ---
 
+## Content Overlap Detection
+
+Content overlap detection identifies catalog items that teach substantially the same material. It is a curator tool for consolidating duplicate labs — not part of the recommendation pipeline.
+
+### Architecture
+
+The overlap system is built entirely on top of infrastructure that already exists from the scan and recommendation pipelines. No new models, no new external API calls, and no new data collection steps are required.
+
+During the scan pipeline (described above), every analyzed Showroom lab gets a **CI-level embedding** — a 384-dimensional vector that captures what the lab is about. These embeddings live in the `embeddings` table and are the same vectors used by the recommendation engine's vector search. The overlap system reuses them for a different purpose: instead of comparing a user's query against lab embeddings, it compares lab embeddings against each other.
+
+### How Cosine Similarity Works
+
+Each embedding is a list of 384 numbers produced by the sentence-transformer model. These numbers position the lab in a high-dimensional semantic space where similar content clusters together. To measure how similar two labs are, RCARS computes the **cosine similarity** between their embedding vectors.
+
+Cosine similarity measures the angle between two vectors, ignoring their magnitude. Two vectors pointing in the same direction have a cosine similarity of 1.0 (identical meaning). Two vectors at right angles have a cosine similarity of 0.0 (unrelated topics). In practice, scores below 0.5 indicate little meaningful overlap.
+
+pgvector provides a native cosine distance operator (`<=>`) that computes `1 - cosine_similarity` directly in SQL. RCARS converts this back to similarity (`1.0 - distance`) for human-readable percentage scores.
+
+The key insight is that this comparison captures semantic similarity, not textual similarity. Two labs can use completely different wording, different module structures, and different examples — but if they teach the same concepts (e.g., "deploying applications on OpenShift with GitOps"), their embeddings will point in similar directions and the cosine similarity will be high.
+
+### Computation
+
+The computation is a single SQL query that joins the `embeddings` table against itself, computes pairwise cosine distance, filters to pairs above the threshold, and inserts results into `content_similarity`. With ~100 prod items, this produces about 5,000 pairwise comparisons and completes in under a second.
+
+```sql
+-- Simplified version of the actual query
+INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score)
+SELECT a.ci_name, b.ci_name, 1.0 - (a.embedding <=> b.embedding)
+FROM embeddings a
+JOIN embeddings b ON a.ci_name < b.ci_name   -- each pair once
+WHERE a.embed_type = 'ci_summary'
+  AND b.embed_type = 'ci_summary'
+  AND 1.0 - (a.embedding <=> b.embedding) >= 0.75  -- threshold
+  AND ci_a.stage = 'prod'                           -- same stage
+  AND ci_b.stage = 'prod'
+```
+
+The `a.ci_name < b.ci_name` condition ensures each pair is stored exactly once (A↔B, never both A→B and B→A). Published Virtual CIs are excluded because they have no Showroom content — they are ordering wrappers that point to a base CI.
+
+### Stage Scoping
+
+Comparisons are scoped to a single stage at a time: prod vs prod, event vs event, or dev vs dev. This is by design — the goal is to find different labs that overlap, not to flag that a dev and prod version of the same lab are similar (which is expected and uninteresting).
+
+The stage is selected at computation time via the `stage` parameter on the API endpoint or CLI command. Switching stages clears and recomputes the entire `content_similarity` table.
+
+### Similarity Tiers
+
+Results are classified into two tiers based on configurable thresholds:
+
+| Tier | Score | Meaning | Color |
+|---|---|---|---|
+| High overlap | ≥ 85% | Near-duplicate content, candidates for consolidation | Red |
+| Related | 75–84% | Similar topics with some differentiation | Amber |
+
+Pairs below 75% are not stored.
+
+### Integration Points
+
+- **Admin UI** (`/analysis/overlap`) — stage selector, compute button, expandable pair list with side-by-side summaries
+- **Browse page** — expanded items show a "Similar Content" section listing overlapping items with similarity scores
+- **API** — `GET /admin/overlap` (global report), `GET /catalog/{ci_name}/similar` (per-item), `POST /admin/compute-similarity` (trigger)
+- **CLI** — `rcars compute-similarity [--stage prod] [--threshold 0.75]`
+
+### Relationship to the Recommendation Pipeline
+
+The overlap system and the recommendation pipeline both use pgvector cosine similarity on the same embeddings, but they serve different purposes:
+
+- **Recommendation** compares a *query embedding* (from user text) against *lab embeddings* to find relevant content for a specific request. It runs on demand, per user query.
+- **Overlap** compares *lab embeddings* against each other to find duplicate content across the catalog. It runs on demand by an admin, and results are cached in the `content_similarity` table.
+
+The recommendation pipeline has its own deduplication logic (content hash grouping, base-to-published promotion) that operates during query time. The overlap system does not need this — it simply compares all items within a stage.
+
+---
+
 ## Frontend (`src/frontend/`)
 
 The frontend is a React Single Page Application built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
@@ -666,8 +565,9 @@ The frontend is a React Single Page Application built with Vite and TypeScript, 
 ### Pages
 
 - **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE (Server-Sent Events) from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
-- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, and duration.
-- **Admin** — Four sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Workers (`/admin/workers` — queue depths and job list with CI names), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
+- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, duration, and similar content (when overlap data exists).
+- **Content Analysis** — Tools for analyzing catalog content at scale. Currently contains Overlap (`/analysis/overlap` — pairwise similarity between catalog items within a selected stage). The sidebar expands to show sub-pages when active.
+- **Admin** — Three sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
 
 ### API Routes
 
@@ -715,6 +615,12 @@ All API routes are under `/api/v1/`:
 - `GET /admin/queries` — Advisor query history
 - `POST /admin/run-maintenance` — Trigger nightly pipeline
 - `GET /admin/schedule` — Pipeline schedule status
+- `GET /admin/overlap` — Content overlap report (all similar pairs)
+- `POST /admin/compute-similarity` — Trigger similarity recomputation
+
+**Catalog** (additional):
+
+- `GET /catalog/{ci_name}/similar` — Similar items for a specific CI (require_auth)
 
 **Auth/Health**:
 

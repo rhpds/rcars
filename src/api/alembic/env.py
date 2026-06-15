@@ -1,7 +1,7 @@
 import os
-import psycopg
 from logging.config import fileConfig
 
+from sqlalchemy import create_engine
 from alembic import context
 
 config = context.config
@@ -24,11 +24,11 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    # Use psycopg v3 directly — the app does not use SQLAlchemy, so psycopg2
-    # is not installed. RCARS_DATABASE_URL uses plain postgresql:// which
-    # psycopg.connect() accepts natively.
     url = config.get_main_option("sqlalchemy.url")
-    with psycopg.connect(url) as conn:
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg://", 1)
+    engine = create_engine(url)
+    with engine.connect() as conn:
         context.configure(connection=conn, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()

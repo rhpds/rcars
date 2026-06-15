@@ -87,7 +87,7 @@ Stale                        3
 
 **Stale** means the item's Showroom repository has been updated since RCARS last analyzed it. Stale items continue to appear in recommendations using their last-known analysis; run `rcars scan` to update them.
 
-This command also initializes the database schema (safe to run repeatedly — all DDL uses `IF NOT EXISTS`). The Ansible deployment playbook runs `rcars status` as the schema migration step.
+This command also initializes the database schema (safe to run repeatedly — all DDL uses `IF NOT EXISTS`). The Ansible deployment playbook runs `rcars init-db` followed by `alembic upgrade head` as the schema migration step.
 
 ---
 
@@ -195,6 +195,32 @@ rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/C
 
 ---
 
+### `rcars compute-similarity`
+
+Computes pairwise cosine similarity between catalog item embeddings within a selected stage. Compares every item against every other item in that stage and stores pairs above the threshold. No LLM calls — runs entirely in PostgreSQL using pgvector.
+
+```bash
+rcars compute-similarity                        # Prod items, default threshold 0.75
+rcars compute-similarity --stage event          # Event items
+rcars compute-similarity --stage dev            # Dev items
+rcars compute-similarity --threshold 0.80       # Higher threshold = fewer pairs
+```
+
+```
+Content Similarity
+┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Metric                ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ Total pairs           │   142 │
+│ High overlap (≥0.85)  │    18 │
+│ Related (0.75–0.85)   │   124 │
+└───────────────────────┴───────┘
+```
+
+Recompute after scans or re-analysis since the underlying embeddings may have changed. Also available via the Content Analysis UI (`/analysis/overlap`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`).
+
+---
+
 ### `rcars serve`
 
 Starts the RCARS web server.
@@ -280,3 +306,77 @@ Scan errors are logged to the database and visible in the Admin page of the web 
 ### Testing Recommendations After a Scan
 
 Use the Advisor page in the web UI to test recommendations. If results look wrong — poor scores, irrelevant items — check that `rcars status` shows a reasonable analyzed count and that embeddings are present (the similarity search requires them). If no embeddings exist, the recommendation engine has no candidates to rank.
+
+---
+
+## Infrastructure Commands
+
+These commands manage the infrastructure metadata extraction system, which indexes what operators, workloads, and platform configurations each AgnosticD v2 catalog item deploys.
+
+### `rcars infra stats`
+
+Shows coverage statistics for infrastructure metadata across the catalog:
+
+```
+$ rcars infra stats
+   Infrastructure Metadata Stats
+┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Metric                  ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ AgnosticD v2 items      │   188 │
+│ Items with workloads    │   173 │
+│ Mapped workload roles   │    41 │
+│ Verified workload roles │    41 │
+│ Unmapped workload roles │   125 │
+└─────────────────────────┴───────┘
+```
+
+"Mapped" means the workload role has a curated product name in the `workload_mapping` table. "Verified" means the mapping was confirmed by reading the actual Ansible code. Only mapped workloads are visible to Publishing House faceted queries.
+
+### `rcars workload sync [--seed-only]`
+
+Loads the workload mapping seed file (`src/api/rcars/data/workload_mapping.yaml`) into the database. This file contains the initial set of role-to-product mappings and product name aliases.
+
+```bash
+rcars workload sync               # Overwrite DB with YAML values
+rcars workload sync --seed-only   # Skip roles that already exist in DB (preserve curator edits)
+```
+
+### `rcars workload scan [--collection X] [--force]`
+
+Scans the AgnosticD v2 workload collection repos on GitHub, reads each role's Ansible code, and uses Haiku to determine what product/operator the role installs. Updates the `workload_mapping` table with verified mappings.
+
+```bash
+rcars workload scan                                  # Scan all 6 public agDv2 collections
+rcars workload scan --collection agnosticd.core_workloads  # Scan one collection only
+rcars workload scan --force                          # Skip SHA check, rescan everything
+```
+
+The scanner uses `git ls-remote` to check if each repo has changed since the last scan. Unchanged repos are skipped unless `--force` is used. For each role, the scanner reads `defaults/main.yml`, `tasks/main.yml`, and template files to determine what the role actually deploys — it does not rely on README descriptions or role names.
+
+Roles identified as infrastructure plumbing (authentication, showroom deployment, bastion configuration) are excluded from the mapping and will not surface in Publishing House queries.
+
+### `rcars workload unmapped`
+
+Lists all workload roles that appear in catalog items but don't have a curated mapping yet. Sorted by how many catalog items use each role.
+
+### `rcars workload map ROLE PRODUCT [--category CAT] [--description DESC]`
+
+Manually add or update a single workload mapping:
+
+```bash
+rcars workload map ocp4_workload_openshift_ai "OpenShift AI" --category ai_ml
+```
+
+### `rcars workload alias PRODUCT ALIAS`
+
+Add a product name alias so queries using alternate names resolve correctly:
+
+```bash
+rcars workload alias "OpenShift AI" RHOAI
+rcars workload alias "Advanced Cluster Security" RHACS
+```
+
+### `rcars workload list`
+
+Lists all current workload mappings with their product name, category, and verification status.

@@ -61,8 +61,14 @@ class Settings(BaseSettings):
     dev_user: str = ""
     sa_allowlist_str: str = ""
 
+    # Content overlap
+    similarity_threshold: float = 0.75
+    similarity_high_threshold: float = 0.85
+
     # Ops
     stale_days: int = 3
+    workload_scan_enabled: bool = True
+    workload_scan_interval_days: int = 1
 
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True
@@ -76,6 +82,15 @@ class Settings(BaseSettings):
             self.cloud_ml_region = os.environ.get("CLOUD_ML_REGION", self.cloud_ml_region)
         if not self.anthropic_api_key:
             self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+
+        if not (0 <= self.similarity_threshold <= 1):
+            raise ValueError(f"similarity_threshold must be in [0, 1], got {self.similarity_threshold}")
+        if not (0 <= self.similarity_high_threshold <= 1):
+            raise ValueError(f"similarity_high_threshold must be in [0, 1], got {self.similarity_high_threshold}")
+        if self.similarity_high_threshold < self.similarity_threshold:
+            raise ValueError(f"similarity_high_threshold ({self.similarity_high_threshold}) must be >= similarity_threshold ({self.similarity_threshold})")
+        if self.workload_scan_interval_days < 1:
+            raise ValueError(f"workload_scan_interval_days must be positive, got {self.workload_scan_interval_days}")
 
     @property
     def curator_emails(self) -> list[str]:

@@ -47,6 +47,8 @@ async def run_recommendation(
                 "vector_similarity_pct": c.vector_similarity_pct,
                 "stage": c.stage,
                 "catalog_namespace": c.catalog_namespace,
+                "duration_min": c.duration_min,
+                "duration_source": c.duration_source,
                 "learning_objectives": c.learning_objectives,
                 "why_it_fits": c.why_it_fits,
                 "how_to_use": c.how_to_use,
