@@ -37,9 +37,24 @@ export const api = {
     }),
 
   // Catalog
-  listCatalog: (params?: { stage?: string; category?: string; limit?: number; offset?: number }) => {
+  listCatalog: (params?: {
+    search?: string;
+    stage?: string;
+    cloud_provider?: string;
+    workloads?: string;
+    agd_config?: string;
+    content_filter?: string;
+    category?: string;
+    limit?: number;
+    offset?: number;
+  }) => {
     const qs = new URLSearchParams();
+    if (params?.search) qs.set('search', params.search);
     if (params?.stage) qs.set('stage', params.stage);
+    if (params?.cloud_provider) qs.set('cloud_provider', params.cloud_provider);
+    if (params?.workloads) qs.set('workloads', params.workloads);
+    if (params?.agd_config) qs.set('agd_config', params.agd_config);
+    if (params?.content_filter) qs.set('content_filter', params.content_filter);
     if (params?.category) qs.set('category', params.category);
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
