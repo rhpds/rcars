@@ -51,6 +51,7 @@ interface ItemDetail {
     content_type: string | null
     difficulty: string | null
     estimated_duration_min: number | null
+    curated_duration_min: number | null
     topics_json: string[] | null
     products_json: string[] | null
     audience_json: string[] | null
@@ -131,6 +132,7 @@ export function BrowsePage() {
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
+  const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
   const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
@@ -236,6 +238,10 @@ export function BrowsePage() {
       setNoteTexts(prev => ({ ...prev, [ciName]: detail.analysis?.notes || '' }))
       setContentPaths(prev => ({ ...prev, [ciName]: detail.content_path || '' }))
       setOverrideUrls(prev => ({ ...prev, [ciName]: detail.showroom_url_override || '' }))
+      setCuratedDurations(prev => ({
+        ...prev,
+        [ciName]: detail.analysis?.curated_duration_min != null ? String(detail.analysis.curated_duration_min) : '',
+      }))
       if (detail.analysis?.enrichment_review_needed) {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
@@ -298,6 +304,13 @@ export function BrowsePage() {
     await api.overrideUrl(ciName, url)
     const detail = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+  }
+
+  const handleSetDuration = async (ciName: string) => {
+    const val = curatedDurations[ciName]?.trim()
+    const durationMin = val ? parseInt(val, 10) : null
+    if (val && isNaN(durationMin!)) return
+    await api.setCuratedDuration(ciName, durationMin)
   }
 
   const handleFlag = async (ciName: string) => {
@@ -582,6 +595,18 @@ export function BrowsePage() {
                     {auth.isCurator && (
                       <>
                         <input type="text" value={noteTexts[item.ci_name] || ''} onChange={(e) => setNoteTexts(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onBlur={() => handleSaveNote(item.ci_name)} onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNote(item.ci_name) }} placeholder="Add a note..." style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', width: '100%', fontStyle: 'italic', marginBottom: '8px', outline: 'none' }} />
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
+                          <input
+                            type="number"
+                            value={curatedDurations[item.ci_name] ?? ''}
+                            onChange={(e) => setCuratedDurations(prev => ({ ...prev, [item.ci_name]: e.target.value }))}
+                            onBlur={() => handleSetDuration(item.ci_name)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleSetDuration(item.ci_name) }}
+                            placeholder={detail.analysis?.estimated_duration_min ? `${detail.analysis.estimated_duration_min} (AI)` : 'Duration (min)'}
+                            style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', width: '160px', outline: 'none' }}
+                          />
+                          <span style={{ fontSize: '12px', color: '#666' }}>Duration (min)</span>
+                        </div>
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
                           <input type="text" value={overrideUrls[item.ci_name] ?? ''} onChange={(e) => setOverrideUrls(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') handleOverrideUrl(item.ci_name) }} placeholder="Override Showroom URL (full git repo URL)" style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', flex: 1, outline: 'none' }} />
                           <LcarsButton variant="curator-secondary" onClick={() => handleOverrideUrl(item.ci_name)}>Set URL</LcarsButton>
