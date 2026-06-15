@@ -101,6 +101,8 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
     for c in candidates:
         if c.relevance_score is None or c.duration_min is None:
             continue
+        if c.duration_source != "curated":
+            continue
         if c.duration_min <= target_min:
             continue
         ratio = c.duration_min / target_min
@@ -168,6 +170,7 @@ async def run_query(
                 "ci_name": c.ci_name, "display_name": c.display_name, "tier": c.tier,
                 "relevance_score": c.relevance_score, "vector_similarity_pct": c.vector_similarity_pct,
                 "stage": c.stage, "catalog_namespace": c.catalog_namespace,
+                "duration_min": c.duration_min, "duration_source": c.duration_source,
                 "learning_objectives": c.learning_objectives,
                 "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
                 "suggested_format": c.suggested_format, "duration_notes": c.duration_notes,
