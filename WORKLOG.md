@@ -27,6 +27,48 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-15 — Nate + Claude (Content overlap detection — full implementation)
+
+**Done:**
+- **Content similarity schema** — new `content_similarity` table (Alembic migration 004), indexes on ci_name_a, ci_name_b, similarity_score
+- **Pairwise cosine computation** — `compute_content_similarity()` in database.py. Compares all ci_summary embeddings within a selected stage using pgvector's `<=>` operator. Stores pairs above configurable threshold (default 0.75)
+- **Stage-scoped comparison** — stage selector (prod/event/dev) on API, CLI, and UI. Only compares items within the same stage — eliminates false positives from dev/prod variants of the same item. Published VCIs excluded (no content of their own)
+- **Iterative dedup refinement** — went through several rounds of filtering false positives:
+  - v1: compared all embeddings (3,500+ pairs, mostly noise from stage variants)
+  - v2: filtered by content_hash and showroom URL (still caught ZT namespace aliases)
+  - v3: dedup by content_hash before comparing (still missed same-URL different-hash from branch drift)
+  - v4: two-pass dedup with URL grouping + content_hash bridging (over-engineered)
+  - v5 (final): simplified to stage-scoped comparison — only compare prod vs prod, event vs event, dev vs dev. Clean, correct, and simple
+- **API endpoints** — `GET /catalog/{ci_name}/similar`, `GET /admin/overlap`, `POST /admin/compute-similarity?stage=prod&threshold=0.75`
+- **CLI command** — `rcars compute-similarity [--stage prod] [--threshold 0.75]` with Rich table output
+- **Admin UI — Content Analysis section** — new top-level nav section (alongside Advisor, Browse, Admin) with expandable sub-items. Overlap page moved from Admin tab to `/analysis/overlap`. Stage dropdown + Compute button + filter dropdown + expandable pair list with side-by-side summaries. Clicking a lab name navigates to Browse
+- **Browse integration** — expanded items show "Similar Content" panel when overlap data exists, with color-coded similarity scores and clickable lab names
+- **Deploy ordering fix** — new `--tags update` Ansible tag that sequences build-frontend → build-api → migrate correctly. Fixes issue where `--tags migrate` before `--tags build-api` runs migrations on old pod code
+- **Comprehensive documentation:**
+  - Web guide: full Content Analysis section with plain-language explanation of embeddings, cosine similarity, stage selection, CLI/API access
+  - Architecture: new Content Overlap Detection section covering cosine similarity math, SQL computation, stage scoping, similarity tiers, integration points, relationship to recommendation pipeline. Updated schema (15 tables), pages, API routes
+  - Operations: stage-scoped comparison, CLI usage, configuration
+  - CLI guide: `compute-similarity` with `--stage` option
+  - CLAUDE.md: new table, 3 new endpoints (39 total), deploy ordering notes, dev deployment testing guideline
+- **Config** — `RCARS_SIMILARITY_THRESHOLD` (0.75), `RCARS_SIMILARITY_HIGH_THRESHOLD` (0.85)
+- **Frontend cleanup** — removed alert() popup on compute completion, stats refresh inline
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Content overlap Phase 2 — cross-stage comparison (dev items vs prod items from different CIs) to flag promotion risks. Captured in BACKLOG.md
+- Retirement analysis — separate Content Analysis sub-page at `/analysis/retirement` (in progress in separate session)
+- Portfolio Architecture ingest from OSSPA GitLab
+
+**Notes:**
+- Prod-vs-prod is the actionable tier. ~100 prod base CIs produce ~5,000 pairwise comparisons in under a second
+- The Content Analysis nav section is designed to hold multiple sub-pages: Overlap is first, Retirement Analysis is next
+- `--tags update` is the correct way to deploy changes that span API code + schema. Never run `--tags migrate` before `--tags build-api` — migrations execute on the running pod and need the new code
+- All changes deployed to dev environment via `--tags update` throughout the session
+
+---
+
 ### 2026-06-15 — Nate + Claude (Rec card duration + best fit + concurrency)
 
 **Done:**
