@@ -38,14 +38,15 @@ _ACRONYMS = {
 }
 
 _ACRONYM_RE = re.compile(
-    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b'
+    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b',
+    re.IGNORECASE,
 )
 
 
 def _expand_acronyms(query: str) -> str:
     """Expand Red Hat product acronyms to full names for better embedding match."""
     def _replace(m: re.Match) -> str:
-        acro = m.group(0)
+        acro = m.group(0).upper()
         return f"{acro} ({_ACRONYMS[acro]})"
     return _ACRONYM_RE.sub(_replace, query)
 
