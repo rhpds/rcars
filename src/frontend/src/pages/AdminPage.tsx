@@ -334,7 +334,7 @@ function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }
     <div className="admin-section">
       <h3>Scheduled Maintenance</h3>
       <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-        Automated nightly pipeline: catalog refresh → stale check → re-analyze. Runs inside the scan worker via arq cron.
+        Automated nightly pipeline: catalog refresh → stale check → re-analyze → workload scan. Runs inside the scan worker via arq cron.
       </p>
       {schedule && (
         <>
