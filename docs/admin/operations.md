@@ -122,9 +122,11 @@ The overlap detection system compares Showroom lab embeddings to identify catalo
 
 ### How It Works
 
-During the scan phase, RCARS generates a 384-dimensional embedding (using the all-MiniLM-L6-v2 sentence-transformer model) for each analyzed Showroom. The overlap system computes pairwise cosine similarity between all `ci_summary` embeddings and stores pairs above a configurable threshold in the `content_similarity` table.
+During the scan phase, RCARS generates a 384-dimensional embedding (using the all-MiniLM-L6-v2 sentence-transformer model) for each analyzed Showroom. The overlap system computes pairwise cosine similarity between these embeddings and stores pairs above a configurable threshold in the `content_similarity` table.
 
-Cosine similarity measures the angle between two embedding vectors: 1.0 means the vectors point in the same direction (identical content), 0.0 means they are perpendicular (unrelated content). With ~400 labs, this produces ~80,000 pairwise comparisons — small enough to compute in a single SQL query in seconds.
+Before comparing, the system deduplicates catalog items to avoid false positives from expected duplicates (prod/dev/event variants, ZT namespace aliases). Dedup groups by effective Showroom URL first (same git repo = same item regardless of stage or ref), then by content hash (same content served from different URLs). One representative per group (preferring prod, then published) participates in the comparison.
+
+Cosine similarity measures the angle between two embedding vectors: 1.0 means the vectors point in the same direction (identical content), 0.0 means they are perpendicular (unrelated content). No LLM calls or external API calls are made — the computation runs entirely in PostgreSQL using pgvector.
 
 ### Configuration
 
@@ -142,6 +144,16 @@ Cosine similarity measures the angle between two embedding vectors: 1.0 means th
 | `POST` | `/api/v1/admin/compute-similarity` | admin | Trigger recomputation |
 
 Query parameter `min_score` (float, 0–1) is accepted on all three endpoints to override the default threshold.
+
+### CLI Usage
+
+```bash
+# Compute similarity (locally or via oc exec on the pod)
+rcars compute-similarity
+rcars compute-similarity --threshold 0.80
+```
+
+The CLI command outputs a summary table showing total pairs, high overlap count, and related count.
 
 ### When to Recompute
 
