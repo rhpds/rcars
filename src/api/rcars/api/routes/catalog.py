@@ -254,6 +254,17 @@ async def override_url(ci_name: str, body: OverrideUrlRequest, request: Request,
     return {"status": "ok"}
 
 
+class DurationRequest(BaseModel):
+    duration_min: int | None = None
+
+
+@router.put("/{ci_name}/duration")
+async def set_duration(ci_name: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    db.set_curated_duration(ci_name, body.duration_min, updated_by=user)
+    return {"status": "ok"}
+
+
 class ContentPathRequest(BaseModel):
     path: str | None
 

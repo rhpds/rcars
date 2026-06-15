@@ -89,6 +89,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
+  setCuratedDuration: (ciName: string, durationMin: number | null) =>
+    request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/duration`, {
+      method: 'PUT',
+      body: JSON.stringify({ duration_min: durationMin }),
+    }),
 
   // Analysis
   startScan: () => request<{ job_id: string; enqueued: number }>('/analysis/scan', { method: 'POST' }),
