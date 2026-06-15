@@ -307,7 +307,6 @@ body {
 .rec-card {
   border-radius: 8px;
   padding: 16px 20px;
-  cursor: pointer;
   border-left: 4px solid transparent;
 }
 .rec-card.score-green { background: var(--bg-card-green); border-left-color: var(--score-green); }
