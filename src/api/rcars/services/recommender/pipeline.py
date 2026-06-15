@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import time
 from typing import Callable, Awaitable
@@ -186,7 +187,7 @@ async def run_query(
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = search(search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
+    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
 
@@ -196,7 +197,7 @@ async def run_query(
 
     # Phase 2: Triage
     await emit({"phase": "triage", "status": "started", "total": len(state.candidates)})
-    state = triage(state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
+    state = await asyncio.to_thread(triage, state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
     relevant = len([c for c in state.candidates if c.tier in ("yellow", "green")])
     db.log_token_usage("triage", settings.triage_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if state.token_usage else None
     await emit({"phase": "triage", "status": "complete", "relevant": relevant,
@@ -219,7 +220,7 @@ async def run_query(
     # Phase 3: Rationale
     top_n = settings.rationale_top_n
     await emit({"phase": "rationale", "status": "started", "top_n": top_n})
-    state = generate_rationale(state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
+    state = await asyncio.to_thread(generate_rationale, state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
 
     # Promote candidates with full rationale to green tier
     for c in state.candidates:
