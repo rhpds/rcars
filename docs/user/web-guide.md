@@ -88,6 +88,7 @@ Each card shows:
 
 - **Relevance score** — percentage, color-coded by tier
 - **Name** — the display name of the catalog item
+- **Duration** — estimated duration in minutes (e.g., "~120 min"), shown in the card header
 - **Stage badge** — DEV or EVENT badges for non-production items (visible to curators who toggle dev/event stages)
 - **CI name** — the internal identifier
 
@@ -95,17 +96,18 @@ For green-tier cards (expanded):
 
 - **Why it fits** — a structured explanation of why this content matches your request
 - **How to use** — a practical delivery suggestion
+- **Duration pill** — duration with source label: "(AI estimate)" for LLM-guessed durations, "(estimated)" for curator-set durations
 - **Suggested format** and **duration notes** — shown as pills
 - **Caveats** — anything flagged as a potential concern
 - **Learning objectives** — up to 5 objectives from the analysis
 - **Catalog link** — direct link to order on `demo.redhat.com`
-- **"Best fit" button** — mark this as your selected recommendation (feedback for future improvement)
+- **"★ This is the best fit" button** — mark this as your selected recommendation (feedback for future improvement)
 
 Cards appear progressively as the system works through its pipeline. During vector search, candidates appear as a flat list. During triage, they are evaluated and scored. After completion, they are grouped into tiers with full detail on the best matches.
 
 ## Expanding a Card
 
-Click anywhere on a card to expand it. Click again to collapse it. Green-tier cards show the full rationale (why it fits, how to use, caveats, learning objectives). Yellow and white cards show the triage score and one-line reason.
+Click on a card's header to expand it. Click the header again to collapse it. Text inside expanded cards can be selected and copied. Green-tier cards show the full rationale (why it fits, how to use, caveats, learning objectives). Yellow and white cards show the triage score and one-line reason.
 
 ## Refining Results
 
@@ -133,8 +135,10 @@ Curator controls are available in the **Browse page** (not the Advisor page). If
 
 - **Add/remove tags** — short labels that describe the content. Tags are visible to all users. Examples: `booth-tested`, `kubecon-2026`, `needs-update`, `flagship`.
 - **Add notes** — free-text observations visible on the Browse page.
+- **Set curated duration** — override the AI-estimated duration with a known value (in minutes). Curated durations are labeled "(estimated)" on rec cards and in Browse; AI guesses are labeled "(AI estimate)". Only curated durations affect duration-based scoring penalties.
 - **Flag for review** — marks an item as needing attention. Flagged items appear in the "Needs review" filter.
 - **Re-analyze** — trigger a fresh Showroom scan for a single item.
+- **Override Showroom URL** — point to a different git repository for Showroom content.
 - **Set content path** — override the default Antora content path for a Showroom repository.
 
 Curator changes are saved immediately. Tags can be removed by clicking the X on the tag pill.
@@ -148,7 +152,7 @@ The Browse page (`/browse`) shows the full catalog in a searchable, filterable l
 **Filter bar:**
 
 - **Text search** — filters by display name or CI name (case-insensitive substring match)
-- **Content filter dropdown** — filter by: All items, Has Showroom, Analyzed, Unanalyzed, Needs review, Scan failures, Stale
+- **Curator filters** (curator only) — filter by: Unanalyzed, Scan Failures, Stale, Needs Review
 - **Dev toggle** — show/hide dev-stage items
 - **Event toggle** — show/hide event-stage items
 
@@ -156,18 +160,18 @@ Each item in the list shows its display name, stage badges (DEV/EVENT), ZT badge
 
 **Expanded item view** (click to expand):
 
-- Analysis data: content type, difficulty, estimated duration
+- Analysis data: content type, difficulty, duration with source label ("AI estimate" or "estimated")
 - Summary text
 - Products (purple pills) and topics (blue pills)
 - Learning objectives (stated + inferred)
 - Module list with per-module topics
 - Links to RHDP Catalog and Showroom repository
 
-**Curator controls** (visible to curators only): add/remove tags, edit notes, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
+**Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
 
 ## The Admin Pages
 
-The Admin section (`/admin`) is visible to admins only (not curators). It is split into four sub-pages, accessible via the sidebar navigation:
+The Admin section (`/admin`) is visible to admins only (not curators). It is split into three sub-pages, accessible via the sidebar navigation:
 
 ### Catalog (`/admin/catalog`)
 
@@ -178,11 +182,6 @@ The Admin section (`/admin`) is visible to admins only (not curators). It is spl
 - **Full Re-Analysis** — "Re-Analyze All" button that marks every item stale and enqueues a complete rescan. Warning: consumes significant tokens.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
-
-### Workers (`/admin/workers`)
-
-- **Worker Status** — auto-refreshes every 10 seconds. Shows summary counts (running, queued, complete, failed) with color-coded indicators and an active analysis banner when jobs are in progress.
-- **Recent Jobs** — table of the last 50 jobs with type, CI name, status (color-coded), created/completed timestamps, and duration. Running and queued jobs sort to the top.
 
 ### Token Usage (`/admin/tokens`)
 

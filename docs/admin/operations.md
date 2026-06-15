@@ -35,7 +35,7 @@ Workers are stateless — add replicas by deploying more pods. In Ansible vars:
 
 ```yaml
 scan_worker_replicas: 2      # for bulk scan throughput
-recommend_worker_replicas: 1  # lightweight, typically 1 is sufficient
+recommend_worker_replicas: 3  # each replica handles 3 concurrent queries
 ```
 
 | Setting | Scan Worker | Recommend Worker |
