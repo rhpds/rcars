@@ -339,6 +339,26 @@ def status(failures: bool):
     db.close()
 
 
+@cli.command("compute-similarity")
+@click.option("--threshold", "-t", default=0.75, type=float, help="Minimum similarity score to store")
+def compute_similarity(threshold: float):
+    """Compute pairwise content similarity between unique Showrooms."""
+    db = get_db()
+    _print(f"Computing content similarity (threshold={threshold})...")
+    result = db.compute_content_similarity(threshold=threshold)
+    _print(f"Done. {result['pairs_stored']} pairs stored above {threshold} threshold.")
+
+    stats = db.get_similarity_stats()
+    table = Table(title="Content Similarity")
+    table.add_column("Metric", style="cyan")
+    table.add_column("Count", justify="right")
+    table.add_row("Total pairs", str(stats["total_pairs"]))
+    table.add_row("High overlap (≥0.85)", str(stats["high_overlap"]))
+    table.add_row("Related (0.75–0.85)", str(stats["related"]))
+    console.print(table)
+    db.close()
+
+
 # ── Curation commands ──
 
 @cli.command()

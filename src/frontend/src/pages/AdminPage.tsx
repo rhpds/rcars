@@ -800,11 +800,10 @@ function OverlapSection() {
   const handleCompute = async () => {
     setComputing(true)
     try {
-      const result = await api.computeSimilarity(thresholds.related)
-      alert(`Computed ${result.pairs_stored} similarity pairs`)
+      await api.computeSimilarity(thresholds.related)
       loadData()
     } catch (err) {
-      alert(`Error: ${err}`)
+      console.error('Compute similarity failed:', err)
     }
     setComputing(false)
   }
