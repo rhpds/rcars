@@ -454,6 +454,90 @@ body {
 .admin-layout { padding: 24px; flex: 1; overflow-y: auto; max-width: 720px; scrollbar-width: none; }
 .admin-layout::-webkit-scrollbar { display: none; }
 .admin-layout--wide { max-width: 960px; }
+.admin-layout--flex { max-width: none; }
+
+/* ── Admin Stat Cards ── */
+.admin-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+@media (max-width: 900px) {
+  .admin-stat-cards { grid-template-columns: 1fr; }
+}
+.admin-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 14px 16px;
+}
+.admin-stat-card-title {
+  font-size: 11px;
+  color: var(--accent-blue);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.admin-stat-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  font-size: 13px;
+}
+.admin-stat-row-label { color: var(--text-muted); }
+.admin-stat-row-indent { padding-left: 12px; color: #666; }
+.admin-stat-row-value { color: var(--text-secondary); }
+.admin-stat-row-link {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.admin-stat-row-divider { border-top: 1px solid var(--border); margin: 4px 0; }
+
+/* ── Workload Mapping Section ── */
+.mapping-inline-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.mapping-inline-form input {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  width: 140px;
+  outline: none;
+}
+.mapping-inline-form button {
+  background: #1a3a5a;
+  border: none;
+  color: var(--accent-blue);
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.mapping-inline-form button:hover { background: #1f4a70; }
+.mapping-delete-btn {
+  background: none;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+.mapping-delete-btn:hover { color: #c9190b; }
+.verified-badge {
+  display: inline-block;
+  background: #1a3a2a;
+  color: #5cb85c;
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-size: 10px;
+}
 .admin-section { margin-bottom: 28px; }
 .admin-section h3 { font-size: 15px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; }
 .btn-action {

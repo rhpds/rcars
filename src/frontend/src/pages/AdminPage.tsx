@@ -397,6 +397,20 @@ interface InfraStats {
   unmapped_workloads: number
 }
 
+interface WorkloadMapping {
+  workload_role: string
+  product_name: string
+  description: string | null
+  category: string | null
+  verified: boolean
+}
+
+interface UnmappedWorkload {
+  workload_role: string
+  workload_collection: string | null
+  ci_count: number
+}
+
 function WorkloadScanSection({ onStatusChange }: { onStatusChange: () => void }) {
   const [log, setLog] = useState<string[]>([])
   const [logOpen, setLogOpen] = useState(false)
@@ -455,6 +469,153 @@ function WorkloadScanSection({ onStatusChange }: { onStatusChange: () => void })
   )
 }
 
+function WorkloadMappingSection({ onStatusChange }: { onStatusChange: () => void }) {
+  const [expanded, setExpanded] = useState(false)
+  const [mappings, setMappings] = useState<WorkloadMapping[]>([])
+  const [unmapped, setUnmapped] = useState<UnmappedWorkload[]>([])
+  const [loading, setLoading] = useState(false)
+  const [mappingForm, setMappingForm] = useState<Record<string, { product: string; category: string }>>({})
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [mapData, unmapData] = await Promise.all([
+        api.getWorkloadMappings() as Promise<{ mappings: WorkloadMapping[]; aliases: unknown[] }>,
+        api.getUnmappedWorkloads() as Promise<{ unmapped: UnmappedWorkload[] }>,
+      ])
+      setMappings(mapData.mappings.sort((a, b) => a.product_name.localeCompare(b.product_name)))
+      setUnmapped(unmapData.unmapped.sort((a, b) => b.ci_count - a.ci_count))
+    } catch { /* ignore */ }
+    setLoading(false)
+  }, [])
+
+  const handleExpand = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && mappings.length === 0) loadData()
+  }
+
+  const handleDelete = async (role: string) => {
+    await api.deleteWorkloadMapping(role)
+    loadData()
+    onStatusChange()
+  }
+
+  const handleMap = async (role: string) => {
+    const form = mappingForm[role]
+    if (!form?.product?.trim()) return
+    await api.addWorkloadMapping({
+      workload_role: role,
+      product_name: form.product.trim(),
+      category: form.category?.trim() || undefined,
+    })
+    setMappingForm(prev => { const next = { ...prev }; delete next[role]; return next })
+    loadData()
+    onStatusChange()
+  }
+
+  return (
+    <div className="admin-section">
+      <h3
+        style={{ cursor: 'pointer' }}
+        onClick={handleExpand}
+      >
+        {expanded ? '▾' : '▸'} Workload Mappings
+        {mappings.length > 0 && (
+          <span style={{ fontSize: '12px', color: '#666', fontWeight: 'normal', textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>
+            {mappings.length} mapped · {unmapped.length} unmapped
+          </span>
+        )}
+      </h3>
+      {expanded && (
+        loading ? (
+          <div style={{ color: '#666' }}>Loading...</div>
+        ) : (
+          <>
+            {unmapped.length > 0 && (
+              <div style={{ marginBottom: '20px' }}>
+                <div style={{ fontSize: '13px', color: '#e8a838', marginBottom: '8px', fontWeight: 600 }}>
+                  Unmapped Workloads ({unmapped.length})
+                </div>
+                <table className="status-table status-table--compact">
+                  <thead><tr><th>Role</th><th>Collection</th><th style={{ textAlign: 'right' }}>CIs</th><th></th></tr></thead>
+                  <tbody>
+                    {unmapped.map(u => (
+                      <tr key={u.workload_role}>
+                        <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{u.workload_role}</td>
+                        <td style={{ color: '#666', fontSize: '11px' }}>{u.workload_collection || '—'}</td>
+                        <td style={{ textAlign: 'right' }}>{u.ci_count}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {mappingForm[u.workload_role] !== undefined ? (
+                            <div className="mapping-inline-form">
+                              <input
+                                placeholder="Product name"
+                                value={mappingForm[u.workload_role]?.product || ''}
+                                onChange={(e) => setMappingForm(prev => ({
+                                  ...prev, [u.workload_role]: { ...prev[u.workload_role], product: e.target.value }
+                                }))}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                              />
+                              <input
+                                placeholder="Category"
+                                value={mappingForm[u.workload_role]?.category || ''}
+                                onChange={(e) => setMappingForm(prev => ({
+                                  ...prev, [u.workload_role]: { ...prev[u.workload_role], category: e.target.value }
+                                }))}
+                                onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                                style={{ width: '100px' }}
+                              />
+                              <button onClick={() => handleMap(u.workload_role)}>Save</button>
+                              <button
+                                onClick={() => setMappingForm(prev => { const next = { ...prev }; delete next[u.workload_role]; return next })}
+                                style={{ background: 'none', color: '#666' }}
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              className="mapping-delete-btn"
+                              style={{ color: '#73bcf7' }}
+                              onClick={() => setMappingForm(prev => ({ ...prev, [u.workload_role]: { product: '', category: '' } }))}
+                            >
+                              Map
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            <div>
+              <div style={{ fontSize: '13px', color: '#5cb85c', marginBottom: '8px', fontWeight: 600 }}>
+                Mapped Workloads ({mappings.length})
+              </div>
+              <table className="status-table status-table--compact">
+                <thead><tr><th>Role</th><th>Product Name</th><th>Category</th><th></th><th></th></tr></thead>
+                <tbody>
+                  {mappings.map(m => (
+                    <tr key={m.workload_role}>
+                      <td style={{ fontFamily: 'monospace', fontSize: '11px' }}>{m.workload_role}</td>
+                      <td>{m.product_name}</td>
+                      <td style={{ color: '#666' }}>{m.category || '—'}</td>
+                      <td>{m.verified && <span className="verified-badge">verified</span>}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button className="mapping-delete-btn" onClick={() => handleDelete(m.workload_role)} title="Remove mapping">✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )
+      )}
+    </div>
+  )
+}
+
 export function AdminCatalogPage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<CatalogStatus | null>(null)
@@ -469,96 +630,74 @@ export function AdminCatalogPage() {
 
   const statusColor = (stale: boolean) => stale ? '#c9190b' : '#5cb85c'
 
+  const clickableCount = (count: number, filter: string, warnColor = '#e8a838') => (
+    <span
+      onClick={() => count > 0 && navigate(`/browse?content_filter=${filter}`)}
+      className={count > 0 ? 'admin-stat-row-link' : undefined}
+      style={{ color: count > 0 ? warnColor : '#5cb85c' }}
+    >{count}</span>
+  )
+
   return (
-    <div className="admin-layout">
-      <ScheduledMaintenance onStatusChange={loadStatus} />
-
-      <WorkloadScanSection onStatusChange={loadStatus} />
-
-      <div className="admin-section">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-          <h3 style={{ margin: 0 }}>Catalog Status</h3>
-          <button
-            onClick={loadStatus}
-            style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
-          >
-            ↻ Refresh
-          </button>
-        </div>
-        {status ? (
-          <table className="status-table">
-            <thead><tr><th>Metric</th><th>Count</th></tr></thead>
-            <tbody>
-              <tr><td>Total catalog items</td><td>{status.total}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Production</td><td>{status.prod}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Dev</td><td>{status.dev}</td></tr>
-              <tr><td style={{ paddingLeft: '24px', color: '#888' }}>Event</td><td>{status.event}</td></tr>
-              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                <td>CIs with Showroom</td><td>{status.scannable}</td>
-              </tr>
-              <tr>
-                <td style={{ paddingLeft: '24px', color: '#888' }}>Unique Showrooms (after dedup)</td><td>{status.unique_showrooms}</td>
-              </tr>
-              <tr><td>Analyzed</td><td>{status.analyzed}</td></tr>
-              <tr>
-                <td>Unanalyzed</td>
-                <td>
-                  <span
-                    onClick={() => status.unanalyzed > 0 && navigate('/browse?content_filter=unanalyzed')}
-                    style={{ color: status.unanalyzed > 0 ? '#e8a838' : '#5cb85c', cursor: status.unanalyzed > 0 ? 'pointer' : 'default', textDecoration: status.unanalyzed > 0 ? 'underline' : 'none' }}
-                  >{status.unanalyzed}</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Stale (needs rescan)</td>
-                <td>
-                  <span
-                    onClick={() => status.stale_count > 0 && navigate('/browse?content_filter=stale')}
-                    style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c', cursor: status.stale_count > 0 ? 'pointer' : 'default', textDecoration: status.stale_count > 0 ? 'underline' : 'none' }}
-                  >{status.stale_count}</span>
-                </td>
-              </tr>
-              <tr>
-                <td>Analysis failures</td>
-                <td>
-                  <span
-                    onClick={() => status.failed_count > 0 && navigate('/browse?content_filter=scan_failures')}
-                    style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c', cursor: status.failed_count > 0 ? 'pointer' : 'default', textDecoration: status.failed_count > 0 ? 'underline' : 'none' }}
-                  >{status.failed_count}</span>
-                </td>
-              </tr>
-              <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                <td style={{ color: '#666' }}>Last catalog sync</td>
-                <td style={{ color: statusColor(status.catalog_stale) }}>{status.catalog_date}</td>
-              </tr>
-              <tr>
-                <td style={{ color: '#666' }}>Last analysis run</td>
-                <td style={{ color: statusColor(status.analysis_stale) }}>{status.analysis_date}</td>
-              </tr>
-              {infraStats && (
-                <>
-                  <tr style={{ borderTop: '1px solid #2a2a3a' }}>
-                    <td>AgnosticD v2 items</td><td>{infraStats.v2_items}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ paddingLeft: '24px', color: '#888' }}>With workloads</td><td>{infraStats.with_workloads}</td>
-                  </tr>
-                  <tr>
-                    <td style={{ paddingLeft: '24px', color: '#888' }}>Mapped roles</td>
-                    <td>{infraStats.mapped_workloads} ({infraStats.verified_workloads} verified)</td>
-                  </tr>
-                  <tr>
-                    <td style={{ paddingLeft: '24px', color: '#888' }}>Unmapped roles</td>
-                    <td style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</td>
-                  </tr>
-                </>
-              )}
-            </tbody>
-          </table>
-        ) : (
-          <div style={{ color: '#666' }}>Loading...</div>
-        )}
+    <div className="admin-layout admin-layout--flex">
+      {/* Status Cards */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
+        <h3 style={{ margin: 0, fontSize: '15px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px' }}>Status</h3>
+        <button
+          onClick={loadStatus}
+          style={{ background: 'transparent', border: '1px solid #333', color: '#666', cursor: 'pointer', fontSize: '12px', padding: '2px 8px', borderRadius: '4px' }}
+        >↻ Refresh</button>
       </div>
+
+      {status ? (
+        <div className="admin-stat-cards">
+          {/* Catalog Card */}
+          <div className="admin-stat-card">
+            <div className="admin-stat-card-title">Catalog</div>
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{status.total}</span></div>
+            <div className="admin-stat-row"><span className="admin-stat-row-indent">Production</span><span className="admin-stat-row-value">{status.prod}</span></div>
+            <div className="admin-stat-row"><span className="admin-stat-row-indent">Dev</span><span className="admin-stat-row-value">{status.dev}</span></div>
+            <div className="admin-stat-row"><span className="admin-stat-row-indent">Event</span><span className="admin-stat-row-value">{status.event}</span></div>
+            <div className="admin-stat-row-divider" />
+            <div className="admin-stat-row"><span className="admin-stat-row-label">With Showroom</span><span className="admin-stat-row-value">{status.scannable}</span></div>
+            <div className="admin-stat-row"><span className="admin-stat-row-indent">Unique</span><span className="admin-stat-row-value">{status.unique_showrooms}</span></div>
+            <div className="admin-stat-row-divider" />
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Last sync</span><span style={{ color: statusColor(status.catalog_stale), fontSize: '12px' }}>{status.catalog_date}</span></div>
+          </div>
+
+          {/* Analysis Card */}
+          <div className="admin-stat-card">
+            <div className="admin-stat-card-title">Analysis</div>
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Analyzed</span><span className="admin-stat-row-value">{status.analyzed}</span></div>
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Unanalyzed</span>{clickableCount(status.unanalyzed, 'unanalyzed')}</div>
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Stale</span>{clickableCount(status.stale_count, 'stale')}</div>
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Failures</span>{clickableCount(status.failed_count, 'scan_failures', '#c9190b')}</div>
+            <div className="admin-stat-row-divider" />
+            <div className="admin-stat-row"><span className="admin-stat-row-label">Last run</span><span style={{ color: statusColor(status.analysis_stale), fontSize: '12px' }}>{status.analysis_date}</span></div>
+          </div>
+
+          {/* Infrastructure Card */}
+          <div className="admin-stat-card">
+            <div className="admin-stat-card-title">Infrastructure</div>
+            {infraStats ? (
+              <>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">With workloads</span><span className="admin-stat-row-value">{infraStats.with_workloads}</span></div>
+                <div className="admin-stat-row-divider" />
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Mapped roles</span><span className="admin-stat-row-value">{infraStats.mapped_workloads}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</span></div>
+              </>
+            ) : (
+              <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{ color: '#666', marginBottom: '24px' }}>Loading...</div>
+      )}
+
+      <ScheduledMaintenance onStatusChange={loadStatus} />
 
       <AdminAction
         title="Catalog Sync"
@@ -594,6 +733,10 @@ export function AdminCatalogPage() {
       <ScanMonitor onStatusChange={loadStatus} />
 
       <RescanAllSection onStatusChange={loadStatus} />
+
+      <WorkloadScanSection onStatusChange={loadStatus} />
+
+      <WorkloadMappingSection onStatusChange={loadStatus} />
     </div>
   )
 }
