@@ -33,9 +33,20 @@ function catalogUrl(ciName: string, namespace: string): string {
   return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
 }
 
+function formatSuggestedFormat(raw: string): string {
+  const map: Record<string, string> = {
+    hands_on_lab: 'Hands-on Lab',
+    booth_demo: 'Booth Demo',
+    presentation: 'Presentation',
+  }
+  return map[raw] || raw.replace(/_/g, ' ')
+}
+
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
+  const [showFullCaveat, setShowFullCaveat] = useState(false)
+  const [showObjectives, setShowObjectives] = useState(false)
 
   const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
@@ -45,6 +56,14 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
     await api.selectRecommendation(sessionId, turnIndex, candidate.ci_name)
     setSelected(true)
   }
+
+  const caveatText = candidate.caveats || ''
+  const caveatTruncated = caveatText.length > 200 && !showFullCaveat
+
+  const hasMetadata = candidate.suggested_format || candidate.duration_min
+  const durationLabel = candidate.duration_min
+    ? `~${candidate.duration_min} min (${candidate.duration_source === 'curated' ? 'curated' : 'AI estimate'})`
+    : null
 
   return (
     <LcarsCard tier={tier}>
@@ -94,40 +113,60 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               </div>
             </div>
           )}
-          {candidate.how_to_use && (
+
+          {(candidate.how_to_use || candidate.duration_notes) && (
             <div className="rec-analysis-row">
               <span className="rec-analysis-label">How to use</span>
-              <span className="rec-analysis-value">{candidate.how_to_use}</span>
+              <span className="rec-analysis-value">
+                {candidate.how_to_use}
+                {candidate.how_to_use && candidate.duration_notes && ' '}
+                {candidate.duration_notes && (
+                  <span style={{ color: '#888' }}>{candidate.duration_notes}</span>
+                )}
+              </span>
             </div>
           )}
-          {(candidate.suggested_format || candidate.duration_min) && (
-            <div className="rec-pill-row">
-              {candidate.duration_min && (
-                <span className="rec-pill">
-                  ~{candidate.duration_min} min ({candidate.duration_source === 'curated' ? 'estimated' : 'AI estimate'})
-                </span>
+
+          {hasMetadata && (
+            <div className="rec-metadata-line">
+              {candidate.suggested_format && formatSuggestedFormat(candidate.suggested_format)}
+              {candidate.suggested_format && durationLabel && ' · '}
+              {durationLabel}
+            </div>
+          )}
+
+          {caveatText && (
+            <div className="rec-caveat">
+              <span>⚠ {caveatTruncated ? caveatText.slice(0, 200) + '...' : caveatText}</span>
+              {caveatText.length > 200 && (
+                <button
+                  className="rec-caveat-toggle"
+                  onClick={(e) => { e.stopPropagation(); setShowFullCaveat(!showFullCaveat) }}
+                >
+                  {showFullCaveat ? 'less' : 'more'}
+                </button>
               )}
-              {candidate.suggested_format && <span className="rec-pill pill-format">{candidate.suggested_format}</span>}
-              {candidate.duration_notes && <span className="rec-pill">{candidate.duration_notes}</span>}
             </div>
           )}
-          {candidate.caveats && (
-            <div className="rec-caveat">Caveat: {candidate.caveats}</div>
-          )}
 
-          {/* Learning objectives for green tier */}
           {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
-            <div style={{ marginTop: '10px' }}>
-              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Relevant Learning Objectives</div>
-              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
-                {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
-                  <li key={i}>{obj}</li>
-                ))}
-              </ul>
+            <div style={{ marginTop: '8px' }}>
+              <div
+                className="rec-objectives-toggle"
+                onClick={(e) => { e.stopPropagation(); setShowObjectives(!showObjectives) }}
+              >
+                {showObjectives ? '▾' : '▸'} Learning objectives ({candidate.learning_objectives.length})
+              </div>
+              {showObjectives && (
+                <ul style={{ margin: '4px 0 0', paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
+                  {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
+                    <li key={i}>{obj}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
 
-          {/* Links + feedback button */}
           <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
             <a
               href={catalogUrl(candidate.ci_name, candidate.catalog_namespace)}
@@ -139,14 +178,14 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             </a>
             {isComplete && (tier === 'green' || tier === 'yellow') && (
               selected ? (
-                <span style={{ color: '#5cb85c', fontSize: '14px', fontWeight: 600 }}>✓ Best fit</span>
+                <span style={{ color: '#5cb85c', fontSize: '13px', fontWeight: 500 }}>✓ Best fit</span>
               ) : (
                 <button
                   className="btn-best-fit"
                   title="Helps us improve recommendations by tracking which results are most useful"
                   onClick={(e) => { e.stopPropagation(); handleSelect() }}
                 >
-                  ★ This is the best fit
+                  ★ Best fit
                 </button>
               )
             )}
