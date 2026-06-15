@@ -350,8 +350,34 @@ body {
 .rec-analysis-label { color: var(--text-muted); font-weight: 500; min-width: 85px; flex-shrink: 0; }
 .rec-analysis-value { color: #bbb; }
 
+/* Compact metadata line (format · duration source) */
+.rec-metadata-line {
+  font-size: 11px;
+  color: #666;
+  margin-top: 6px;
+  margin-bottom: 4px;
+}
+
 /* Caveat with visual distinction */
-.rec-caveat { font-size: 12px; color: var(--score-amber); margin-top: 6px; margin-bottom: 4px; padding: 4px 0; }
+.rec-caveat { font-size: 12px; color: #aa8833; margin-top: 6px; margin-bottom: 4px; padding: 4px 0; line-height: 1.5; }
+.rec-caveat-toggle {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 4px;
+}
+.rec-caveat-toggle:hover { text-decoration: underline; }
+
+/* Learning objectives collapsible toggle */
+.rec-objectives-toggle {
+  font-size: 11px;
+  color: #666;
+  cursor: pointer;
+  user-select: none;
+}
+.rec-objectives-toggle:hover { color: #999; }
 
 .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tag-pill {
@@ -388,16 +414,15 @@ body {
 .btn-curator.secondary { background: var(--bg-card); border-color: #333; color: var(--text-muted); }
 .btn-best-fit {
   background: transparent;
-  border: 2px solid #5cb85c;
+  border: 1px solid #5cb85c;
   color: #5cb85c;
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: 14px;
-  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
 }
+.btn-best-fit:hover { background: rgba(92, 184, 92, 0.1); }
 
 .new-session-btn {
   background: transparent;
