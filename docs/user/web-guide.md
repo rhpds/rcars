@@ -171,13 +171,59 @@ Each item in the list shows its display name, stage badges (DEV/EVENT), ZT badge
 
 **Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
 
+## Content Analysis
+
+The Content Analysis section (`/analysis`) is a top-level section in the sidebar, visible to admins. It contains tools for analyzing catalog content at scale — identifying overlap, assessing retirement candidates, and understanding the catalog's content landscape.
+
+### Content Overlap (`/analysis/overlap`)
+
+The Overlap page helps curators identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built separate OpenShift Pipelines labs with 85% topic overlap.
+
+#### Understanding how similarity works
+
+When RCARS scans a Showroom lab, it sends the lab's content to Claude Sonnet, which returns a structured analysis: summary, topics, products, modules, and learning objectives. RCARS then feeds that analysis text into a sentence-transformer model (all-MiniLM-L6-v2), which converts it into a list of 384 numbers called an **embedding**. Think of this as a fingerprint that captures *what the lab is about* — not the exact words used, but the underlying meaning. Two labs about "deploying containerized applications on OpenShift" will get similar fingerprints even if they use completely different wording.
+
+Every analyzed lab in the catalog already has one of these fingerprints stored in the database from its original scan. The overlap detection reuses them — it does not call Claude or any external API. The entire computation runs inside PostgreSQL.
+
+To compare two labs, RCARS uses **cosine similarity**, which measures how closely two fingerprints point in the same direction. Imagine each fingerprint as an arrow in a high-dimensional space. If two arrows point the same way, the angle between them is small and the cosine similarity is close to 1.0 (100%). If they point in unrelated directions, the similarity drops toward 0. In practice:
+
+- **90%+** — the labs cover nearly identical material
+- **85–90%** — strong overlap, likely candidates for consolidation
+- **75–85%** — related topics with some differentiation
+- **Below 75%** — different enough that overlap is not a concern (these pairs are not stored)
+
+The computation compares every lab against every other lab within the selected stage. With ~100 prod labs, that is about 5,000 comparisons — pgvector handles this in under a second.
+
+#### Stage selection
+
+The stage dropdown controls which catalog items are compared:
+
+- **Production** (default) — compares prod items against other prod items. This is the most actionable view: two prod items with high overlap means two orderable labs on demo.redhat.com cover the same material.
+- **Event** — compares event items against other event items.
+- **Dev** — compares dev items against other dev items.
+
+Each stage is compared within itself. Published Virtual CIs are excluded because they have no Showroom content of their own — they are wrappers that point to a base CI. The comparison happens between the base CIs that own the actual lab content.
+
+#### Using the Overlap page
+
+1. Select a **stage** from the dropdown (default: Production).
+2. Click **Compute Similarity** to run the comparison. This is fast (seconds) and consumes no LLM tokens.
+3. The stats bar shows how many high-overlap and related pairs were found.
+4. Use the second dropdown to filter between "All pairs" and "High overlap only."
+5. Click any pair to expand it and see both summaries side by side.
+6. Click a lab name to navigate to it in Browse for detailed review.
+
+**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--stage prod] [--threshold 0.75]`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`). The overlap report is available at `GET /api/v1/admin/overlap`, and per-item similarity at `GET /api/v1/catalog/{ci_name}/similar`.
+
+**When to recompute:** After a full scan or re-analysis, since the underlying fingerprints may have changed. The "Last computed" timestamp shows when the data was last refreshed.
+
 ## The Admin Pages
 
 The Admin section (`/admin`) is visible to admins only (not curators). It is split into three sub-pages, accessible via the sidebar navigation:
 
 ### Catalog (`/admin/catalog`)
 
-The Catalog admin page has four tabs: **Status**, **Sync & Analysis**, **Workloads**, and **Overlap**.
+The Catalog admin page has three tabs: **Status**, **Sync & Analysis**, and **Workloads**.
 
 **Status tab:**
 
@@ -191,30 +237,6 @@ The Catalog admin page has four tabs: **Status**, **Sync & Analysis**, **Workloa
 - **Full Re-Analysis** — "Re-Analyze All" button that marks every item stale and enqueues a complete rescan. Warning: consumes significant tokens.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
-
-**Overlap tab:**
-
-The Overlap tab helps curators identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built OpenShift Pipelines labs with 85% topic overlap.
-
-**How it works:** RCARS already generates a 384-dimensional "fingerprint" (embedding) for every analyzed Showroom lab during the scan phase. The overlap detection compares these fingerprints using cosine similarity — a mathematical measure of how aligned two fingerprints are. A score of 1.0 (100%) means identical content; 0.0 means completely unrelated. No LLM calls are made — the computation runs entirely in PostgreSQL using pgvector, comparing vectors that already exist. With ~400 labs, the full computation takes seconds.
-
-**Deduplication:** Before comparing, the system deduplicates catalog items so that stage variants (prod/dev/event) and ZT namespace aliases of the same lab are collapsed into a single representative. Dedup groups by effective Showroom URL first (same git repo = same item), then by content hash (same content from different repos). Only the best representative from each group (preferring prod over event over dev) participates in the comparison. This ensures results show genuinely different labs with overlapping content, not expected duplicates like "prod vs dev of the same thing."
-
-**Similarity tiers:**
-
-- **High overlap (≥85%)** — shown in red. These labs likely cover the same material and are candidates for consolidation.
-- **Related (75–85%)** — shown in amber. These labs cover similar topics but may have enough differentiation to coexist.
-
-**Using the Overlap tab:**
-
-1. Click **Compute Similarity** to run (or re-run) the comparison. This is a lightweight database operation — no LLM tokens consumed. The stats bar updates inline when computation completes.
-2. Use the dropdown to filter between "All pairs" and "High overlap only."
-3. Click any pair to expand it and see both summaries side by side.
-4. Click a lab name to navigate to it in the Browse page for further review.
-
-**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--threshold 0.75]`) or the API (`POST /api/v1/admin/compute-similarity`). The overlap report is available at `GET /api/v1/admin/overlap`, and per-item similarity at `GET /api/v1/catalog/{ci_name}/similar`.
-
-**When to recompute:** After a full scan or re-analysis, since embeddings may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
 ### Token Usage (`/admin/tokens`)
 
