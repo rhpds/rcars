@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
     learning_objectives_json JSONB,
     difficulty TEXT,
     estimated_duration_min INTEGER,
-    curated_duration_min INTEGER,
+    curated_duration_min INTEGER CHECK (curated_duration_min >= 0),
     event_fit_json JSONB,
     use_cases_json JSONB,
     last_repo_commit TEXT,
@@ -677,7 +677,8 @@ class Database:
                 (duration_min, ci_name),
             )
             conn.commit()
-        logger.info("curated_duration_set", ci_name=ci_name, duration_min=duration_min, updated_by=updated_by)
+        logger.info("curated_duration_set", component="rcars", action="set_curated_duration",
+                    ci_name=ci_name, duration_min=duration_min, updated_by=updated_by)
 
     # ── Infrastructure metadata (workloads, ACL groups, mapping) ──
 
@@ -827,6 +828,48 @@ class Database:
             "unmapped_workloads": unmapped_count,
         }
 
+    def get_catalog_facets(self) -> dict:
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT wm.product_name, wm.category, COUNT(DISTINCT ciw.ci_name) AS ci_count
+                FROM workload_mapping wm
+                JOIN catalog_item_workloads ciw ON ciw.workload_role = wm.workload_role
+                JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.is_prod = TRUE
+                GROUP BY wm.product_name, wm.category
+                ORDER BY ci_count DESC
+            """)
+            workloads = cur.fetchall()
+
+            cur = conn.execute("""
+                SELECT agd_config, COUNT(*) AS ci_count
+                FROM catalog_items WHERE is_agd_v2 = TRUE AND is_prod = TRUE
+                GROUP BY agd_config ORDER BY ci_count DESC
+            """)
+            configs = cur.fetchall()
+
+            cur = conn.execute("""
+                SELECT cloud_provider, COUNT(*) AS ci_count
+                FROM catalog_items WHERE is_agd_v2 = TRUE AND cloud_provider IS NOT NULL
+                  AND cloud_provider != 'none' AND is_prod = TRUE
+                GROUP BY cloud_provider ORDER BY ci_count DESC
+            """)
+            cloud_providers = cur.fetchall()
+
+            cur = conn.execute("""
+                SELECT os_image, COUNT(*) AS ci_count
+                FROM catalog_items WHERE is_agd_v2 = TRUE AND os_image IS NOT NULL
+                  AND is_prod = TRUE
+                GROUP BY os_image ORDER BY ci_count DESC
+            """)
+            os_images = cur.fetchall()
+
+        return {
+            "workloads": workloads,
+            "configs": configs,
+            "cloud_providers": cloud_providers,
+            "os_images": os_images,
+        }
+
     def search_by_infrastructure(
         self,
         workloads: list[str] | None = None,
@@ -905,7 +948,12 @@ class Database:
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM content_similarity")
+                cur.execute("""
+                    DELETE FROM content_similarity
+                    WHERE ci_name_a IN (
+                        SELECT ci_name FROM catalog_items WHERE stage = %(stage)s
+                    )
+                """, {"stage": stage})
 
                 cur.execute("""
                     INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)

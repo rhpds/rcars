@@ -68,9 +68,9 @@ async def search_infrastructure(
         stage=stage,
         limit=limit,
     )
+    mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
     for item in items:
         raw_workloads = db.get_workloads(item["ci_name"])
-        mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
         item["workloads"] = [
             {
                 "role": w["workload_role"],
@@ -85,46 +85,7 @@ async def search_infrastructure(
 @router.get("/facets")
 async def catalog_facets(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
-    with db.pool.connection() as conn:
-        cur = conn.execute("""
-            SELECT wm.product_name, wm.category, COUNT(DISTINCT ciw.ci_name) AS ci_count
-            FROM workload_mapping wm
-            JOIN catalog_item_workloads ciw ON ciw.workload_role = wm.workload_role
-            JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.is_prod = TRUE
-            GROUP BY wm.product_name, wm.category
-            ORDER BY ci_count DESC
-        """)
-        workloads = cur.fetchall()
-
-        cur = conn.execute("""
-            SELECT agd_config, COUNT(*) AS ci_count
-            FROM catalog_items WHERE is_agd_v2 = TRUE AND is_prod = TRUE
-            GROUP BY agd_config ORDER BY ci_count DESC
-        """)
-        configs = cur.fetchall()
-
-        cur = conn.execute("""
-            SELECT cloud_provider, COUNT(*) AS ci_count
-            FROM catalog_items WHERE is_agd_v2 = TRUE AND cloud_provider IS NOT NULL
-              AND cloud_provider != 'none' AND is_prod = TRUE
-            GROUP BY cloud_provider ORDER BY ci_count DESC
-        """)
-        cloud_providers = cur.fetchall()
-
-        cur = conn.execute("""
-            SELECT os_image, COUNT(*) AS ci_count
-            FROM catalog_items WHERE is_agd_v2 = TRUE AND os_image IS NOT NULL
-              AND is_prod = TRUE
-            GROUP BY os_image ORDER BY ci_count DESC
-        """)
-        os_images = cur.fetchall()
-
-    return {
-        "workloads": workloads,
-        "configs": configs,
-        "cloud_providers": cloud_providers,
-        "os_images": os_images,
-    }
+    return db.get_catalog_facets()
 
 
 @router.get("/workload-mappings")

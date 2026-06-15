@@ -17,7 +17,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     op.execute("""
         ALTER TABLE showroom_analysis
-            ADD COLUMN IF NOT EXISTS curated_duration_min INTEGER;
+            ADD COLUMN IF NOT EXISTS curated_duration_min INTEGER
+                CHECK (curated_duration_min >= 0);
     """)
 
 

@@ -35,7 +35,7 @@ export function ContentOverlapPage() {
       setThresholds(data.thresholds)
     } catch { /* ignore */ }
     setLoading(false)
-  }, [])
+  }, [thresholds.related])
 
   useEffect(() => { loadData() }, [loadData])
 
