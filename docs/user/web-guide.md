@@ -147,7 +147,7 @@ Curator changes are saved immediately. Tags can be removed by clicking the X on 
 
 ## The Browse Page
 
-The Browse page (`/browse`) shows the full catalog in a searchable, filterable list with client-side pagination (50 items per page).
+The Browse page (`/browse`) shows the full catalog in a searchable, filterable list with server-side pagination (50 items per page).
 
 **Filter bar:**
 

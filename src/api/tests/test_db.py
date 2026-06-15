@@ -15,12 +15,11 @@ def db():
     with psycopg.connect(TEST_DB_URL) as conn:
         conn.autocommit = True
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        for table in ["embeddings", "enrichment_tags", "showroom_analysis", "analysis_log",
-                      "jobs", "token_usage", "advisor_sessions", "api_keys",
-                      "catalog_item_workloads", "catalog_item_acl_groups",
-                      "workload_aliases", "workload_mapping", "workload_scan_state",
-                      "catalog_items", "alembic_version"]:
-            conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+        cur = conn.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
+        )
+        for row in cur.fetchall():
+            conn.execute(f"DROP TABLE IF EXISTS {row['tablename']} CASCADE")
 
     database = Database(TEST_DB_URL)
     database.create_schema()

@@ -111,10 +111,8 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
             acl_groups = item.pop("_acl_groups", [])
             wctx.db.upsert_catalog_item(item)
             current_ci_names.add(item["ci_name"])
-            if workloads:
-                wctx.db.sync_workloads(item["ci_name"], workloads)
-            if acl_groups:
-                wctx.db.sync_acl_groups(item["ci_name"], acl_groups)
+            wctx.db.sync_workloads(item["ci_name"], workloads)
+            wctx.db.sync_acl_groups(item["ci_name"], acl_groups)
             if i % 100 == 0:
                 await publish_progress(wctx.relay, job_id, wctx.db,
                                        phase="catalog_refresh", status="upserting",
@@ -401,7 +399,9 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
                                phase="workload_scan", status="started",
                                message="Scanning agDv2 workload repos...")
 
-        results = scan_all_collections(
+        import asyncio
+        results = await asyncio.to_thread(
+            scan_all_collections,
             clone_dir=wctx.settings.clone_dir,
             anthropic_client=anthropic_client,
             model=wctx.settings.triage_model,

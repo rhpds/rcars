@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, Request, Query
 from rcars.api.middleware.auth import require_admin
 from rcars.config import Settings
+
+logger = structlog.get_logger()
 
 router = APIRouter(prefix="/admin")
 
@@ -162,9 +165,15 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="workload_scan", queue="ops", created_by=user)
-    await arq_redis.enqueue_job(
-        "run_workload_scan", job_id=job_id, _queue_name="arq:queue:scan"
-    )
+    try:
+        await arq_redis.enqueue_job(
+            "run_workload_scan", job_id=job_id, _queue_name="arq:queue:scan"
+        )
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
+    logger.info("workload_scan_enqueued", component="rcars", action="scan_workloads",
+                job_id=job_id, created_by=user)
     return {"job_id": job_id}
 
 
@@ -197,6 +206,8 @@ async def compute_similarity(
     stage: str = Query("prod", description="Stage to compare: prod, event, or dev"),
 ):
     db = request.app.state.db
+    logger.info("compute_similarity_started", component="rcars", action="compute_similarity",
+                threshold=threshold, stage=stage, triggered_by=user)
     result = db.compute_content_similarity(threshold=threshold, stage=stage)
     return result
 

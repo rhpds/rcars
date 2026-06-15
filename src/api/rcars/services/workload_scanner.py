@@ -86,7 +86,7 @@ def discover_roles(clone_path: Path) -> list[str]:
         if d.is_dir()
         and not d.name.startswith(".")
         and d.name not in ("meta", "plugins", "tests", "docs", ".github")
-        and (d / "tasks").is_dir() or (d / "defaults").is_dir()
+        and ((d / "tasks").is_dir() or (d / "defaults").is_dir())
     ])
 
 
@@ -101,7 +101,8 @@ def analyze_role(
     """Analyze a single role via LLM and return the mapping dict."""
     code_content = read_role_code(role_path)
     if not code_content.strip():
-        log.info("workload_scan: skipping %s/%s — no readable code", collection_name, role_name)
+        log.info("workload_scan_skip", component="workload_scan", action="skipping",
+                 collection=collection_name, role=role_name, reason="no readable code")
         return None
 
     prompt = WORKLOAD_ANALYSIS_PROMPT.format(
@@ -136,16 +137,18 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
-        log.info("workload_scan: analyzed %s/%s → %s (%s)",
-                 collection_name, role_name, result.get("product_name"), result.get("category"))
+        log.info("workload_scan_analyzed", component="workload_scan", action="analyzed",
+                 collection=collection_name, role=role_name,
+                 product_name=result.get("product_name"), category=result.get("category"))
         return result
 
     except (json.JSONDecodeError, IndexError, KeyError) as e:
-        log.warning("workload_scan: failed to parse LLM response for %s/%s: %s",
-                    collection_name, role_name, e)
+        log.warning("workload_scan_parse_error", component="workload_scan", action="failed_to_parse",
+                    collection=collection_name, role=role_name, error=str(e))
         return None
     except Exception as e:
-        log.error("workload_scan: LLM error for %s/%s: %s", collection_name, role_name, e)
+        log.error("workload_scan_llm_error", component="workload_scan", action="llm_error",
+                  collection=collection_name, role=role_name, error=str(e))
         return None
 
 
@@ -175,6 +178,13 @@ def scan_collection(
         return {"collection": collection_name, "status": "clone_failed", "roles_scanned": 0}
 
     try:
+        import subprocess
+        local_sha_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(clone_path),
+            capture_output=True, text=True,
+        )
+        local_sha = local_sha_result.stdout.strip() if local_sha_result.returncode == 0 else None
+
         roles = discover_roles(clone_path)
         rlog.info("workload_scan: found %d roles", len(roles))
 
@@ -208,9 +218,8 @@ def scan_collection(
                     )
                     mapped += 1
 
-        new_sha = ls_remote_sha(collection_url, "main")
-        if new_sha:
-            db.upsert_scan_state(collection_name, new_sha)
+        if local_sha:
+            db.upsert_scan_state(collection_name, local_sha)
 
         stats = {
             "collection": collection_name,

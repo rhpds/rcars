@@ -112,7 +112,7 @@ def search(
             topics=(analysis or {}).get("topics_json", []) or [],
             products=(analysis or {}).get("products_json", []) or [],
             difficulty=(analysis or {}).get("difficulty", ""),
-            duration_min=(analysis or {}).get("curated_duration_min") or (analysis or {}).get("estimated_duration_min"),
+            duration_min=(analysis or {}).get("curated_duration_min") if (analysis or {}).get("curated_duration_min") is not None else (analysis or {}).get("estimated_duration_min"),
             duration_source="curated" if (analysis or {}).get("curated_duration_min") is not None else "ai",
             content_type=(analysis or {}).get("content_type", ""),
             stage=row.get("stage", "prod"),

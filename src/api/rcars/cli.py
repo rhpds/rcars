@@ -92,10 +92,8 @@ def refresh():
         db.upsert_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
         refreshed_ci_names.add(item["ci_name"])
-        if workloads:
-            db.sync_workloads(item["ci_name"], workloads)
-        if acl_groups:
-            db.sync_acl_groups(item["ci_name"], acl_groups)
+        db.sync_workloads(item["ci_name"], workloads)
+        db.sync_acl_groups(item["ci_name"], acl_groups)
         if item.get("showroom_url"):
             count_with_showroom += 1
         if i % 25 == 0 or i == len(items):

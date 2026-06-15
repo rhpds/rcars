@@ -48,7 +48,15 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
 
   return (
     <LcarsCard tier={tier}>
-      <div className="rec-card-header" onClick={() => setExpanded(!expanded)} style={{ cursor: 'pointer' }}>
+      <div
+        className="rec-card-header"
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
+        style={{ cursor: 'pointer' }}
+      >
         <span className="rec-score">{score}%</span>
         <div>
           <div className="rec-title">{candidate.display_name}</div>
