@@ -504,7 +504,7 @@ export function AdminCatalogPage() {
                 <td>Unanalyzed</td>
                 <td>
                   <span
-                    onClick={() => status.unanalyzed > 0 && navigate('/browse?filter=unanalyzed')}
+                    onClick={() => status.unanalyzed > 0 && navigate('/browse?content_filter=unanalyzed')}
                     style={{ color: status.unanalyzed > 0 ? '#e8a838' : '#5cb85c', cursor: status.unanalyzed > 0 ? 'pointer' : 'default', textDecoration: status.unanalyzed > 0 ? 'underline' : 'none' }}
                   >{status.unanalyzed}</span>
                 </td>
@@ -513,7 +513,7 @@ export function AdminCatalogPage() {
                 <td>Stale (needs rescan)</td>
                 <td>
                   <span
-                    onClick={() => status.stale_count > 0 && navigate('/browse?filter=stale')}
+                    onClick={() => status.stale_count > 0 && navigate('/browse?content_filter=stale')}
                     style={{ color: status.stale_count > 0 ? '#e8a838' : '#5cb85c', cursor: status.stale_count > 0 ? 'pointer' : 'default', textDecoration: status.stale_count > 0 ? 'underline' : 'none' }}
                   >{status.stale_count}</span>
                 </td>
@@ -522,7 +522,7 @@ export function AdminCatalogPage() {
                 <td>Analysis failures</td>
                 <td>
                   <span
-                    onClick={() => status.failed_count > 0 && navigate('/browse?filter=scan_failures')}
+                    onClick={() => status.failed_count > 0 && navigate('/browse?content_filter=scan_failures')}
                     style={{ color: status.failed_count > 0 ? '#c9190b' : '#5cb85c', cursor: status.failed_count > 0 ? 'pointer' : 'default', textDecoration: status.failed_count > 0 ? 'underline' : 'none' }}
                   >{status.failed_count}</span>
                 </td>
