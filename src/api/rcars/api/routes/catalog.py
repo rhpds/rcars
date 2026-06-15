@@ -174,6 +174,21 @@ async def infra_stats(request: Request, user: str = Depends(require_auth)):
     return db.get_infra_stats()
 
 
+@router.get("/{ci_name}/similar")
+async def get_similar_items(
+    ci_name: str,
+    request: Request,
+    user: str = Depends(require_auth),
+    min_score: float = Query(0.75, ge=0.0, le=1.0),
+):
+    db = request.app.state.db
+    item = db.get_catalog_item(ci_name)
+    if not item:
+        raise HTTPException(status_code=404, detail="Catalog item not found")
+    similar = db.get_similar_items(ci_name, min_score=min_score)
+    return {"ci_name": ci_name, "similar": similar, "count": len(similar)}
+
+
 @router.get("/{ci_name}")
 async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
