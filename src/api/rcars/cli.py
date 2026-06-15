@@ -341,11 +341,12 @@ def status(failures: bool):
 
 @cli.command("compute-similarity")
 @click.option("--threshold", "-t", default=0.75, type=float, help="Minimum similarity score to store")
-def compute_similarity(threshold: float):
-    """Compute pairwise content similarity between unique Showrooms."""
+@click.option("--stage", "-s", default="prod", type=click.Choice(["prod", "event", "dev"]), help="Stage to compare")
+def compute_similarity(threshold: float, stage: str):
+    """Compute pairwise content similarity between catalog items in a stage."""
     db = get_db()
-    _print(f"Computing content similarity (threshold={threshold})...")
-    result = db.compute_content_similarity(threshold=threshold)
+    _print(f"Computing content similarity (stage={stage}, threshold={threshold})...")
+    result = db.compute_content_similarity(threshold=threshold, stage=stage)
     _print(f"Done. {result['pairs_stored']} pairs stored above {threshold} threshold.")
 
     stats = db.get_similarity_stats()

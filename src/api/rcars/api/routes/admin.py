@@ -194,9 +194,10 @@ async def compute_similarity(
     request: Request,
     user: str = Depends(require_admin),
     threshold: float = Query(0.75, ge=0.0, le=1.0),
+    stage: str = Query("prod", description="Stage to compare: prod, event, or dev"),
 ):
     db = request.app.state.db
-    result = db.compute_content_similarity(threshold=threshold)
+    result = db.compute_content_similarity(threshold=threshold, stage=stage)
     return result
 
 

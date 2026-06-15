@@ -896,24 +896,17 @@ class Database:
 
     # ── Content similarity ──
 
-    def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
-        """Compute pairwise cosine similarity between unique catalog items.
+    def compute_content_similarity(self, threshold: float = 0.75, stage: str = "prod") -> dict[str, int]:
+        """Compute pairwise cosine similarity between catalog items in a given stage.
 
-        Compares prod items first (the user-facing catalog), then event, then
-        dev — each item only against items it hasn't already been compared
-        against.  Stage variants of the same item are never compared because
-        only one CI per stage exists at a given showroom URL.
-
-        This is the actionable overlap report: prod-vs-prod pairs mean two
-        orderable labs cover the same material.
+        Compares items within the same stage only — prod vs prod, event vs event,
+        or dev vs dev. Published VCIs are always excluded (they have no Showroom
+        content of their own).
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM content_similarity")
 
-                # Compare all analyzed, non-published CIs with embeddings.
-                # The simple a.ci_name < b.ci_name ensures each pair is stored
-                # once.  Stage is recorded so the UI can tier the results.
                 cur.execute("""
                     INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)
                     SELECT a.ci_name, b.ci_name,
@@ -926,18 +919,16 @@ class Database:
                     WHERE a.embed_type = 'ci_summary'
                       AND b.embed_type = 'ci_summary'
                       AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
-                      -- Both must be prod — the actionable tier
-                      AND ci_a.stage = 'prod'
-                      AND ci_b.stage = 'prod'
-                      -- Skip published VCIs (no showroom content of their own)
+                      AND ci_a.stage = %(stage)s
+                      AND ci_b.stage = %(stage)s
                       AND (ci_a.is_published IS NULL OR ci_a.is_published = FALSE)
                       AND (ci_b.is_published IS NULL OR ci_b.is_published = FALSE)
-                """, {"threshold": threshold})
+                """, {"threshold": threshold, "stage": stage})
                 inserted = cur.rowcount
             conn.commit()
 
-        logger.info("content_similarity_computed", pairs_stored=inserted, threshold=threshold)
-        return {"pairs_stored": inserted, "threshold": threshold}
+        logger.info("content_similarity_computed", pairs_stored=inserted, threshold=threshold, stage=stage)
+        return {"pairs_stored": inserted, "threshold": threshold, "stage": stage}
 
     def get_similar_items(self, ci_name: str, min_score: float = 0.75) -> list[dict[str, Any]]:
         sql = """
