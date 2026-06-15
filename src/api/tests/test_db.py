@@ -16,7 +16,10 @@ def db():
         conn.autocommit = True
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         for table in ["embeddings", "enrichment_tags", "showroom_analysis", "analysis_log",
-                      "jobs", "token_usage", "advisor_sessions", "api_keys", "catalog_items", "alembic_version"]:
+                      "jobs", "token_usage", "advisor_sessions", "api_keys",
+                      "catalog_item_workloads", "catalog_item_acl_groups",
+                      "workload_aliases", "workload_mapping", "workload_scan_state",
+                      "catalog_items", "alembic_version"]:
             conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
 
     database = Database(TEST_DB_URL)
@@ -155,3 +158,136 @@ def test_advisor_session(db):
     db.update_advisor_session_choice("sess-1", 0, "test.item")
     turns = db.get_advisor_session("sess-1")
     assert turns[0]["chosen_ci_name"] == "test.item"
+
+
+# ── Filtered catalog query tests ──
+
+
+def _seed_items(db):
+    """Seed test data for filtered catalog queries."""
+    items = [
+        {"ci_name": "ns.ocp-ai-workshop.prod", "display_name": "OpenShift AI Workshop",
+         "stage": "prod", "catalog_namespace": "babylon-catalog-prod",
+         "is_prod": True, "is_agd_v2": True, "agd_config": "ocp-cnv",
+         "cloud_provider": "ec2", "showroom_url": "https://github.com/example/ai"},
+        {"ci_name": "ns.pipelines-lab.prod", "display_name": "Pipelines Lab",
+         "stage": "prod", "catalog_namespace": "babylon-catalog-prod",
+         "is_prod": True, "is_agd_v2": True, "agd_config": "ocp-workloads",
+         "cloud_provider": "azure", "showroom_url": "https://github.com/example/pipe"},
+        {"ci_name": "ns.getting-started.prod", "display_name": "Getting Started",
+         "stage": "prod", "catalog_namespace": "babylon-catalog-prod",
+         "is_prod": True, "is_agd_v2": False,
+         "showroom_url": "https://github.com/example/start"},
+        {"ci_name": "ns.ai-dev.dev", "display_name": "AI Dev Build",
+         "stage": "dev", "catalog_namespace": "babylon-catalog-dev",
+         "is_prod": False, "is_agd_v2": True, "agd_config": "ocp-cnv",
+         "cloud_provider": "ec2"},
+        {"ci_name": "zt-ns.zt-demo.prod", "display_name": "ZT Demo",
+         "stage": "prod", "catalog_namespace": "zt-babylon-catalog-prod",
+         "is_prod": True, "is_agd_v2": False,
+         "showroom_url": "https://github.com/example/zt"},
+        {"ci_name": "ns.stale-item.prod", "display_name": "Stale Item",
+         "stage": "prod", "catalog_namespace": "babylon-catalog-prod",
+         "is_prod": True, "showroom_url": "https://github.com/example/stale"},
+        {"ci_name": "ns.failed-item.prod", "display_name": "Failed Item",
+         "stage": "prod", "catalog_namespace": "babylon-catalog-prod",
+         "is_prod": True, "showroom_url": "https://github.com/example/failed"},
+    ]
+    for item in items:
+        db.upsert_catalog_item(item)
+    db.set_scan_status("ns.stale-item.prod", "success")
+    db.set_scan_status("ns.failed-item.prod", "failed", error_class="clone_failed", error_message="test error")
+    db.upsert_showroom_analysis({"ci_name": "ns.stale-item.prod", "summary": "test", "is_stale": True})
+    db.upsert_showroom_analysis({"ci_name": "ns.failed-item.prod", "summary": "test", "enrichment_review_needed": True})
+    with db.pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO catalog_item_workloads (ci_name, workload_fqcn, workload_role, workload_collection) "
+            "VALUES (%s, %s, %s, %s)",
+            ("ns.ocp-ai-workshop.prod", "agnosticd.ai_workloads.openshift_ai", "openshift_ai", "ai_workloads"),
+        )
+        conn.execute(
+            "INSERT INTO workload_mapping (workload_role, product_name, verified) VALUES (%s, %s, %s)",
+            ("openshift_ai", "OpenShift AI", True),
+        )
+        conn.execute(
+            "INSERT INTO workload_aliases (product_name, alias) VALUES (%s, %s)",
+            ("OpenShift AI", "RHOAI"),
+        )
+        conn.commit()
+
+
+def test_filtered_catalog_default(db):
+    """Default query returns prod items only, paginated."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered()
+    assert result["total"] >= 5
+    assert all(item["stage"] == "prod" for item in result["items"])
+
+
+def test_filtered_catalog_search(db):
+    """Text search matches display_name case-insensitively."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(search="openshift ai")
+    assert result["total"] >= 1
+    assert any("AI" in item["display_name"] for item in result["items"])
+
+
+def test_filtered_catalog_stage(db):
+    """Stage filter includes dev items when requested."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(stages=["prod", "dev"])
+    ci_names = [item["ci_name"] for item in result["items"]]
+    assert "ns.ai-dev.dev" in ci_names
+
+
+def test_filtered_catalog_cloud_provider(db):
+    """Cloud provider filter narrows results."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(cloud_provider="ec2")
+    assert result["total"] >= 1
+    assert all(item.get("cloud_provider") == "ec2" for item in result["items"])
+
+
+def test_filtered_catalog_agd_config(db):
+    """AgnosticD config filter narrows results."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(agd_config="ocp-cnv")
+    assert result["total"] >= 1
+    assert all(item.get("agd_config") == "ocp-cnv" for item in result["items"])
+
+
+def test_filtered_catalog_workloads(db):
+    """Workload filter with alias resolution."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(workloads=["OpenShift AI"])
+    assert result["total"] >= 1
+    assert any("ai-workshop" in item["ci_name"] for item in result["items"])
+    result2 = db.list_catalog_items_filtered(workloads=["RHOAI"])
+    assert result2["total"] == result["total"]
+
+
+def test_filtered_catalog_content_filter_failures(db):
+    """Content filter for scan failures."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(content_filter="scan_failures")
+    assert result["total"] >= 1
+    assert all(item["scan_status"] == "failed" for item in result["items"])
+
+
+def test_filtered_catalog_content_filter_stale(db):
+    """Content filter for stale items."""
+    _seed_items(db)
+    result = db.list_catalog_items_filtered(content_filter="stale")
+    assert result["total"] >= 1
+    assert all(item.get("is_stale") for item in result["items"])
+
+
+def test_filtered_catalog_pagination(db):
+    """Pagination returns correct slice and total."""
+    _seed_items(db)
+    page1 = db.list_catalog_items_filtered(limit=2, offset=0)
+    page2 = db.list_catalog_items_filtered(limit=2, offset=2)
+    assert len(page1["items"]) == 2
+    assert len(page2["items"]) >= 1
+    assert page1["total"] == page2["total"]
+    assert page1["items"][0]["ci_name"] != page2["items"][0]["ci_name"]
