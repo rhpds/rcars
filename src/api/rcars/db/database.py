@@ -657,6 +657,15 @@ class Database:
             )
             conn.commit()
 
+    def set_curated_duration(self, ci_name: str, duration_min: int | None, updated_by: str | None = None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE showroom_analysis SET curated_duration_min = %s WHERE ci_name = %s",
+                (duration_min, ci_name),
+            )
+            conn.commit()
+        logger.info("curated_duration_set", ci_name=ci_name, duration_min=duration_min, updated_by=updated_by)
+
     # ── Infrastructure metadata (workloads, ACL groups, mapping) ──
 
     def sync_workloads(self, ci_name: str, workloads: list[dict]) -> None:
