@@ -897,51 +897,45 @@ class Database:
     # ── Content similarity ──
 
     def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
-        """Compute pairwise cosine similarity between all ci_summary embeddings.
+        """Compute pairwise cosine similarity between unique Showroom content.
 
-        Excludes sibling pairs: same content_hash, same effective showroom URL,
-        or published/base relationships (these are the same content by definition).
-        Stores pairs above threshold. Returns counts.
+        Deduplicates by content_hash first — picks one representative CI per
+        unique content (preferring prod > event > dev). Then compares only
+        between representatives, so N CIs sharing the same Showroom produce
+        one row, not N*(N-1)/2.
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM content_similarity")
 
-                # pgvector <=> returns cosine distance (0 = identical, 2 = opposite).
-                # Similarity = 1 - distance.
-                # Exclude siblings that share the same underlying content:
-                #   1. Same content_hash = identical Showroom content
-                #   2. Same effective showroom URL+ref = same repo checkout
-                #   3. Published/base relationship = same item, different tier
+                # CTE: one representative embedding per unique content_hash.
+                # For CIs without a hash (unanalyzed), each is its own group.
+                # Prefer prod > event > dev, then alphabetical CI name as tiebreaker.
                 cur.execute("""
+                    WITH ranked AS (
+                        SELECT e.ci_name, e.embedding, sa.content_hash,
+                               ROW_NUMBER() OVER (
+                                   PARTITION BY COALESCE(sa.content_hash, e.ci_name)
+                                   ORDER BY
+                                       CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
+                                       CASE WHEN ci.is_published THEN 0 ELSE 1 END,
+                                       e.ci_name
+                               ) AS rn
+                        FROM embeddings e
+                        JOIN catalog_items ci ON ci.ci_name = e.ci_name
+                        LEFT JOIN showroom_analysis sa ON sa.ci_name = e.ci_name
+                        WHERE e.embed_type = 'ci_summary'
+                    ),
+                    representatives AS (
+                        SELECT ci_name, embedding FROM ranked WHERE rn = 1
+                    )
                     INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score, computed_at)
                     SELECT a.ci_name, b.ci_name,
                            1.0 - (a.embedding <=> b.embedding) AS similarity,
                            NOW()
-                    FROM embeddings a
-                    JOIN embeddings b ON a.ci_name < b.ci_name
-                    JOIN catalog_items ci_a ON ci_a.ci_name = a.ci_name
-                    JOIN catalog_items ci_b ON ci_b.ci_name = b.ci_name
-                    LEFT JOIN showroom_analysis sa_a ON sa_a.ci_name = a.ci_name
-                    LEFT JOIN showroom_analysis sa_b ON sa_b.ci_name = b.ci_name
-                    WHERE a.embed_type = 'ci_summary'
-                      AND b.embed_type = 'ci_summary'
-                      AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
-                      -- Exclude same content_hash (identical showroom content)
-                      AND (sa_a.content_hash IS NULL OR sa_b.content_hash IS NULL
-                           OR sa_a.content_hash != sa_b.content_hash)
-                      -- Exclude same effective showroom URL+ref
-                      AND (
-                          COALESCE(ci_a.showroom_url_override, ci_a.showroom_url, '') !=
-                          COALESCE(ci_b.showroom_url_override, ci_b.showroom_url, '')
-                          OR COALESCE(ci_a.showroom_url, '') = ''
-                          OR COALESCE(ci_b.showroom_url, '') = ''
-                      )
-                      -- Exclude published/base pairs
-                      AND COALESCE(ci_a.published_ci_name, '') != b.ci_name
-                      AND COALESCE(ci_b.published_ci_name, '') != a.ci_name
-                      AND COALESCE(ci_a.base_ci_name, '') != b.ci_name
-                      AND COALESCE(ci_b.base_ci_name, '') != a.ci_name
+                    FROM representatives a
+                    JOIN representatives b ON a.ci_name < b.ci_name
+                    WHERE 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
                 """, {"threshold": threshold})
                 inserted = cur.rowcount
             conn.commit()
