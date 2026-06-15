@@ -15,6 +15,7 @@ export function LcarsSidebar() {
   const location = useLocation()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
+  const isAnalysisSection = location.pathname.startsWith('/analysis')
   const isAdminSection = location.pathname.startsWith('/admin')
   const isAdvisorPage = location.pathname === '/advisor'
   const activeSession = searchParams.get('session')
@@ -79,6 +80,16 @@ export function LcarsSidebar() {
       </NavLink>
       {auth.isAdmin && (
         <>
+          <NavLink to="/analysis/overlap" className={() => `nav-item${isAnalysisSection ? ' active' : ''}`}>
+            Content Analysis
+          </NavLink>
+          {isAnalysisSection && (
+            <>
+              <NavLink to="/analysis/overlap" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
+                Overlap
+              </NavLink>
+            </>
+          )}
           <NavLink to="/admin/catalog" className={() => `nav-item${isAdminSection ? ' active' : ''}`}>
             Admin
           </NavLink>
