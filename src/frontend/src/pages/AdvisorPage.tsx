@@ -152,7 +152,7 @@ export function AdvisorPage() {
             text += '\n\n**Content gaps:**'
             for (const gap of result.content_gaps) text += `\n- ${gap}`
           }
-          if (!text) text = 'No matching content found for this query. Try broadening your search criteria.'
+          if (!text) text = 'No matching content found. Try adding more detail — describe the topic, audience, product area, or format you need. Short queries often lack enough context for RCARS to find a strong match.'
           setMessages(prev => [...prev, { role: 'assistant', content: text, jobId: activeJobId }])
         }
         setActiveJobId(null)
