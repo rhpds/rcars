@@ -33,20 +33,16 @@ function catalogUrl(ciName: string, namespace: string): string {
   return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
 }
 
-function formatSuggestedFormat(raw: string): string {
-  const map: Record<string, string> = {
-    hands_on_lab: 'Hands-on Lab',
-    booth_demo: 'Booth Demo',
-    presentation: 'Presentation',
-  }
-  return map[raw] || raw.replace(/_/g, ' ')
+const FORMAT_LABELS: Record<string, string> = {
+  hands_on_lab: 'Hands-on Lab',
+  booth_demo: 'Booth Demo',
+  presentation: 'Presentation',
 }
 
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
   const [showFullCaveat, setShowFullCaveat] = useState(false)
-  const [showObjectives, setShowObjectives] = useState(false)
 
   const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
@@ -60,10 +56,13 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
   const caveatText = candidate.caveats || ''
   const caveatTruncated = caveatText.length > 200 && !showFullCaveat
 
-  const hasMetadata = candidate.suggested_format || candidate.duration_min
-  const durationLabel = candidate.duration_min
-    ? `~${candidate.duration_min} min (${candidate.duration_source === 'curated' ? 'curated' : 'AI estimate'})`
-    : null
+  const metaParts: string[] = [candidate.ci_name]
+  if (candidate.suggested_format) {
+    metaParts.push(FORMAT_LABELS[candidate.suggested_format] || candidate.suggested_format.replace(/_/g, ' '))
+  }
+  if (candidate.duration_min) {
+    metaParts.push(candidate.duration_source === 'curated' ? 'Curated duration' : 'AI estimate')
+  }
 
   return (
     <LcarsCard tier={tier}>
@@ -77,7 +76,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
         style={{ cursor: 'pointer' }}
       >
         <span className="rec-score">{score}%</span>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div className="rec-title">{candidate.display_name}</div>
           <div className="rec-meta">
             {candidate.stage !== 'prod' && (
@@ -92,7 +91,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name.startsWith('zt-')) && (
               <span style={{ display: 'inline-block', background: '#1a3a2a', color: '#66cc99', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginRight: '6px' }}>ZT</span>
             )}
-            {candidate.ci_name}
+            {metaParts.join(' · ')}
           </div>
         </div>
         {candidate.duration_min && (
@@ -114,24 +113,27 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             </div>
           )}
 
-          {(candidate.how_to_use || candidate.duration_notes) && (
-            <div className="rec-analysis-row">
-              <span className="rec-analysis-label">How to use</span>
-              <span className="rec-analysis-value">
-                {candidate.how_to_use}
-                {candidate.how_to_use && candidate.duration_notes && ' '}
-                {candidate.duration_notes && (
-                  <span style={{ color: '#888' }}>{candidate.duration_notes}</span>
-                )}
-              </span>
+          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
+            <div style={{ marginTop: '8px' }}>
+              <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '4px' }}>Learning Objectives</div>
+              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
+                {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
+                  <li key={i}>{obj}</li>
+                ))}
+              </ul>
             </div>
           )}
 
-          {hasMetadata && (
-            <div className="rec-metadata-line">
-              {candidate.suggested_format && formatSuggestedFormat(candidate.suggested_format)}
-              {candidate.suggested_format && durationLabel && ' · '}
-              {durationLabel}
+          {candidate.how_to_use && (
+            <div className="rec-analysis-row" style={{ marginTop: '8px' }}>
+              <span className="rec-analysis-label">How to use</span>
+              <span className="rec-analysis-value">{candidate.how_to_use}</span>
+            </div>
+          )}
+
+          {candidate.duration_notes && (
+            <div style={{ fontSize: '12px', color: '#777', marginTop: '4px', paddingLeft: '93px' }}>
+              {candidate.duration_notes}
             </div>
           )}
 
@@ -145,24 +147,6 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                 >
                   {showFullCaveat ? 'less' : 'more'}
                 </button>
-              )}
-            </div>
-          )}
-
-          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
-            <div style={{ marginTop: '8px' }}>
-              <div
-                className="rec-objectives-toggle"
-                onClick={(e) => { e.stopPropagation(); setShowObjectives(!showObjectives) }}
-              >
-                {showObjectives ? '▾' : '▸'} Learning objectives ({candidate.learning_objectives.length})
-              </div>
-              {showObjectives && (
-                <ul style={{ margin: '4px 0 0', paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.5' }}>
-                  {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
-                    <li key={i}>{obj}</li>
-                  ))}
-                </ul>
               )}
             </div>
           )}
