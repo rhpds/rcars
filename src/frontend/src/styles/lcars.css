@@ -456,6 +456,32 @@ body {
 .admin-layout--wide { max-width: 960px; }
 .admin-layout--flex { max-width: none; }
 
+/* ── Admin Tabs ── */
+.admin-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 24px;
+}
+.admin-tab {
+  padding: 10px 20px;
+  font-size: 14px;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+.admin-tab:hover { color: var(--text-secondary); }
+.admin-tab.active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+
 /* ── Admin Stat Cards ── */
 .admin-stat-cards {
   display: grid;
