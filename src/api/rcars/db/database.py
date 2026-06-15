@@ -341,6 +341,103 @@ class Database:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
+    def list_catalog_items_filtered(
+        self,
+        search: str | None = None,
+        stages: list[str] | None = None,
+        cloud_provider: str | None = None,
+        agd_config: str | None = None,
+        workloads: list[str] | None = None,
+        content_filter: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        conditions = []
+        params: dict[str, Any] = {}
+        joins = []
+
+        if stages:
+            conditions.append("ci.stage = ANY(%(stages)s)")
+            params["stages"] = stages
+        else:
+            conditions.append("ci.stage = 'prod'")
+
+        if search:
+            conditions.append(
+                "(ci.display_name ILIKE %(search)s OR ci.ci_name ILIKE %(search)s)"
+            )
+            params["search"] = f"%{search}%"
+
+        if cloud_provider:
+            conditions.append("ci.cloud_provider = %(cloud_provider)s")
+            params["cloud_provider"] = cloud_provider
+        if agd_config:
+            conditions.append("ci.agd_config = %(agd_config)s")
+            params["agd_config"] = agd_config
+
+        if workloads:
+            resolved = self._resolve_workload_aliases(workloads)
+            for i, wl in enumerate(resolved):
+                alias_w = f"w{i}"
+                alias_m = f"m{i}"
+                joins.append(
+                    f"JOIN catalog_item_workloads {alias_w} "
+                    f"ON {alias_w}.ci_name = ci.ci_name "
+                    f"JOIN workload_mapping {alias_m} "
+                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
+                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
+                )
+                params[f"{alias_m}_name"] = wl
+
+        if content_filter == "unanalyzed":
+            conditions.append("ci.showroom_url IS NOT NULL")
+            conditions.append("ci.is_published IS NOT TRUE")
+            conditions.append("ci.scan_status NOT IN ('success', 'failed')")
+        elif content_filter == "scan_failures":
+            conditions.append("ci.scan_status = 'failed'")
+        elif content_filter == "stale":
+            joins.append(
+                "JOIN showroom_analysis sa_stale ON sa_stale.ci_name = ci.ci_name "
+                "AND sa_stale.is_stale = TRUE"
+            )
+        elif content_filter == "needs_review":
+            joins.append(
+                "JOIN showroom_analysis sa_review ON sa_review.ci_name = ci.ci_name "
+                "AND sa_review.enrichment_review_needed = TRUE"
+            )
+
+        join_sql = "\n".join(joins)
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        count_sql = f"""
+            SELECT COUNT(DISTINCT ci.ci_name)
+            FROM catalog_items ci
+            LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+            {join_sql}
+            {where}
+        """
+
+        data_sql = f"""
+            SELECT DISTINCT ci.*, sa.is_stale, sa.enrichment_review_needed
+            FROM catalog_items ci
+            LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+            {join_sql}
+            {where}
+            ORDER BY ci.ci_name
+            LIMIT %(limit)s OFFSET %(offset)s
+        """
+        params["limit"] = limit
+        params["offset"] = offset
+
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(count_sql, params)
+                total = cur.fetchone()["count"]
+                cur.execute(data_sql, params)
+                items = cur.fetchall()
+
+        return {"items": items, "total": total}
+
     def delete_removed_items(self, current_ci_names: set[str]) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute("SELECT ci_name, display_name, stage FROM catalog_items")
