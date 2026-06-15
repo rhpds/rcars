@@ -24,7 +24,7 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
 - **Frontend** — React 19 SPA with LCARS theme. Three pages: Advisor (chat + recommendations), Browse (catalog + curation), Admin (operations + monitoring). Vite dev server proxies `/api` to backend.
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
 - **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline. Max 5 concurrent jobs, 600s timeout.
-- **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs, 120s timeout.
+- **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`) to avoid blocking the event loop. Scale via `recommend_worker_replicas` in Ansible vars.
 - **PostgreSQL** — pgvector extension for 384-dim embeddings (all-MiniLM-L6-v2). 9 tables.
 - **Redis** — Job queue (arq), pub/sub relay for SSE streaming, job progress channel.
 
@@ -162,7 +162,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## API Endpoints
 
-35 endpoints across 6 route modules. All prefixed with `/api/v1`.
+36 endpoints across 6 route modules. All prefixed with `/api/v1`.
 
 **Advisor** (require_auth):
 - `POST /advisor/query` — Submit recommendation query, returns job_id
@@ -190,6 +190,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 - `PUT /catalog/{ci_name}/note` — Set curator note (curator)
 - `POST /catalog/{ci_name}/flag` — Flag for review (curator)
 - `POST /catalog/{ci_name}/override-url` — Override showroom URL (curator)
+- `PUT /catalog/{ci_name}/duration` — Set/clear curated duration (curator)
 - `POST /catalog/{ci_name}/content-path` — Set content path + trigger rescan (curator)
 
 **Analysis** (require_admin except stream):
@@ -223,7 +224,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 | Table | Purpose |
 |-------|---------|
 | `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, showroom URL/ref, scan status, v2 infra fields |
-| `showroom_analysis` | LLM analysis results. Summary, modules, learning objectives, content_hash, stale tracking |
+| `showroom_analysis` | LLM analysis results. Summary, modules, learning objectives, content_hash, stale tracking, curated_duration_min |
 | `enrichment_tags` | Curator-added tags (tag_type, tag_value) |
 | `embeddings` | 384-dim vectors for pgvector cosine search (ci_summary + module types) |
 | `catalog_item_workloads` | Junction: which workload roles each v2 CI deploys (FQCN + role + collection) |
