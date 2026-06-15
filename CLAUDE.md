@@ -162,7 +162,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## API Endpoints
 
-36 endpoints across 6 route modules. All prefixed with `/api/v1`.
+39 endpoints across 6 route modules. All prefixed with `/api/v1`.
 
 **Advisor** (require_auth):
 - `POST /advisor/query` — Submit recommendation query, returns job_id
@@ -184,6 +184,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 - `GET /catalog/infra-stats` — Infrastructure metadata coverage stats
 - `GET /catalog/{ci_name}` — Single CI with analysis + tags + workloads + ACL groups
 - `GET /catalog/{ci_name}/analysis` — Showroom analysis only
+- `GET /catalog/{ci_name}/similar` — Similar CIs by content overlap
 - `POST /catalog/refresh` — Trigger catalog refresh (admin)
 - `POST /catalog/{ci_name}/tags` — Add enrichment tag (curator)
 - `DELETE /catalog/{ci_name}/tags/{tag_id}` — Remove tag (curator)
@@ -210,6 +211,8 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 - `GET /admin/queries` — Advisor query history
 - `POST /admin/run-maintenance` — Trigger nightly pipeline manually
 - `POST /admin/scan-workloads` — Trigger workload repo scan
+- `GET /admin/overlap` — Content overlap report (all similar pairs)
+- `POST /admin/compute-similarity` — Trigger similarity recomputation
 - `GET /admin/schedule` — Pipeline schedule status + last run
 
 **Auth/Health**:
@@ -219,7 +222,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 
 ## Database Schema
 
-14 tables in PostgreSQL with pgvector extension:
+15 tables in PostgreSQL with pgvector extension:
 
 | Table | Purpose |
 |-------|---------|
@@ -236,6 +239,7 @@ All prefixed with `RCARS_` (case-insensitive via Pydantic Settings).
 | `token_usage` | LLM token tracking per operation (scan/triage/rationale/event_parse/workload_scan) |
 | `advisor_sessions` | User queries + results. Keyed by (session_id, turn_index) for multi-turn |
 | `jobs` | Background job tracking. Types: recommend, analyze, refresh, maintenance, workload_scan |
+| `content_similarity` | Pairwise cosine similarity between CI summary embeddings, for overlap detection |
 | `api_keys` | API key management (future, not yet active) |
 
 ## Recommendation Pipeline

@@ -116,6 +116,43 @@ curl -X POST https://rcars-dev.apps.<domain>/api/v1/admin/run-maintenance \
 
 arq's `unique=True` flag ensures the cron job runs only once even if multiple scan-worker replicas are deployed. Manual triggers via the API are not deduplicated — avoid clicking "Run Maintenance Now" while a scheduled run is in progress.
 
+## Content Overlap Detection
+
+The overlap detection system compares Showroom lab embeddings to identify catalog items with similar content. It runs entirely in PostgreSQL using pgvector — no LLM calls or external API calls are made.
+
+### How It Works
+
+During the scan phase, RCARS generates a 384-dimensional embedding (using the all-MiniLM-L6-v2 sentence-transformer model) for each analyzed Showroom. The overlap system computes pairwise cosine similarity between all `ci_summary` embeddings and stores pairs above a configurable threshold in the `content_similarity` table.
+
+Cosine similarity measures the angle between two embedding vectors: 1.0 means the vectors point in the same direction (identical content), 0.0 means they are perpendicular (unrelated content). With ~400 labs, this produces ~80,000 pairwise comparisons — small enough to compute in a single SQL query in seconds.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `RCARS_SIMILARITY_THRESHOLD` | `0.75` | Minimum similarity score to store. Pairs below this are not saved. |
+| `RCARS_SIMILARITY_HIGH_THRESHOLD` | `0.85` | Threshold for "high overlap" (likely duplicate) vs "related content" |
+
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/catalog/{ci_name}/similar` | any user | Similar items for a specific CI |
+| `GET` | `/api/v1/admin/overlap` | admin | Global overlap report with all pairs |
+| `POST` | `/api/v1/admin/compute-similarity` | admin | Trigger recomputation |
+
+Query parameter `min_score` (float, 0–1) is accepted on all three endpoints to override the default threshold.
+
+### When to Recompute
+
+Recompute after:
+
+- A full scan or re-analysis (embeddings may have changed)
+- Adding new catalog items with Showroom content
+- Changing the similarity threshold
+
+The computation is idempotent — it clears the old results and writes fresh pairs each time.
+
 ## Monitoring
 
 The admin dashboard at `/admin/workers` shows:

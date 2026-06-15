@@ -167,6 +167,8 @@ Each item in the list shows its display name, stage badges (DEV/EVENT), ZT badge
 - Module list with per-module topics
 - Links to RHDP Catalog and Showroom repository
 
+**Similar Content** — if overlap detection has been run (see Admin section below), expanded items may show a "Similar Content" panel listing other catalog items with similar Showroom content, ranked by similarity percentage. High overlap (≥85%) is shown in red; related content (75–85%) in amber. Click a similar item's name to search for it in Browse.
+
 **Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
 
 ## The Admin Pages
@@ -175,13 +177,40 @@ The Admin section (`/admin`) is visible to admins only (not curators). It is spl
 
 ### Catalog (`/admin/catalog`)
 
-- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary with items synced, stale found, and analysis queued). Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress. To change the schedule, see [Operations — Changing the Schedule](../admin/operations.md#changing-the-schedule).
+The Catalog admin page has four tabs: **Status**, **Sync & Analysis**, **Workloads**, and **Overlap**.
+
+**Status tab:**
+
 - **Catalog Status** — total items, prod/dev/event breakdown, scannable count, analyzed, unanalyzed (clickable link to Browse filtered view), stale count, analysis failures, and last sync/analysis timestamps with CURRENT/STALE indicators
+- **Scheduled Maintenance** — shows the status of the nightly maintenance pipeline (enabled/disabled, schedule time, last run summary with items synced, stale found, and analysis queued). Click **Run Maintenance Now** to trigger an on-demand run. The log window shows real-time progress. To change the schedule, see [Operations — Changing the Schedule](../admin/operations.md#changing-the-schedule).
+
+**Sync & Analysis tab:**
+
 - **Catalog Sync** — triggers catalog refresh from Babylon CRDs
 - **Content Analysis** — two buttons: "Analyze" (scan unanalyzed items) and "Check Stale" (detect changed Showrooms). Shows a live scrolling log.
 - **Full Re-Analysis** — "Re-Analyze All" button that marks every item stale and enqueues a complete rescan. Warning: consumes significant tokens.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
+
+**Overlap tab:**
+
+The Overlap tab helps curators identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built OpenShift Pipelines labs with 85% topic overlap.
+
+**How it works:** RCARS already generates a 384-dimensional "fingerprint" (embedding) for every analyzed Showroom lab during the scan phase. The overlap detection compares these fingerprints using cosine similarity — a mathematical measure of how aligned two fingerprints are. A score of 1.0 (100%) means identical content; 0.0 means completely unrelated. No LLM calls are made — the computation runs entirely in PostgreSQL using pgvector, comparing vectors that already exist. With ~400 labs, the full computation takes seconds.
+
+**Similarity tiers:**
+
+- **High overlap (≥85%)** — shown in red. These labs likely cover the same material and are candidates for consolidation.
+- **Related (75–85%)** — shown in amber. These labs cover similar topics but may have enough differentiation to coexist.
+
+**Using the Overlap tab:**
+
+1. Click **Compute Similarity** to run (or re-run) the comparison. This is a lightweight database operation — no LLM tokens consumed.
+2. Use the dropdown to filter between "All pairs" and "High overlap only."
+3. Click any pair to expand it and see both summaries side by side.
+4. Click a lab name to navigate to it in the Browse page for further review.
+
+**When to recompute:** After a full scan or re-analysis, since embeddings may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
 ### Token Usage (`/admin/tokens`)
 
