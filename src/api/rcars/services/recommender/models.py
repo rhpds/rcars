@@ -17,6 +17,7 @@ class Candidate:
     products: list[str]
     difficulty: str
     duration_min: int | None
+    duration_source: str = "ai"  # "curated" | "ai"
     content_type: str
     stage: str = "prod"
     catalog_namespace: str = ""
