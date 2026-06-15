@@ -195,6 +195,30 @@ rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/C
 
 ---
 
+### `rcars compute-similarity`
+
+Computes pairwise content similarity between unique Showroom labs. Deduplicates by showroom URL and content hash first, then compares representative embeddings using pgvector cosine distance. No LLM calls — runs entirely in PostgreSQL.
+
+```bash
+rcars compute-similarity                # Default threshold 0.75
+rcars compute-similarity --threshold 0.80  # Higher threshold = fewer pairs
+```
+
+```
+Content Similarity
+┏━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
+┃ Metric                ┃ Count ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
+│ Total pairs           │   937 │
+│ High overlap (≥0.85)  │    52 │
+│ Related (0.75–0.85)   │   885 │
+└───────────────────────┴───────┘
+```
+
+Recompute after scans or re-analysis since embeddings may have changed. Also available via the Admin UI Overlap tab or the API (`POST /api/v1/admin/compute-similarity`).
+
+---
+
 ### `rcars serve`
 
 Starts the RCARS web server.

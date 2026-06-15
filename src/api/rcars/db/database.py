@@ -899,23 +899,31 @@ class Database:
     def compute_content_similarity(self, threshold: float = 0.75) -> dict[str, int]:
         """Compute pairwise cosine similarity between unique Showroom content.
 
-        Deduplicates by content_hash first — picks one representative CI per
-        unique content (preferring prod > event > dev). Then compares only
-        between representatives, so N CIs sharing the same Showroom produce
-        one row, not N*(N-1)/2.
+        Deduplicates in two layers before comparing:
+          1. Group by content_hash — identical content regardless of CI name/stage
+          2. Group by effective showroom URL — same repo even if hashes differ
+             (e.g. dev on main vs prod on a tag with minor drift)
+        Picks one representative per group (prefer prod > event > dev, published
+        over base). Compares only between representatives.
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM content_similarity")
 
-                # CTE: one representative embedding per unique content_hash.
-                # For CIs without a hash (unanalyzed), each is its own group.
-                # Prefer prod > event > dev, then alphabetical CI name as tiebreaker.
                 cur.execute("""
                     WITH ranked AS (
-                        SELECT e.ci_name, e.embedding, sa.content_hash,
+                        SELECT e.ci_name, e.embedding,
                                ROW_NUMBER() OVER (
-                                   PARTITION BY COALESCE(sa.content_hash, e.ci_name)
+                                   PARTITION BY COALESCE(
+                                       -- Primary: group by effective showroom URL (same repo =
+                                       -- same item, even if hashes differ from branch/tag drift)
+                                       NULLIF(COALESCE(ci.showroom_url_override, ci.showroom_url), ''),
+                                       -- Fallback: group by content_hash (catches identical
+                                       -- content served from different URLs)
+                                       sa.content_hash,
+                                       -- Last resort: each CI is its own group
+                                       e.ci_name
+                                   )
                                    ORDER BY
                                        CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
                                        CASE WHEN ci.is_published THEN 0 ELSE 1 END,

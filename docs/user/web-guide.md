@@ -198,6 +198,8 @@ The Overlap tab helps curators identify catalog items that teach substantially t
 
 **How it works:** RCARS already generates a 384-dimensional "fingerprint" (embedding) for every analyzed Showroom lab during the scan phase. The overlap detection compares these fingerprints using cosine similarity — a mathematical measure of how aligned two fingerprints are. A score of 1.0 (100%) means identical content; 0.0 means completely unrelated. No LLM calls are made — the computation runs entirely in PostgreSQL using pgvector, comparing vectors that already exist. With ~400 labs, the full computation takes seconds.
 
+**Deduplication:** Before comparing, the system deduplicates catalog items so that stage variants (prod/dev/event) and ZT namespace aliases of the same lab are collapsed into a single representative. Dedup groups by effective Showroom URL first (same git repo = same item), then by content hash (same content from different repos). Only the best representative from each group (preferring prod over event over dev) participates in the comparison. This ensures results show genuinely different labs with overlapping content, not expected duplicates like "prod vs dev of the same thing."
+
 **Similarity tiers:**
 
 - **High overlap (≥85%)** — shown in red. These labs likely cover the same material and are candidates for consolidation.
@@ -205,10 +207,12 @@ The Overlap tab helps curators identify catalog items that teach substantially t
 
 **Using the Overlap tab:**
 
-1. Click **Compute Similarity** to run (or re-run) the comparison. This is a lightweight database operation — no LLM tokens consumed.
+1. Click **Compute Similarity** to run (or re-run) the comparison. This is a lightweight database operation — no LLM tokens consumed. The stats bar updates inline when computation completes.
 2. Use the dropdown to filter between "All pairs" and "High overlap only."
 3. Click any pair to expand it and see both summaries side by side.
 4. Click a lab name to navigate to it in the Browse page for further review.
+
+**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--threshold 0.75]`) or the API (`POST /api/v1/admin/compute-similarity`). The overlap report is available at `GET /api/v1/admin/overlap`, and per-item similarity at `GET /api/v1/catalog/{ci_name}/similar`.
 
 **When to recompute:** After a full scan or re-analysis, since embeddings may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
