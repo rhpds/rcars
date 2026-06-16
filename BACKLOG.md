@@ -39,7 +39,7 @@ Items selected for current development cycle. Investigations complete, design/im
 ## Retirement Analysis
 
 - [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard.
-- [ ] **Enhanced retirement scoring** — Replace fixed thresholds (provisions < 60, closed < $1M, etc.) with a more robust scoring model. Consider: weighted scoring with configurable thresholds, percentile-based scoring relative to catalog peers, category-aware thresholds (workshops vs demos vs open envs have different usage profiles), trend detection (declining usage over time vs stable low usage).
+- [ ] **Enhanced retirement scoring + data validation** — Replace fixed thresholds (provisions < 60, closed < $1M, etc.) with a more robust scoring model. Consider: weighted scoring with configurable thresholds, percentile-based scoring relative to catalog peers, category-aware thresholds (workshops vs demos vs open envs have different usage profiles), trend detection (declining usage over time vs stable low usage). Also investigate discrepancy between RCARS closed amounts and the main reporting dashboard (e.g. AWS with OpenShift: RCARS shows $45M closed vs dashboard $115M) — may be date window, aggregation methodology, or query differences.
 
 ## Architecture
 
