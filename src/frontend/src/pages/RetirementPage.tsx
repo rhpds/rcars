@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { api, ReportingMetricsItem } from '../services/api'
 
 type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 
 const fmt = (n: number) => {
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
   return `$${n.toFixed(0)}`
@@ -24,7 +24,6 @@ const stageBadgeClass: Record<string, string> = {
 }
 
 export function RetirementPage() {
-  const navigate = useNavigate()
   const [items, setItems] = useState<ReportingMetricsItem[]>([])
   const [allItems, setAllItems] = useState<ReportingMetricsItem[]>([])
   const [summary, setSummary] = useState<{ total: number; high: number; review: number; keepers: number } | null>(null)
@@ -173,11 +172,8 @@ export function RetirementPage() {
                   return (
                     <>{/* Fragment avoids nested tbody */}
                       <tr key={item.catalog_base_name} className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
-                        <td className="name">
-                          <a href="#" onClick={e => { e.preventDefault(); e.stopPropagation(); navigate(`/browse?search=${encodeURIComponent(item.display_name)}`) }}
-                            title={item.display_name}>
-                            {item.display_name}
-                          </a>
+                        <td className="name" title={item.display_name}>
+                          {item.display_name}
                         </td>
                         <td className="num">
                           <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score) }}>
@@ -199,8 +195,9 @@ export function RetirementPage() {
                                 <span className="ca-detail-label">Environments</span>
                                 <span className="ca-detail-value">
                                   {item.stages.map(s => (
-                                    <a key={s.ci_name} href={s.catalog_url} target="_blank" rel="noreferrer"
-                                      className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}>
+                                    <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                                      className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
+                                      onClick={e => e.stopPropagation()}>
                                       {s.stage}
                                     </a>
                                   ))}
