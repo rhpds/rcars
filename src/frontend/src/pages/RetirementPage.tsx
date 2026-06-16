@@ -156,14 +156,14 @@ export function RetirementPage() {
             <table className="ca-table">
               <thead>
                 <tr>
-                  <th onClick={() => toggleSort('display_name')}>Name{sortIndicator('display_name')}</th>
-                  <th className="num" onClick={() => toggleSort('retirement_score')}>Score{sortIndicator('retirement_score')}</th>
-                  <th className="num" onClick={() => toggleSort('provisions')}>Provisions{sortIndicator('provisions')}</th>
-                  <th className="num" onClick={() => toggleSort('touched_amount')}>Touched{sortIndicator('touched_amount')}</th>
-                  <th className="num">T-ROI</th>
-                  <th className="num" onClick={() => toggleSort('closed_amount')}>Closed{sortIndicator('closed_amount')}</th>
-                  <th className="num">C-ROI</th>
-                  <th className="num" onClick={() => toggleSort('total_cost')}>Cost{sortIndicator('total_cost')}</th>
+                  <th onClick={() => toggleSort('display_name')} style={{ width: '40%' }}>Name{sortIndicator('display_name')}</th>
+                  <th className="num" onClick={() => toggleSort('retirement_score')} style={{ width: '7%' }}>Score{sortIndicator('retirement_score')}</th>
+                  <th className="num" onClick={() => toggleSort('provisions')} style={{ width: '9%' }}>Provisions{sortIndicator('provisions')}</th>
+                  <th className="num" onClick={() => toggleSort('touched_amount')} style={{ width: '9%' }}>Touched{sortIndicator('touched_amount')}</th>
+                  <th className="num" style={{ width: '7%' }}>T-ROI</th>
+                  <th className="num" onClick={() => toggleSort('closed_amount')} style={{ width: '9%' }}>Closed{sortIndicator('closed_amount')}</th>
+                  <th className="num" style={{ width: '7%' }}>C-ROI</th>
+                  <th className="num" onClick={() => toggleSort('total_cost')} style={{ width: '9%' }}>Cost{sortIndicator('total_cost')}</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
 import { LcarsButton } from '../components/lcars'
 
@@ -16,7 +15,6 @@ interface OverlapStats {
 }
 
 export function ContentOverlapPage() {
-  const navigate = useNavigate()
   const [pairs, setPairs] = useState<OverlapPair[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
   const [thresholds, setThresholds] = useState<{ related: number; high_overlap: number }>({ related: 0.75, high_overlap: 0.85 })
@@ -167,10 +165,11 @@ export function ContentOverlapPage() {
                           { name: pair.ci_name_b, display: pair.display_name_b, category: pair.category_b, stage: pair.stage_b, summary: pair.summary_b },
                         ].map((item, i) => (
                           <div key={i} style={{ flex: 1, paddingTop: '12px' }}>
-                            <div style={{ fontSize: '0.8rem', color: '#4a9eff', marginBottom: '4px', cursor: 'pointer' }}
-                                 onClick={() => navigate(`/browse?search=${encodeURIComponent(item.name)}`)}>
+                            <a href={`/browse?search=${encodeURIComponent(item.name)}`} target="_blank" rel="noreferrer"
+                               style={{ fontSize: '0.8rem', color: '#4a9eff', marginBottom: '4px', display: 'block', textDecoration: 'none' }}
+                               onClick={e => e.stopPropagation()}>
                               {item.display || item.name}
-                            </div>
+                            </a>
                             <div style={{ fontSize: '0.7rem', color: '#8a8a9a', marginBottom: '6px' }}>
                               {item.name} · {item.category}
                               {item.stage !== 'prod' && (
@@ -179,7 +178,7 @@ export function ContentOverlapPage() {
                             </div>
                             {item.summary && (
                               <div style={{ fontSize: '0.75rem', color: '#8a8a9a', lineHeight: '1.5', whiteSpace: 'normal' }}>
-                                {item.summary.slice(0, 300)}{item.summary.length > 300 ? '...' : ''}
+                                {item.summary}
                               </div>
                             )}
                           </div>
