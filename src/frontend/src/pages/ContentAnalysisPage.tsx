@@ -67,137 +67,132 @@ export function ContentOverlapPage() {
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-  const scoreColor = (score: number) => score >= thresholds.high_overlap ? '#c9190b' : '#e8a838'
-
+  const scoreColor = (score: number) => score >= thresholds.high_overlap ? '#e94560' : '#e98a3a'
+  const scoreBg = (score: number) => score >= thresholds.high_overlap ? 'rgba(233,69,96,0.2)' : 'rgba(233,138,58,0.2)'
   const scorePct = (score: number) => `${Math.round(score * 100)}%`
 
   return (
-    <div className="admin-layout admin-layout--flex">
-      <div className="admin-section">
+    <div className="ca-page">
+      <div className="ca-header">
         <h3>Content Overlap Detection</h3>
-        <p style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-          Pairwise cosine similarity between CI summary embeddings. High overlap ({'≥'}{Math.round(thresholds.high_overlap * 100)}%) suggests near-duplicate content. Related ({Math.round(thresholds.related * 100)}%–{Math.round(thresholds.high_overlap * 100)}%) indicates similar topics.
-        </p>
+        {stats?.last_computed && <span className="ca-subtitle" style={{ marginBottom: 0 }}>Last computed: {shortTime(stats.last_computed)}</span>}
+      </div>
+      <p className="ca-subtitle">
+        Pairwise cosine similarity between CI summary embeddings. High overlap ({'≥'}{Math.round(thresholds.high_overlap * 100)}%) suggests near-duplicate content.
+      </p>
 
-        {stats && (
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '12px', fontSize: '13px', flexWrap: 'wrap' }}>
-            <span style={{ color: '#c9190b' }}>{stats.high_overlap} high overlap</span>
-            <span style={{ color: '#e8a838' }}>{stats.related} related</span>
-            <span style={{ color: '#666' }}>{stats.total_pairs} total pairs</span>
-            {stats.last_computed && (
-              <span style={{ color: '#555', fontSize: '12px' }}>Last computed: {shortTime(stats.last_computed)}</span>
-            )}
+      {stats && (
+        <div className="ca-stats-grid">
+          <div className="ca-stat-card">
+            <div className="ca-stat-label">Total Pairs</div>
+            <div className="ca-stat-value ca-color-blue">{stats.total_pairs}</div>
           </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
-          <select
-            className="filter-select"
-            value={stage}
-            onChange={(e) => setStage(e.target.value as 'prod' | 'event' | 'dev')}
-            style={{ width: 'auto' }}
-          >
-            <option value="prod">Production</option>
-            <option value="event">Event</option>
-            <option value="dev">Dev</option>
-          </select>
-          <LcarsButton onClick={handleCompute} disabled={computing}>
-            {computing ? 'Computing...' : 'Compute Similarity'}
-          </LcarsButton>
-          <select
-            className="filter-select"
-            value={filterLevel}
-            onChange={(e) => setFilterLevel(e.target.value as 'all' | 'high')}
-            style={{ width: 'auto' }}
-          >
-            <option value="all">All pairs ({pairs.length})</option>
-            <option value="high">High overlap only ({pairs.filter(p => p.similarity_score >= thresholds.high_overlap).length})</option>
-          </select>
-          <input
-            type="text" placeholder="Search by name..."
-            value={search} onChange={e => setSearch(e.target.value)}
-            style={{
-              padding: '4px 8px', borderRadius: '4px', marginLeft: 'auto',
-              border: '1px solid #2a2d35', background: '#0d1117', color: '#c8ccd0', width: '220px',
-              fontSize: '13px',
-            }}
-          />
-          {search && (
-            <span style={{ fontSize: '12px', color: '#666' }}>{filteredPairs.length} match{filteredPairs.length !== 1 ? 'es' : ''}</span>
-          )}
+          <div className="ca-stat-card">
+            <div className="ca-stat-label">High Overlap</div>
+            <div className="ca-stat-value ca-color-red">{stats.high_overlap}</div>
+          </div>
+          <div className="ca-stat-card">
+            <div className="ca-stat-label">Related</div>
+            <div className="ca-stat-value ca-color-orange">{stats.related}</div>
+          </div>
         </div>
+      )}
+
+      <div className="ca-controls">
+        <select className="ca-select" value={stage}
+          onChange={(e) => setStage(e.target.value as 'prod' | 'event' | 'dev')}>
+          <option value="prod">Production</option>
+          <option value="event">Event</option>
+          <option value="dev">Dev</option>
+        </select>
+        <LcarsButton onClick={handleCompute} disabled={computing}>
+          {computing ? 'Computing...' : 'Compute Similarity'}
+        </LcarsButton>
+        <select className="ca-select" value={filterLevel}
+          onChange={(e) => setFilterLevel(e.target.value as 'all' | 'high')}>
+          <option value="all">All pairs ({pairs.length})</option>
+          <option value="high">High overlap only ({pairs.filter(p => p.similarity_score >= thresholds.high_overlap).length})</option>
+        </select>
+        <input
+          type="text" placeholder="Search by name..."
+          value={search} onChange={e => setSearch(e.target.value)}
+          className="ca-search"
+        />
       </div>
 
-      <div className="admin-section">
-        {loading ? (
-          <div style={{ color: '#666' }}>Loading...</div>
-        ) : filteredPairs.length === 0 ? (
-          <div style={{ color: '#666' }}>
-            {stats?.total_pairs === 0
-              ? 'No similarity data computed yet. Click "Compute Similarity" to analyze content overlap.'
-              : 'No pairs match the current filter.'}
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-            {filteredPairs.map(pair => {
-              const key = pairKey(pair)
-              const isExpanded = expandedPairs.has(key)
-              return (
-                <div key={key} style={{ background: '#0d1117', borderRadius: '6px', border: `1px solid ${pair.similarity_score >= thresholds.high_overlap ? '#3a1515' : '#1e2030'}` }}>
-                  <div
-                    style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }}
-                    onClick={() => setExpandedPairs(prev => {
-                      const next = new Set(prev)
-                      if (next.has(key)) next.delete(key); else next.add(key)
-                      return next
-                    })}
-                  >
-                    <span style={{ color: scoreColor(pair.similarity_score), fontWeight: 700, fontSize: '14px', flexShrink: 0, width: '42px', textAlign: 'right' }}>
-                      {scorePct(pair.similarity_score)}
-                    </span>
-                    <span style={{ color: '#ccc', fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {pair.display_name_a || pair.ci_name_a}
-                    </span>
-                    <span style={{ color: '#555', fontSize: '12px', flexShrink: 0 }}>{'↔'}</span>
-                    <span style={{ color: '#ccc', fontSize: '13px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {pair.display_name_b || pair.ci_name_b}
-                    </span>
-                    <span style={{ color: '#444', fontSize: '11px', flexShrink: 0 }}>
-                      {isExpanded ? '▾' : '▸'}
-                    </span>
-                  </div>
-                  {isExpanded && (
-                    <div style={{ padding: '0 14px 14px', borderTop: '1px solid #1e2030', display: 'flex', gap: '16px' }}>
-                      {[
-                        { name: pair.ci_name_a, display: pair.display_name_a, category: pair.category_a, stage: pair.stage_a, summary: pair.summary_a },
-                        { name: pair.ci_name_b, display: pair.display_name_b, category: pair.category_b, stage: pair.stage_b, summary: pair.summary_b },
-                      ].map((item, i) => (
-                        <div key={i} style={{ flex: 1, paddingTop: '12px' }}>
-                          <div style={{ fontSize: '13px', color: '#73bcf7', marginBottom: '4px', cursor: 'pointer' }}
-                               onClick={() => navigate(`/browse?search=${encodeURIComponent(item.name)}`)}>
-                            {item.display || item.name}
-                          </div>
-                          <div style={{ fontSize: '11px', color: '#666', marginBottom: '6px' }}>
-                            {item.name} · {item.category}
-                            {item.stage !== 'prod' && (
-                              <span style={{ marginLeft: '6px', background: item.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: item.stage === 'dev' ? '#99ccff' : '#ffcc66', borderRadius: '10px', padding: '1px 6px', fontSize: '10px' }}>{item.stage}</span>
+      {loading ? (
+        <p className="ca-color-muted">Loading...</p>
+      ) : filteredPairs.length === 0 ? (
+        <p className="ca-color-muted">
+          {stats?.total_pairs === 0
+            ? 'No similarity data computed yet. Click "Compute Similarity" to analyze content overlap.'
+            : 'No pairs match the current filter.'}
+        </p>
+      ) : (
+        <>
+          <div className="ca-row-count">{filteredPairs.length} of {pairs.length} pairs</div>
+          <div className="ca-table-wrap">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
+              {filteredPairs.map(pair => {
+                const key = pairKey(pair)
+                const isExpanded = expandedPairs.has(key)
+                return (
+                  <div key={key} style={{ background: '#0d1117', borderRadius: '6px', border: `1px solid ${pair.similarity_score >= thresholds.high_overlap ? 'rgba(233,69,96,0.3)' : '#0f3460'}` }}>
+                    <div
+                      style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }}
+                      onClick={() => setExpandedPairs(prev => {
+                        const next = new Set(prev)
+                        if (next.has(key)) next.delete(key); else next.add(key)
+                        return next
+                      })}
+                    >
+                      <span className="ca-score-badge" style={{ background: scoreBg(pair.similarity_score), color: scoreColor(pair.similarity_score), flexShrink: 0 }}>
+                        {scorePct(pair.similarity_score)}
+                      </span>
+                      <span style={{ color: '#e0e0e0', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {pair.display_name_a || pair.ci_name_a}
+                      </span>
+                      <span style={{ color: '#8a8a9a', fontSize: '0.75rem', flexShrink: 0 }}>{'↔'}</span>
+                      <span style={{ color: '#e0e0e0', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {pair.display_name_b || pair.ci_name_b}
+                      </span>
+                      <span style={{ color: '#8a8a9a', fontSize: '0.7rem', flexShrink: 0 }}>
+                        {isExpanded ? '▾' : '▸'}
+                      </span>
+                    </div>
+                    {isExpanded && (
+                      <div style={{ padding: '0 14px 14px', borderTop: '1px solid #0f3460', display: 'flex', gap: '16px' }}>
+                        {[
+                          { name: pair.ci_name_a, display: pair.display_name_a, category: pair.category_a, stage: pair.stage_a, summary: pair.summary_a },
+                          { name: pair.ci_name_b, display: pair.display_name_b, category: pair.category_b, stage: pair.stage_b, summary: pair.summary_b },
+                        ].map((item, i) => (
+                          <div key={i} style={{ flex: 1, paddingTop: '12px' }}>
+                            <div style={{ fontSize: '0.8rem', color: '#4a9eff', marginBottom: '4px', cursor: 'pointer' }}
+                                 onClick={() => navigate(`/browse?search=${encodeURIComponent(item.name)}`)}>
+                              {item.display || item.name}
+                            </div>
+                            <div style={{ fontSize: '0.7rem', color: '#8a8a9a', marginBottom: '6px' }}>
+                              {item.name} · {item.category}
+                              {item.stage !== 'prod' && (
+                                <span className={`ca-env-tag ${item.stage === 'dev' ? 'ca-env-dev' : 'ca-env-event'}`} style={{ marginLeft: '6px' }}>{item.stage}</span>
+                              )}
+                            </div>
+                            {item.summary && (
+                              <div style={{ fontSize: '0.75rem', color: '#8a8a9a', lineHeight: '1.5', whiteSpace: 'normal' }}>
+                                {item.summary.slice(0, 300)}{item.summary.length > 300 ? '...' : ''}
+                              </div>
                             )}
                           </div>
-                          {item.summary && (
-                            <div style={{ fontSize: '12px', color: '#888', lineHeight: '1.5' }}>
-                              {item.summary.slice(0, 300)}{item.summary.length > 300 ? '...' : ''}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   )
 }
