@@ -1,13 +1,47 @@
-"""Analysis routes — scan, stale check, rescan, single-item analysis."""
+"""Analysis routes — scan, stale check, rescan, single-item analysis, retirement."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.workers.ops import sha_dedup_scan_items
 
 router = APIRouter(prefix="/analysis")
+
+
+@router.get("/retirement")
+async def retirement_dashboard(
+    request: Request,
+    user: str = Depends(require_curator),
+    sort_by: str = Query("retirement_score"),
+    sort_dir: str = Query("desc"),
+    min_score: int | None = Query(None),
+    category: str | None = Query(None),
+    has_prod: bool | None = Query(None),
+    search: str | None = Query(None),
+):
+    db = request.app.state.db
+    items = db.list_reporting_metrics(
+        sort_by=sort_by, sort_dir=sort_dir, min_score=min_score,
+        category=category, has_prod=has_prod, search=search,
+    )
+
+    base_names = [i["catalog_base_name"] for i in items]
+    stages_map = db.get_stages_for_base_names(base_names)
+
+    from rcars.services.reporting_sync import compute_sales_impact
+    for item in items:
+        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+        item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
+
+    sync_status = db.get_reporting_sync_status()
+    return {
+        "items": items,
+        "total": len(items),
+        "synced_at": sync_status.get("last_synced") if sync_status else None,
+        "summary": sync_status,
+    }
 
 
 @router.post("/scan")

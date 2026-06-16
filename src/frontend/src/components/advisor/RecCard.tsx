@@ -18,6 +18,9 @@ interface Candidate {
   caveats: string | null
   duration_min: number | null
   duration_source: string | null
+  provisions_quarter?: number | null
+  avg_cost_per_provision?: number | null
+  sales_impact?: string | null
 }
 
 interface RecCardProps {
@@ -35,14 +38,12 @@ function catalogUrl(ciName: string, namespace: string): string {
 
 const FORMAT_LABELS: Record<string, string> = {
   hands_on_lab: 'Hands-on Lab',
-  booth_demo: 'Booth Demo',
-  presentation: 'Presentation',
+  demo: 'Demo',
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; color: string }> = {
   hands_on_lab: { bg: '#1a2a3a', color: '#73bcf7' },
-  booth_demo: { bg: '#2a2a1a', color: '#e8a838' },
-  presentation: { bg: '#2a1a2a', color: '#cc88cc' },
+  demo: { bg: '#2a2a1a', color: '#e8a838' },
 }
 
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
@@ -161,6 +162,29 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                 >
                   {showFullCaveat ? 'less' : 'more'}
                 </button>
+              )}
+            </div>
+          )}
+
+          {candidate.provisions_quarter !== null && candidate.provisions_quarter !== undefined && (
+            <div style={{
+              display: 'flex', gap: '1rem', padding: '0.5rem 0', marginTop: '0.5rem',
+              borderTop: '1px solid #2a2d35', fontSize: '0.8rem', color: '#8b949e',
+            }}>
+              <span>{candidate.provisions_quarter.toLocaleString()} provisions (last 90d)</span>
+              {candidate.avg_cost_per_provision != null && (
+                <span>${candidate.avg_cost_per_provision.toFixed(2)} / provision</span>
+              )}
+              {candidate.sales_impact && candidate.sales_impact !== 'low' && (
+                <span title="Based on closed sales opportunities linked to provisions of this asset over the trailing year."
+                  style={{
+                    padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
+                    background: candidate.sales_impact === 'high' ? '#1a4731' : '#3d2e00',
+                    color: candidate.sales_impact === 'high' ? '#3e8635' : '#e8a838',
+                    cursor: 'help',
+                  }}>
+                  {candidate.sales_impact === 'high' ? 'High Sales Impact' : 'Moderate Sales Impact'}
+                </span>
               )}
             </div>
           )}

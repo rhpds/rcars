@@ -47,7 +47,6 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
         if not showroom_url:
             raise ValueError(f"No Showroom URL for: {ci_name}")
 
-        client = wctx.settings.get_anthropic_client()
         result = await asyncio.to_thread(
             functools.partial(
                 analyze_showroom,
@@ -57,7 +56,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                 product=item.get("product", ""),
                 showroom_url=showroom_url,
                 showroom_ref=item.get("showroom_ref"),
-                anthropic_client=client,
+                settings=wctx.settings,
                 model=wctx.settings.model,
                 clone_dir=wctx.settings.clone_dir,
                 db=wctx.db,

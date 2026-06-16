@@ -132,7 +132,7 @@ def fetch_event_content(url: str, max_chars: int = 80000) -> str | None:
 
 def parse_event_url(
     url: str,
-    anthropic_client,
+    settings,
     model: str = "claude-sonnet-4-6",
 ) -> dict[str, Any] | None:
     """Parse an event URL into a structured profile.
@@ -149,18 +149,15 @@ def parse_event_url(
     template = EVENT_PROMPT_PATH.read_text()
     prompt = template.replace("{page_content}", page_text)
 
-    response = anthropic_client.messages.create(
-        model=model,
-        max_tokens=4096,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    from rcars.config import call_llm
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=4096)
 
-    input_tokens = getattr(response.usage, 'input_tokens', 0)
-    output_tokens = getattr(response.usage, 'output_tokens', 0)
-    log.info("event_parser: Sonnet response received (in=%d out=%d tokens)", input_tokens, output_tokens)
+    input_tokens = llm_result.input_tokens
+    output_tokens = llm_result.output_tokens
+    log.info("event_parser: response received (in=%d out=%d tokens, provider=%s)",
+             input_tokens, output_tokens, llm_result.provider)
 
-    result = parse_analysis_response(response.content[0].text)
+    result = parse_analysis_response(llm_result.text)
     if result:
         log.info("event_parser: parsed event=%s themes=%s",
                  result.get("event_name"), result.get("themes"))

@@ -21,17 +21,12 @@ async def run_recommendation(
     wctx.db.update_job_status(job_id, "running")
 
     try:
-        client = wctx.settings.get_anthropic_client()
-        if client is None:
-            raise RuntimeError("No Anthropic client configured")
-
         async def on_progress(data: dict):
             await publish_progress(wctx.relay, job_id, wctx.db, **data)
 
         state = await run_query(
             query=query,
             db=wctx.db,
-            anthropic_client=client,
             settings=wctx.settings,
             stages=stages or (["prod"] if prod_only else ["prod", "dev", "event"]),
             include_zt=include_zt,
@@ -58,6 +53,20 @@ async def run_recommendation(
             }
             for c in state.candidates
         ]
+
+        from rcars.services.reporting_sync import extract_base_name, compute_sales_impact
+
+        for candidate in candidates_json:
+            base_name = extract_base_name(candidate["ci_name"])
+            metrics = wctx.db.get_reporting_metrics(base_name)
+            if metrics:
+                candidate["provisions_quarter"] = metrics["provisions_quarter"]
+                candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"] or 0)
+                candidate["sales_impact"] = compute_sales_impact(float(metrics["closed_amount"] or 0))
+            else:
+                candidate["provisions_quarter"] = None
+                candidate["avg_cost_per_provision"] = None
+                candidate["sales_impact"] = None
 
         results = {
             "phase": state.phase,

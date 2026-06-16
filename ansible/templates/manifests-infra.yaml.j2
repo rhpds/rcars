@@ -63,6 +63,32 @@ type: Opaque
 stringData:
   credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | to_json }}
 {% endif %}
+{% if litemaas_enabled | default(false) %}
+---
+# LiteMaaS API credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-litemaas
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  api-key: "{{ litemaas_api_key }}"
+{% endif %}
+{% if rcars_reporting_mcp_url is defined and rcars_reporting_mcp_url != '' %}
+---
+# Reporting MCP credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-reporting-mcp
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  token: "{{ rcars_reporting_mcp_token }}"
+{% endif %}
 {% if github_token is defined and github_token != 'CHANGEME' %}
 ---
 # GitHub source secret (for private repo access during builds)

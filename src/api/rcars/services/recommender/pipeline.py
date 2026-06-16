@@ -124,7 +124,6 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
 async def run_query(
     query: str,
     db: Database,
-    anthropic_client,
     settings: Settings,
     stages: list[str] | None = None,
     include_zt: bool = True,
@@ -142,7 +141,7 @@ async def run_query(
         logger.info("query_has_url", url=url[:200], has_text=bool(remaining_text))
         await emit({"phase": "event_parse", "status": "started", "url": url})
         try:
-            event_profile = parse_event_url(url, anthropic_client, model=settings.model)
+            event_profile = parse_event_url(url, settings=settings, model=settings.model)
         except Exception as e:
             logger.error("event_parse_failed", url=url[:200], error=str(e))
             event_profile = None
@@ -197,9 +196,9 @@ async def run_query(
 
     # Phase 2: Triage
     await emit({"phase": "triage", "status": "started", "total": len(state.candidates)})
-    state = await asyncio.to_thread(triage, state, anthropic_client, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
+    state = await asyncio.to_thread(triage, state, settings=settings, model=settings.triage_model, triage_cutoff=settings.triage_cutoff)
     relevant = len([c for c in state.candidates if c.tier in ("yellow", "green")])
-    db.log_token_usage("triage", settings.triage_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if state.token_usage else None
+    db.log_token_usage("triage", settings.triage_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query, provider=state.token_usage[-1].get("provider", "anthropic")) if state.token_usage else None
     await emit({"phase": "triage", "status": "complete", "relevant": relevant,
                 "candidate_data": serialize_candidates(state.candidates)})
 
@@ -220,7 +219,7 @@ async def run_query(
     # Phase 3: Rationale
     top_n = settings.rationale_top_n
     await emit({"phase": "rationale", "status": "started", "top_n": top_n})
-    state = await asyncio.to_thread(generate_rationale, state, db, anthropic_client, model=settings.rationale_model, top_n=top_n)
+    state = await asyncio.to_thread(generate_rationale, state, db, settings=settings, model=settings.rationale_model, top_n=top_n)
 
     # Promote candidates with full rationale to green tier
     for c in state.candidates:
@@ -228,7 +227,7 @@ async def run_query(
             c.tier = "green"
 
     green_count = len([c for c in state.candidates if c.tier == "green"])
-    db.log_token_usage("rationale", settings.rationale_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query) if len(state.token_usage) > 1 else None
+    db.log_token_usage("rationale", settings.rationale_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query, provider=state.token_usage[-1].get("provider", "anthropic")) if len(state.token_usage) > 1 else None
     await emit({"phase": "complete", "results": green_count})
 
     elapsed = round(time.monotonic() - t0, 2)

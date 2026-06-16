@@ -67,7 +67,7 @@ def format_rationale_candidates(
 def generate_rationale(
     state: QueryState,
     db: Database,
-    anthropic_client,
+    settings,
     model: str = "claude-sonnet-4-6",
     top_n: int = 5,
 ) -> QueryState:
@@ -100,14 +100,10 @@ def generate_rationale(
         .replace("{candidates}", candidates_text)
     )
 
-    response = anthropic_client.messages.create(
-        model=model,
-        max_tokens=4096,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    from rcars.config import call_llm
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=4096)
 
-    result = parse_analysis_response(response.content[0].text)
+    result = parse_analysis_response(llm_result.text)
 
     if result:
         recs_by_ci = {
@@ -131,12 +127,12 @@ def generate_rationale(
         len(top_candidates), elapsed,
     )
 
-    usage = getattr(response, "usage", None)
     new_token_entry = {
         "operation": "rationale",
         "model": model,
-        "input_tokens": getattr(usage, "input_tokens", 0),
-        "output_tokens": getattr(usage, "output_tokens", 0),
+        "input_tokens": llm_result.input_tokens,
+        "output_tokens": llm_result.output_tokens,
+        "provider": llm_result.provider,
     }
 
     return QueryState(

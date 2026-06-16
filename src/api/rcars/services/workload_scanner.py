@@ -94,7 +94,7 @@ def analyze_role(
     role_name: str,
     role_path: Path,
     collection_name: str,
-    anthropic_client: Any,
+    settings,
     model: str,
     db: Database | None = None,
 ) -> dict | None:
@@ -112,15 +112,11 @@ def analyze_role(
     )
 
     try:
-        response = anthropic_client.messages.create(
-            model=model,
-            max_tokens=1024,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        from rcars.config import call_llm
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=1024)
 
-        input_tokens = getattr(response.usage, "input_tokens", 0)
-        output_tokens = getattr(response.usage, "output_tokens", 0)
+        input_tokens = llm_result.input_tokens
+        output_tokens = llm_result.output_tokens
 
         if db is not None:
             db.log_token_usage(
@@ -129,9 +125,10 @@ def analyze_role(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 ci_name=f"{collection_name}.{role_name}",
+                provider=llm_result.provider,
             )
 
-        text = response.content[0].text.strip()
+        text = llm_result.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1] if "\n" in text else text[3:]
             text = text.rsplit("```", 1)[0]
@@ -156,7 +153,7 @@ def scan_collection(
     collection_name: str,
     collection_url: str,
     clone_dir: str,
-    anthropic_client: Any,
+    settings,
     model: str,
     db: Database,
     force: bool = False,
@@ -199,7 +196,7 @@ def scan_collection(
             if not role_path.is_dir():
                 continue
 
-            result = analyze_role(role_name, role_path, collection_name, anthropic_client, model, db)
+            result = analyze_role(role_name, role_path, collection_name, settings, model, db)
             scanned += 1
 
             if result and result.get("product_name"):
@@ -238,7 +235,7 @@ def scan_collection(
 
 def scan_all_collections(
     clone_dir: str,
-    anthropic_client: Any,
+    settings,
     model: str,
     db: Database,
     force: bool = False,
@@ -258,7 +255,7 @@ def scan_all_collections(
             collection_name=coll["name"],
             collection_url=coll["url"],
             clone_dir=clone_dir,
-            anthropic_client=anthropic_client,
+            settings=settings,
             model=model,
             db=db,
             force=force,

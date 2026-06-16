@@ -24,7 +24,7 @@ from rcars.workers.base import WorkerContext
 from rcars.workers.recommend import run_recommendation
 from rcars.workers.scan import run_analysis
 from arq import cron, func
-from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan
+from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan, run_reporting_sync_job
 
 
 async def startup(ctx: dict) -> None:
@@ -37,6 +37,13 @@ async def startup(ctx: dict) -> None:
     relay = JobProgressRelay(redis)
 
     ctx["worker_ctx"] = WorkerContext(db=db, redis=redis, relay=relay, settings=settings)
+
+    if settings.use_litemaas:
+        from rcars.config import fetch_litemaas_models
+        models = fetch_litemaas_models(settings)
+        log.info("litemaas_models_loaded", action="litemaas_init",
+                 model_count=len(models), models=sorted(models))
+
     log.info("worker_started", action="worker_started")
 
 
@@ -60,6 +67,7 @@ class WorkerSettings:
         func(run_stale_check, timeout=3600),
         func(run_nightly_pipeline, timeout=7200),
         func(run_workload_scan, timeout=3600),
+        func(run_reporting_sync_job, timeout=600),
     ]
     cron_jobs = [
         cron(run_nightly_pipeline, hour=_pipeline_hour, minute=_pipeline_minute,
