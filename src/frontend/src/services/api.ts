@@ -140,7 +140,8 @@ export const api = {
 
   // Reporting status
   getReportingStatus: () => request<{
-    configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null;
+    configured: boolean; total: number; last_synced: string | null;
+    provisions_window: string; quarter_window: string; sales_window: string;
   }>('/admin/reporting-status'),
 
   // Infrastructure

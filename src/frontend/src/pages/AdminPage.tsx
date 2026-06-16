@@ -624,7 +624,7 @@ export function AdminCatalogPage() {
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
   const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; analysis_model: string; triage_model: string; rationale_model: string } | null>(null)
-  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null } | null>(null)
+  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; last_synced: string | null; provisions_window: string; quarter_window: string; sales_window: string } | null>(null)
 
   const loadStatus = () => {
     api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
@@ -722,14 +722,14 @@ export function AdminCatalogPage() {
               </div>
 
               <div className="admin-stat-card">
-                <div className="admin-stat-card-title">Reporting</div>
+                <div className="admin-stat-card-title">Reporting Sync</div>
                 {reportingStatus ? (
                   reportingStatus.total > 0 ? (
                     <>
-                      <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
-                      <div className="admin-stat-row"><span className="admin-stat-row-indent" style={{ color: '#c9190b' }}>High (≥75)</span><span className="admin-stat-row-value">{reportingStatus.high}</span></div>
-                      <div className="admin-stat-row"><span className="admin-stat-row-indent" style={{ color: '#e8a838' }}>Review (50-74)</span><span className="admin-stat-row-value">{reportingStatus.review}</span></div>
-                      <div className="admin-stat-row"><span className="admin-stat-row-indent" style={{ color: '#3e8635' }}>Keepers (&lt;50)</span><span className="admin-stat-row-value">{reportingStatus.keepers}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Items synced</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Provisions</span><span style={{ fontSize: '11px', color: '#888' }}>{reportingStatus.provisions_window}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Sales / Cost</span><span style={{ fontSize: '11px', color: '#888' }}>{reportingStatus.sales_window}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Quarter</span><span style={{ fontSize: '11px', color: '#888' }}>{reportingStatus.quarter_window}</span></div>
                       <div className="admin-stat-row-divider" />
                       <div className="admin-stat-row"><span className="admin-stat-row-label">Last synced</span><span style={{ fontSize: '12px', color: '#888' }}>{reportingStatus.last_synced ? new Date(reportingStatus.last_synced).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never'}</span></div>
                     </>
