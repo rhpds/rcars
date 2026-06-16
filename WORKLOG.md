@@ -27,6 +27,70 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-16 — Nate + Claude (Retirement analysis + LiteMaaS + code review)
+
+**Done:**
+- **Retirement analysis (Phase 1) — full implementation and deployment:**
+  - Alembic migration 005: `reporting_metrics` table with retirement_score index
+  - MCP HTTP client with auto-pagination past 500-row server cap, HTTPS-only validation
+  - Nightly sync step 5 in maintenance pipeline: provisions, sales, cost, dates from RHDP reporting MCP
+  - Retirement scoring (0-100) based on usage, sales, cost, prod presence, age
+  - CLI commands: `rcars reporting-db sync/status/show`
+  - API: `GET /analysis/retirement` dashboard, `POST /admin/sync-reporting` trigger
+  - Catalog detail and rec candidates enriched with reporting metrics (provisions, cost/provision, sales impact badge)
+  - Frontend: Retirement page under Content Analysis with stat cards grid (total, high, review, keepers, cost, closed, touched), sortable table with sticky headers, expandable detail rows with environment badges
+  - Bug fix: `get_all_base_names_with_prod()` KeyError on dict_row cursor — used named column + explicit cursor
+  - Pipeline step messages clarified: removed "/3" denominators, human-readable descriptions for all 5 steps
+- **LiteMaaS as primary LLM provider:**
+  - Unified `call_llm()` function with per-model routing — LiteMaaS (OpenAI SDK) preferred, Vertex AI (Anthropic SDK) as automatic fallback
+  - Model list cached once at worker startup from `/v1/models` endpoint
+  - `provider` column added to `token_usage` table (migration 006), threaded through all 5 LLM call sites
+  - Admin Status page: LLM Provider card (active providers, models) + Reporting Sync card (items synced, orphans, last synced)
+  - Admin Token Usage page: Provider column with color-coded display
+  - Both providers can be configured simultaneously — if LiteMaaS drops a model, next restart routes to Vertex automatically
+  - Config: `RCARS_LITEMAAS_URL`, `RCARS_LITEMAAS_API_KEY`
+- **Content Analysis UI unification:**
+  - Shared `ca-*` CSS classes in lcars.css matching the standalone analysis.html reference design
+  - Both Overlap and Retirement pages now use identical fonts, colors, controls, stat cards, and layout
+  - Overlap page: search filter, full summary text (no truncation), Browse links open in new tab
+  - Retirement page: stat cards grid, full-width table with `table-layout: fixed`, score badges with colored backgrounds, name column 40% width, default sort by lowest score first (healthy assets first)
+  - Numbers format to $X.XXB for billions
+- **Code review remediation (15 findings fixed):**
+  - LiteMaaS API key and reporting MCP token moved from plain env vars to K8s Secrets with `secretKeyRef`
+  - NOT NULL constraint on provider column
+  - Defensive empty-response checks in both LLM providers
+  - Pagination safety cap (50 pages max) on `mcp_query`
+  - Null guard on `avg_cost_per_provision` float conversion
+  - GROUP BY COALESCE fix for provider stats
+  - Orphan job handling on sync-reporting enqueue failure
+  - Reporting status endpoint checks both URL and token, queries both job types
+  - Rationale prompt example fixed (single enum value)
+  - Workload scanner variable shadowing (`result` → `llm_result`)
+  - Redundant CLI imports removed, `.catch()` on admin API calls, keyed Fragment in RetirementPage
+  - Skipped 2 findings with justification (migration raw SQL is project convention, LIKE wildcard escape unnecessary for AgnosticV identifiers)
+- **Ansible deployment fix:** `init-db` crash guard for `provider` index when column doesn't exist yet (CREATE TABLE IF NOT EXISTS skips existing tables)
+- **Backlog updates:** babydev cluster migration, enhanced retirement scoring + data validation + time window filter
+
+**In progress:**
+- Production deployment running (`--tags deploy`)
+
+**Next:**
+- Verify production deployment (LiteMaaS routing, reporting sync, retirement dashboard)
+- Retirement scoring Phase 2: data validation (closed amount discrepancy), time window filter, enhanced scoring model
+- Babydev cluster migration (deadline: end of June 2026)
+- Portfolio Architecture ingest from OSSPA GitLab
+
+**Notes:**
+- Migration race condition: `--tags update` can run `alembic upgrade head` on the old pod before the new build rolls out. Happened with migration 006 on dev. Workaround: run `--tags migrate` separately after build completes, or use `--tags deploy` which sequences correctly. Consider adding build SHA verification to the migration step.
+- LiteMaaS URL: `https://maas-rhdp.apps.maas.redhatworkshops.io/v1`. Models available: `claude-haiku-4-5`, `claude-sonnet-4-6`. API key stored as K8s Secret.
+- Reporting MCP URL: `https://reporting-mcp.apps.ocpv-infra01.dal12.infra.demo.redhat.com/mcp/`. Token stored as K8s Secret.
+- Retirement scoring thresholds were tuned for 6-month data but we're pulling trailing year — scores cluster at 85 for low-activity items. Needs recalibration in Phase 2.
+- Closed amount discrepancy between RCARS and main reporting dashboard (e.g. AWS with OpenShift: $45M vs $115M) — investigate in dedicated scoring session.
+- RecCard format labels simplified to "Demo" and "Hands-on Lab" (external change during session, not reverted).
+- The `deploy` Ansible tag is the only one that includes both `apply` (infra secrets) and `update` (builds + migrate). Use `deploy` for any changes that touch deployment config.
+
+---
+
 ### 2026-06-15 — Nate + Claude (Code review remediation + RecCard cleanup)
 
 **Done:**
