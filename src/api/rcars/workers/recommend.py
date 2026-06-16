@@ -59,6 +59,20 @@ async def run_recommendation(
             for c in state.candidates
         ]
 
+        from rcars.services.reporting_sync import extract_base_name, compute_sales_impact
+
+        for candidate in candidates_json:
+            base_name = extract_base_name(candidate["ci_name"])
+            metrics = wctx.db.get_reporting_metrics(base_name)
+            if metrics:
+                candidate["provisions_quarter"] = metrics["provisions_quarter"]
+                candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"])
+                candidate["sales_impact"] = compute_sales_impact(float(metrics["closed_amount"] or 0))
+            else:
+                candidate["provisions_quarter"] = None
+                candidate["avg_cost_per_provision"] = None
+                candidate["sales_impact"] = None
+
         results = {
             "phase": state.phase,
             "candidates": candidates_json,

@@ -6,6 +6,7 @@ import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { AdminCatalogPage, AdminWorkersPage, AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
+import { RetirementPage } from './pages/RetirementPage'
 import './styles/lcars.css'
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
                   <>
                     <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                     <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
+                    <Route path="/analysis/retirement" element={<RetirementPage />} />
                     <Route path="/admin" element={<Navigate to="/admin/catalog" replace />} />
                     <Route path="/admin/catalog" element={<AdminCatalogPage />} />
                     <Route path="/admin/workers" element={<AdminWorkersPage />} />
