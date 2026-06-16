@@ -117,7 +117,11 @@ CREATE TABLE IF NOT EXISTS token_usage (
     provider TEXT DEFAULT 'anthropic',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'token_usage' AND column_name = 'provider') THEN
+    CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS advisor_sessions (
     id SERIAL PRIMARY KEY,
