@@ -578,7 +578,7 @@ def analyze_showroom(
     product: str,
     showroom_url: str,
     showroom_ref: str | None,
-    anthropic_client,
+    settings,
     model: str = "claude-sonnet-4-6",
     clone_dir: str = "/tmp",
     db=None,
@@ -636,17 +636,13 @@ def analyze_showroom(
         )
         log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(prompt))
 
-        response = anthropic_client.messages.create(
-            model=model,
-            max_tokens=8192,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        from rcars.config import call_llm
+        result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
 
-        input_tokens = getattr(response.usage, 'input_tokens', 0)
-        output_tokens = getattr(response.usage, 'output_tokens', 0)
-        log.info("analyze %s: Sonnet response received (in=%d out=%d tokens)",
-                 ci_name, input_tokens, output_tokens)
+        input_tokens = result.input_tokens
+        output_tokens = result.output_tokens
+        log.info("analyze %s: response received (in=%d out=%d tokens, provider=%s)",
+                 ci_name, input_tokens, output_tokens, result.provider)
 
         if db is not None:
             db.log_token_usage(
@@ -655,9 +651,10 @@ def analyze_showroom(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 ci_name=ci_name,
+                provider=result.provider,
             )
 
-        response_text = response.content[0].text
+        response_text = result.text
         analysis = parse_analysis_response(response_text)
         if not analysis:
             log.error("analyze %s: failed to parse Sonnet response", ci_name)

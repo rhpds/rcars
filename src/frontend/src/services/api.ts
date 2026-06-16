@@ -131,6 +131,18 @@ export const api = {
   }>('/admin/schedule'),
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
 
+  // LLM provider
+  getLlmProviderStatus: () => request<{
+    litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[];
+    vertex_enabled: boolean; vertex_region: string | null;
+    analysis_model: string; triage_model: string; rationale_model: string;
+  }>('/admin/llm-provider'),
+
+  // Reporting status
+  getReportingStatus: () => request<{
+    configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null;
+  }>('/admin/reporting-status'),
+
   // Infrastructure
   searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
     const qs = new URLSearchParams();

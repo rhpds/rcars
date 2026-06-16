@@ -426,10 +426,6 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
     try:
         from rcars.services.workload_scanner import scan_all_collections
 
-        anthropic_client = wctx.settings.get_anthropic_client()
-        if not anthropic_client:
-            raise RuntimeError("No Anthropic credentials configured")
-
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="workload_scan", status="started",
                                message="Scanning agDv2 workload repos...")
@@ -438,7 +434,7 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
         results = await asyncio.to_thread(
             scan_all_collections,
             clone_dir=wctx.settings.clone_dir,
-            anthropic_client=anthropic_client,
+            settings=wctx.settings,
             model=wctx.settings.triage_model,
             db=wctx.db,
         )

@@ -114,8 +114,10 @@ CREATE TABLE IF NOT EXISTS token_usage (
     query_text TEXT,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    provider TEXT DEFAULT 'anthropic',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
 
 CREATE TABLE IF NOT EXISTS advisor_sessions (
     id SERIAL PRIMARY KEY,
@@ -1071,12 +1073,13 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
+        provider: str = "anthropic",
     ) -> None:
         with self._pool.connection() as conn:
             conn.execute(
-                """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                (operation, model, input_tokens, output_tokens, ci_name, query_text),
+                """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (operation, model, input_tokens, output_tokens, ci_name, query_text, provider),
             )
             conn.commit()
 
@@ -1084,12 +1087,13 @@ class Database:
         where = "WHERE created_at >= NOW() - %(days)s * INTERVAL '1 day'" if days else ""
         params: dict[str, Any] = {"days": days} if days else {}
         sql = f"""
-            SELECT operation, model, COUNT(*) AS calls,
+            SELECT operation, model, COALESCE(provider, 'anthropic') AS provider,
+                   COUNT(*) AS calls,
                    SUM(input_tokens) AS input_tokens,
                    SUM(output_tokens) AS output_tokens,
                    SUM(input_tokens + output_tokens) AS total_tokens
             FROM token_usage {where}
-            GROUP BY operation, model ORDER BY total_tokens DESC
+            GROUP BY operation, model, provider ORDER BY total_tokens DESC
         """
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)
