@@ -105,6 +105,9 @@ def _mcp_call(
         "params": {"name": tool_name, "arguments": arguments},
     }).encode("utf-8")
 
+    if not url.startswith("https://"):
+        raise ValueError(f"MCP URL must use HTTPS, got: {url[:50]}")
+
     req = urllib.request.Request(
         url,
         data=payload,
@@ -136,9 +139,10 @@ def mcp_query(
 ) -> list[dict]:
     """Execute SQL via MCP server, auto-paginating past 500-row cap."""
     PAGE = 500
+    MAX_PAGES = 50
     all_rows: list[dict] = []
     offset = 0
-    while True:
+    for _ in range(MAX_PAGES):
         paged = f"WITH _q AS ({sql}) SELECT * FROM _q ORDER BY 1 LIMIT {PAGE} OFFSET {offset}"
         result = _mcp_call(
             "query",

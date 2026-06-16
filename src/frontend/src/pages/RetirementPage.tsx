@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
 
 type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
@@ -170,7 +170,7 @@ export function RetirementPage() {
                 {items.map(item => {
                   const isExpanded = expanded.has(item.catalog_base_name)
                   return (
-                    <>{/* Fragment avoids nested tbody */}
+                    <Fragment key={item.catalog_base_name}>
                       <tr key={item.catalog_base_name} className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
                         <td className="name" title={item.display_name}>
                           {item.display_name}
@@ -240,7 +240,7 @@ export function RetirementPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </Fragment>
                   )
                 })}
               </tbody>

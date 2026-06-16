@@ -205,6 +205,8 @@ def _call_litemaas(settings, model, messages, max_tokens, temperature):
         max_tokens=max_tokens,
         temperature=temperature,
     )
+    if not response.choices:
+        raise RuntimeError(f"LiteMaaS returned empty choices for model {model}")
     return LLMResult(
         text=response.choices[0].message.content,
         input_tokens=response.usage.prompt_tokens if response.usage else 0,
@@ -223,6 +225,8 @@ def _call_anthropic(settings, model, messages, max_tokens, temperature):
         temperature=temperature,
         messages=messages,
     )
+    if not response.content:
+        raise RuntimeError(f"Anthropic returned empty content for model {model}")
     provider = "vertex" if settings.use_vertex else "anthropic"
     return LLMResult(
         text=response.content[0].text,

@@ -15,7 +15,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.execute("ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider TEXT DEFAULT 'anthropic'")
+    op.execute("ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'anthropic'")
     op.execute("CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider)")
 
 

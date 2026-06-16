@@ -627,10 +627,10 @@ export function AdminCatalogPage() {
   const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; orphans_removed: number; last_synced: string | null } | null>(null)
 
   const loadStatus = () => {
-    api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
-    api.getInfraStats().then(data => setInfraStats(data as InfraStats))
-    api.getLlmProviderStatus().then(setLlmProvider)
-    api.getReportingStatus().then(setReportingStatus)
+    api.getCatalogStats().then(data => setStatus(data as CatalogStatus)).catch(() => {})
+    api.getInfraStats().then(data => setInfraStats(data as InfraStats)).catch(() => {})
+    api.getLlmProviderStatus().then(setLlmProvider).catch(() => {})
+    api.getReportingStatus().then(setReportingStatus).catch(() => {})
   }
 
   useEffect(() => { loadStatus() }, [])

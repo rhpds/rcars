@@ -1097,7 +1097,7 @@ class Database:
                    SUM(output_tokens) AS output_tokens,
                    SUM(input_tokens + output_tokens) AS total_tokens
             FROM token_usage {where}
-            GROUP BY operation, model, provider ORDER BY total_tokens DESC
+            GROUP BY operation, model, COALESCE(provider, 'anthropic') ORDER BY total_tokens DESC
         """
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)
