@@ -26,10 +26,16 @@ _CONTENT_PATH_PATTERNS = re.compile(
 )
 
 
+_HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible)",
+}
+
+
 def _fetch_html(url: str, timeout: int = 30) -> str | None:
     """Fetch a URL and return raw HTML, or None on failure."""
     try:
-        response = httpx.get(url, follow_redirects=True, timeout=timeout)
+        response = httpx.get(url, follow_redirects=True, timeout=timeout,
+                             headers=_HTTP_HEADERS)
         response.raise_for_status()
         return response.text
     except httpx.HTTPError as e:
