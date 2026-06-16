@@ -263,7 +263,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         refresh_result = await run_catalog_refresh(ctx, refresh_job_id)
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:refresh", status="complete",
-                               message=f"Step 1 complete: {refresh_result['total_items']} items, {refresh_result['removed_items']} removed")
+                               message=f"Step 1 complete: {refresh_result['total_items']} catalog items synced from Babylon, {refresh_result['removed_items']} removed")
         log.info("pipeline_refresh_complete", action="pipeline_step_complete", step="refresh", **refresh_result)
     except Exception as e:
         msg = f"Step 1 failed (catalog refresh): {e}"
@@ -282,7 +282,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         stale_result = await run_stale_check(ctx, stale_job_id)
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:stale_check", status="complete",
-                               message=f"Step 2 complete: {stale_result['skipped']} unchanged, {stale_result['cloned']} checked, {stale_result['stale']} stale ({stale_result['stale_cis']} CIs)")
+                               message=f"Step 2 complete: {stale_result['checked']} repos checked ({stale_result['skipped']} unchanged via git), {stale_result['stale']} found stale across {stale_result['stale_cis']} CIs")
         log.info("pipeline_stale_complete", action="pipeline_step_complete", step="stale_check", **stale_result)
     except Exception as e:
         msg = f"Step 2 failed (stale check): {e}"
@@ -300,7 +300,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             sha_merged = len(items) - len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",
-                                   message=f"Step 3: Enqueuing {len(scan_items)} items for re-analysis ({sha_merged} merged by SHA)...")
+                                   message=f"Step 3: Re-analyzing {len(scan_items)} items with updated content...")
             arq_redis = ctx["redis"]
             for item in scan_items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
@@ -312,13 +312,13 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             analysis_enqueued = len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
-                                   message=f"Step 3 complete: {analysis_enqueued} analysis jobs enqueued ({sha_merged} merged by SHA)")
+                                   message=f"Step 3 complete: {analysis_enqueued} items queued for re-analysis (runs in background)")
             log.info("pipeline_analysis_enqueued", action="pipeline_step_complete",
                      step="analysis", enqueued=analysis_enqueued, sha_merged=sha_merged)
         else:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
-                                   message="Step 3: No items need re-analysis")
+                                   message="Step 3 complete: All content is current, no re-analysis needed")
             log.info("pipeline_analysis_skipped", action="pipeline_step_complete",
                      step="analysis", enqueued=0)
     except Exception as e:
@@ -340,9 +340,15 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             workload_scan_result = await run_workload_scan(ctx, workload_job_id)
             scanned = sum(r.get("roles_scanned", 0) for r in workload_scan_result.get("collections", []))
             mapped = sum(r.get("roles_mapped", 0) for r in workload_scan_result.get("collections", []))
+            unchanged = sum(1 for r in workload_scan_result.get("collections", []) if r.get("status") == "unchanged")
+            total_cols = len(workload_scan_result.get("collections", []))
+            if scanned == 0:
+                step4_msg = f"Step 4 complete: All {total_cols} workload repos unchanged (no new commits)"
+            else:
+                step4_msg = f"Step 4 complete: {scanned} roles scanned across {total_cols - unchanged} updated repos, {mapped} new mappings"
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:workload_scan", status="complete",
-                                   message=f"Step 4 complete: {scanned} roles scanned, {mapped} new mappings")
+                                   message=step4_msg)
             log.info("pipeline_workload_scan_complete", action="pipeline_step_complete",
                      step="workload_scan", scanned=scanned, mapped=mapped)
         except Exception as e:
