@@ -238,6 +238,12 @@ spec:
               value: "{{ pipeline_hour | default('4') }}"
             - name: RCARS_PIPELINE_MINUTE
               value: "{{ pipeline_minute | default('0') }}"
+{% if rcars_reporting_mcp_url is defined %}
+            - name: RCARS_REPORTING_MCP_URL
+              value: "{{ rcars_reporting_mcp_url }}"
+            - name: RCARS_REPORTING_MCP_TOKEN
+              value: "{{ rcars_reporting_mcp_token }}"
+{% endif %}
             - name: HF_HOME
               value: /opt/app-root/hf_cache
           volumeMounts:
