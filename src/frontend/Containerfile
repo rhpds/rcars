@@ -1,5 +1,5 @@
-# RCARS Frontend — multi-stage build on UBI9 Node.js 20 + nginx
-FROM registry.access.redhat.com/ubi9/nodejs-20 AS builder
+# RCARS Frontend — multi-stage build on UBI9 Node.js 22 + nginx
+FROM registry.access.redhat.com/ubi9/nodejs-22 AS builder
 
 USER 0
 WORKDIR /opt/app-root/src
