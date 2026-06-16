@@ -159,6 +159,15 @@ async def run_maintenance(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
+@router.post("/sync-reporting")
+async def sync_reporting(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="reporting_sync", queue="ops", created_by=user)
+    await arq_redis.enqueue_job("run_reporting_sync_job", job_id=job_id, _queue_name="arq:queue:scan")
+    return {"job_id": job_id}
+
+
 @router.post("/scan-workloads")
 async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     """Trigger workload repo scan (clone agDv2 repos, analyze roles, update mappings)."""

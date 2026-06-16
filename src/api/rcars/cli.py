@@ -627,6 +627,95 @@ def workload_list():
     db.close()
 
 
+# ── Reporting commands ──
+
+@cli.group(name="reporting-db")
+def reporting_db_group():
+    """Reporting database metrics commands."""
+    pass
+
+
+@reporting_db_group.command("sync")
+@click.pass_context
+def reporting_db_sync(ctx):
+    """Sync reporting metrics from RHDP MCP server."""
+    from rcars.config import Settings
+    from rcars.db.database import Database
+    from rcars.services.reporting_sync import run_reporting_sync
+
+    settings = Settings()
+    if not settings.reporting_mcp_url or not settings.reporting_mcp_token:
+        _print("ERROR: RCARS_REPORTING_MCP_URL and RCARS_REPORTING_MCP_TOKEN must be set.")
+        raise SystemExit(1)
+
+    db = Database(settings.database_url)
+    _print("Syncing reporting metrics from MCP server...")
+    try:
+        result = run_reporting_sync(db, settings)
+        _print(f"  Synced: {result['synced']} metrics")
+        _print(f"  Orphans removed: {result['orphans_removed']}")
+        _print(f"  Provisions: {result['provisions_rows']}, Sales: {result['sales_rows']}, "
+               f"Cost: {result['cost_rows']}, Dates: {result['date_rows']}")
+    except Exception as e:
+        _print(f"ERROR: {e}")
+        raise SystemExit(1)
+
+
+@reporting_db_group.command("status")
+@click.pass_context
+def reporting_db_status(ctx):
+    """Show reporting sync status and score distribution."""
+    from rcars.config import Settings
+    from rcars.db.database import Database
+
+    settings = Settings()
+    db = Database(settings.database_url)
+    status = db.get_reporting_sync_status()
+
+    if not status or status["total"] == 0:
+        _print("No reporting metrics synced yet.")
+        return
+
+    _print(f"  Last synced:    {status['last_synced']}")
+    _print(f"  Total items:    {status['total']}")
+    _print(f"  High (>=75):    {status['high']}")
+    _print(f"  Review (50-74): {status['review']}")
+    _print(f"  Keepers (<50):  {status['keepers']}")
+
+
+@reporting_db_group.command("show")
+@click.argument("ci_name")
+@click.pass_context
+def reporting_db_show(ctx, ci_name: str):
+    """Show reporting metrics for a specific CI (accepts ci_name or base name)."""
+    from rcars.config import Settings
+    from rcars.db.database import Database
+    from rcars.services.reporting_sync import extract_base_name
+
+    settings = Settings()
+    db = Database(settings.database_url)
+    base_name = extract_base_name(ci_name)
+    metrics = db.get_reporting_metrics(base_name)
+
+    if not metrics:
+        _print(f"No reporting metrics found for: {base_name}")
+        return
+
+    _print(f"  Base name:         {metrics['catalog_base_name']}")
+    _print(f"  Display name:      {metrics['display_name']}")
+    _print(f"  Retirement score:  {metrics['retirement_score']}")
+    _print(f"  Provisions:        {metrics['provisions']} (quarter: {metrics['provisions_quarter']})")
+    _print(f"  Experiences:       {metrics['experiences']}")
+    _print(f"  Unique users:      {metrics['unique_users']}")
+    _print(f"  Touched amount:    ${metrics['touched_amount']:,.0f}")
+    _print(f"  Closed amount:     ${metrics['closed_amount']:,.0f}")
+    _print(f"  Total cost:        ${metrics['total_cost']:,.0f}")
+    _print(f"  Avg cost/prov:     ${metrics['avg_cost_per_provision']:,.2f}")
+    _print(f"  First provision:   {metrics['first_provision'] or 'N/A'}")
+    _print(f"  Last provision:    {metrics['last_provision'] or 'N/A'}")
+    _print(f"  Synced at:         {metrics['synced_at']}")
+
+
 # ── Server command ──
 
 @cli.command()

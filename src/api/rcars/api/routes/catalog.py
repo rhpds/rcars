@@ -160,8 +160,15 @@ async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(r
     tags = db.get_enrichment_tags(ci_name)
     workloads = db.get_workloads(ci_name) if item.get("is_agd_v2") else []
     acl_groups = db.get_acl_groups(ci_name) if item.get("is_agd_v2") else []
+    from rcars.services.reporting_sync import extract_base_name, compute_sales_impact
+    base_name = extract_base_name(ci_name)
+    reporting = db.get_reporting_metrics(base_name)
+    if reporting:
+        reporting["sales_impact"] = compute_sales_impact(float(reporting.get("closed_amount", 0) or 0))
+
     return {**item, "analysis": analysis, "tags": tags,
-            "workloads": workloads, "acl_groups": acl_groups}
+            "workloads": workloads, "acl_groups": acl_groups,
+            "reporting": reporting}
 
 
 @router.get("/{ci_name}/analysis")

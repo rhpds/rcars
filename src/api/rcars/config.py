@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     workload_scan_enabled: bool = True
     workload_scan_interval_days: int = 1
 
+    # Reporting MCP integration
+    reporting_mcp_url: str = ""
+    reporting_mcp_token: str = ""
+    reporting_provisions_days: int = 90
+    reporting_sales_days: int = 365
+
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True
     pipeline_hour: int = 4
