@@ -267,18 +267,22 @@ async def llm_provider_status(request: Request, user: str = Depends(require_admi
 
 @router.get("/reporting-status")
 async def reporting_status(request: Request, user: str = Depends(require_admin)):
-    """Return reporting sync status and configuration."""
+    """Return reporting sync status and last sync result."""
     db = request.app.state.db
     settings = Settings()
     status = db.get_reporting_sync_status()
-    from datetime import datetime, timedelta
-    sales_start = (datetime.now() - timedelta(days=settings.reporting_sales_days)).strftime("%Y-%m-%d")
-    quarter_start = (datetime.now() - timedelta(days=settings.reporting_provisions_days)).strftime("%Y-%m-%d")
+
+    last_result = None
+    jobs = db.list_jobs(limit=5, job_type="maintenance")
+    for job in jobs:
+        rj = job.get("result_json") or {}
+        if rj.get("reporting_sync"):
+            last_result = rj["reporting_sync"]
+            break
+
     return {
         "configured": bool(settings.reporting_mcp_url),
         "total": status["total"] if status else 0,
+        "orphans_removed": last_result.get("orphans_removed", 0) if last_result else 0,
         "last_synced": status["last_synced"] if status else None,
-        "provisions_window": f"{settings.reporting_sales_days}d (from {sales_start})",
-        "quarter_window": f"{settings.reporting_provisions_days}d (from {quarter_start})",
-        "sales_window": f"{settings.reporting_sales_days}d (from {sales_start})",
     }
