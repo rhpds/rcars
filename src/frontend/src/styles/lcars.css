@@ -875,9 +875,11 @@ body {
 .ca-page {
   padding: 20px 24px;
   color: var(--text-primary);
+  width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
@@ -967,7 +969,7 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.8rem;
-  white-space: nowrap;
+  table-layout: fixed;
 }
 
 .ca-table thead th {
@@ -986,6 +988,7 @@ body {
   border-bottom: 2px solid #0f3460;
 }
 .ca-table thead th:hover { color: var(--text-primary); }
+.ca-table thead th { white-space: nowrap; }
 .ca-table thead th.num { text-align: right; }
 .ca-table thead th .sort-indicator { color: #4a9eff; }
 
@@ -996,10 +999,8 @@ body {
 .ca-table tbody tr.ca-expanded-row:hover { background: #16213e; }
 
 .ca-table td { padding: 8px 12px; }
-.ca-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.ca-table td.name { max-width: 420px; overflow: hidden; text-overflow: ellipsis; }
-.ca-table td.name a { color: #4a9eff; text-decoration: none; font-weight: 500; }
-.ca-table td.name a:hover { text-decoration: underline; }
+.ca-table td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ca-table td.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ca-table td.muted { color: #8a8a9a; }
 
 .ca-score-badge {
