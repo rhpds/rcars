@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pydantic_settings import BaseSettings
+
+import structlog
 
 
 def _parse_csv(val: str) -> list[str]:
@@ -22,6 +25,8 @@ class Settings(BaseSettings):
     vertex_project_id: str = ""
     cloud_ml_region: str = "us-east5"
     anthropic_api_key: str = ""
+    litemaas_url: str = ""
+    litemaas_api_key: str = ""
 
     # Scanning
     max_parallel: int = 5
@@ -70,6 +75,12 @@ class Settings(BaseSettings):
     workload_scan_enabled: bool = True
     workload_scan_interval_days: int = 1
 
+    # Reporting MCP integration
+    reporting_mcp_url: str = ""
+    reporting_mcp_token: str = ""
+    reporting_provisions_days: int = 90
+    reporting_sales_days: int = 365
+
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True
     pipeline_hour: int = 4
@@ -108,6 +119,16 @@ class Settings(BaseSettings):
     def use_vertex(self) -> bool:
         return bool(self.vertex_project_id)
 
+    @property
+    def use_litemaas(self) -> bool:
+        return bool(self.litemaas_url and self.litemaas_api_key)
+
+    def get_litemaas_client(self):
+        if not self.use_litemaas:
+            return None
+        from openai import OpenAI
+        return OpenAI(base_url=self.litemaas_url, api_key=self.litemaas_api_key)
+
     def is_curator(self, email: str) -> bool:
         return email.lower() in [e.lower() for e in self.curator_emails]
 
@@ -122,3 +143,94 @@ class Settings(BaseSettings):
             from anthropic import Anthropic
             return Anthropic(api_key=self.anthropic_api_key)
         return None
+
+
+# ── LLM provider routing ──
+
+_litemaas_models: set[str] | None = None
+logger = structlog.get_logger(component="llm")
+
+
+@dataclass
+class LLMResult:
+    text: str
+    input_tokens: int
+    output_tokens: int
+    provider: str
+
+
+def fetch_litemaas_models(settings: Settings) -> set[str]:
+    """Query LiteMaaS /v1/models endpoint once and cache the result."""
+    global _litemaas_models
+    if _litemaas_models is not None:
+        return _litemaas_models
+    if not settings.use_litemaas:
+        _litemaas_models = set()
+        return _litemaas_models
+    try:
+        client = settings.get_litemaas_client()
+        models_response = client.models.list()
+        _litemaas_models = {m.id for m in models_response.data}
+        logger.info("litemaas_models_loaded", models=sorted(_litemaas_models))
+    except Exception as e:
+        logger.warning("litemaas_models_fetch_failed", error=str(e))
+        _litemaas_models = set()
+    return _litemaas_models
+
+
+def call_llm(
+    settings: Settings,
+    model: str,
+    messages: list[dict],
+    max_tokens: int,
+    temperature: float = 0,
+) -> LLMResult:
+    """Unified LLM call with automatic provider routing.
+
+    LiteMaaS preferred if configured and has the model; Vertex/Anthropic as fallback.
+    """
+    litemaas_models = fetch_litemaas_models(settings)
+
+    if model in litemaas_models:
+        return _call_litemaas(settings, model, messages, max_tokens, temperature)
+
+    return _call_anthropic(settings, model, messages, max_tokens, temperature)
+
+
+def _call_litemaas(settings, model, messages, max_tokens, temperature):
+    client = settings.get_litemaas_client()
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    if not response.choices:
+        raise RuntimeError(f"LiteMaaS returned empty choices for model {model}")
+    return LLMResult(
+        text=response.choices[0].message.content,
+        input_tokens=response.usage.prompt_tokens if response.usage else 0,
+        output_tokens=response.usage.completion_tokens if response.usage else 0,
+        provider="litemaas",
+    )
+
+
+def _call_anthropic(settings, model, messages, max_tokens, temperature):
+    client = settings.get_anthropic_client()
+    if client is None:
+        raise RuntimeError("No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+    response = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        messages=messages,
+    )
+    if not response.content:
+        raise RuntimeError(f"Anthropic returned empty content for model {model}")
+    provider = "vertex" if settings.use_vertex else "anthropic"
+    return LLMResult(
+        text=response.content[0].text,
+        input_tokens=getattr(response.usage, "input_tokens", 0),
+        output_tokens=getattr(response.usage, "output_tokens", 0),
+        provider=provider,
+    )

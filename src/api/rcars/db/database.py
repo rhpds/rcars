@@ -114,8 +114,14 @@ CREATE TABLE IF NOT EXISTS token_usage (
     query_text TEXT,
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    provider TEXT DEFAULT 'anthropic',
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'token_usage' AND column_name = 'provider') THEN
+    CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS advisor_sessions (
     id SERIAL PRIMARY KEY,
@@ -1071,12 +1077,13 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
+        provider: str = "anthropic",
     ) -> None:
         with self._pool.connection() as conn:
             conn.execute(
-                """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text)
-                   VALUES (%s, %s, %s, %s, %s, %s)""",
-                (operation, model, input_tokens, output_tokens, ci_name, query_text),
+                """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                (operation, model, input_tokens, output_tokens, ci_name, query_text, provider),
             )
             conn.commit()
 
@@ -1084,12 +1091,13 @@ class Database:
         where = "WHERE created_at >= NOW() - %(days)s * INTERVAL '1 day'" if days else ""
         params: dict[str, Any] = {"days": days} if days else {}
         sql = f"""
-            SELECT operation, model, COUNT(*) AS calls,
+            SELECT operation, model, COALESCE(provider, 'anthropic') AS provider,
+                   COUNT(*) AS calls,
                    SUM(input_tokens) AS input_tokens,
                    SUM(output_tokens) AS output_tokens,
                    SUM(input_tokens + output_tokens) AS total_tokens
             FROM token_usage {where}
-            GROUP BY operation, model ORDER BY total_tokens DESC
+            GROUP BY operation, model, COALESCE(provider, 'anthropic') ORDER BY total_tokens DESC
         """
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)
@@ -1397,3 +1405,207 @@ class Database:
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)
             return cur.fetchall()
+
+    # ── Reporting metrics ──
+
+    def upsert_reporting_metrics(self, rows: list[dict]):
+        """Bulk upsert reporting metrics. Each dict must have 'catalog_base_name'."""
+        if not rows:
+            return 0
+        sql = """
+            INSERT INTO reporting_metrics (
+                catalog_base_name, display_name, provisions, provisions_quarter,
+                requests, experiences, unique_users, success_ratio, failure_ratio,
+                touched_amount, closed_amount, total_cost, avg_cost_per_provision,
+                first_provision, last_provision, retirement_score, synced_at
+            ) VALUES (
+                %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
+                %(requests)s, %(experiences)s, %(unique_users)s, %(success_ratio)s, %(failure_ratio)s,
+                %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
+                %(first_provision)s, %(last_provision)s, %(retirement_score)s, NOW()
+            )
+            ON CONFLICT (catalog_base_name) DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                provisions = EXCLUDED.provisions,
+                provisions_quarter = EXCLUDED.provisions_quarter,
+                requests = EXCLUDED.requests,
+                experiences = EXCLUDED.experiences,
+                unique_users = EXCLUDED.unique_users,
+                success_ratio = EXCLUDED.success_ratio,
+                failure_ratio = EXCLUDED.failure_ratio,
+                touched_amount = EXCLUDED.touched_amount,
+                closed_amount = EXCLUDED.closed_amount,
+                total_cost = EXCLUDED.total_cost,
+                avg_cost_per_provision = EXCLUDED.avg_cost_per_provision,
+                first_provision = EXCLUDED.first_provision,
+                last_provision = EXCLUDED.last_provision,
+                retirement_score = EXCLUDED.retirement_score,
+                synced_at = NOW()
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                for row in rows:
+                    cur.execute(sql, row)
+            conn.commit()
+        return len(rows)
+
+    def delete_orphan_reporting_metrics(self) -> int:
+        """Delete reporting_metrics rows with no matching catalog_items entry."""
+        sql = """
+            DELETE FROM reporting_metrics rm
+            WHERE NOT EXISTS (
+                SELECT 1 FROM catalog_items ci
+                WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
+            )
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
+
+    def get_reporting_metrics(self, catalog_base_name: str) -> dict | None:
+        """Get reporting metrics for a single catalog base name."""
+        sql = "SELECT * FROM reporting_metrics WHERE catalog_base_name = %s"
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, (catalog_base_name,))
+                return cur.fetchone()
+
+    def list_reporting_metrics(
+        self,
+        sort_by: str = "retirement_score",
+        sort_dir: str = "desc",
+        min_score: int | None = None,
+        category: str | None = None,
+        has_prod: bool | None = None,
+        search: str | None = None,
+    ) -> list[dict]:
+        """List reporting metrics joined with catalog metadata for the retirement dashboard."""
+        allowed_sorts = {
+            "retirement_score", "provisions", "total_cost",
+            "closed_amount", "touched_amount", "display_name",
+        }
+        if sort_by not in allowed_sorts:
+            sort_by = "retirement_score"
+        direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+
+        conditions = []
+        params: dict = {}
+
+        if min_score is not None:
+            conditions.append("rm.retirement_score >= %(min_score)s")
+            params["min_score"] = min_score
+
+        if search:
+            conditions.append("rm.display_name ILIKE %(search)s")
+            params["search"] = f"%{search}%"
+
+        if category:
+            conditions.append("""
+                EXISTS (
+                    SELECT 1 FROM catalog_items ci2
+                    WHERE ci2.ci_name LIKE rm.catalog_base_name || '.%%'
+                    AND ci2.category = %(category)s
+                )
+            """)
+            params["category"] = category
+
+        if has_prod is True:
+            conditions.append("""
+                EXISTS (
+                    SELECT 1 FROM catalog_items ci3
+                    WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                )
+            """)
+        elif has_prod is False:
+            conditions.append("""
+                NOT EXISTS (
+                    SELECT 1 FROM catalog_items ci3
+                    WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                )
+            """)
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        sql = f"""
+            SELECT rm.*,
+                   ci.category, ci.product, ci.product_family
+            FROM reporting_metrics rm
+            LEFT JOIN LATERAL (
+                SELECT category, product, product_family
+                FROM catalog_items
+                WHERE ci_name LIKE rm.catalog_base_name || '.%%'
+                ORDER BY CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
+                LIMIT 1
+            ) ci ON true
+            {where}
+            ORDER BY rm.{sort_by} {direction}
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    def get_stages_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
+        """Get all stages and catalog URLs for a list of base names."""
+        if not base_names:
+            return {}
+        from rcars.services.reporting_sync import extract_base_name
+        placeholders = ",".join(["%s"] * len(base_names))
+        sql = f"""
+            SELECT ci_name, catalog_namespace, stage
+            FROM catalog_items
+            WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+            ORDER BY ci_name
+        """
+        result: dict[str, list[dict]] = {}
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, base_names)
+                for row in cur.fetchall():
+                    base = extract_base_name(row["ci_name"])
+                    stage_info = {
+                        "stage": row["stage"],
+                        "ci_name": row["ci_name"],
+                        "catalog_url": f"https://catalog.demo.redhat.com/catalog?item={row['catalog_namespace']}/{row['ci_name']}",
+                    }
+                    result.setdefault(base, []).append(stage_info)
+        return result
+
+    def get_reporting_sync_status(self) -> dict:
+        """Get sync status: last synced, row count, score distribution."""
+        sql = """
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE retirement_score >= 75) AS high,
+                COUNT(*) FILTER (WHERE retirement_score >= 50 AND retirement_score < 75) AS review,
+                COUNT(*) FILTER (WHERE retirement_score < 50) AS keepers,
+                MAX(synced_at) AS last_synced
+            FROM reporting_metrics
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
+                return cur.fetchone()
+
+    def has_prod_stage(self, base_name: str) -> bool:
+        """Check if a base name has a prod-stage catalog item."""
+        sql = "SELECT 1 FROM catalog_items WHERE ci_name = %s LIMIT 1"
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (f"{base_name}.prod",))
+                return cur.fetchone() is not None
+
+    def get_all_base_names_with_prod(self) -> set[str]:
+        """Return set of base names that have a .prod entry in catalog_items."""
+        sql = """
+            SELECT DISTINCT substring(ci_name FROM '^(.+)\\.prod$') AS base_name
+            FROM catalog_items
+            WHERE ci_name LIKE '%.prod'
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
+                return {row["base_name"] for row in cur.fetchall() if row["base_name"]}

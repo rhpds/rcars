@@ -159,6 +159,19 @@ async def run_maintenance(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
+@router.post("/sync-reporting")
+async def sync_reporting(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="reporting_sync", queue="ops", created_by=user)
+    try:
+        await arq_redis.enqueue_job("run_reporting_sync_job", job_id=job_id, _queue_name="arq:queue:scan")
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
+    return {"job_id": job_id}
+
+
 @router.post("/scan-workloads")
 async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     """Trigger workload repo scan (clone agDv2 repos, analyze roles, update mappings)."""
@@ -235,4 +248,50 @@ async def schedule_status(request: Request, user: str = Depends(require_admin)):
         "pipeline_enabled": settings.pipeline_enabled,
         "pipeline_schedule": f"{settings.pipeline_hour:02d}:{settings.pipeline_minute:02d} UTC daily",
         "last_pipeline": last_pipeline,
+    }
+
+
+@router.get("/llm-provider")
+async def llm_provider_status(request: Request, user: str = Depends(require_admin)):
+    """Return active LLM provider configuration and available models."""
+    settings = Settings()
+    from rcars.config import fetch_litemaas_models
+    litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
+    return {
+        "litemaas_enabled": settings.use_litemaas,
+        "litemaas_url": settings.litemaas_url or None,
+        "litemaas_models": litemaas_models,
+        "vertex_enabled": settings.use_vertex,
+        "vertex_region": settings.cloud_ml_region if settings.use_vertex else None,
+        "analysis_model": settings.model,
+        "triage_model": settings.triage_model,
+        "rationale_model": settings.rationale_model,
+    }
+
+
+@router.get("/reporting-status")
+async def reporting_status(request: Request, user: str = Depends(require_admin)):
+    """Return reporting sync status and last sync result."""
+    db = request.app.state.db
+    settings = Settings()
+    status = db.get_reporting_sync_status()
+
+    last_result = None
+    for jt in ("reporting_sync", "maintenance"):
+        for job in db.list_jobs(limit=5, job_type=jt):
+            rj = job.get("result_json") or {}
+            if jt == "reporting_sync":
+                last_result = rj
+                break
+            elif rj.get("reporting_sync"):
+                last_result = rj["reporting_sync"]
+                break
+        if last_result:
+            break
+
+    return {
+        "configured": bool(settings.reporting_mcp_url and settings.reporting_mcp_token),
+        "total": status["total"] if status else 0,
+        "orphans_removed": last_result.get("orphans_removed", 0) if last_result else 0,
+        "last_synced": status["last_synced"] if status else None,
     }

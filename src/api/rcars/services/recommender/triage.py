@@ -32,7 +32,7 @@ def format_triage_candidates(candidates: list[Candidate]) -> str:
 
 def triage(
     state: QueryState,
-    anthropic_client,
+    settings,
     model: str = "claude-haiku-4-5",
     triage_cutoff: int = 30,
 ) -> QueryState:
@@ -53,14 +53,10 @@ def triage(
         .replace("{candidates}", candidates_text)
     )
 
-    response = anthropic_client.messages.create(
-        model=model,
-        max_tokens=8192,
-        temperature=0,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    from rcars.config import call_llm
+    result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
 
-    response_text = response.content[0].text
+    response_text = result.text
     triage_results = parse_analysis_response(response_text)
 
     if triage_results is None:
@@ -119,12 +115,12 @@ def triage(
         relevant_count, len(state.candidates), len(annotated), triage_cutoff, elapsed,
     )
 
-    usage = getattr(response, "usage", None)
     new_token_entry = {
         "operation": "triage",
         "model": model,
-        "input_tokens": getattr(usage, "input_tokens", 0),
-        "output_tokens": getattr(usage, "output_tokens", 0),
+        "input_tokens": result.input_tokens,
+        "output_tokens": result.output_tokens,
+        "provider": result.provider,
     }
 
     return QueryState(

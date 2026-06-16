@@ -623,10 +623,14 @@ export function AdminCatalogPage() {
   const [tab, setTab] = useState<AdminTab>('status')
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
+  const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; analysis_model: string; triage_model: string; rationale_model: string } | null>(null)
+  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; orphans_removed: number; last_synced: string | null } | null>(null)
 
   const loadStatus = () => {
-    api.getCatalogStats().then(data => setStatus(data as CatalogStatus))
-    api.getInfraStats().then(data => setInfraStats(data as InfraStats))
+    api.getCatalogStats().then(data => setStatus(data as CatalogStatus)).catch(() => {})
+    api.getInfraStats().then(data => setInfraStats(data as InfraStats)).catch(() => {})
+    api.getLlmProviderStatus().then(setLlmProvider).catch(() => {})
+    api.getReportingStatus().then(setReportingStatus).catch(() => {})
   }
 
   useEffect(() => { loadStatus() }, [])
@@ -694,6 +698,43 @@ export function AdminCatalogPage() {
                     <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
                     <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? '#e8a838' : '#5cb85c' }}>{infraStats.unmapped_workloads}</span></div>
                   </>
+                ) : (
+                  <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
+                )}
+              </div>
+
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">LLM Provider</div>
+                {llmProvider ? (
+                  <>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">LiteMaaS</span><span style={{ color: llmProvider.litemaas_enabled ? '#3e8635' : '#666' }}>{llmProvider.litemaas_enabled ? 'Active' : 'Off'}</span></div>
+                    {llmProvider.litemaas_enabled && (
+                      <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value">{llmProvider.litemaas_models.join(', ')}</span></div>
+                    )}
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Vertex AI</span><span style={{ color: llmProvider.vertex_enabled ? '#3e8635' : '#666' }}>{llmProvider.vertex_enabled ? 'Fallback' : 'Off'}</span></div>
+                    <div className="admin-stat-row-divider" />
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Analysis</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.analysis_model}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Triage</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.triage_model}</span></div>
+                  </>
+                ) : (
+                  <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
+                )}
+              </div>
+
+              <div className="admin-stat-card">
+                <div className="admin-stat-card-title">Reporting Sync</div>
+                {reportingStatus ? (
+                  reportingStatus.total > 0 ? (
+                    <>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Status</span><span style={{ color: '#5cb85c' }}>Connected</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Items synced</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Orphans removed</span><span className="admin-stat-row-value">{reportingStatus.orphans_removed}</span></div>
+                      <div className="admin-stat-row-divider" />
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Last synced</span><span style={{ fontSize: '12px', color: '#888' }}>{reportingStatus.last_synced ? new Date(reportingStatus.last_synced).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never'}</span></div>
+                    </>
+                  ) : (
+                    <div style={{ color: '#666', fontSize: '12px' }}>{reportingStatus.configured ? 'Not synced yet' : 'Not configured'}</div>
+                  )
                 ) : (
                   <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
                 )}
@@ -852,7 +893,7 @@ export function AdminWorkersPage() {
 // ── Token Usage Page ──
 
 interface TokenStats {
-  stats: Array<{ operation: string; model: string; calls: number; input_tokens: number; output_tokens: number; total_tokens: number }>
+  stats: Array<{ operation: string; model: string; provider: string; calls: number; input_tokens: number; output_tokens: number; total_tokens: number }>
   recent_queries: Array<{ query_text: string; query_time: string; total_tokens: number; triage_input: number; triage_output: number; rationale_input: number; rationale_output: number }>
   days: number
 }
@@ -887,12 +928,13 @@ export function AdminTokensPage() {
 
         {stats && stats.stats.length > 0 ? (
           <table className="status-table">
-            <thead><tr><th>Operation</th><th>Model</th><th>Calls</th><th>Input</th><th>Output</th><th>Total</th></tr></thead>
+            <thead><tr><th>Operation</th><th>Model</th><th>Provider</th><th>Calls</th><th>Input</th><th>Output</th><th>Total</th></tr></thead>
             <tbody>
               {stats.stats.map((s, i) => (
                 <tr key={i}>
                   <td>{s.operation}</td>
                   <td style={{ color: '#666' }}>{s.model}</td>
+                  <td style={{ color: s.provider === 'litemaas' ? '#3e8635' : '#666' }}>{s.provider}</td>
                   <td>{s.calls}</td>
                   <td style={{ color: '#666' }}>{s.input_tokens?.toLocaleString()}</td>
                   <td style={{ color: '#666' }}>{s.output_tokens?.toLocaleString()}</td>

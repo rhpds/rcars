@@ -131,6 +131,18 @@ export const api = {
   }>('/admin/schedule'),
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
 
+  // LLM provider
+  getLlmProviderStatus: () => request<{
+    litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[];
+    vertex_enabled: boolean; vertex_region: string | null;
+    analysis_model: string; triage_model: string; rationale_model: string;
+  }>('/admin/llm-provider'),
+
+  // Reporting status
+  getReportingStatus: () => request<{
+    configured: boolean; total: number; orphans_removed: number; last_synced: string | null;
+  }>('/admin/reporting-status'),
+
   // Infrastructure
   searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
     const qs = new URLSearchParams();
@@ -192,4 +204,54 @@ export const api = {
     }>(`/admin/overlap?min_score=${minScore}`),
   computeSimilarity: (threshold = 0.75, stage = 'prod') =>
     request<{ pairs_stored: number; threshold: number; stage: string }>(`/admin/compute-similarity?threshold=${threshold}&stage=${stage}`, { method: 'POST' }),
+
+  // Retirement analysis
+  getRetirementDashboard: (params?: {
+    sort_by?: string; sort_dir?: string; min_score?: number;
+    category?: string; has_prod?: boolean; search?: string;
+  }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+      })
+    }
+    const query = qs.toString()
+    return request<RetirementDashboardResponse>(`/analysis/retirement${query ? '?' + query : ''}`)
+  },
+
+  syncReporting: () =>
+    request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
 };
+
+export interface ReportingMetricsItem {
+  catalog_base_name: string
+  display_name: string
+  provisions: number
+  provisions_quarter: number
+  requests: number
+  experiences: number
+  unique_users: number
+  success_ratio: number
+  failure_ratio: number
+  touched_amount: number
+  closed_amount: number
+  total_cost: number
+  avg_cost_per_provision: number
+  first_provision: string | null
+  last_provision: string | null
+  retirement_score: number
+  synced_at: string
+  category: string | null
+  product: string | null
+  product_family: string | null
+  sales_impact: string | null
+  stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
+}
+
+export interface RetirementDashboardResponse {
+  items: ReportingMetricsItem[]
+  total: number
+  synced_at: string | null
+  summary: { total: number; high: number; review: number; keepers: number; last_synced: string | null } | null
+}

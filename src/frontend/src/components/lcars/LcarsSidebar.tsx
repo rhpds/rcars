@@ -88,6 +88,9 @@ export function LcarsSidebar() {
               <NavLink to="/analysis/overlap" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
                 Overlap
               </NavLink>
+              <NavLink to="/analysis/retirement" className={({ isActive }) => `nav-item history-item${isActive ? ' active' : ''}`}>
+                Retirement
+              </NavLink>
             </>
           )}
           <NavLink to="/admin/catalog" className={() => `nav-item${isAdminSection ? ' active' : ''}`}>
