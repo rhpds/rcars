@@ -149,12 +149,7 @@
           retries: 30
           delay: 15
 
-        - name: Get current pod-template-hash
-          ansible.builtin.set_fact:
-            current_template_hash: >-
-              {{ api_deploy.resources[0].spec.template.metadata.labels['pod-template-hash'] | default('') }}
-
-        - name: Find pod from current ReplicaSet
+        - name: Find running API pod
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig }}"
             kind: Pod
@@ -162,7 +157,6 @@
             label_selectors:
               - "app={{ app_name }}"
               - "component=api"
-              - "pod-template-hash={{ current_template_hash }}"
           register: app_pods
           until: >-
             app_pods.resources | default([]) | length > 0 and
