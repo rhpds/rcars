@@ -258,15 +258,15 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     try:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:refresh", status="running",
-                               message="Step 1/3: Refreshing catalog from Babylon...")
+                               message="Step 1: Refreshing catalog from Babylon...")
         refresh_job_id = wctx.db.create_job(job_type="refresh", queue="ops", created_by="maintenance")
         refresh_result = await run_catalog_refresh(ctx, refresh_job_id)
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:refresh", status="complete",
-                               message=f"Step 1/3 complete: {refresh_result['total_items']} items, {refresh_result['removed_items']} removed")
+                               message=f"Step 1 complete: {refresh_result['total_items']} items, {refresh_result['removed_items']} removed")
         log.info("pipeline_refresh_complete", action="pipeline_step_complete", step="refresh", **refresh_result)
     except Exception as e:
-        msg = f"Step 1/3 failed (catalog refresh): {e}"
+        msg = f"Step 1 failed (catalog refresh): {e}"
         warnings.append(msg)
         log.error("pipeline_refresh_failed", action="pipeline_step_failed", step="refresh",
                   error=str(e), traceback=traceback.format_exc())
@@ -277,15 +277,15 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     try:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:stale_check", status="running",
-                               message="Step 2/3: Checking for stale content...")
+                               message="Step 2: Checking for stale content...")
         stale_job_id = wctx.db.create_job(job_type="check_stale", queue="ops", created_by="maintenance")
         stale_result = await run_stale_check(ctx, stale_job_id)
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:stale_check", status="complete",
-                               message=f"Step 2/3 complete: {stale_result['skipped']} unchanged, {stale_result['cloned']} checked, {stale_result['stale']} stale ({stale_result['stale_cis']} CIs)")
+                               message=f"Step 2 complete: {stale_result['skipped']} unchanged, {stale_result['cloned']} checked, {stale_result['stale']} stale ({stale_result['stale_cis']} CIs)")
         log.info("pipeline_stale_complete", action="pipeline_step_complete", step="stale_check", **stale_result)
     except Exception as e:
-        msg = f"Step 2/3 failed (stale check): {e}"
+        msg = f"Step 2 failed (stale check): {e}"
         warnings.append(msg)
         log.error("pipeline_stale_failed", action="pipeline_step_failed", step="stale_check",
                   error=str(e), traceback=traceback.format_exc())
@@ -300,7 +300,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             sha_merged = len(items) - len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",
-                                   message=f"Step 3/3: Enqueuing {len(scan_items)} items for re-analysis ({sha_merged} merged by SHA)...")
+                                   message=f"Step 3: Enqueuing {len(scan_items)} items for re-analysis ({sha_merged} merged by SHA)...")
             arq_redis = ctx["redis"]
             for item in scan_items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
@@ -312,17 +312,17 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             analysis_enqueued = len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
-                                   message=f"Step 3/3 complete: {analysis_enqueued} analysis jobs enqueued ({sha_merged} merged by SHA)")
+                                   message=f"Step 3 complete: {analysis_enqueued} analysis jobs enqueued ({sha_merged} merged by SHA)")
             log.info("pipeline_analysis_enqueued", action="pipeline_step_complete",
                      step="analysis", enqueued=analysis_enqueued, sha_merged=sha_merged)
         else:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
-                                   message="Step 3/3: No items need re-analysis")
+                                   message="Step 3: No items need re-analysis")
             log.info("pipeline_analysis_skipped", action="pipeline_step_complete",
                      step="analysis", enqueued=0)
     except Exception as e:
-        msg = f"Step 3/3 failed (analysis enqueue): {e}"
+        msg = f"Step 3 failed (analysis enqueue): {e}"
         warnings.append(msg)
         log.error("pipeline_analysis_failed", action="pipeline_step_failed", step="analysis",
                   error=str(e), traceback=traceback.format_exc())

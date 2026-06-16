@@ -43,6 +43,7 @@ Items selected for current development cycle. Investigations complete, design/im
 
 ## Architecture
 
+- [ ] **Migrate to new babydev cluster** — Current Babylon readonly cluster (babydev) is being retired in ~2 weeks (by end of June 2026). RCARS uses it for catalog refresh (CRD queries via kubeconfig). Need to update kubeconfig paths in `ansible/vars/dev.yml` and `ansible/vars/prod.yml`, verify CRD access on the new cluster, and confirm the nightly pipeline works. Impacts: `babylon_kubeconfig_path` var, potentially `agnosticv_component_namespace` and `catalog_namespaces` if they differ on the new cluster.
 - [ ] **Migrate from Vertex AI to RHDP MaaS** — currently uses Claude via Google Vertex AI directly. Transition to RHDP's managed Model-as-a-Service endpoint. Reduces credential management and aligns with RHDP infrastructure standards
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for Publishing House "unpacking" workflow
 - [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing works, this is about deeper conversation context)
