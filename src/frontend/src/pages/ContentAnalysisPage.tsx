@@ -25,6 +25,7 @@ export function ContentOverlapPage() {
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set())
   const [filterLevel, setFilterLevel] = useState<'all' | 'high'>('all')
   const [stage, setStage] = useState<'prod' | 'event' | 'dev'>('prod')
+  const [search, setSearch] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -52,9 +53,17 @@ export function ContentOverlapPage() {
 
   const pairKey = (p: OverlapPair) => `${p.ci_name_a}::${p.ci_name_b}`
 
-  const filteredPairs = filterLevel === 'high'
-    ? pairs.filter(p => p.similarity_score >= thresholds.high_overlap)
-    : pairs
+  const filteredPairs = pairs.filter(p => {
+    if (filterLevel === 'high' && p.similarity_score < thresholds.high_overlap) return false
+    if (search) {
+      const q = search.toLowerCase()
+      return (p.display_name_a || p.ci_name_a).toLowerCase().includes(q)
+        || (p.display_name_b || p.ci_name_b).toLowerCase().includes(q)
+        || p.ci_name_a.toLowerCase().includes(q)
+        || p.ci_name_b.toLowerCase().includes(q)
+    }
+    return true
+  })
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -104,6 +113,18 @@ export function ContentOverlapPage() {
             <option value="all">All pairs ({pairs.length})</option>
             <option value="high">High overlap only ({pairs.filter(p => p.similarity_score >= thresholds.high_overlap).length})</option>
           </select>
+          <input
+            type="text" placeholder="Search by name..."
+            value={search} onChange={e => setSearch(e.target.value)}
+            style={{
+              padding: '4px 8px', borderRadius: '4px', marginLeft: 'auto',
+              border: '1px solid #2a2d35', background: '#0d1117', color: '#c8ccd0', width: '220px',
+              fontSize: '13px',
+            }}
+          />
+          {search && (
+            <span style={{ fontSize: '12px', color: '#666' }}>{filteredPairs.length} match{filteredPairs.length !== 1 ? 'es' : ''}</span>
+          )}
         </div>
       </div>
 
