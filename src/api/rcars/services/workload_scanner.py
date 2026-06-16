@@ -113,10 +113,10 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=1024)
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=1024)
 
-        input_tokens = result.input_tokens
-        output_tokens = result.output_tokens
+        input_tokens = llm_result.input_tokens
+        output_tokens = llm_result.output_tokens
 
         if db is not None:
             db.log_token_usage(
@@ -125,10 +125,10 @@ def analyze_role(
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 ci_name=f"{collection_name}.{role_name}",
-                provider=result.provider,
+                provider=llm_result.provider,
             )
 
-        text = result.text.strip()
+        text = llm_result.text.strip()
         if text.startswith("```"):
             text = text.split("\n", 1)[1] if "\n" in text else text[3:]
             text = text.rsplit("```", 1)[0]

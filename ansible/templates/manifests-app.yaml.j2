@@ -103,7 +103,10 @@ spec:
             - name: RCARS_LITEMAAS_URL
               value: "{{ litemaas_url }}"
             - name: RCARS_LITEMAAS_API_KEY
-              value: "{{ litemaas_api_key }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-litemaas
+                  key: api-key
 {% endif %}
             - name: RCARS_CURATOR_EMAILS_STR
               value: "{{ curator_emails | join(',') }}"
@@ -240,7 +243,10 @@ spec:
             - name: RCARS_LITEMAAS_URL
               value: "{{ litemaas_url }}"
             - name: RCARS_LITEMAAS_API_KEY
-              value: "{{ litemaas_api_key }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-litemaas
+                  key: api-key
 {% endif %}
             - name: RCARS_CLONE_DIR
               value: /tmp/rcars-clones
@@ -254,7 +260,10 @@ spec:
             - name: RCARS_REPORTING_MCP_URL
               value: "{{ rcars_reporting_mcp_url }}"
             - name: RCARS_REPORTING_MCP_TOKEN
-              value: "{{ rcars_reporting_mcp_token }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-reporting-mcp
+                  key: token
 {% endif %}
             - name: HF_HOME
               value: /opt/app-root/hf_cache
@@ -363,7 +372,10 @@ spec:
             - name: RCARS_LITEMAAS_URL
               value: "{{ litemaas_url }}"
             - name: RCARS_LITEMAAS_API_KEY
-              value: "{{ litemaas_api_key }}"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-litemaas
+                  key: api-key
 {% endif %}
             - name: HF_HOME
               value: /opt/app-root/hf_cache

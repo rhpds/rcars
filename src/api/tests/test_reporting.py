@@ -121,7 +121,7 @@ class TestMcpPagination:
     def test_single_page(self, mock_urlopen):
         rows = [{"name": f"item-{i}"} for i in range(100)]
         mock_urlopen.return_value = self._mock_response(rows)
-        result = mcp_query("SELECT 1", url="http://test", token="tok")
+        result = mcp_query("SELECT 1", url="https://test", token="tok")
         assert len(result) == 100
 
     @patch("rcars.services.reporting_sync.urllib.request.urlopen")
@@ -132,5 +132,5 @@ class TestMcpPagination:
             self._mock_response(page1),
             self._mock_response(page2),
         ]
-        result = mcp_query("SELECT 1", url="http://test", token="tok")
+        result = mcp_query("SELECT 1", url="https://test", token="tok")
         assert len(result) == 623

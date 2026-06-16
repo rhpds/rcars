@@ -61,7 +61,7 @@ async def run_recommendation(
             metrics = wctx.db.get_reporting_metrics(base_name)
             if metrics:
                 candidate["provisions_quarter"] = metrics["provisions_quarter"]
-                candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"])
+                candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"] or 0)
                 candidate["sales_impact"] = compute_sales_impact(float(metrics["closed_amount"] or 0))
             else:
                 candidate["provisions_quarter"] = None

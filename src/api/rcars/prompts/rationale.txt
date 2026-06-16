@@ -40,7 +40,7 @@ Return ONLY valid JSON (no markdown fences):
       "ci_name": "the-ci-name",
       "why_it_fits": "...",
       "how_to_use": "...",
-      "suggested_format": "hands_on_lab or demo",
+      "suggested_format": "hands_on_lab",
       "duration_notes": "...",
       "caveats": ""
     }

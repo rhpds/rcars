@@ -164,7 +164,11 @@ async def sync_reporting(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="reporting_sync", queue="ops", created_by=user)
-    await arq_redis.enqueue_job("run_reporting_sync_job", job_id=job_id, _queue_name="arq:queue:scan")
+    try:
+        await arq_redis.enqueue_job("run_reporting_sync_job", job_id=job_id, _queue_name="arq:queue:scan")
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
     return {"job_id": job_id}
 
 
@@ -273,15 +277,20 @@ async def reporting_status(request: Request, user: str = Depends(require_admin))
     status = db.get_reporting_sync_status()
 
     last_result = None
-    jobs = db.list_jobs(limit=5, job_type="maintenance")
-    for job in jobs:
-        rj = job.get("result_json") or {}
-        if rj.get("reporting_sync"):
-            last_result = rj["reporting_sync"]
+    for jt in ("reporting_sync", "maintenance"):
+        for job in db.list_jobs(limit=5, job_type=jt):
+            rj = job.get("result_json") or {}
+            if jt == "reporting_sync":
+                last_result = rj
+                break
+            elif rj.get("reporting_sync"):
+                last_result = rj["reporting_sync"]
+                break
+        if last_result:
             break
 
     return {
-        "configured": bool(settings.reporting_mcp_url),
+        "configured": bool(settings.reporting_mcp_url and settings.reporting_mcp_token),
         "total": status["total"] if status else 0,
         "orphans_removed": last_result.get("orphans_removed", 0) if last_result else 0,
         "last_synced": status["last_synced"] if status else None,

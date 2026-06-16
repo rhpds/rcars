@@ -643,8 +643,6 @@ def reporting_db_group():
 @click.pass_context
 def reporting_db_sync(ctx):
     """Sync reporting metrics from RHDP MCP server."""
-    from rcars.config import Settings
-    from rcars.db.database import Database
     from rcars.services.reporting_sync import run_reporting_sync
 
     settings = Settings()
@@ -669,9 +667,6 @@ def reporting_db_sync(ctx):
 @click.pass_context
 def reporting_db_status(ctx):
     """Show reporting sync status and score distribution."""
-    from rcars.config import Settings
-    from rcars.db.database import Database
-
     settings = Settings()
     db = Database(settings.database_url)
     status = db.get_reporting_sync_status()
@@ -692,8 +687,6 @@ def reporting_db_status(ctx):
 @click.pass_context
 def reporting_db_show(ctx, ci_name: str):
     """Show reporting metrics for a specific CI (accepts ci_name or base name)."""
-    from rcars.config import Settings
-    from rcars.db.database import Database
     from rcars.services.reporting_sync import extract_base_name
 
     settings = Settings()
