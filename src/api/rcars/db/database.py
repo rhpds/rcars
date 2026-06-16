@@ -1593,11 +1593,11 @@ class Database:
     def get_all_base_names_with_prod(self) -> set[str]:
         """Return set of base names that have a .prod entry in catalog_items."""
         sql = """
-            SELECT DISTINCT substring(ci_name FROM '^(.+)\\.prod$')
+            SELECT DISTINCT substring(ci_name FROM '^(.+)\\.prod$') AS base_name
             FROM catalog_items
             WHERE ci_name LIKE '%.prod'
         """
         with self._pool.connection() as conn:
-            with conn.cursor() as cur:
+            with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
-                return {row[0] for row in cur.fetchall() if row[0]}
+                return {row["base_name"] for row in cur.fetchall() if row["base_name"]}
