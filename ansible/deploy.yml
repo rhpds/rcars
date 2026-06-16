@@ -132,7 +132,24 @@
 
     - name: Run database migrations
       block:
-        - name: Wait for ready app pod
+        - name: Wait for API rollout to complete
+          kubernetes.core.k8s_info:
+            kubeconfig: "{{ kubeconfig }}"
+            api_version: apps/v1
+            kind: Deployment
+            namespace: "{{ target_namespace }}"
+            name: "{{ app_name }}-api"
+          register: api_deploy
+          until: >-
+            api_deploy.resources | default([]) | length > 0 and
+            (api_deploy.resources[0].status.readyReplicas | default(0) | int) ==
+            (api_deploy.resources[0].spec.replicas | default(1) | int) and
+            (api_deploy.resources[0].status.updatedReplicas | default(0) | int) ==
+            (api_deploy.resources[0].spec.replicas | default(1) | int)
+          retries: 30
+          delay: 15
+
+        - name: Find running API pod
           kubernetes.core.k8s_info:
             kubeconfig: "{{ kubeconfig }}"
             kind: Pod
@@ -145,25 +162,31 @@
             app_pods.resources | default([]) | length > 0 and
             (app_pods.resources
              | selectattr('status.phase', 'eq', 'Running')
+             | rejectattr('metadata.deletionTimestamp', 'defined')
              | selectattr('status.containerStatuses', 'defined')
              | list | length > 0) and
             (app_pods.resources
              | selectattr('status.phase', 'eq', 'Running')
+             | rejectattr('metadata.deletionTimestamp', 'defined')
              | selectattr('status.containerStatuses', 'defined')
              | first).status.containerStatuses[0].ready | bool
-          retries: 30
-          delay: 15
-          failed_when: app_pods.resources | default([]) | length == 0
+          retries: 20
+          delay: 10
+
+        - name: Select migration target pod
+          ansible.builtin.set_fact:
+            migrate_pod: >-
+              {{ (app_pods.resources
+                  | selectattr('status.phase', 'eq', 'Running')
+                  | rejectattr('metadata.deletionTimestamp', 'defined')
+                  | selectattr('status.containerStatuses', 'defined')
+                  | first).metadata.name }}
 
         - name: Run database schema setup (create tables)
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
-            pod: >-
-              {{ (app_pods.resources
-                  | selectattr('status.phase', 'eq', 'Running')
-                  | selectattr('status.containerStatuses', 'defined')
-                  | first).metadata.name }}
+            pod: "{{ migrate_pod }}"
             command: rcars init-db
           register: schema_result
           changed_when: false
@@ -172,11 +195,7 @@
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
-            pod: >-
-              {{ (app_pods.resources
-                  | selectattr('status.phase', 'eq', 'Running')
-                  | selectattr('status.containerStatuses', 'defined')
-                  | first).metadata.name }}
+            pod: "{{ migrate_pod }}"
             command: alembic upgrade head
           register: migrate_result
           changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"

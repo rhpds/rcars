@@ -97,6 +97,24 @@
           name: "{{ mgmt_service_account.name }}"
           namespace: "{{ target_namespace }}"
 
+- name: Ensure RCARS API can validate SA tokens (TokenReview access)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "rcars-token-review-{{ env }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: system:auth-delegator
+      subjects:
+        - kind: ServiceAccount
+          name: default
+          namespace: "{{ target_namespace }}"
+
 # ── Long-lived token + kubeconfig generation ──────────────────────────────────
 
 - name: Ensure long-lived token Secret exists
