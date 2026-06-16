@@ -37,6 +37,13 @@ async def startup(ctx: dict) -> None:
     relay = JobProgressRelay(redis)
 
     ctx["worker_ctx"] = WorkerContext(db=db, redis=redis, relay=relay, settings=settings)
+
+    if settings.use_litemaas:
+        from rcars.config import fetch_litemaas_models
+        models = fetch_litemaas_models(settings)
+        log.info("litemaas_models_loaded", action="litemaas_init",
+                 model_count=len(models), models=sorted(models))
+
     log.info("worker_started", action="worker_started")
 
 

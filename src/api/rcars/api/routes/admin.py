@@ -245,3 +245,33 @@ async def schedule_status(request: Request, user: str = Depends(require_admin)):
         "pipeline_schedule": f"{settings.pipeline_hour:02d}:{settings.pipeline_minute:02d} UTC daily",
         "last_pipeline": last_pipeline,
     }
+
+
+@router.get("/llm-provider")
+async def llm_provider_status(request: Request, user: str = Depends(require_admin)):
+    """Return active LLM provider configuration and available models."""
+    settings = Settings()
+    from rcars.config import fetch_litemaas_models
+    litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
+    return {
+        "litemaas_enabled": settings.use_litemaas,
+        "litemaas_url": settings.litemaas_url or None,
+        "litemaas_models": litemaas_models,
+        "vertex_enabled": settings.use_vertex,
+        "vertex_region": settings.cloud_ml_region if settings.use_vertex else None,
+        "analysis_model": settings.model,
+        "triage_model": settings.triage_model,
+        "rationale_model": settings.rationale_model,
+    }
+
+
+@router.get("/reporting-status")
+async def reporting_status(request: Request, user: str = Depends(require_admin)):
+    """Return reporting sync status and score distribution."""
+    db = request.app.state.db
+    settings = Settings()
+    status = db.get_reporting_sync_status()
+    return {
+        "configured": bool(settings.reporting_mcp_url),
+        **(status or {"total": 0, "high": 0, "review": 0, "keepers": 0, "last_synced": None}),
+    }

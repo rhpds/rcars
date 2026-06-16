@@ -21,17 +21,12 @@ async def run_recommendation(
     wctx.db.update_job_status(job_id, "running")
 
     try:
-        client = wctx.settings.get_anthropic_client()
-        if client is None:
-            raise RuntimeError("No Anthropic client configured")
-
         async def on_progress(data: dict):
             await publish_progress(wctx.relay, job_id, wctx.db, **data)
 
         state = await run_query(
             query=query,
             db=wctx.db,
-            anthropic_client=client,
             settings=wctx.settings,
             stages=stages or (["prod"] if prod_only else ["prod", "dev", "event"]),
             include_zt=include_zt,

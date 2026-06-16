@@ -99,6 +99,12 @@ spec:
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /etc/rcars/vertex-credentials.json
 {% endif %}
+{% if litemaas_enabled | default(false) %}
+            - name: RCARS_LITEMAAS_URL
+              value: "{{ litemaas_url }}"
+            - name: RCARS_LITEMAAS_API_KEY
+              value: "{{ litemaas_api_key }}"
+{% endif %}
             - name: RCARS_CURATOR_EMAILS_STR
               value: "{{ curator_emails | join(',') }}"
             - name: RCARS_ADMIN_EMAILS_STR
@@ -230,6 +236,12 @@ spec:
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /etc/rcars/vertex-credentials.json
 {% endif %}
+{% if litemaas_enabled | default(false) %}
+            - name: RCARS_LITEMAAS_URL
+              value: "{{ litemaas_url }}"
+            - name: RCARS_LITEMAAS_API_KEY
+              value: "{{ litemaas_api_key }}"
+{% endif %}
             - name: RCARS_CLONE_DIR
               value: /tmp/rcars-clones
             - name: RCARS_PIPELINE_ENABLED
@@ -346,6 +358,12 @@ spec:
               value: "{{ vertex_region }}"
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /etc/rcars/vertex-credentials.json
+{% endif %}
+{% if litemaas_enabled | default(false) %}
+            - name: RCARS_LITEMAAS_URL
+              value: "{{ litemaas_url }}"
+            - name: RCARS_LITEMAAS_API_KEY
+              value: "{{ litemaas_api_key }}"
 {% endif %}
             - name: HF_HOME
               value: /opt/app-root/hf_cache

@@ -125,9 +125,11 @@ def scan(max_analyze: int | None):
     clone_base = Path(settings.clone_dir)
     clone_base.mkdir(parents=True, exist_ok=True)
 
-    anthropic_client = settings.get_anthropic_client()
-    if not anthropic_client:
-        _print("ERROR: No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+    from rcars.config import fetch_litemaas_models
+    if settings.use_litemaas:
+        fetch_litemaas_models(settings)
+    elif not settings.get_anthropic_client():
+        _print("ERROR: No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID)")
         db.close()
         sys.exit(1)
 
@@ -168,7 +170,7 @@ def scan(max_analyze: int | None):
             product=item.get("product", ""),
             showroom_url=effective_url,
             showroom_ref=item.get("showroom_ref"),
-            anthropic_client=anthropic_client,
+            settings=settings,
             model=settings.model,
             clone_dir=settings.clone_dir,
             db=db,
@@ -568,9 +570,11 @@ def workload_scan(collection: str | None, force: bool):
     settings = Settings()
     db = get_db()
 
-    anthropic_client = settings.get_anthropic_client()
-    if not anthropic_client:
-        console.print("[red]Error:[/red] No Anthropic credentials (set ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
+    from rcars.config import fetch_litemaas_models
+    if settings.use_litemaas:
+        fetch_litemaas_models(settings)
+    elif not settings.get_anthropic_client():
+        console.print("[red]Error:[/red] No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID)")
         db.close()
         sys.exit(1)
 
@@ -581,7 +585,7 @@ def workload_scan(collection: str | None, force: bool):
 
     results = scan_all_collections(
         clone_dir=settings.clone_dir,
-        anthropic_client=anthropic_client,
+        settings=settings,
         model=model,
         db=db,
         force=force,
