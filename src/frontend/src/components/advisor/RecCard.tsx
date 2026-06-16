@@ -38,14 +38,12 @@ function catalogUrl(ciName: string, namespace: string): string {
 
 const FORMAT_LABELS: Record<string, string> = {
   hands_on_lab: 'Hands-on Lab',
-  booth_demo: 'Booth Demo',
-  presentation: 'Presentation',
+  demo: 'Demo',
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; color: string }> = {
   hands_on_lab: { bg: '#1a2a3a', color: '#73bcf7' },
-  booth_demo: { bg: '#2a2a1a', color: '#e8a838' },
-  presentation: { bg: '#2a1a2a', color: '#cc88cc' },
+  demo: { bg: '#2a2a1a', color: '#e8a838' },
 }
 
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {

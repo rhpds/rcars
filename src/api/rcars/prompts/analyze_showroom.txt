@@ -55,9 +55,8 @@ Return ONLY valid JSON (no markdown fences, no explanation):
   ],
   "use_cases": ["business problems this content helps solve"],
   "event_fit": {
-    "booth_demo": {"suitable": true/false, "notes": "why or why not"},
-    "hands_on_lab": {"suitable": true/false, "notes": "why or why not"},
-    "presentation_support": {"suitable": true/false, "notes": "why or why not"}
+    "demo": {"suitable": true/false, "notes": "why or why not"},
+    "hands_on_lab": {"suitable": true/false, "notes": "why or why not"}
   }
 }
 
