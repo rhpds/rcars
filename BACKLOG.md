@@ -15,6 +15,7 @@ Items selected for current development cycle. Investigations complete, design/im
 
 ## Bugs
 
+- [ ] **Migration race condition in `--tags update/deploy`** — Alembic migrations can execute on the old pod before the new build rolls out, causing the migration to silently "succeed" at the old version. Has broken both dev and prod deploys. Fix: verify the pod running the migration has the expected migration files before executing, or wait for the new deployment rollout to fully complete before running migrations.
 - [ ] **DB/worker sync divergence** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
 - [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker. Needs a timeout-based cleanup or heartbeat check
 
