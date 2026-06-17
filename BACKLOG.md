@@ -30,6 +30,7 @@ Items selected for current development cycle. Investigations complete, design/im
 ## Recommendation Quality
 
 - [ ] **Proper recommendation system evaluation** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built approach as cost/ratings/feedback data grows
+- [ ] **Robust acronym expansion** — the hardcoded 15-acronym list in `pipeline.py` is a bandaid. Replace with a curated dictionary table (loadable from DB, manageable via Admin UI) or automatic expansion from product metadata. Should cover the full Red Hat product portfolio, partner products, and common industry acronyms. The embedding model's inability to recognize acronyms is a fundamental limitation that affects search quality for any query using abbreviations.
 - [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`) should be a hard boost, not just vector similarity. Consider curated keyword allowlist
 - [ ] **Multi-turn conversation context** — true conversational refinement with memory (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events

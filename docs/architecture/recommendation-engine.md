@@ -74,7 +74,17 @@ Before passing results to triage, the vector search deduplicates to prevent the 
 
 Vector search finds labs that are *semantically similar* to the query, but similarity is not the same as relevance. A lab about OpenShift networking is semantically close to a lab about OpenShift security — they share vocabulary and concepts — but if the user asked specifically for security content, the networking lab is not relevant.
 
-The triage phase sends all vector search candidates to Claude Haiku for fast relevance scoring. For each candidate, Haiku sees the user's original query alongside the candidate's summary, topics, products, category, content type, and estimated duration. It returns a relevance score (0-100), a relevant/not-relevant flag, and a one-line reason.
+The triage phase sends all vector search candidates to Claude Haiku for fast relevance scoring. Haiku receives a **compact** version of each candidate — just 8 fields:
+
+- CI name and display name
+- Summary (the 2-3 sentence overview from the scan analysis)
+- Topics and products
+- Category and content type
+- Estimated duration
+
+This is intentionally lightweight. Haiku does not see learning objectives, audience details, module breakdowns, or event fit assessments — that data is reserved for Phase 3 where Sonnet needs it for detailed rationale generation. The compact format is why triage is fast (1-3 seconds for 10-15 candidates) and inexpensive.
+
+For each candidate, Haiku returns a relevance score (0-100), a relevant/not-relevant flag, and a one-line reason.
 
 Candidates scoring below the triage cutoff (default: 30) or marked as not relevant are demoted to the "white" tier (shown but deprioritized). Survivors are promoted to the "yellow" tier and sorted by relevance score. This phase typically completes in 1-3 seconds.
 
@@ -140,7 +150,7 @@ Reranking happens after triage scores are assigned and before rationale generati
 
 ## Phase 3 — Sonnet Rationale
 
-The top candidates from triage (default: 5) are sent to Claude Sonnet with their full analysis data for structured rationale generation. For each candidate, Sonnet returns:
+The top candidates from triage (default: 5) are sent to Claude Sonnet with the **full analysis data** — everything Haiku saw plus audience descriptors, stated and inferred learning objectives, module titles, and event fit assessments. This richer context lets Sonnet generate specific, actionable rationales rather than generic summaries. For each candidate, Sonnet returns:
 
 - **Why it fits** — topic alignment and learning outcomes
 - **How to use** — practical delivery suggestion
@@ -174,4 +184,24 @@ When a URL is detected in the user's query, RCARS runs an event parsing step bef
 
 The embedding model (`all-MiniLM-L6-v2`) does not recognize Red Hat product acronyms. "AAP" produces a poor vector match (distance 0.66) while "Ansible Automation Platform" matches well (distance 0.28).
 
-Before embedding, RCARS expands recognized acronyms inline: "AAP" becomes "AAP (Ansible Automation Platform)". This preserves the original text while adding the expanded form for the embedding model. The expansion covers 15 Red Hat product acronyms (AAP, ACM, RHACM, ACS, RHACS, RHOAI, OCP, ARO, ROSA, RHEL, RHDH, SNO, RHSSO, EDA, TAP). The expansion is case-insensitive.
+Before embedding, RCARS expands recognized acronyms inline — "AAP" becomes "AAP (Ansible Automation Platform)". This preserves the original text while adding the expanded form for the embedding model. The expansion is case-insensitive.
+
+Currently supported acronyms:
+
+| Acronym | Expansion |
+|---------|-----------|
+| AAP | Ansible Automation Platform |
+| ACM, RHACM | Advanced Cluster Management |
+| ACS, RHACS | Advanced Cluster Security |
+| RHOAI | Red Hat OpenShift AI |
+| OCP | OpenShift Container Platform |
+| ARO | Azure Red Hat OpenShift |
+| ROSA | Red Hat OpenShift Service on AWS |
+| RHEL | Red Hat Enterprise Linux |
+| RHDH | Red Hat Developer Hub |
+| SNO | Single Node OpenShift |
+| RHSSO | Red Hat Single Sign-On |
+| EDA | Event-Driven Ansible |
+| TAP | Trusted Application Pipeline |
+
+This is a hardcoded list in `pipeline.py` and a known limitation — acronyms not in this table will produce poor vector matches. A more robust approach (e.g., a curated dictionary loaded from the database, or automatic expansion from product metadata) is on the backlog.
