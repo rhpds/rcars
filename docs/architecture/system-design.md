@@ -177,8 +177,16 @@ All LLM operations run in background workers, not in the API process. This keeps
 
 Workers are split into two separate deployments:
 
-- **`rcars-scan-worker`** — handles `run_analysis`, `run_catalog_refresh`, `run_stale_check`, `run_nightly_pipeline` (including reporting sync and workload scan). Listens on `arq:queue:scan`. These are batch operations that can run for hours.
-- **`rcars-recommend-worker`** — handles `run_recommendation` only. Listens on `arq:queue:recommend`. These are user-facing queries that must respond in 30–60 seconds.
+**`rcars-scan-worker`** — listens on `arq:queue:scan`. Handles all batch operations:
+
+- Content analysis (LLM scan of Showroom repos)
+- Catalog refresh (CRD sync from Babylon)
+- Stale content detection (`git ls-remote` checks)
+- Workload scanning (agDv2 collection repo analysis)
+- Reporting sync (MCP server data import)
+- Nightly pipeline (chains all of the above sequentially)
+
+**`rcars-recommend-worker`** — listens on `arq:queue:recommend`. Handles advisor recommendation queries only. These are user-facing and must respond in 30–60 seconds.
 
 The split exists because of a starvation problem: with a single worker, a bulk scan (400+ items at ~1 minute each) would monopolize all slots for hours, making the advisor completely unresponsive.
 
@@ -195,12 +203,14 @@ The split exists because of a starvation problem: with a single worker, a bulk s
 
 | Setting | Scan Worker | Recommend Worker |
 |---|---|---|
-| `max_jobs` | 5 | 3 |
-| `job_timeout` | 600s | 120s |
+| Concurrent jobs per pod | 5 | 3 |
+| Default job timeout | 600s | 120s |
 | CPU request/limit | 500m / 2 | 250m / 1 |
 | Memory request/limit | 1Gi / 4Gi | 1Gi / 2Gi |
 
-**Special timeouts:** `run_stale_check` has a timeout of 3600s (1 hour). `run_nightly_pipeline` has 7200s (2 hours) because it chains refresh + stale check + re-analysis + workload scan + reporting sync sequentially.
+Per-pod concurrency is hardcoded. To increase total throughput, increase the number of replicas — e.g., 2 recommend worker pods gives 6 concurrent queries. Resource limits and replica counts are configured via Ansible vars. See [Operations Guide](../admin/operations.md#scaling) for details.
+
+Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
 ### Nightly Pipeline
 
