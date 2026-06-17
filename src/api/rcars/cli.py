@@ -656,8 +656,8 @@ def reporting_db_sync(ctx):
         result = run_reporting_sync(db, settings)
         _print(f"  Synced: {result['synced']} metrics")
         _print(f"  Orphans removed: {result['orphans_removed']}")
-        _print(f"  Provisions: {result['provisions_rows']}, Sales: {result['sales_rows']}, "
-               f"Cost: {result['cost_rows']}, Dates: {result['date_rows']}")
+        _print(f"  Provisions: {result['provisions_rows']}, Touched: {result['touched_rows']}, "
+               f"Closed: {result['closed_rows']}, Cost: {result['cost_rows']}, Dates: {result['date_rows']}")
     except Exception as e:
         _print(f"ERROR: {e}")
         raise SystemExit(1)
