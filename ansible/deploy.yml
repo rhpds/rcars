@@ -133,54 +133,30 @@
     - name: Run database migrations
       block:
         - name: Wait for API rollout to complete
-          kubernetes.core.k8s_info:
-            kubeconfig: "{{ kubeconfig }}"
-            api_version: apps/v1
-            kind: Deployment
-            namespace: "{{ target_namespace }}"
-            name: "{{ app_name }}-api"
-          register: api_deploy
-          until: >-
-            api_deploy.resources | default([]) | length > 0 and
-            (api_deploy.resources[0].status.readyReplicas | default(0) | int) ==
-            (api_deploy.resources[0].spec.replicas | default(1) | int) and
-            (api_deploy.resources[0].status.updatedReplicas | default(0) | int) ==
-            (api_deploy.resources[0].spec.replicas | default(1) | int)
-          retries: 30
-          delay: 15
+          ansible.builtin.command:
+            cmd: >-
+              oc rollout status deployment/{{ app_name }}-api
+              -n {{ target_namespace }}
+              --kubeconfig={{ kubeconfig | expanduser }}
+              --timeout=300s
+          changed_when: false
 
         - name: Find running API pod
-          kubernetes.core.k8s_info:
-            kubeconfig: "{{ kubeconfig }}"
-            kind: Pod
-            namespace: "{{ target_namespace }}"
-            label_selectors:
-              - "app={{ app_name }}"
-              - "component=api"
+          ansible.builtin.command:
+            cmd: >-
+              oc get pods -n {{ target_namespace }}
+              --kubeconfig={{ kubeconfig | expanduser }}
+              -l app={{ app_name }},component=api
+              --field-selector=status.phase=Running
+              --no-headers -o custom-columns=NAME:.metadata.name
           register: app_pods
-          until: >-
-            app_pods.resources | default([]) | length > 0 and
-            (app_pods.resources
-             | selectattr('status.phase', 'eq', 'Running')
-             | rejectattr('metadata.deletionTimestamp', 'defined')
-             | selectattr('status.containerStatuses', 'defined')
-             | list | length > 0) and
-            (app_pods.resources
-             | selectattr('status.phase', 'eq', 'Running')
-             | rejectattr('metadata.deletionTimestamp', 'defined')
-             | selectattr('status.containerStatuses', 'defined')
-             | first).status.containerStatuses[0].ready | bool
-          retries: 20
+          until: app_pods.stdout_lines | default([]) | length > 0
+          retries: 10
           delay: 10
 
         - name: Select migration target pod
           ansible.builtin.set_fact:
-            migrate_pod: >-
-              {{ (app_pods.resources
-                  | selectattr('status.phase', 'eq', 'Running')
-                  | rejectattr('metadata.deletionTimestamp', 'defined')
-                  | selectattr('status.containerStatuses', 'defined')
-                  | first).metadata.name }}
+            migrate_pod: "{{ app_pods.stdout_lines[0] }}"
 
         - name: Run database schema setup (create tables)
           kubernetes.core.k8s_exec:
