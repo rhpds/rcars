@@ -99,7 +99,7 @@ Catalog items in RHDP are not all the same kind of thing. There are broadly thre
 - **Base CIs** — the actual lab definitions, containing the Showroom content link, full description, and workload configuration. Many Base CIs are ordered directly — they don't have a Published VCI in front of them. This is actually the more common pattern.
 - **Infrastructure CIs** — the underlying provisioning layer. RCARS does not interact with these.
 
-What matters for RCARS is whether a CI has a Showroom URL — that is where the lab content lives and what gets analyzed. RCARS tracks the Published VCI ↔ Base CI relationship when it exists to avoid recommending the same underlying content twice.
+For content analysis and recommendations, what matters is whether a CI has a Showroom URL — that is where the lab content lives and what gets analyzed by the LLM. For infrastructure-aware queries, what matters is whether the CI uses AgnosticD v2 — those items have their workload roles extracted and mapped to products regardless of whether they have Showroom content. RCARS tracks the Published VCI ↔ Base CI relationship when it exists to avoid recommending the same underlying content twice.
 
 ### RHDP Reporting Database
 
