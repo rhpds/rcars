@@ -19,8 +19,8 @@ const fmtRoi = (amount: number, cost: number) => {
   return `${(amount / cost).toFixed(1)}x`
 }
 
-const scoreColor = (score: number) => score >= 75 ? '#e94560' : score >= 50 ? '#e98a3a' : '#4ecca3'
-const scoreBg = (score: number) => score >= 75 ? 'rgba(233,69,96,0.2)' : score >= 50 ? 'rgba(233,138,58,0.2)' : 'rgba(78,204,163,0.2)'
+const scoreColor = (score: number) => score >= 55 ? '#e94560' : score >= 35 ? '#e98a3a' : '#4ecca3'
+const scoreBg = (score: number) => score >= 55 ? 'rgba(233,69,96,0.2)' : score >= 35 ? 'rgba(233,138,58,0.2)' : 'rgba(78,204,163,0.2)'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -55,7 +55,7 @@ export function RetirementPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const minScore = scoreFilter === 'high' ? 75 : scoreFilter === 'review' ? 50 : scoreFilter === 'keepers' ? 0 : undefined
+      const minScore = scoreFilter === 'high' ? 55 : scoreFilter === 'review' ? 35 : scoreFilter === 'keepers' ? 0 : undefined
       const maxForKeepers = scoreFilter === 'keepers'
       const data = await api.getRetirementDashboard({
         sort_by: tab === 'prod' ? sortBy : 'provisions',
@@ -67,9 +67,9 @@ export function RetirementPage() {
       })
       let filtered = data.items
       if (tab === 'prod' && maxForKeepers) {
-        filtered = filtered.filter(i => i.retirement_score < 50)
+        filtered = filtered.filter(i => i.retirement_score < 35)
       } else if (tab === 'prod' && scoreFilter === 'review') {
-        filtered = filtered.filter(i => i.retirement_score < 75)
+        filtered = filtered.filter(i => i.retirement_score < 55)
       }
       setItems(filtered)
       setAllItems(data.items)
@@ -119,9 +119,9 @@ export function RetirementPage() {
   const totalCost = allItems.reduce((s, i) => s + i.total_cost, 0)
   const totalClosed = allItems.reduce((s, i) => s + i.closed_amount, 0)
   const totalTouched = allItems.reduce((s, i) => s + i.touched_amount, 0)
-  const prodHigh = allItems.filter(i => i.retirement_score >= 75).length
-  const prodReview = allItems.filter(i => i.retirement_score >= 50 && i.retirement_score < 75).length
-  const prodKeepers = allItems.filter(i => i.retirement_score < 50).length
+  const prodHigh = allItems.filter(i => i.retirement_score >= 55).length
+  const prodReview = allItems.filter(i => i.retirement_score >= 35 && i.retirement_score < 55).length
+  const prodKeepers = allItems.filter(i => i.retirement_score < 35).length
 
   const noProdOld = allItems.filter(i => {
     const d = ageDays(i.first_provision)
@@ -198,7 +198,7 @@ export function RetirementPage() {
             {(['all', 'high', 'review', 'keepers'] as ScoreFilter[]).map(f => (
               <button key={f} onClick={() => setScoreFilter(f)}
                 className={`ca-filter-btn${scoreFilter === f ? ' active' : ''}`}>
-                {f === 'all' ? 'All' : f === 'high' ? 'High ≥75' : f === 'review' ? 'Review 50-74' : 'Keepers <50'}
+                {f === 'all' ? 'All' : f === 'high' ? 'High ≥55' : f === 'review' ? 'Review 35-54' : 'Keepers <35'}
               </button>
             ))}
             <input
@@ -260,7 +260,14 @@ export function RetirementPage() {
                                           {s.stage}
                                         </a>
                                       ))}
-                                      {item.stages.length === 0 && <span className="ca-color-muted">none in RCARS</span>}
+                                      {!item.in_rcars && item.catalog_url && (
+                                        <a href={item.catalog_url} target="_blank" rel="noreferrer"
+                                          className="ca-env-tag" style={{ background: 'rgba(150,150,150,0.2)', color: '#999', border: '1px solid #555' }}
+                                          onClick={e => e.stopPropagation()}>
+                                          catalog
+                                        </a>
+                                      )}
+                                      {item.in_rcars && item.stages.length === 0 && <span className="ca-color-muted">none</span>}
                                     </span>
                                   </div>
                                   <div className="ca-detail-item">

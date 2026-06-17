@@ -13,6 +13,16 @@ router = APIRouter(prefix="/analysis")
 WINDOW_QUARTERS = {"1q": 1, "2q": 2, "3q": 3, "1y": 4}
 
 
+def _has_window_activity(item: dict) -> bool:
+    """Check if an item had any activity in the selected window (post-windowed-scoring)."""
+    return (
+        item.get("provisions", 0) > 0
+        or item.get("touched_amount", 0) > 0
+        or item.get("closed_amount", 0) > 0
+        or item.get("total_cost", 0) > 0
+    )
+
+
 @router.get("/retirement")
 async def retirement_dashboard(
     request: Request,
@@ -31,22 +41,31 @@ async def retirement_dashboard(
         category=category, has_prod=has_prod, search=search,
     )
 
+    import json as _json
     num_q = WINDOW_QUARTERS.get(window, 4)
+
+    for item in items:
+        qd = item.get("quarterly_data")
+        if isinstance(qd, str):
+            item["quarterly_data"] = _json.loads(qd)
+        elif qd is None:
+            item["quarterly_data"] = {}
+
     if num_q < 4:
-        import json as _json
         from rcars.services.reporting_sync import compute_windowed_scores
-        for item in items:
-            qd = item.get("quarterly_data")
-            if isinstance(qd, str):
-                item["quarterly_data"] = _json.loads(qd)
         items = compute_windowed_scores(items, num_q)
+        items = [i for i in items if _has_window_activity(i)]
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
 
     from rcars.services.reporting_sync import compute_sales_impact
     for item in items:
-        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+        stages = stages_map.get(item["catalog_base_name"], [])
+        item["stages"] = stages
+        item["in_rcars"] = len(stages) > 0
+        if not item["in_rcars"]:
+            item["catalog_url"] = f"https://demo.redhat.com/catalog?search={item['catalog_base_name']}"
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 

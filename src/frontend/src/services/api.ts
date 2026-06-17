@@ -248,6 +248,8 @@ export interface ReportingMetricsItem {
   product_family: string | null
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
+  in_rcars: boolean
+  catalog_url?: string
 }
 
 export interface RetirementDashboardResponse {
