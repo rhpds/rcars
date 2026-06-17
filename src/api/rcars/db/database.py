@@ -1463,7 +1463,7 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
-                return {r[0]: r[1] for r in cur.fetchall() if r[0]}
+                return {r["base"]: r["display_name"] for r in cur.fetchall() if r["base"]}
 
     def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
         """Delete reporting_metrics rows not in current sync or not in current catalog."""
