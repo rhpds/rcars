@@ -5,7 +5,9 @@ description: How RCARS identifies duplicate lab content using pairwise embedding
 
 # Content Overlap Detection
 
-Content overlap detection identifies catalog items that teach substantially the same material. It is a curator tool for consolidating duplicate labs — not part of the recommendation pipeline.
+As the RHDP catalog grows, different teams inevitably build labs that cover the same material under different names and structures. Content overlap detection helps curators find these duplicates by comparing the vector embeddings produced during the [scan pipeline](scan-pipeline.md) — if two labs have similar embeddings, they teach similar things, even if they use different wording and module structures.
+
+This is a curator tool for consolidating duplicate content. It is not part of the recommendation pipeline, though it uses the same embeddings and similarity math.
 
 ## Architecture
 

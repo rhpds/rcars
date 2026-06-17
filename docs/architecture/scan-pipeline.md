@@ -5,13 +5,18 @@ description: How RCARS analyzes Showroom content — cloning, filtering, LLM ana
 
 # Scan Pipeline
 
-The scan pipeline analyzes Showroom content for each catalog item. It is implemented in `analyzer.py` and runs on the scan worker.
+The scan pipeline is how RCARS understands what each lab teaches. For every catalog item that has a Showroom (a Git repository containing the lab's AsciiDoc content), the pipeline clones the repo, reads the content files, sends them to an LLM for structured analysis, generates vector embeddings from the analysis, and stores everything in PostgreSQL. The result is a searchable understanding of each lab — its topics, learning objectives, audience, duration, and format suitability — that powers both the recommendation engine and content overlap detection.
+
+The pipeline runs on the scan worker and is implemented in `analyzer.py`. It can be triggered per-item, in bulk for unanalyzed content, or automatically as part of the nightly maintenance pipeline when stale content is detected.
 
 ```mermaid
 flowchart TD
     Start[Catalog Item] --> Clone[Clone Showroom Repo<br/>git clone --depth 1]
-    Clone --> Read[Read .adoc Files<br/>content/modules/ROOT/pages/]
-    Read --> Filter[Filter Boilerplate<br/>login, index, credentials pages]
+    Clone --> Nav{nav.adoc<br/>exists?}
+    Nav -->|Yes| NavFilter[Parse nav.adoc<br/>Keep only referenced pages]
+    Nav -->|No| ReadAll[Read all .adoc files<br/>from content/modules/ROOT/pages/]
+    NavFilter --> Filter[Filter Boilerplate<br/>login, index, credentials pages]
+    ReadAll --> Filter
     Filter --> Prompt[Build Prompt<br/>+ CI metadata]
     Prompt --> LLM[Call Claude Sonnet<br/>max_tokens=8192, temp=0]
     LLM --> Parse[Parse JSON Response]
