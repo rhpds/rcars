@@ -46,17 +46,60 @@ This filtering step is important for analysis quality. Without it, the LLM would
 
 ## Step 4 — Build Prompt and Call Sonnet
 
-The filtered file contents are concatenated with file-level headers and truncated to a maximum of 150,000 characters. This text, along with the catalog item's metadata (CI name, display name, category, product), is inserted into the analysis prompt template.
+The filtered file contents are concatenated with file-level headers and truncated to a maximum of 150,000 characters. This text, along with the catalog item's metadata (CI name, display name, category, product), is inserted into the analysis prompt template (`prompts/analyze_showroom.txt`).
 
-The prompt instructs Sonnet to:
+The prompt instructs the model to focus on what someone would **learn or experience** by completing the lab. It explicitly tells the model to skip boilerplate pages (login, credentials, environment setup) even if they slipped through the file-level filter. The prompt asks for structured JSON covering:
 
-- Identify what the lab covers and who it's for
-- Extract **stated** learning objectives (what the Showroom text explicitly claims)
-- Infer **additional** learning objectives from the actual exercises (what a learner will genuinely learn even if it's never stated)
-- Assess suitability for booth demos, hands-on sessions, and presentation support
-- Return everything as structured JSON
+- **Content type** — `workshop` or `demo`
+- **Summary** — 2-3 sentence description of what the lab covers and who it's for
+- **Products** — Red Hat product names covered (official names)
+- **Audience** — target audience descriptors (e.g., "platform engineers", "developers")
+- **Difficulty** — `beginner`, `intermediate`, or `advanced` based on prerequisite knowledge
+- **Estimated duration** — realistic completion time in minutes
+- **Topics** — specific technical topics (e.g., "Kubernetes operators", "CI/CD pipelines")
+- **Learning objectives** — split into two categories:
+    - **Stated**: objectives the Showroom explicitly claims
+    - **Inferred**: objectives determined from the actual exercises (e.g., a lab that deploys with ArgoCD teaches "GitOps workflows" even if never stated)
+- **Modules** — per-module breakdown with title, topics, learning objectives, and duration estimate
+- **Use cases** — business problems this content helps solve
+- **Event fit** — suitability assessment for two formats: `demo` and `hands_on_lab`, each with a boolean and notes explaining why
 
-Temperature is set to 0. Each analysis call is completely stateless — no conversation history is maintained between items, and Sonnet has no knowledge of other items in the catalog.
+Temperature is set to 0. Each analysis call is completely stateless — no conversation history is maintained between items, and the model has no knowledge of other items in the catalog.
+
+### Example Output
+
+A typical analysis response (abbreviated) looks like:
+
+```json
+{
+  "content_type": "workshop",
+  "summary": "A hands-on workshop that guides platform engineers through deploying and configuring Red Hat OpenShift AI on an existing OpenShift cluster, including model serving, data science pipelines, and GPU workload management.",
+  "products": ["Red Hat OpenShift AI", "Red Hat OpenShift Container Platform"],
+  "audience": ["platform engineers", "ML engineers", "data scientists"],
+  "difficulty": "intermediate",
+  "estimated_duration_min": 120,
+  "topics": ["model serving", "data science pipelines", "GPU scheduling", "S3 storage integration"],
+  "learning_objectives": {
+    "stated": ["Deploy and configure OpenShift AI components", "Create and manage data science projects"],
+    "inferred": ["Kubernetes resource management for ML workloads", "Object storage integration patterns"]
+  },
+  "modules": [
+    {
+      "title": "Deploying OpenShift AI Operator",
+      "topics": ["operator installation", "custom resource configuration"],
+      "learning_objectives": ["Install and configure the RHOAI operator"],
+      "estimated_duration_min": 20
+    }
+  ],
+  "use_cases": ["AI/ML platform enablement", "self-service data science environments"],
+  "event_fit": {
+    "demo": {"suitable": true, "notes": "First two modules work well as a 30-min demo of RHOAI capabilities"},
+    "hands_on_lab": {"suitable": true, "notes": "Full workshop designed for 2-hour hands-on session"}
+  }
+}
+```
+
+This structured output drives everything downstream: the summary and learning objectives feed into vector embeddings for semantic search, the module breakdown enables the recommendation engine to suggest partial lab usage, and the duration estimate informs duration-aware reranking.
 
 ## Step 5 — Parse Response
 
