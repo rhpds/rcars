@@ -10,46 +10,133 @@ The recommendation engine is the core of the RCARS Advisor. When a user asks a q
 The engine uses a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results as they become available.
 
 ```mermaid
-flowchart LR
-    Q[User Query] --> URLCheck{Contains URL?}
-    URLCheck -->|Yes| Fetch[Fetch Event Page]
-    Fetch --> Extract[Extract Themes<br/>via Sonnet]
-    Extract --> Merge[Merge with<br/>Query Text]
+flowchart TD
+    Q[User Query] --> Acronym[Expand Acronyms<br/>AAP → Ansible Automation Platform]
+    Acronym --> URLCheck{Contains URL?}
+    URLCheck -->|Yes| Fetch[Fetch Event Page<br/>+ Linked Subpages]
+    Fetch --> Extract[Extract Event Profile<br/>via Sonnet]
+    Extract --> Merge[Merge Event Queries<br/>with User Text]
     URLCheck -->|No| Merge
-    Merge --> P1[Phase 1<br/>Vector Search<br/>pgvector cosine]
-    P1 --> Dedup[Content Dedup<br/>+ Base→Published]
-    Dedup --> P2[Phase 2<br/>Haiku Triage<br/>Score 0-100]
-    P2 --> DurCheck{Duration<br/>Target?}
-    DurCheck -->|Yes| Rerank[Duration<br/>Penalty Rerank]
+    Merge --> Embed[Embed Query<br/>all-MiniLM-L6-v2]
+
+    subgraph "Phase 1 — Vector Search"
+        Embed --> PGV[pgvector Cosine Search<br/>Find nearest embeddings]
+        PGV --> Cutoff[Apply Distance Cutoff<br/>default ≤ 0.55]
+        Cutoff --> Dedup[Content Dedup<br/>+ Base→Published Promotion]
+    end
+
+    subgraph "Phase 2 — Triage"
+        Dedup --> Haiku[Haiku Scores Each<br/>Candidate 0-100]
+        Haiku --> Filter[Remove Below<br/>Cutoff of 30]
+    end
+
+    Filter --> DurCheck{Duration<br/>in Query?}
+    DurCheck -->|Yes| Rerank[Duration Penalty<br/>Rerank by Fit]
     DurCheck -->|No| P3
-    Rerank --> P3[Phase 3<br/>Sonnet Rationale<br/>Top N]
-    P3 --> Results[Scored Results<br/>+ Assessment<br/>+ Content Gaps]
+
+    subgraph "Phase 3 — Rationale"
+        Rerank --> P3[Sonnet Generates<br/>Rationale for Top 5]
+        P3 --> Results[Scored Results<br/>+ Assessment<br/>+ Content Gaps]
+    end
 ```
+
+---
 
 ## Phase 1 — Vector Search
 
-The user's query text is embedded using the same sentence-transformers model used during scanning. A pgvector cosine similarity search (`<=>` operator) finds the top candidates within a configurable distance cutoff (default: 0.55). Results beyond the cutoff are discarded — this prevents low-relevance items from reaching later phases.
+Vector search is how RCARS finds relevant content without requiring exact keyword matches. It works by converting the user's query into the same kind of vector embedding that was generated for each lab during the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), then finding the labs whose vectors are closest.
 
-**Content hash deduplication:** When multiple CIs share the same Showroom content (same `content_hash`), the vector search keeps only the best representative per unique content. Priority: prod > event > dev, published > base, lower vector distance. This prevents the same underlying lab from appearing multiple times in results under different CI names.
+### How It Works
 
-**Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data. Base CIs that have a published counterpart are never shown directly.
+1. The user's query text is converted into a 384-dimensional vector using the same `all-MiniLM-L6-v2` model used during scanning. This vector captures the semantic meaning of the query — "I need content about securing Kubernetes clusters" produces a vector that is close to labs about ACS, compliance operators, and pod security.
+
+2. PostgreSQL's pgvector extension compares this query vector against every stored lab embedding using **cosine distance** (the `<=>` operator). Cosine distance measures how different two vectors' directions are, on a scale from 0.0 (identical meaning) to 2.0 (opposite meaning). In practice, distances above 0.6 indicate little meaningful similarity.
+
+3. Results are filtered by a **distance cutoff** (default: 0.55). Any lab with a cosine distance greater than 0.55 from the query is discarded — it's too far from what the user asked for to be useful. Lowering this value (e.g., 0.45) makes the search stricter and returns fewer, more tightly matched results. Raising it (e.g., 0.65) is more permissive and returns more results, including weaker matches. The default of 0.55 was tuned to balance recall (not missing relevant content) against precision (not flooding the triage phase with noise).
+
+4. The top candidates (typically 10-15 items) are passed to Phase 2.
+
+This entire search runs in milliseconds thanks to pgvector's IVFFlat index on the embedding column.
+
+### Deduplication
+
+Before passing results to triage, the vector search deduplicates to prevent the same lab content from appearing multiple times:
+
+**Content hash deduplication:** When multiple CIs share the same Showroom content (same `content_hash`), only the best representative is kept. Priority: prod > event > dev, published > base, lower vector distance.
+
+**Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data.
 
 **Ref normalization:** For deduplication fallback (when `content_hash` is not available), refs `""`, `"main"`, `"master"`, and `"HEAD"` are all treated as equivalent.
 
+---
+
 ## Phase 2 — Haiku Triage
 
-The vector search candidates are sent to Claude Haiku for fast relevance scoring. For each candidate, Haiku assigns a relevance score (0-100), a boolean relevant/not-relevant flag, and a one-line reason. Candidates below the triage cutoff (default: 30) are removed. Survivors are sorted by relevance score.
+Vector search finds labs that are *semantically similar* to the query, but similarity is not the same as relevance. A lab about OpenShift networking is semantically close to a lab about OpenShift security — they share vocabulary and concepts — but if the user asked specifically for security content, the networking lab is not relevant.
 
-This phase is fast (~1-3 seconds) and inexpensive. It filters out items that are semantically similar but not actually relevant to the request — something embedding similarity alone cannot do.
+The triage phase sends all vector search candidates to Claude Haiku for fast relevance scoring. For each candidate, Haiku sees the user's original query alongside the candidate's summary, topics, products, category, content type, and estimated duration. It returns a relevance score (0-100), a relevant/not-relevant flag, and a one-line reason.
+
+Candidates scoring below the triage cutoff (default: 30) or marked as not relevant are demoted to the "white" tier (shown but deprioritized). Survivors are promoted to the "yellow" tier and sorted by relevance score. This phase typically completes in 1-3 seconds.
+
+### Triage Prompt
+
+The triage prompt instructs Haiku to be **strict** — partial topic overlap is not relevance. The prompt includes:
+
+```
+You are evaluating RHDP catalog items for relevance to a user's request.
+
+Be strict: a partial topic overlap is not relevance. If the content does
+not meaningfully address what the user is asking for, mark it as not
+relevant. A workshop about OpenShift is not relevant to a request for
+Ansible content just because both are Red Hat products.
+
+## Request
+{the user's query}
+
+## Candidates
+--- Candidate 1 ---
+CI Name: sandboxes-gpte.ocp4-wksp-ai-parasol-insurance
+Display Name: Parasol Insurance AI Workshop
+Summary: A hands-on workshop building an AI-powered claims processing...
+Topics: LLM serving, RAG, model fine-tuning, vector databases
+Products: Red Hat OpenShift AI, Red Hat OpenShift Container Platform
+Category: Workshops
+Content Type: workshop
+Duration: 120 min
+...
+```
+
+### Triage Response
+
+```json
+[
+  {
+    "ci_name": "sandboxes-gpte.ocp4-wksp-ai-parasol-insurance",
+    "relevance_score": 92,
+    "relevant": true,
+    "one_line_reason": "Direct match — hands-on AI/ML workshop with RAG and model serving on OpenShift AI"
+  },
+  {
+    "ci_name": "sandboxes-gpte.ocp4-demo-rhods-nvidia-gpu-aws",
+    "relevance_score": 15,
+    "relevant": false,
+    "one_line_reason": "GPU infrastructure demo, not an AI application workshop"
+  }
+]
+```
+
+---
 
 ## Duration-Aware Reranking
 
-If the user's query mentions a duration target (e.g., "30-minute demo", "2-hour workshop"), the pipeline extracts the target duration in minutes and applies a penalty to candidates whose estimated duration diverges significantly.
+If the user's query mentions a duration target (e.g., "30-minute demo", "2-hour workshop"), the pipeline extracts the target duration in minutes and applies a penalty to candidates whose estimated duration diverges significantly. Only items with **curated** duration estimates are penalized — AI-estimated durations are too unreliable to penalize against.
 
-- **Soft constraint** (default) — a logarithmic penalty that gently demotes mismatched durations. Coefficient 0.08, floor 0.7.
-- **Hard constraint** — triggered by keywords like "hard limit", "strict", "maximum", "no more than", "at most", "cannot exceed", "must be under". Applies a steeper penalty. Coefficient 0.15, floor 0.6.
+- **Soft constraint** (default) — a logarithmic penalty that gently demotes mismatched durations. A 2x overshoot loses ~15% of the triage score. Coefficient 0.08, floor 0.7 (score never drops below 70% of original).
+- **Hard constraint** — triggered by keywords like "hard limit", "strict", "maximum", "no more than", "at most", "cannot exceed", "must be under". A 2x overshoot loses ~25%. Coefficient 0.15, floor 0.6.
 
 Reranking happens after triage scores are assigned and before rationale generation, so candidates are re-sorted by their adjusted scores.
+
+---
 
 ## Phase 3 — Sonnet Rationale
 
@@ -57,11 +144,15 @@ The top candidates from triage (default: 5) are sent to Claude Sonnet with their
 
 - **Why it fits** — topic alignment and learning outcomes
 - **How to use** — practical delivery suggestion
-- **Suggested format** — booth demo, hands-on lab, or presentation (based on the user's request context)
+- **Suggested format** — demo or hands-on lab (based on the user's request context)
 - **Duration notes** — timing adaptation suggestions
 - **Caveats** — concerns or limitations relevant to the request
 
 Sonnet also returns an overall assessment (response, top picks, adapting suggestions, content gaps) and a structured list of content gaps — topics the query asked for that no candidate addresses well. Content gaps are always surfaced in the chat response.
+
+Candidates that receive a rationale are promoted to the "green" tier — the highest confidence level. The final result is a ranked list with three tiers: green (best fits with rationale), yellow (relevant but not in top N), and white (semantically similar but not relevant).
+
+---
 
 ## Event URL Mode
 
@@ -71,13 +162,13 @@ When a URL is detected in the user's query, RCARS runs an event parsing step bef
 2. **Extract** — the page content is sent to Claude Sonnet with a structured prompt that returns an event profile: event name, dates, audience, themes, relevant technical topics, format opportunities, and 3-5 natural language search queries tailored to finding matching RHDP content
 3. **Search** — the generated search queries replace (URL-only) or augment (mixed text+URL) the user's query text, then vector search proceeds as normal
 
-**URL-only queries:** when the entire input is a URL, the search queries from the event profile are the sole input to vector search. The triage and rationale phases see these synthesized queries, not the raw URL.
+**URL-only queries:** when the entire input is a URL, the search queries from the event profile are the sole input to vector search.
 
-**Mixed text+URL queries:** when the input contains both text and a URL (e.g., "I need booth demos for: https://example.com/conference"), the event search queries are combined with the user's text. This lets users add constraints (duration, format, audience level) on top of the event context.
+**Mixed text+URL queries:** when the input contains both text and a URL (e.g., "I need demos for: https://example.com/conference"), the event search queries are combined with the user's text. This lets users add constraints (duration, format, audience level) on top of the event context.
 
 **Failure handling:** if the URL cannot be fetched or Sonnet cannot extract a useful profile, and the user provided no text, the pipeline returns an error message. If the user provided text alongside the URL, the text search proceeds normally without the event context.
 
-For broad multi-track events, follow-up queries can narrow results to specific areas (e.g., "focus on platform and infrastructure content").
+---
 
 ## Acronym Expansion
 
