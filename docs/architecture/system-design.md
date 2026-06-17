@@ -140,9 +140,11 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 **What's extracted:** config type (`agd_config`), cloud provider, OCP version, OS image, cluster sizing, VM topology, workloads (Ansible roles in FQCN format), and ACL groups.
 
-**Workload mapping:** Raw role names are mapped to human-readable product names via a curated `workload_mapping` table. Product aliases allow queries using common names (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in queries; unmapped roles are stored but invisible until curated.
+**Workload extraction:** Workload role names are extracted from the CRD `spec.definition` during catalog refresh. These come from multiple sources — `workloads`, `software_workloads`, `openshift_workload_deployer_workloads`, and other stage-specific fields — and include roles from any Ansible collection, not just the `agnosticd` organization. All discovered roles are stored in `catalog_item_workloads`.
 
-**Workload scanner:** RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`) to verify what each role actually installs. This runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
+**Workload mapping:** Extracted role names are mapped to human-readable product names via a curated `workload_mapping` table. Product aliases allow queries using common names (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in queries; unmapped roles are stored but invisible until curated.
+
+**Workload scanner:** To help build the mapping table, RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`), reads the Ansible code (defaults, tasks, templates), and uses Haiku to determine the product name for each role. This covers the `agnosticd.*` roles but not roles from other collections — those must be mapped manually via the Admin UI. The scanner runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
 
 **Faceted search API:** `GET /catalog/search/infrastructure` supports AND-semantics workload queries, config/cloud/OCP version/OS image filters, and automatic alias resolution.
 
