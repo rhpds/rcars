@@ -5,7 +5,9 @@ description: Three-phase progressive recommendation pipeline — vector search, 
 
 # Recommendation Engine
 
-Recommendation is a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results.
+The recommendation engine is the core of the RCARS Advisor. When a user asks a question — "what should we show at a developer conference?" or pastes an event URL — the engine finds the best matching catalog items, scores them for relevance, and generates a structured rationale for each recommendation. It is the primary consumer of the vector embeddings and LLM analysis produced by the [scan pipeline](scan-pipeline.md).
+
+The engine uses a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results as they become available.
 
 ```mermaid
 flowchart LR
