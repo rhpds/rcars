@@ -33,12 +33,12 @@ async def retirement_dashboard(
 
     num_q = WINDOW_QUARTERS.get(window, 4)
     if num_q < 4:
+        import json as _json
         from rcars.services.reporting_sync import compute_windowed_scores
         for item in items:
             qd = item.get("quarterly_data")
             if isinstance(qd, str):
-                import json
-                item["quarterly_data"] = json.loads(qd)
+                item["quarterly_data"] = _json.loads(qd)
         items = compute_windowed_scores(items, num_q)
 
     base_names = [i["catalog_base_name"] for i in items]
@@ -53,7 +53,8 @@ async def retirement_dashboard(
     allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name"}
     if num_q < 4 and sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
-        items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
+        default = "" if sort_by == "display_name" else 0
+        items.sort(key=lambda i: (i.get(sort_by) or default), reverse=reverse)
 
     for item in items:
         item.pop("quarterly_data", None)
