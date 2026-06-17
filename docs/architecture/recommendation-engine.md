@@ -205,3 +205,22 @@ Currently supported acronyms:
 | TAP | Trusted Application Pipeline |
 
 This is a hardcoded list in `pipeline.py` and a known limitation — acronyms not in this table will produce poor vector matches. A more robust approach (e.g., a curated dictionary loaded from the database, or automatic expansion from product metadata) is on the backlog.
+
+---
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RCARS_VECTOR_CUTOFF` | `0.55` | Max cosine distance for vector search (lower = stricter) |
+| `RCARS_TRIAGE_MODEL` | `claude-haiku-4-5` | Model for Phase 2 triage |
+| `RCARS_TRIAGE_CUTOFF` | `30` | Minimum triage score to be considered relevant |
+| `RCARS_RATIONALE_MODEL` | `claude-sonnet-4-6` | Model for Phase 3 rationale |
+| `RCARS_RATIONALE_TOP_N` | `5` | Number of top candidates sent to rationale phase |
+
+## API
+
+- `POST /advisor/query` — submit a recommendation query, returns `{job_id}`
+- `GET /advisor/query/{job_id}/stream` — SSE stream of progressive results
+- `GET /advisor/sessions` — list user's recent sessions
+- `POST /advisor/sessions/{session_id}/select` — mark a recommendation as "best fit"
