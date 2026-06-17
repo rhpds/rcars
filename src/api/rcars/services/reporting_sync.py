@@ -537,6 +537,31 @@ def run_reporting_sync(db, settings) -> dict:
             "quarterly_data": json.dumps(quarterly.get(name, {})),
         })
 
+    catalog_names = db.get_catalog_base_names()
+    missing = set(catalog_names) - filtered_names
+    log.info("backfilling_catalog", catalog_items=len(catalog_names),
+             already_in_reporting=len(filtered_names & set(catalog_names)),
+             missing=len(missing))
+    for name in missing:
+        merged_rows.append({
+            "catalog_base_name": name,
+            "display_name": catalog_names[name] or name,
+            "provisions": 0,
+            "provisions_quarter": 0,
+            "requests": 0,
+            "experiences": 0,
+            "unique_users": 0,
+            "success_ratio": 0,
+            "failure_ratio": 0,
+            "touched_amount": 0.0,
+            "closed_amount": 0.0,
+            "total_cost": 0.0,
+            "avg_cost_per_provision": 0.0,
+            "first_provision": None,
+            "last_provision": None,
+            "quarterly_data": json.dumps({}),
+        })
+
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
@@ -561,6 +586,7 @@ def run_reporting_sync(db, settings) -> dict:
     summary = {
         "synced": upserted,
         "orphans_removed": orphans,
+        "catalog_backfilled": len(missing),
         "provisions_rows": len(prov_data),
         "touched_rows": len(touched_data),
         "closed_rows": len(closed_data),

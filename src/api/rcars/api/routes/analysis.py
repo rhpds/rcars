@@ -63,8 +63,9 @@ async def retirement_dashboard(
     for item in items:
         stages = stages_map.get(item["catalog_base_name"], [])
         item["stages"] = stages
-        item["in_rcars"] = len(stages) > 0
-        if not item["in_rcars"]:
+        has_showroom = any(True for s in stages if s.get("has_showroom"))
+        item["has_content"] = has_showroom
+        if not has_showroom:
             item["catalog_url"] = f"https://demo.redhat.com/catalog?search={item['catalog_base_name']}"
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
