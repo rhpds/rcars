@@ -53,9 +53,9 @@ def compute_retirement_score(
     elif touched_amount < 50_000_000:
         score += 6
 
-    if closed_amount < 1_000_000:
+    if closed_amount < 5_000_000:
         score += 20
-    elif closed_amount < 5_000_000:
+    elif closed_amount < 25_000_000:
         score += 8
 
     if total_cost > 0 and closed_amount > 0:
@@ -191,12 +191,12 @@ def _build_provisions_quarter_sql(start_date: str) -> str:
     """
 
 
-def _build_sales_sql(start_date: str) -> str:
+def _build_touched_sql(start_date: str) -> str:
+    """Opportunities touched by provisions in the date window."""
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT
-                ci.name AS catalog_base_name, so.number, so.amount,
-                so.is_closed, so.stage
+                ci.name AS catalog_base_name, so.number, so.amount
             FROM provisions p
             JOIN catalog_items ci ON ci.id = p.catalog_id
             JOIN provision_sales ps ON ps.provision_uuid = p.uuid
@@ -204,12 +204,28 @@ def _build_sales_sql(start_date: str) -> str:
             WHERE p.provisioned_at >= '{start_date}'
               AND ps.sales_opportunity_number IS NOT NULL
         )
-        SELECT
-            catalog_base_name,
-            SUM(amount) AS touched_amount,
-            SUM(CASE WHEN is_closed = true
-                      AND stage IN ('Closed Won', 'Closed Booked')
-                 THEN amount ELSE 0 END) AS closed_amount
+        SELECT catalog_base_name, SUM(amount) AS touched_amount
+        FROM unique_opps
+        GROUP BY catalog_base_name
+    """
+
+
+def _build_closed_sql(start_date: str) -> str:
+    """Closed-won deals whose close date falls in the window, regardless of provision date."""
+    return f"""
+        WITH unique_opps AS (
+            SELECT DISTINCT
+                ci.name AS catalog_base_name, so.number, so.amount
+            FROM provisions p
+            JOIN catalog_items ci ON ci.id = p.catalog_id
+            JOIN provision_sales ps ON ps.provision_uuid = p.uuid
+            JOIN sales_opportunity so ON so.number = ps.sales_opportunity_number
+            WHERE ps.sales_opportunity_number IS NOT NULL
+              AND so.is_closed = true
+              AND so.stage IN ('Closed Won', 'Closed Booked')
+              AND so.closed_at >= '{start_date}'
+        )
+        SELECT catalog_base_name, SUM(amount) AS closed_amount
         FROM unique_opps
         GROUP BY catalog_base_name
     """
@@ -267,10 +283,15 @@ def run_reporting_sync(db, settings) -> dict:
     quarter_data = {r["catalog_base_name"]: int(r["provisions_quarter"]) for r in quarter_rows}
     log.info("fetched_provisions_quarter", count=len(quarter_data))
 
-    log.info("fetching_sales", sales_start=sales_start)
-    sales_rows = mcp_query(_build_sales_sql(sales_start), url=url, token=token)
-    sales_data = {r["catalog_base_name"]: r for r in sales_rows}
-    log.info("fetched_sales", count=len(sales_data))
+    log.info("fetching_touched", sales_start=sales_start)
+    touched_rows = mcp_query(_build_touched_sql(sales_start), url=url, token=token)
+    touched_data = {r["catalog_base_name"]: float(r["touched_amount"] or 0) for r in touched_rows}
+    log.info("fetched_touched", count=len(touched_data))
+
+    log.info("fetching_closed", sales_start=sales_start)
+    closed_rows = mcp_query(_build_closed_sql(sales_start), url=url, token=token)
+    closed_data = {r["catalog_base_name"]: float(r["closed_amount"] or 0) for r in closed_rows}
+    log.info("fetched_closed", count=len(closed_data))
 
     log.info("fetching_cost", sales_start=sales_start)
     cost_rows = mcp_query(_build_cost_sql(sales_start), url=url, token=token)
@@ -284,20 +305,19 @@ def run_reporting_sync(db, settings) -> dict:
 
     prod_base_names = db.get_all_base_names_with_prod()
 
-    all_names = set(prov_data) | set(sales_data) | set(cost_data) | set(date_data)
+    all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
     log.info("merging", total_base_names=len(all_names))
 
     merged_rows = []
     for name in all_names:
         prov = prov_data.get(name, {})
-        sales = sales_data.get(name, {})
         cost = cost_data.get(name, {})
         dates = date_data.get(name, {})
 
         provisions = int(prov.get("provisions", 0))
         experiences = int(prov.get("experiences", 0))
-        touched = float(sales.get("touched_amount", 0) or 0)
-        closed = float(sales.get("closed_amount", 0) or 0)
+        touched = touched_data.get(name, 0.0)
+        closed = closed_data.get(name, 0.0)
         total_cost = float(cost.get("total_cost", 0) or 0)
         first_prov = dates.get("first_provision", "") or ""
         has_prod = name in prod_base_names
@@ -335,7 +355,8 @@ def run_reporting_sync(db, settings) -> dict:
         "synced": upserted,
         "orphans_removed": orphans,
         "provisions_rows": len(prov_data),
-        "sales_rows": len(sales_data),
+        "touched_rows": len(touched_data),
+        "closed_rows": len(closed_data),
         "cost_rows": len(cost_data),
         "date_rows": len(date_data),
     }
