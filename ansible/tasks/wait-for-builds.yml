@@ -1,5 +1,14 @@
 ---
-# Build both API and frontend images, then restart all deployments
+# Build both API and frontend images, then wait for rollouts
+
+- name: Record deployment generations before builds
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: apps/v1
+    kind: Deployment
+    namespace: "{{ target_namespace }}"
+    name: "{{ app_name }}-api"
+  register: api_pre_build
 
 - name: Trigger API build
   ansible.builtin.command:
@@ -63,7 +72,7 @@
      | last).status.phase in ['Failed', 'Error', 'Cancelled']
   changed_when: false
 
-- name: Wait for API rollout
+- name: Wait for API rollout with new image
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: apps/v1
@@ -73,8 +82,14 @@
   register: api_rollout
   until: >-
     api_rollout.resources | default([]) | length > 0 and
+    (api_rollout.resources[0].metadata.generation | default(0) | int) >
+    (api_pre_build.resources[0].metadata.generation | default(0) | int) and
+    (api_rollout.resources[0].status.observedGeneration | default(0) | int) ==
+    (api_rollout.resources[0].metadata.generation | default(0) | int) and
     (api_rollout.resources[0].status.readyReplicas | default(0) | int) ==
+    (api_rollout.resources[0].spec.replicas | default(1) | int) and
+    (api_rollout.resources[0].status.updatedReplicas | default(0) | int) ==
     (api_rollout.resources[0].spec.replicas | default(1) | int)
-  retries: 20
-  delay: 10
+  retries: 30
+  delay: 15
   changed_when: false
