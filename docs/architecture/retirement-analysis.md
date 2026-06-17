@@ -90,6 +90,8 @@ Merged data is stored in the `reporting_metrics` table (one row per catalog base
 
 Each item receives a retirement score from 0 to 100. Higher scores indicate stronger retirement candidates. The score is computed using **percentile-based ranking** — each item is scored relative to its catalog peers, not against fixed dollar thresholds.
 
+The theoretical maximum score is **75 points** across the four scoring components. The scale goes to 100, but reaching 75 requires an item to be at the very bottom of every dimension — fewest provisions, zero pipeline, zero revenue, and high cost with no return. In practice, most items score between 10 and 65. The 75-point cap is intentional: it leaves headroom so that future scoring dimensions (e.g., failure rate, trend detection) can be added without compressing the existing scale.
+
 ### Scoring Components
 
 | Component | Max Points | Method |
@@ -99,8 +101,6 @@ Each item receives a retirement score from 0 to 100. Higher scores indicate stro
 | **Revenue** | 25 | Closed amount — zero gets max points; non-zero ranked by percentile |
 | **Cost efficiency** | 15 | ROI (closed ÷ cost) — poor ROI or high cost with zero revenue |
 | **Age discount** | -40 | Items less than 90 days old get a score reduction |
-
-**Maximum score: 75** (before age discount). No item automatically hits 85+ just for having low activity — the score differentiates based on where each item falls relative to its peers.
 
 ### Percentile Breakdown
 
@@ -113,6 +113,44 @@ Each item receives a retirement score from 0 to 100. Higher scores indicate stro
 | p75+ | 0 | 0 | 0 |
 
 Items with **zero** touched amount receive the full 15 pipeline points regardless of percentile. Items with **zero** closed amount receive the full 25 revenue points. This reflects that having no sales attribution is a stronger retirement signal than having low sales.
+
+### Scoring Examples
+
+To illustrate how percentile scoring works in practice, here are three hypothetical catalog items scored against the same peer set:
+
+**Example 1: "AWS with OpenShift Open Environment"** — a heavily used sandbox
+
+| Metric | Value | Percentile | Points |
+|---|---|---|---|
+| Provisions | 6,106 | p95 (top 5%) | 0 |
+| Touched | $1.28B | p99 | 0 |
+| Closed | $104M | p98 | 0 |
+| Cost | $686K, ROI = 151x | ROI ≥ 50 | 0 |
+
+**Score: 0** — this item is in the top percentile on every dimension. It drives massive revenue relative to its cost. Clear keeper.
+
+**Example 2: "Day in the Life Camel"** — a niche demo with low usage
+
+| Metric | Value | Percentile | Points |
+|---|---|---|---|
+| Provisions | 53 | p18 (bottom 20%) | 15 |
+| Touched | $604K | p58 (non-zero) | 4 |
+| Closed | $0 | zero | 25 |
+| Cost | $5.8K, zero closed | cost > $5K, no revenue | 15 |
+
+**Score: 59** — low provisions, zero closed revenue, and costs $5.8K/year with no return. The touched amount keeps it out of the highest tier (someone is at least linking it to opportunities), but it's a strong review candidate.
+
+**Example 3: "RHEL Image Mode Workshop"** — a new item, 4 months old
+
+| Metric | Value | Percentile | Points |
+|---|---|---|---|
+| Provisions | 280 | p42 | 8 |
+| Touched | $0 | zero | 15 |
+| Closed | $0 | zero | 25 |
+| Cost | $12K, zero closed | cost > $5K, no revenue | 15 |
+| Age | 120 days | ≤ 180 days | -15 |
+
+**Score: 48** (63 before age discount) — zero sales data looks bad, but the item is only 4 months old. The age discount reduces the score by 15 points, keeping it out of the "high retirement" tier while it has time to build a track record. Without the discount, it would score 63 and show up as a review candidate prematurely.
 
 ### Why Percentile-Based
 
