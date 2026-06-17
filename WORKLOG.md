@@ -27,6 +27,167 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-17 — Nate + Claude (Retirement scoring + time window + catalog completeness)
+
+**Done:**
+- **Stale scoring cleanup:**
+  - `delete_orphan_reporting_metrics` now removes items not in the current sync batch AND items no longer in `catalog_items`
+  - 163 stale items from old scoring (85, 100) cleaned up — scores now 0-65 max
+- **Time window filter for retirement dashboard:**
+  - Migration 007: `quarterly_data JSONB` column on `reporting_metrics`
+  - 4 new quarterly SQL queries grouped by `TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY-"Q"Q')`
+  - `compute_windowed_scores()` recomputes percentile rankings from stored quarterly data — no MCP re-query
+  - API: `window` query parameter (1q/2q/3q/1y); frontend: pill selector on Prod tab
+  - Cost quarterly query uses provision quarter (provisioned_at) not billing quarter (month_ts). 300s timeout.
+  - Fixed `compute_retirement_score` to handle `datetime.date` objects from psycopg3
+- **More aggressive scoring:**
+  - Added `provisions_zero` flag (+25), matching touched_zero/closed_zero pattern
+  - Provision percentiles computed among non-zero peers only (was diluted by all items)
+  - Bumped provision weights: < 25th pct +14, < 10th +18
+  - Reduced age discount from -40/-15 to -30/-10
+  - Lowered thresholds: high ≥55, review ≥35 (was 75/50)
+- **Full catalog coverage in retirement dashboard:**
+  - `get_catalog_base_names()` pulls all 528 unique base names from `catalog_items`
+  - Sync backfills zero-data entries for catalog items with no reporting data (176 items)
+  - Items without Showroom get `has_content=false` and gray "catalog" badge linking to demo.redhat.com
+  - `get_stages_for_base_names()` now includes `has_showroom` flag
+  - All windows: Prod (353) + Without Prod (175) = 528 unique catalog items
+- **Removed activity filter** — all 353 prod items always shown regardless of window; items with zero recent activity are retirement candidates, not items to hide
+- **Investigated cross-namespace duplication** — items like `zt-ansiblebu.zt-ans-bu-writing-playbook` and `zt-rhel.zt-ans-bu-writing-playbook` share sales opportunities, inflating per-item touched/closed amounts. Conservative error (makes items look like keepers). Added as low-priority backlog item.
+- **Isolation verified** — changes confined to retirement endpoint, reporting_sync, and database methods only used by retirement code. Scan pipeline, recommendation pipeline, overlap detection, and admin functions untouched.
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Visual verification of the retirement dashboard via browser (OAuth login required)
+- Retirement Phase 2: workflow actions (mark as Under Review / Approved / Retired)
+- Documentation update for retirement analysis architecture page
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Notes:**
+- The kubeconfig for dev management is at `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
+- Max achievable score is ~80 (provisions_zero 25 + touched_zero 15 + closed_zero 25 + high cost no closed 15). Age discount subtracts up to 30 for items < 90 days old.
+- Quarterly data stored as JSONB: `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`. Sync adds ~60s for quarterly queries.
+- `delete_orphan_reporting_metrics` takes `synced_names` set — removes items not in the current sync AND items without catalog entries.
+- The Ansible deploy playbook intermittently fails cluster connectivity checks (404 from k8s API). Workaround: use `oc start-build` directly with the management SA kubeconfig.
+
+---
+
+### 2026-06-17 — Nate + Claude (Retirement Phase 2 — data validation + scoring + docs)
+
+**Done:**
+- **Data validation investigation and fix (3 root causes found and fixed):**
+  1. Sales SQL was filtering by `p.provisioned_at` (provision date) instead of `so.closed_at` (opportunity close date). Split `_build_sales_sql()` into `_build_touched_sql()` (provision-date filtered) and `_build_closed_sql()` (closed_at filtered). Fixed sandbox-ocp from $45M → $104M closed.
+  2. All queries filtered to `environment='PROD'` and `user_group IN ('Only Regular Users', 'Red Hat Console')` to match SuperSet dashboard scope. Removed 42% of inflated provisions from DEV/TEST/EVENT and internal users.
+  3. Switched all queries from raw `provisions` table to `provisions_summary` materialized view (the same source SuperSet uses), and from `provision_sales` intermediary join to direct `provisions_summary.sales_opportunity_id → sales_opportunity.id` FK. Fixed RHADS from $1.1B → $213M touched.
+- **Percentile-based retirement scoring:**
+  - Replaced fixed-threshold scoring with percentile ranking against catalog peers
+  - Removed `has_prod` from scoring — dev-only items handled in separate tab
+  - Excluded test/infra items (`tests.*`, `clusterplatform.*`, `resourcehub.*`) from sync
+  - Two-pass scoring in `run_reporting_sync()`: collect data → compute percentiles → score
+  - Max score 75 (headroom for future dimensions), age discount unchanged
+- **Retirement dashboard redesign:**
+  - Split into Prod Retirements (scored) and Without Prod (age-based) tabs
+  - Stat cards compute from filtered items (not global summary)
+  - Without Prod: expandable rows with detail, clickable stage badges linking to Browse, age filter pills (All / >1 Year / 6-12 Mo / < 6 Mo)
+- **Admin status cards redesigned:**
+  - LLM Provider: models under both LiteMaaS and Vertex AI, Analysis/Triage/Rationale rows
+  - Reporting Sync: "Assets tracked" with color-coded score breakdown replacing opaque counts
+- **API memory bumped** from 512Mi/2Gi to 1Gi/4Gi to prevent OOM during sync
+- **Documentation overhaul:**
+  - Split monolithic `system-design.md` (684 lines) into 5 focused pages: system design, scan pipeline, recommendation engine, content overlap, retirement analysis
+  - Rewrote overview.md to reflect current RCARS capabilities
+  - Fixed inaccuracies: namespace sync (all 3, not prod-only), ZTE naming, workload extraction vs scanning, catalog reader extraction list, vector embeddings explanation
+  - Scan pipeline: added intro, nav.adoc in diagram, rewrote Step 4 with actual prompt fields + example output, rewrote Step 6 embeddings with clear explanation, moved dedup after Step 7, added change detection section
+  - Recommendation engine: vertical diagram with subgroups, expanded Phase 1 vector search explanation, triage prompt/response examples, clarified triage (compact 8-field) vs rationale (full analysis) data, acronym table
+  - Retirement analysis: explained 75-point max, added three worked scoring examples
+  - Added config/CLI/API reference sections to all architecture pages
+- **Backlog additions:** robust acronym expansion, lower overlap threshold for broader detection
+- All changes deployed to dev, sync verified
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Time window filter for retirement dashboard (1Q / 2Q / 3Q / 1Y selector). Design decision needed: store per-quarter breakdowns during sync vs re-query MCP on demand. The nightly sync already pulls trailing year; the filter would recompute scores on the selected subset.
+- Re-sync on dev and verify percentile score distribution looks right (new scoring deployed but hasn't been synced yet with latest frontend fixes)
+- Documentation review continuation (CLI/API reference sections added but content review paused mid-stream)
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Notes:**
+- `provisions_summary` is a PostgreSQL materialized view (not in `information_schema`, found via `pg_matviews`). It has ~15K fewer rows than `provisions` and different opportunity linkage — must be used for dashboard-matching numbers.
+- The `PROVISION_FILTERS` constant in `reporting_sync.py` applies environment + user_group filters to all queries.
+- `EXCLUDE_PREFIXES` in `reporting_sync.py` filters out test/infra items before scoring.
+- Reporting MCP env vars were manually injected on dev via `oc set env` because `--tags apply` failed transiently. Next `--tags deploy` will set them up canonically via the template.
+- The frontend TS build is strict — unused variables cause build failures. The `summary` state removal caught this.
+
+---
+
+### 2026-06-16 — Nate + Claude (Retirement analysis + LiteMaaS + code review)
+
+**Done:**
+- **Retirement analysis (Phase 1) — full implementation and deployment:**
+  - Alembic migration 005: `reporting_metrics` table with retirement_score index
+  - MCP HTTP client with auto-pagination past 500-row server cap, HTTPS-only validation
+  - Nightly sync step 5 in maintenance pipeline: provisions, sales, cost, dates from RHDP reporting MCP
+  - Retirement scoring (0-100) based on usage, sales, cost, prod presence, age
+  - CLI commands: `rcars reporting-db sync/status/show`
+  - API: `GET /analysis/retirement` dashboard, `POST /admin/sync-reporting` trigger
+  - Catalog detail and rec candidates enriched with reporting metrics (provisions, cost/provision, sales impact badge)
+  - Frontend: Retirement page under Content Analysis with stat cards grid (total, high, review, keepers, cost, closed, touched), sortable table with sticky headers, expandable detail rows with environment badges
+  - Bug fix: `get_all_base_names_with_prod()` KeyError on dict_row cursor — used named column + explicit cursor
+  - Pipeline step messages clarified: removed "/3" denominators, human-readable descriptions for all 5 steps
+- **LiteMaaS as primary LLM provider:**
+  - Unified `call_llm()` function with per-model routing — LiteMaaS (OpenAI SDK) preferred, Vertex AI (Anthropic SDK) as automatic fallback
+  - Model list cached once at worker startup from `/v1/models` endpoint
+  - `provider` column added to `token_usage` table (migration 006), threaded through all 5 LLM call sites
+  - Admin Status page: LLM Provider card (active providers, models) + Reporting Sync card (items synced, orphans, last synced)
+  - Admin Token Usage page: Provider column with color-coded display
+  - Both providers can be configured simultaneously — if LiteMaaS drops a model, next restart routes to Vertex automatically
+  - Config: `RCARS_LITEMAAS_URL`, `RCARS_LITEMAAS_API_KEY`
+- **Content Analysis UI unification:**
+  - Shared `ca-*` CSS classes in lcars.css matching the standalone analysis.html reference design
+  - Both Overlap and Retirement pages now use identical fonts, colors, controls, stat cards, and layout
+  - Overlap page: search filter, full summary text (no truncation), Browse links open in new tab
+  - Retirement page: stat cards grid, full-width table with `table-layout: fixed`, score badges with colored backgrounds, name column 40% width, default sort by lowest score first (healthy assets first)
+  - Numbers format to $X.XXB for billions
+- **Code review remediation (15 findings fixed):**
+  - LiteMaaS API key and reporting MCP token moved from plain env vars to K8s Secrets with `secretKeyRef`
+  - NOT NULL constraint on provider column
+  - Defensive empty-response checks in both LLM providers
+  - Pagination safety cap (50 pages max) on `mcp_query`
+  - Null guard on `avg_cost_per_provision` float conversion
+  - GROUP BY COALESCE fix for provider stats
+  - Orphan job handling on sync-reporting enqueue failure
+  - Reporting status endpoint checks both URL and token, queries both job types
+  - Rationale prompt example fixed (single enum value)
+  - Workload scanner variable shadowing (`result` → `llm_result`)
+  - Redundant CLI imports removed, `.catch()` on admin API calls, keyed Fragment in RetirementPage
+  - Skipped 2 findings with justification (migration raw SQL is project convention, LIKE wildcard escape unnecessary for AgnosticV identifiers)
+- **Ansible deployment fix:** `init-db` crash guard for `provider` index when column doesn't exist yet (CREATE TABLE IF NOT EXISTS skips existing tables)
+- **Backlog updates:** babydev cluster migration, enhanced retirement scoring + data validation + time window filter
+
+**In progress:**
+- Production deployment running (`--tags deploy`)
+
+**Next:**
+- Verify production deployment (LiteMaaS routing, reporting sync, retirement dashboard)
+- Retirement scoring Phase 2: data validation (closed amount discrepancy), time window filter, enhanced scoring model
+- Babydev cluster migration (deadline: end of June 2026)
+- Portfolio Architecture ingest from OSSPA GitLab
+
+**Notes:**
+- Migration race condition: `--tags update` can run `alembic upgrade head` on the old pod before the new build rolls out. Happened with migration 006 on dev. Workaround: run `--tags migrate` separately after build completes, or use `--tags deploy` which sequences correctly. Consider adding build SHA verification to the migration step.
+- LiteMaaS URL: `https://maas-rhdp.apps.maas.redhatworkshops.io/v1`. Models available: `claude-haiku-4-5`, `claude-sonnet-4-6`. API key stored as K8s Secret.
+- Reporting MCP URL: `https://reporting-mcp.apps.ocpv-infra01.dal12.infra.demo.redhat.com/mcp/`. Token stored as K8s Secret.
+- Retirement scoring thresholds were tuned for 6-month data but we're pulling trailing year — scores cluster at 85 for low-activity items. Needs recalibration in Phase 2.
+- Closed amount discrepancy between RCARS and main reporting dashboard (e.g. AWS with OpenShift: $45M vs $115M) — investigate in dedicated scoring session.
+- RecCard format labels simplified to "Demo" and "Hands-on Lab" (external change during session, not reverted).
+- The `deploy` Ansible tag is the only one that includes both `apply` (infra secrets) and `update` (builds + migrate). Use `deploy` for any changes that touch deployment config.
+
+---
+
 ### 2026-06-15 — Nate + Claude (Code review remediation + RecCard cleanup)
 
 **Done:**

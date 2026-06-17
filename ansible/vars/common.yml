@@ -49,8 +49,8 @@ frontend_replicas: 1
 # Resource limits
 api_cpu_request: 500m
 api_cpu_limit: "2"
-api_memory_request: 512Mi
-api_memory_limit: 2Gi
+api_memory_request: 1Gi
+api_memory_limit: 4Gi
 
 worker_cpu_request: 500m
 worker_cpu_limit: "2"

@@ -1,9 +1,9 @@
 ---
-title: Architecture
-description: End-to-end technical architecture of RCARS
+title: System Design
+description: RCARS system overview, data sources, schema, worker architecture, frontend, and deployment
 ---
 
-# Architecture
+# System Design
 
 ## System Overview
 
@@ -22,7 +22,7 @@ Workers are split into two deployments so bulk scans never block user-facing adv
 
 Supporting infrastructure: PostgreSQL 16 + pgvector, Redis 7, OAuth proxy.
 
-The three main pipelines — catalog sync, content analysis, and recommendation — run independently and can be triggered separately. Nothing in the analysis pipeline depends on the state of an ongoing recommendation query, and vice versa.
+The main pipelines — catalog sync, content analysis, recommendation, and reporting sync — run independently and can be triggered separately.
 
 ```mermaid
 graph TB
@@ -51,7 +51,8 @@ graph TB
     subgraph "External Systems"
         K8S[Babylon K8s API<br/>CatalogItem + AgnosticV CRDs]
         GH[GitHub<br/>Showroom repos]
-        VA[Vertex AI<br/>Claude Sonnet + Haiku]
+        LLM[LiteMaaS / Vertex AI<br/>Claude Sonnet + Haiku]
+        RPT[Reporting MCP Server<br/>provisions + sales + cost]
     end
     
     User -->|SSO| OA
@@ -63,11 +64,12 @@ graph TB
     SW -->|process jobs| RD
     SW -->|read/write| PG
     SW -->|clone repos| GH
-    SW -->|LLM calls| VA
+    SW -->|LLM calls| LLM
     SW -->|read CRDs| K8S
+    SW -->|query| RPT
     RW -->|process jobs| RD
     RW -->|read| PG
-    RW -->|LLM calls| VA
+    RW -->|LLM calls| LLM
 ```
 
 ---
@@ -81,13 +83,13 @@ The RHDP catalog is defined as Kubernetes custom resources in the Babylon platfo
 - **`AgnosticVComponent`** — the primary resource for each catalog item. Contains the display name, category, product, description, keywords, stage, and workload variable configuration (which includes Showroom URLs when present).
 - **`CatalogItem`** — the ordering layer resource. Used to resolve published Virtual CI identities and their relationship to underlying base components.
 
-Three namespaces are tracked:
+Three namespaces are synced:
 
 - `babylon-catalog-prod` — live production catalog items
 - `babylon-catalog-dev` — items in development or testing
 - `babylon-catalog-event` — event-specific items
 
-By default, RCARS syncs only `babylon-catalog-prod`. The `--include-dev` flag on `rcars refresh` includes all three.
+All three are synced on every catalog refresh. The stage (prod/dev/event) is derived from the namespace and stored on each catalog item, allowing stage-scoped queries and filtering throughout the system.
 
 ### CI Hierarchy
 
@@ -97,19 +99,24 @@ Catalog items in RHDP are not all the same kind of thing. There are broadly thre
 - **Base CIs** — the actual lab definitions, containing the Showroom content link, full description, and workload configuration. Many Base CIs are ordered directly — they don't have a Published VCI in front of them. This is actually the more common pattern.
 - **Infrastructure CIs** — the underlying provisioning layer. RCARS does not interact with these.
 
-What matters for RCARS is whether a CI has a Showroom URL — that is where the lab content lives and what gets analyzed. RCARS tracks the Published VCI ↔ Base CI relationship when it exists to avoid recommending the same underlying content twice (once as the VCI, once as the base). Where no VCI exists, the Base CI is returned directly as the recommendation target.
+For content analysis and recommendations, what matters is whether a CI has a Showroom URL — that is where the lab content lives and what gets analyzed by the LLM. For infrastructure-aware queries, what matters is whether the CI uses AgnosticD v2 — those items have their workload roles extracted and mapped to products regardless of whether they have Showroom content. RCARS tracks the Published VCI ↔ Base CI relationship when it exists to avoid recommending the same underlying content twice.
+
+### RHDP Reporting Database
+
+RCARS imports usage, sales, and cost data from the RHDP reporting database via an MCP server. This is the same data source that powers the SuperSet management dashboard. See [Retirement Analysis](retirement-analysis.md) for full details on the data import, scoring methodology, and join approach.
 
 ---
 
 ## Catalog Reader (`services/catalog.py`)
 
-The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `CatalogItem` and `AgnosticVComponent` resources. CatalogItems provide catalog metadata (display name, category, stage); AgnosticVComponents provide the showroom URLs from `spec.definition`.
+The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `CatalogItem` and `AgnosticVComponent` resources.
 
 For each component, it extracts:
 
 - **Display name, category, product, description, keywords, stage** — from CatalogItem CRD metadata and labels
 - **Showroom URL and ref** — extracted from the AgnosticVComponent using a two-path extraction strategy (see below)
 - **Published/base CI relationship** — derived from `__meta__.components[].item` references
+- **Infrastructure metadata** (AgnosticD v2 items only) — config type, cloud provider, OCP version, OS image, workload roles, ACL groups. See [Infrastructure Metadata Extraction](#infrastructure-metadata-extraction-agnosticd-v2) below.
 
 The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
 
@@ -119,249 +126,46 @@ Showroom URLs are not stored in a single consistent field. RCARS uses two extrac
 
 **Path 1. Top-level `spec.definition`** — the most common pattern. URL variables checked (in order): `ocp4_workload_showroom_content_git_repo`, `showroom_git_repo`, `bookbag_git_repo`. Ref variables: `ocp4_workload_showroom_content_git_repo_ref`, `ocp4_workload_showroom_content_git_ref`, `showroom_git_ref`.
 
-*Template variable resolution:* some CIs use Jinja2 templates for the ref (e.g., `{{ showroom_repo_revision }}`). RCARS resolves these by looking up the variable name in `spec.definition`, with catalog parameter defaults taking precedence per stage. Example: `modernize-ocp-virt` dev has a catalog parameter defaulting to `main`, while prod/event inherit `v1.0.0` from the definition.
+*Template variable resolution:* some CIs use Jinja2 templates for the ref (e.g., `{{ showroom_repo_revision }}`). RCARS resolves these by looking up the variable name in `spec.definition`, with catalog parameter defaults taking precedence per stage.
 
-**Path 2. Component `parameter_values`** — Zero Touch (ZT) Virtual CIs have `deployer.type: null` and delegate to a base component, passing the showroom URL as a parameter override in `__meta__.components[].parameter_values`. This covers ~254 CIs (entire `zt-rhelbu` and most `zt-ansiblebu`).
+**Path 2. Component `parameter_values`** — Zero Touch items have `deployer.type: null` and delegate to a base component, passing the showroom URL as a parameter override in `__meta__.components[].parameter_values`. This covers ~254 CIs (entire `zt-rhelbu` and most `zt-ansiblebu`).
 
 **Template repos skipped:** URLs containing `showroom_template_default`, `showroom_template_nookbag`, or `showroom_template_zero` are filtered out — these are placeholder defaults from shared includes, not real content.
 
 ### Infrastructure Metadata Extraction (AgnosticD v2)
 
-In addition to Showroom content analysis, RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This enables Publishing House to query by infrastructure characteristics — "give me a cluster with OpenShift AI and Pipelines installed" — using faceted filters rather than vector search.
+RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This enables querying by infrastructure characteristics — "give me a cluster with OpenShift AI and Pipelines installed" — using faceted filters rather than vector search.
 
-**Scope:** Only items using the canonical AgnosticD v2 deployer (`__meta__.deployer.scm_url == https://github.com/agnosticd/agnosticd-v2`). V1 items have inconsistent field names and are excluded.
+**Scope:** Only items using the canonical AgnosticD v2 deployer (`__meta__.deployer.scm_url == https://github.com/agnosticd/agnosticd-v2`).
 
-**What's extracted during catalog refresh:**
+**What's extracted:** config type (`agd_config`), cloud provider, OCP version, OS image, cluster sizing, VM topology, workloads (Ansible roles in FQCN format), and ACL groups.
 
-- **Config type** (`agd_config`) — what kind of environment: `openshift-workloads` (deploy onto shared OCP), `openshift-cluster` (provision dedicated OCP), `cloud-vms-base` (provision RHEL VMs), `namespace` (deploy into existing namespace)
-- **Cloud provider** — `aws`, `openshift_cnv`, or `none`
-- **OCP version** — for cluster-provisioning configs (from `host_ocp4_installer_version`)
-- **OS image** — for `cloud-vms-base` items only (e.g. `rhel-9.6`, `rhel-10.0`). Not set for OCP items even if they have a RHEL bastion
-- **Cluster sizing** — worker count, control plane count (can be Jinja2 templates)
-- **VM topology** — for `cloud-vms-base`, full instance specs (cores, memory, image per VM)
-- **Workloads** — the list of Ansible roles deployed (FQCN format like `agnosticd.core_workloads.ocp4_workload_openshift_ai`). OCP items use a flat `workloads` list; RHEL/VM items use dict-based fields keyed by host group (`software_workloads`, `post_software_workloads`, etc.)
-- **ACL groups** — from `__meta__.access_control.allow_groups`
+**Workload extraction:** Workload role names are extracted from the CRD `spec.definition` during catalog refresh. These come from multiple sources — `workloads`, `software_workloads`, `openshift_workload_deployer_workloads`, and other stage-specific fields — and include roles from any Ansible collection, not just the `agnosticd` organization. All discovered roles are stored in `catalog_item_workloads`.
 
-**Workload mapping:** Raw role names are mapped to human-readable product names via a curated `workload_mapping` table (e.g. `ocp4_workload_openshift_ai` → "OpenShift AI"). Product aliases allow queries using any common name (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in PH-facing queries; unmapped roles are stored but invisible until curated.
+**Workload mapping:** Extracted role names are mapped to human-readable product names via a curated `workload_mapping` table. Product aliases allow queries using common names (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in queries; unmapped roles are stored but invisible until curated.
 
-**Workload scanner:** RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`) to verify what each role actually installs. The scanner reads the Ansible code (defaults, tasks, templates) and uses Haiku to determine the product name, description, and category. This runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
+**Workload scanner:** To help build the mapping table, RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`), reads the Ansible code (defaults, tasks, templates), and uses Haiku to determine the product name for each role. This covers the `agnosticd.*` roles but not roles from other collections — those must be mapped manually via the Admin UI. The scanner runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
 
-**Faceted search API:** `GET /catalog/search/infrastructure` supports AND-semantics workload queries (CI must have ALL requested workloads), config/cloud/OCP version/OS image filters, and automatic alias resolution. This is distinct from the vector-based content search used by the Advisor — faceted search answers "what has this infrastructure?" while vector search answers "what teaches this topic?"
+**Faceted search API:** `GET /catalog/search/infrastructure` supports AND-semantics workload queries, config/cloud/OCP version/OS image filters, and automatic alias resolution.
 
 ---
 
-## PostgreSQL Schema
+## PostgreSQL and Vector Embeddings
 
-RCARS uses PostgreSQL with the pgvector extension. Schema is managed with two complementary mechanisms:
+RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed with `CREATE TABLE IF NOT EXISTS` for fresh installs and Alembic migrations for changes to existing tables. For the full table list and column-level details, see the [Schema Reference](schema-reference.md).
 
-- **`db.create_schema()`** — `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` for all tables. Handles fresh installs. Called by `rcars init-db` and on API startup.
-- **Alembic** — `ALTER TABLE` migrations for schema changes to existing tables (new columns, new tables on running databases). Migration files live in `src/api/alembic/versions/`. On OpenShift, the Ansible playbook runs `rcars init-db` then `alembic upgrade head` via `k8s_exec` as the `migrate` deploy tag (`ansible-playbook ansible/deploy.yml -e env=dev --tags migrate`). Both steps are idempotent — safe to run repeatedly.
+The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 384 numbers produced by a locally-running sentence-transformers model (`all-MiniLM-L6-v2`). These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
-### Understanding Vector Embeddings
+For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.
 
-Several sections below reference vector embeddings. Before getting into the table structure, it helps to understand what these are and why they exist.
+These embeddings power two core features:
 
-A **vector embedding** is a fixed-length list of numbers (in RCARS, 384 numbers) that represents the meaning of a piece of text. The numbers are produced by a machine learning model trained to place semantically similar texts close together in this 384-dimensional space. The key property: texts that mean similar things end up with similar vectors, even if they use completely different words.
+- **[Recommendations](recommendation-engine.md#phase-1--vector-search)** — a user's query is embedded with the same model, then pgvector's cosine similarity search (`<=>` operator) finds the labs whose embeddings are closest to the query. This replaces keyword matching with semantic understanding.
+- **[Content overlap detection](content-overlap.md#how-cosine-similarity-works)** — lab embeddings are compared against each other to find catalog items that teach the same material under different names.
 
-For example, the phrase "hands-on OpenShift workshop for platform engineers" and the phrase "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors, because they describe the same kind of thing. A keyword search would not connect them.
+**Cosine similarity** measures the angle between two vectors. A score of 1.0 means identical meaning; 0.0 means unrelated. pgvector returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index makes this search fast even across thousands of embeddings.
 
-RCARS generates these vectors for every analyzed Showroom using a locally-running sentence-transformers model (`all-MiniLM-L6-v2`). When a user asks a question, the question is converted into the same kind of vector, and PostgreSQL with the **pgvector** extension runs a cosine similarity search — finding stored embeddings whose vectors are closest to the query vector. This is how RCARS finds semantically relevant content without requiring exact keyword matches.
-
-Cosine similarity measures the angle between two vectors regardless of their magnitude. A score of 1.0 means identical direction (perfect match); 0.0 means orthogonal (unrelated). pgvector's `<=>` operator returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index on the embedding column makes this search fast even with thousands of stored vectors.
-
-### Tables
-
-RCARS uses 15 tables. For full column-level details, see the [Schema Reference](schema-reference.md).
-
-| Table | Purpose |
-|---|---|
-| `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, Showroom URL, scan status, infrastructure fields (v2 items) |
-| `showroom_analysis` | LLM analysis results — summary, modules, learning objectives, staleness tracking |
-| `embeddings` | 384-dim vectors for semantic search (ci_summary + module types) |
-| `enrichment_tags` | Curator-applied labels (tag_type + tag_value per CI) |
-| `catalog_item_workloads` | Junction table: which workload roles each v2 CI deploys (FQCN + role + collection) |
-| `workload_mapping` | Curated mapping: workload role → product name, description, category. Verified by code analysis |
-| `workload_aliases` | Product name aliases for query resolution (e.g. RHOAI → OpenShift AI) |
-| `catalog_item_acl_groups` | ACL groups per CI from `__meta__.access_control.allow_groups` |
-| `workload_scan_state` | Last-scanned SHA per agDv2 collection repo for change detection |
-| `analysis_log` | Append-only audit trail of operations |
-| `token_usage` | LLM token tracking per operation/model |
-| `advisor_sessions` | User queries, results, and selections (multi-turn) |
-| `content_similarity` | Pairwise cosine similarity scores between CI embeddings, for overlap detection |
-| `jobs` | Background job tracking (recommend, analyze, refresh, maintenance, workload_scan) |
-| `api_keys` | API key management (future, not yet active) |
-
-### Data Model
-
-```mermaid
-erDiagram
-    catalog_items ||--o| showroom_analysis : "analysis"
-    catalog_items ||--o{ enrichment_tags : "tags"
-    catalog_items ||--o{ embeddings : "vectors"
-    catalog_items ||--o{ catalog_item_workloads : "workloads"
-    catalog_items ||--o{ catalog_item_acl_groups : "acl"
-    catalog_item_workloads }o--o| workload_mapping : "role mapping"
-    workload_mapping ||--o{ workload_aliases : "aliases"
-    
-    catalog_items {
-        text ci_name PK
-        text display_name
-        text stage
-        text showroom_url
-        boolean is_agd_v2
-        text agd_config
-        text cloud_provider
-        text os_image
-    }
-    
-    showroom_analysis {
-        text ci_name PK_FK
-        text summary
-        jsonb modules_json
-        boolean is_stale
-    }
-    
-    catalog_item_workloads {
-        serial id PK
-        text ci_name FK
-        text workload_fqcn
-        text workload_role
-    }
-    
-    workload_mapping {
-        serial id PK
-        text workload_role UK
-        text product_name
-        boolean verified
-    }
-    
-    workload_aliases {
-        serial id PK
-        text product_name
-        text alias UK
-    }
-
-    embeddings {
-        serial id PK
-        text ci_name FK
-        text embed_type
-        vector embedding
-    }
-```
-
----
-
-## The Scan Pipeline (`analyzer.py`)
-
-```mermaid
-flowchart TD
-    Start[Catalog Item] --> Clone[Clone Showroom Repo<br/>git clone --depth 1]
-    Clone --> Read[Read .adoc Files<br/>content/modules/ROOT/pages/]
-    Read --> Filter[Filter Boilerplate<br/>login, index, credentials pages]
-    Filter --> Prompt[Build Prompt<br/>+ CI metadata]
-    Prompt --> LLM[Call Claude Sonnet<br/>max_tokens=8192, temp=0]
-    LLM --> Parse[Parse JSON Response]
-    Parse --> Embed[Generate Embeddings<br/>all-MiniLM-L6-v2, 384-dim]
-    Embed --> Store[Store Analysis +<br/>Embeddings in PostgreSQL]
-    Store --> Siblings{Has Siblings?<br/>Same URL+ref}
-    Siblings -->|Yes| Propagate[Propagate to<br/>All Siblings]
-    Siblings -->|No| Cleanup[Cleanup<br/>Delete Clone]
-    Propagate --> Cleanup
-```
-
-The scan pipeline runs per catalog item and is fully isolated — each item is processed independently with no shared state or context leakage between items.
-
-### Step 1 — Clone
-
-The item's Showroom Git repository is shallow-cloned (`--depth 1`) to a temporary directory. If the configured branch or ref is not found, the clone falls back to the repository's default branch. Clone timeout is 120 seconds. On any clone failure, the item is marked as an error in the action log and the pipeline moves to the next item.
-
-### Step 2 — Read
-
-AsciiDoc files are read from the standard Antora content layout: `content/modules/ROOT/pages/*.adoc`. If a `nav.adoc` navigation file exists, RCARS parses it to identify which pages are actively linked — only pages referenced in `nav.adoc` xref lines are included. This prevents reading orphaned or draft pages that are present in the repo but not part of the live content. A custom content path can be set via the `content_path` field to handle non-standard repository layouts. Files are read with error-replacement for encoding issues. The repository HEAD commit SHA and timestamp are recorded for staleness tracking.
-
-### Step 3 — Filter Boilerplate
-
-Not all pages in a Showroom contain educational content. Login/credentials pages, environment setup pages, index and navigation pages, and author bio pages are filtered out before the content reaches the LLM. The filter checks both filename patterns (e.g., `index.adoc`) and content signals in the first 500 characters of each file (e.g., "your username is", "your lab environment has been provisioned"). If the filter removes everything, the pipeline falls back to the unfiltered content rather than failing.
-
-This filtering step is important for analysis quality. Without it, the LLM would spend a significant portion of its context window on content that looks similar across every Showroom in the catalog and teaches it nothing about what makes this particular lab unique.
-
-### Step 4 — Build Prompt and Call Sonnet
-
-The filtered file contents are concatenated with file-level headers and truncated to a maximum of 150,000 characters. This text, along with the catalog item's metadata (CI name, display name, category, product), is inserted into the analysis prompt template.
-
-The prompt instructs Sonnet to:
-
-- Identify what the lab covers and who it's for
-- Extract **stated** learning objectives (what the Showroom text explicitly claims)
-- Infer **additional** learning objectives from the actual exercises (what a learner will genuinely learn even if it's never stated)
-- Assess suitability for booth demos, hands-on sessions, and presentation support
-- Return everything as structured JSON
-
-Temperature is set to 0. Each analysis call is completely stateless — no conversation history is maintained between items, and Sonnet has no knowledge of other items in the catalog.
-
-### Step 5 — Parse Response
-
-Sonnet's response is expected to be JSON. The parser handles common response artifacts: markdown code fences (`\`\`\`json`), leading/trailing whitespace, and partial JSON embedded in a longer response. If parsing fails entirely, the item is marked as an error.
-
-### Step 6 — Generate Embeddings
-
-Two types of embeddings are generated using a locally-running sentence-transformers model (`all-MiniLM-L6-v2`, 384 dimensions):
-
-1. **CI-level embedding** — the analysis summary, all learning objectives, topics, products, audience descriptors, use cases, and **catalog keywords** concatenated into a single string and embedded. This is the primary search target.
-2. **Module-level embeddings** — one embedding per module in the analysis, built from the module title, topics, and learning objectives. These are stored but not used in the default similarity search (reserved for future module-level matching).
-
-Catalog keywords (from `catalog_items.keywords`, sourced from the CRD's `spec.keywords` during catalog refresh) are appended to the CI-level embedding text. This is important because keywords contain metadata not present in the Showroom content itself — event tags like `rh1-2026`, product identifiers, and lab codes. Including them in the embedding means queries like "Summit 2026 labs" can match via vector similarity even when the Showroom content never mentions the event.
-
-Keywords and analysis come from **two different sources**: keywords are read from Kubernetes CRDs during catalog refresh, while the analysis is generated by the LLM from Showroom content during scanning. The embedding is built at scan time by combining both. This means that if keywords are added or changed in the CRD after the last scan, the existing embedding will not reflect the new keywords until the item is re-scanned.
-
-The sentence-transformers model runs locally inside the RCARS pod with no external API call. Embeddings are normalized (unit vectors), which makes cosine similarity equivalent to dot product — a requirement of pgvector's `<=>` operator.
-
-### Step 7 — Store, Propagate, and Clean Up
-
-The analysis and embeddings are written to the database. The temporary clone directory is deleted. This cleanup runs in a `finally` block — the clone is always deleted regardless of whether earlier steps succeeded or failed.
-
-### Error Classification
-
-When a scan fails, RCARS classifies the error into one of these categories (stored in `catalog_items.scan_error_class`):
-
-| Error Class | Cause |
-|---|---|
-| `jinja_url` | Showroom URL contains unresolved Jinja2 template variables |
-| `timeout` | Git clone or LLM call exceeded timeout |
-| `private_repo` | Git repository requires authentication |
-| `http_404` | Repository URL returns 404 |
-| `clone_failed` | Git clone failed (network, permissions, other git error) |
-| `missing_antora` | Repository does not follow standard Antora layout (`content/modules/ROOT/pages/`) |
-| `no_content` | No substantive content files found after boilerplate filtering |
-| `parse_error` | LLM response could not be parsed as JSON |
-| `unknown` | Unclassified error |
-
-Error classes enable targeted debugging — `jinja_url` errors indicate a catalog metadata issue, while `no_content` errors may need a custom `content_path` override.
-
-### Git Retry Logic
-
-Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) when GitHub rate limiting is detected. The `git ls-remote` fast check during stale detection has a 30-second timeout.
-
----
-
-## Scan Deduplication and Propagation
-
-Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant.
-
-RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
-
-1. All scannable items (with Showroom URL, non-published) are grouped by `(url, ref)`.
-2. One representative per group is selected for scanning (prod preferred, then event, then dev).
-3. After scanning the representative, the analysis and embeddings are **propagated** to all siblings in the same group.
-4. Each sibling gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable and recommendable.
-
-**Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
-
-**`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
-
-**No content caching.** Every scan is a fresh `git clone` with the ref resolved at clone time. There is no persistent cache of repo content between scans.
-
-Both the CLI (`rcars scan`) and the worker (`run_analysis`) implement propagation identically.
+The sentence-transformers model runs locally inside the RCARS pod — embedding generation requires no external API call and adds negligible latency.
 
 ---
 
@@ -373,312 +177,101 @@ All LLM operations run in background workers, not in the API process. This keeps
 
 Workers are split into two separate deployments:
 
-- **`rcars-scan-worker`** — handles `run_analysis`, `run_catalog_refresh`, and `run_stale_check`. Listens on `arq:queue:scan`. These are batch operations that can run for hours during a full catalog scan.
-- **`rcars-recommend-worker`** — handles `run_recommendation` only. Listens on `arq:queue:recommend`. These are user-facing queries that must respond in 30–60 seconds.
+**`rcars-scan-worker`** — listens on `arq:queue:scan`. Handles all batch operations:
 
-The split exists because of a starvation problem discovered during v2 stabilization: with a single worker deployment, a bulk scan (400+ items at ~1 minute each) would monopolize all worker slots for hours, making the advisor completely unresponsive. Separate deployments with separate Redis queues guarantee that a user can always get a recommendation, even during a full catalog scan.
+- Content analysis (LLM scan of Showroom repos)
+- Catalog refresh (CRD sync from Babylon)
+- Stale content detection (`git ls-remote` checks)
+- Workload scanning (agDv2 collection repo analysis)
+- Reporting sync (MCP server data import)
+- Nightly pipeline (chains all of the above sequentially)
+
+**`rcars-recommend-worker`** — listens on `arq:queue:recommend`. Handles advisor recommendation queries only. These are user-facing and must respond in 30–60 seconds.
+
+The split exists because of a starvation problem: with a single worker, a bulk scan (400+ items at ~1 minute each) would monopolize all slots for hours, making the advisor completely unresponsive.
 
 ### Job Lifecycle
 
-1. **API** receives a request (e.g., advisor query, scan trigger, catalog refresh)
-2. **API** creates a job record in PostgreSQL (`status: queued`) and enqueues the task to the appropriate Redis queue
-3. **Worker** picks up the task from Redis, updates job status to `running` with `progress_json` containing the CI name
-4. **Worker** executes the task (clone repo, call LLM, generate embeddings, etc.)
-5. **Worker** writes results to PostgreSQL (`showroom_analysis`, `embeddings`) and updates job status to `complete` or `failed`
-6. For recommendation jobs: the worker publishes progress to a Redis pub/sub channel, which the API relays to the browser via SSE (Server-Sent Events)
-
-The API and worker never communicate directly. Redis is the sole coordination channel — queues for job dispatch, pub/sub for progress streaming.
+1. **API** receives a request and creates a job record in PostgreSQL (`status: queued`)
+2. **API** enqueues the task to the appropriate Redis queue
+3. **Worker** picks up the task, updates status to `running`
+4. **Worker** executes the task and writes results to PostgreSQL
+5. **Worker** updates job status to `complete` or `failed`
+6. For recommendation jobs: progress is published to Redis pub/sub, relayed to the browser via SSE
 
 ### Configuration
 
 | Setting | Scan Worker | Recommend Worker |
 |---|---|---|
-| `max_jobs` | 5 | 3 |
-| `job_timeout` | 600s | 120s |
+| Concurrent jobs per pod | 5 | 3 |
+| Default job timeout | 600s | 120s |
 | CPU request/limit | 500m / 2 | 250m / 1 |
 | Memory request/limit | 1Gi / 4Gi | 1Gi / 2Gi |
 
-The scan worker has higher resource limits because it runs `git clone` operations and loads the sentence-transformers model for embedding generation. The recommend worker is lighter — it only makes LLM API calls and runs vector searches against PostgreSQL.
+Per-pod concurrency is hardcoded. To increase total throughput, increase the number of replicas — e.g., 2 recommend worker pods gives 6 concurrent queries. Resource limits and replica counts are configured via Ansible vars. See [Operations Guide](../admin/operations.md#scaling) for details.
 
-**Special timeouts:** `run_stale_check` has a timeout of 3600s (1 hour) because it runs `git ls-remote` and selective clones across the entire catalog. `run_nightly_pipeline` has a timeout of 7200s (2 hours) because it chains refresh + stale check + re-analysis sequentially. All other scan tasks use the default 600s.
+Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
-### Scaling
+### Nightly Pipeline
 
-Workers are stateless. To increase scan throughput, increase `scan_worker_replicas` in the Ansible vars. The recommend worker typically needs only 1 replica since recommendation queries are infrequent and complete in under a minute.
+The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron:
 
----
+1. **Catalog refresh** — pull latest CRDs from Babylon
+2. **Stale check** — `git ls-remote` to detect changed Showroom repos
+3. **Re-analysis** — rescan stale items
+4. **Workload scan** — scan agDv2 collection repos for new/changed roles
+5. **Reporting sync** — pull reporting data from MCP server
 
-## The Recommendation Engine (`recommender/`)
+### LLM Provider Routing
 
-Recommendation is a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results.
+RCARS supports two LLM providers with automatic failover:
 
-```mermaid
-flowchart LR
-    Q[User Query] --> URLCheck{Contains URL?}
-    URLCheck -->|Yes| Fetch[Fetch Event Page]
-    Fetch --> Extract[Extract Themes<br/>via Sonnet]
-    Extract --> Merge[Merge with<br/>Query Text]
-    URLCheck -->|No| Merge
-    Merge --> P1[Phase 1<br/>Vector Search<br/>pgvector cosine]
-    P1 --> Dedup[Content Dedup<br/>+ Base→Published]
-    Dedup --> P2[Phase 2<br/>Haiku Triage<br/>Score 0-100]
-    P2 --> DurCheck{Duration<br/>Target?}
-    DurCheck -->|Yes| Rerank[Duration<br/>Penalty Rerank]
-    DurCheck -->|No| P3
-    Rerank --> P3[Phase 3<br/>Sonnet Rationale<br/>Top N]
-    P3 --> Results[Scored Results<br/>+ Assessment<br/>+ Content Gaps]
-```
+- **LiteMaaS** (preferred) — OpenAI-compatible API hosted internally. Models are discovered at startup from `/v1/models`.
+- **Vertex AI** (fallback) — Google Cloud Vertex AI with Anthropic SDK. Used when LiteMaaS is unavailable or doesn't have the requested model.
 
-### Phase 1 — Vector Search
+The unified `call_llm()` function routes each call to the appropriate provider. If LiteMaaS is available and has the requested model, it is used; otherwise the call falls back to Vertex AI automatically. Provider is tracked per LLM call in the `token_usage` table.
 
-The user's query text is embedded using the same sentence-transformers model used during scanning. A pgvector cosine similarity search (`<=>` operator) finds the top candidates within a configurable distance cutoff (default: 0.55). Results beyond the cutoff are discarded — this prevents low-relevance items from reaching later phases.
-
-**Content hash deduplication:** When multiple CIs share the same Showroom content (same `content_hash`), the vector search keeps only the best representative per unique content. Priority: prod > event > dev, published > base, lower vector distance. This prevents the same underlying lab from appearing multiple times in results under different CI names.
-
-**Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data. Base CIs that have a published counterpart are never shown directly.
-
-**Ref normalization:** For deduplication fallback (when `content_hash` is not available), refs `""`, `"main"`, `"master"`, and `"HEAD"` are all treated as equivalent.
-
-### Phase 2 — Haiku Triage
-
-The vector search candidates are sent to Claude Haiku for fast relevance scoring. For each candidate, Haiku assigns a relevance score (0-100), a boolean relevant/not-relevant flag, and a one-line reason. Candidates below the triage cutoff (default: 30) are removed. Survivors are sorted by relevance score.
-
-This phase is fast (~1-3 seconds) and inexpensive. It filters out items that are semantically similar but not actually relevant to the request — something embedding similarity alone cannot do.
-
-### Duration-Aware Reranking
-
-If the user's query mentions a duration target (e.g., "30-minute demo", "2-hour workshop"), the pipeline extracts the target duration in minutes and applies a penalty to candidates whose estimated duration diverges significantly.
-
-- **Soft constraint** (default) — a logarithmic penalty that gently demotes mismatched durations. Coefficient 0.08, floor 0.7.
-- **Hard constraint** — triggered by keywords like "hard limit", "strict", "maximum", "no more than", "at most", "cannot exceed", "must be under". Applies a steeper penalty. Coefficient 0.15, floor 0.6.
-
-Reranking happens after triage scores are assigned and before rationale generation, so candidates are re-sorted by their adjusted scores.
-
-### Phase 3 — Sonnet Rationale
-
-The top candidates from triage (default: 5) are sent to Claude Sonnet with their full analysis data for structured rationale generation. For each candidate, Sonnet returns:
-
-- **Why it fits** — topic alignment and learning outcomes
-- **How to use** — practical delivery suggestion
-- **Suggested format** — booth demo, hands-on lab, or presentation (based on the user's request context)
-- **Duration notes** — timing adaptation suggestions
-- **Caveats** — concerns or limitations relevant to the request
-
-Sonnet also returns an overall assessment (response, top picks, adapting suggestions, content gaps) and a structured list of content gaps — topics the query asked for that no candidate addresses well. Content gaps are always surfaced in the chat response.
-
-### Event URL Mode
-
-When a URL is detected in the user's query, RCARS runs an event parsing step before the main pipeline:
-
-1. **Fetch** — the landing page is fetched and links to schedule, program, tracks, talks, and similar subpages on the same domain are followed (up to 80,000 characters combined)
-2. **Extract** — the page content is sent to Claude Sonnet with a structured prompt that returns an event profile: event name, dates, audience, themes, relevant technical topics, format opportunities, and 3-5 natural language search queries tailored to finding matching RHDP content
-3. **Search** — the generated search queries replace (URL-only) or augment (mixed text+URL) the user's query text, then vector search proceeds as normal
-
-**URL-only queries:** when the entire input is a URL, the search queries from the event profile are the sole input to vector search. The triage and rationale phases see these synthesized queries, not the raw URL.
-
-**Mixed text+URL queries:** when the input contains both text and a URL (e.g., "I need booth demos for: https://example.com/conference"), the event search queries are combined with the user's text. This lets users add constraints (duration, format, audience level) on top of the event context.
-
-**Failure handling:** if the URL cannot be fetched or Sonnet cannot extract a useful profile, and the user provided no text, the pipeline returns an error message. If the user provided text alongside the URL, the text search proceeds normally without the event context.
-
-For broad multi-track events, follow-up queries can narrow results to specific areas (e.g., "focus on platform and infrastructure content").
-
----
-
-## Content Overlap Detection
-
-Content overlap detection identifies catalog items that teach substantially the same material. It is a curator tool for consolidating duplicate labs — not part of the recommendation pipeline.
-
-### Architecture
-
-The overlap system is built entirely on top of infrastructure that already exists from the scan and recommendation pipelines. No new models, no new external API calls, and no new data collection steps are required.
-
-During the scan pipeline (described above), every analyzed Showroom lab gets a **CI-level embedding** — a 384-dimensional vector that captures what the lab is about. These embeddings live in the `embeddings` table and are the same vectors used by the recommendation engine's vector search. The overlap system reuses them for a different purpose: instead of comparing a user's query against lab embeddings, it compares lab embeddings against each other.
-
-### How Cosine Similarity Works
-
-Each embedding is a list of 384 numbers produced by the sentence-transformer model. These numbers position the lab in a high-dimensional semantic space where similar content clusters together. To measure how similar two labs are, RCARS computes the **cosine similarity** between their embedding vectors.
-
-Cosine similarity measures the angle between two vectors, ignoring their magnitude. Two vectors pointing in the same direction have a cosine similarity of 1.0 (identical meaning). Two vectors at right angles have a cosine similarity of 0.0 (unrelated topics). In practice, scores below 0.5 indicate little meaningful overlap.
-
-pgvector provides a native cosine distance operator (`<=>`) that computes `1 - cosine_similarity` directly in SQL. RCARS converts this back to similarity (`1.0 - distance`) for human-readable percentage scores.
-
-The key insight is that this comparison captures semantic similarity, not textual similarity. Two labs can use completely different wording, different module structures, and different examples — but if they teach the same concepts (e.g., "deploying applications on OpenShift with GitOps"), their embeddings will point in similar directions and the cosine similarity will be high.
-
-### Computation
-
-The computation is a single SQL query that joins the `embeddings` table against itself, computes pairwise cosine distance, filters to pairs above the threshold, and inserts results into `content_similarity`. With ~100 prod items, this produces about 5,000 pairwise comparisons and completes in under a second.
-
-```sql
--- Simplified version of the actual query
-INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score)
-SELECT a.ci_name, b.ci_name, 1.0 - (a.embedding <=> b.embedding)
-FROM embeddings a
-JOIN embeddings b ON a.ci_name < b.ci_name   -- each pair once
-WHERE a.embed_type = 'ci_summary'
-  AND b.embed_type = 'ci_summary'
-  AND 1.0 - (a.embedding <=> b.embedding) >= 0.75  -- threshold
-  AND ci_a.stage = 'prod'                           -- same stage
-  AND ci_b.stage = 'prod'
-```
-
-The `a.ci_name < b.ci_name` condition ensures each pair is stored exactly once (A↔B, never both A→B and B→A). Published Virtual CIs are excluded because they have no Showroom content — they are ordering wrappers that point to a base CI.
-
-### Stage Scoping
-
-Comparisons are scoped to a single stage at a time: prod vs prod, event vs event, or dev vs dev. This is by design — the goal is to find different labs that overlap, not to flag that a dev and prod version of the same lab are similar (which is expected and uninteresting).
-
-The stage is selected at computation time via the `stage` parameter on the API endpoint or CLI command. Switching stages clears and recomputes the entire `content_similarity` table.
-
-### Similarity Tiers
-
-Results are classified into two tiers based on configurable thresholds:
-
-| Tier | Score | Meaning | Color |
-|---|---|---|---|
-| High overlap | ≥ 85% | Near-duplicate content, candidates for consolidation | Red |
-| Related | 75–84% | Similar topics with some differentiation | Amber |
-
-Pairs below 75% are not stored.
-
-### Integration Points
-
-- **Admin UI** (`/analysis/overlap`) — stage selector, compute button, expandable pair list with side-by-side summaries
-- **Browse page** — expanded items show a "Similar Content" section listing overlapping items with similarity scores
-- **API** — `GET /admin/overlap` (global report), `GET /catalog/{ci_name}/similar` (per-item), `POST /admin/compute-similarity` (trigger)
-- **CLI** — `rcars compute-similarity [--stage prod] [--threshold 0.75]`
-
-### Relationship to the Recommendation Pipeline
-
-The overlap system and the recommendation pipeline both use pgvector cosine similarity on the same embeddings, but they serve different purposes:
-
-- **Recommendation** compares a *query embedding* (from user text) against *lab embeddings* to find relevant content for a specific request. It runs on demand, per user query.
-- **Overlap** compares *lab embeddings* against each other to find duplicate content across the catalog. It runs on demand by an admin, and results are cached in the `content_similarity` table.
-
-The recommendation pipeline has its own deduplication logic (content hash grouping, base-to-published promotion) that operates during query time. The overlap system does not need this — it simply compares all items within a stage.
+Three models are used: Sonnet for content analysis and rationale generation, Haiku for triage and workload scanning.
 
 ---
 
 ## Frontend (`src/frontend/`)
 
-The frontend is a React Single Page Application built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
+The frontend is a React SPA built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
 
 ### Pages
 
-- **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE (Server-Sent Events) from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
-- **Browse** — Filterable catalog view showing all items with analysis status. Expandable detail panels show summary, topics, products, difficulty, duration, and similar content (when overlap data exists).
-- **Content Analysis** — Tools for analyzing catalog content at scale. Currently contains Overlap (`/analysis/overlap` — pairwise similarity between catalog items within a selected stage). The sidebar expands to show sub-pages when active.
-- **Admin** — Three sub-pages: Catalog (`/admin/catalog` — status, sync, scan, stale-check controls), Token Usage (`/admin/tokens` — LLM cost tracking), Query History (`/admin/queries` — advisor session log).
-
-### API Routes
-
-All API routes are under `/api/v1/`:
-
-**Advisor** (require_auth):
-
-- `POST /advisor/query` — Submit recommendation query, returns `{job_id}`
-- `GET /advisor/query/{job_id}/stream` — SSE stream of recommendation progress
-- `GET /advisor/query/{job_id}/result` — Poll for final results
-- `GET /advisor/sessions` — List user's sessions
-- `GET /advisor/sessions/{session_id}` — Get session with all turns
-- `POST /advisor/sessions/{session_id}/select` — Mark chosen recommendation
-
-**Catalog** (mixed auth):
-
-- `GET /catalog` — Paginated catalog listing (require_auth)
-- `GET /catalog/stats` — Database currency stats (require_auth)
-- `GET /catalog/{ci_name}` — Single CI with analysis + tags (require_auth)
-- `GET /catalog/{ci_name}/analysis` — Analysis only (require_auth)
-- `POST /catalog/refresh` — Trigger catalog refresh (require_admin)
-- `POST /catalog/{ci_name}/tags` — Add tag (require_curator)
-- `DELETE /catalog/{ci_name}/tags/{tag_id}` — Remove tag (require_curator)
-- `PUT /catalog/{ci_name}/note` — Set curator note (require_curator)
-- `POST /catalog/{ci_name}/flag` — Flag for review (require_curator)
-- `POST /catalog/{ci_name}/override-url` — Override showroom URL (require_curator)
-- `POST /catalog/{ci_name}/content-path` — Set content path + trigger rescan (require_curator)
-
-**Analysis** (require_admin except stream):
-
-- `POST /analysis/scan` — Start scan of unanalyzed items
-- `POST /analysis/check-stale` — Check for stale content
-- `POST /analysis/rescan-stale` — Rescan stale items
-- `POST /analysis/rescan-all` — Mark all stale + full rescan
-- `POST /analysis/{ci_name}` — Analyze single CI (require_curator)
-- `GET /analysis/jobs/{job_id}/stream` — Stream analysis progress (require_auth)
-
-**Admin** (require_admin):
-
-- `GET /admin/token-usage` — Token stats by operation/model
-- `GET /admin/jobs/{job_id}` — Single job details
-- `GET /admin/jobs` — Recent jobs list
-- `GET /admin/workers` — Worker health and queue depths
-- `GET /admin/scan-progress` — Scan batch progress
-- `GET /admin/queries` — Advisor query history
-- `POST /admin/run-maintenance` — Trigger nightly pipeline
-- `GET /admin/schedule` — Pipeline schedule status
-- `GET /admin/overlap` — Content overlap report (all similar pairs)
-- `POST /admin/compute-similarity` — Trigger similarity recomputation
-
-**Catalog** (additional):
-
-- `GET /catalog/{ci_name}/similar` — Similar items for a specific CI (require_auth)
-
-**Auth/Health**:
-
-- `GET /auth/me` — Current user email + roles
-- `GET /health` — Basic health check
-- `GET /health/ready` — Readiness probe (DB + Redis)
-
-### Conversation Store
-
-Advisor sessions are stored in the PostgreSQL `advisor_sessions` table. Each session contains multiple turns with query text, results, and user selections. Sessions persist across server restarts.
+- **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
+- **Browse** — Filterable catalog view with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration, and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
+- **Content Analysis** — Overlap (pairwise similarity within a stage) and Retirement (scored dashboard with Prod/Without Prod tabs).
+- **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs), Workloads (workload scan, mapping management).
 
 ### Authentication and Roles
 
-```mermaid
-flowchart TD
-    Req[Incoming Request] --> DevCheck{RCARS_DEV_USER<br/>set?}
-    DevCheck -->|Yes| DevUser[Use dev_user<br/>as email]
-    DevCheck -->|No| BearerCheck{Bearer token<br/>in header?}
-    BearerCheck -->|Yes| TokenReview[K8s TokenReview API<br/>validate SA token]
-    TokenReview --> SACheck{SA in<br/>allowlist?}
-    SACheck -->|Yes| SAUser[Use SA identity]
-    SACheck -->|No| Reject[401 Unauthorized]
-    BearerCheck -->|No| HeaderCheck{X-Forwarded-Email<br/>header?}
-    HeaderCheck -->|Yes| OAuthUser[Use email<br/>from header]
-    HeaderCheck -->|No| Reject
-    DevUser --> Roles[Assign Roles]
-    SAUser --> Roles
-    OAuthUser --> Roles
-    Roles --> AdminCheck{Email in<br/>ADMIN_EMAILS?}
-    AdminCheck -->|Yes| Admin[admin + curator + user]
-    AdminCheck -->|No| CuratorCheck{Email in<br/>CURATOR_EMAILS?}
-    CuratorCheck -->|Yes| Curator[curator + user]
-    CuratorCheck -->|No| Viewer[user only]
-```
-
-An OAuth proxy sits in front of the application. All requests pass through the proxy, which authenticates users against Red Hat SSO and injects the `X-Forwarded-Email` header.
-
-The API reads this header on every request via a FastAPI dependency (`get_current_user()`):
+An OAuth proxy authenticates users against Red Hat SSO and injects `X-Forwarded-Email`. The API reads this header on every request:
 
 - **Admin** — email in `RCARS_ADMIN_EMAILS_STR`. Full access including catalog sync, scan, and worker controls.
 - **Curator** — email in `RCARS_CURATOR_EMAILS_STR`. Can trigger single-item analysis and manage enrichment tags.
 - **Viewer** — authenticated but not in either list. Can use the advisor and browse.
 
-In local development, `RCARS_DEV_USER` bypasses auth entirely.
+ServiceAccount tokens (used by Publishing House and other platform services) are validated via K8s TokenReview API against a configurable allowlist.
 
 ---
 
 ## Deployment
 
-RCARS runs as four separate deployments on OpenShift, all in the `rcars-dev` namespace. See [Deployment Guide](../admin/deployment.md) for full setup instructions.
-
-Deployments are managed by an Ansible playbook (`ansible/deploy.yml`) with tagged execution:
+RCARS runs on OpenShift, managed by an Ansible playbook (`ansible/deploy.yml`) with tagged execution:
 
 | Tag | What it does |
 |---|---|
-| `deploy` | Full deploy: namespace, infra manifests, app manifests, builds, rollout wait |
-| `mgmt-rbac` | Bootstrap management ServiceAccount, ClusterRole, and kubeconfig |
+| `deploy` | Full deploy: namespace, infra + app manifests, builds, migrations, rollout wait |
+| `update` | Build API + frontend, then run migrations (correct ordering for code + schema changes) |
 | `build-api` | Trigger API image build, wait for build + rollout |
 | `build-frontend` | Trigger frontend image build, wait for build |
+| `apply` | Apply Kubernetes manifests only (config changes, secrets, env vars) |
+| `migrate` | Run `rcars init-db` + `alembic upgrade head` on the current pod |
+| `mgmt-rbac` | Bootstrap management ServiceAccount, ClusterRole, and kubeconfig |
 
-ImageStream change triggers automatically roll deployments when a new image is pushed — no manual restart needed.
+**Migration ordering:** Migrations execute on the running API pod. When deploying changes that include schema modifications, use `--tags update` — never run `--tags migrate` before `--tags build-api`.
+
+See [Deployment Guide](../admin/deployment.md) for full setup instructions.

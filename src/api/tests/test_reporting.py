@@ -28,62 +28,82 @@ class TestExtractBaseName:
 
 class TestRetirementScore:
     def test_perfect_retirement_candidate(self):
-        """No prod, zero usage, zero sales, high cost."""
+        """Bottom percentile on everything, zero sales, high cost."""
         score = compute_retirement_score(
-            provisions=0, experiences=0, touched_amount=0, closed_amount=0,
-            total_cost=10000, has_prod=False, first_provision="",
+            provisions_zero=True, provisions_pct=0,
+            touched_zero=True, touched_pct=0,
+            closed_zero=True, closed_pct=0,
+            total_cost=10000, closed_amount=0, first_provision="",
         )
-        assert score >= 85
+        assert score >= 70
 
     def test_healthy_asset(self):
-        """Prod, high usage, high sales, reasonable cost."""
+        """Top percentile on everything."""
         score = compute_retirement_score(
-            provisions=500, experiences=2000, touched_amount=100_000_000,
-            closed_amount=20_000_000, total_cost=50000, has_prod=True,
-            first_provision="2024-01-01",
+            provisions_zero=False, provisions_pct=90,
+            touched_zero=False, touched_pct=90,
+            closed_zero=False, closed_pct=90,
+            total_cost=50000, closed_amount=5_000_000, first_provision="2024-01-01",
         )
-        assert score < 30
+        assert score < 10
 
     def test_new_item_discount(self):
         """Recently published items get score reduction."""
         from datetime import datetime, timedelta
         recent = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
         score = compute_retirement_score(
-            provisions=5, experiences=5, touched_amount=0, closed_amount=0,
-            total_cost=100, has_prod=True, first_provision=recent,
+            provisions_zero=True, provisions_pct=0,
+            touched_zero=True, touched_pct=0,
+            closed_zero=True, closed_pct=0,
+            total_cost=100, closed_amount=0, first_provision=recent,
         )
         assert score <= 40
-
-    def test_no_prod_adds_twenty(self):
-        """Missing prod environment adds 20 points."""
-        score_with = compute_retirement_score(
-            provisions=200, experiences=1000, touched_amount=50_000_000,
-            closed_amount=10_000_000, total_cost=30000, has_prod=True,
-            first_provision="2024-01-01",
-        )
-        score_without = compute_retirement_score(
-            provisions=200, experiences=1000, touched_amount=50_000_000,
-            closed_amount=10_000_000, total_cost=30000, has_prod=False,
-            first_provision="2024-01-01",
-        )
-        assert score_without == score_with + 20
 
     def test_high_cost_zero_sales(self):
         """High cost with zero closed sales adds 15 points."""
         score = compute_retirement_score(
-            provisions=200, experiences=1000, touched_amount=50_000_000,
-            closed_amount=0, total_cost=10000, has_prod=True,
-            first_provision="2024-01-01",
+            provisions_zero=False, provisions_pct=60,
+            touched_zero=False, touched_pct=60,
+            closed_zero=True, closed_pct=0,
+            total_cost=10000, closed_amount=0, first_provision="2024-01-01",
         )
         assert score >= 15
 
     def test_score_capped_at_100(self):
         """Score should never exceed 100."""
         score = compute_retirement_score(
-            provisions=0, experiences=0, touched_amount=0, closed_amount=0,
-            total_cost=100000, has_prod=False, first_provision="2020-01-01",
+            provisions_zero=True, provisions_pct=0,
+            touched_zero=True, touched_pct=0,
+            closed_zero=True, closed_pct=0,
+            total_cost=100000, closed_amount=0, first_provision="2020-01-01",
         )
         assert score <= 100
+
+    def test_median_item_moderate_score(self):
+        """Item at p50 on everything should score moderately."""
+        score = compute_retirement_score(
+            provisions_zero=False, provisions_pct=50,
+            touched_zero=False, touched_pct=50,
+            closed_zero=False, closed_pct=50,
+            total_cost=5000, closed_amount=500_000, first_provision="2024-01-01",
+        )
+        assert 5 <= score <= 30
+
+    def test_zero_touched_always_penalized(self):
+        """Zero touched gets full pipeline penalty regardless of percentile."""
+        score_zero = compute_retirement_score(
+            provisions_zero=False, provisions_pct=50,
+            touched_zero=True, touched_pct=0,
+            closed_zero=False, closed_pct=80,
+            total_cost=0, closed_amount=1_000_000, first_provision="2024-01-01",
+        )
+        score_nonzero = compute_retirement_score(
+            provisions_zero=False, provisions_pct=50,
+            touched_zero=False, touched_pct=30,
+            closed_zero=False, closed_pct=80,
+            total_cost=0, closed_amount=1_000_000, first_provision="2024-01-01",
+        )
+        assert score_zero > score_nonzero
 
     def test_sales_impact_high(self):
         from rcars.services.reporting_sync import compute_sales_impact

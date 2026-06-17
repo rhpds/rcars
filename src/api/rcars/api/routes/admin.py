@@ -257,15 +257,18 @@ async def llm_provider_status(request: Request, user: str = Depends(require_admi
     settings = Settings()
     from rcars.config import fetch_litemaas_models
     litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
+    vertex_models = sorted({settings.model, settings.triage_model, settings.rationale_model}) if settings.use_vertex else []
     return {
         "litemaas_enabled": settings.use_litemaas,
         "litemaas_url": settings.litemaas_url or None,
         "litemaas_models": litemaas_models,
         "vertex_enabled": settings.use_vertex,
         "vertex_region": settings.cloud_ml_region if settings.use_vertex else None,
+        "vertex_models": vertex_models,
         "analysis_model": settings.model,
         "triage_model": settings.triage_model,
         "rationale_model": settings.rationale_model,
+        "scanning_model": settings.triage_model,
     }
 
 
@@ -292,6 +295,8 @@ async def reporting_status(request: Request, user: str = Depends(require_admin))
     return {
         "configured": bool(settings.reporting_mcp_url and settings.reporting_mcp_token),
         "total": status["total"] if status else 0,
-        "orphans_removed": last_result.get("orphans_removed", 0) if last_result else 0,
+        "high": status["high"] if status else 0,
+        "review": status["review"] if status else 0,
+        "keepers": status["keepers"] if status else 0,
         "last_synced": status["last_synced"] if status else None,
     }
