@@ -83,13 +83,13 @@ The RHDP catalog is defined as Kubernetes custom resources in the Babylon platfo
 - **`AgnosticVComponent`** — the primary resource for each catalog item. Contains the display name, category, product, description, keywords, stage, and workload variable configuration (which includes Showroom URLs when present).
 - **`CatalogItem`** — the ordering layer resource. Used to resolve published Virtual CI identities and their relationship to underlying base components.
 
-Three namespaces are tracked:
+Three namespaces are synced:
 
 - `babylon-catalog-prod` — live production catalog items
 - `babylon-catalog-dev` — items in development or testing
 - `babylon-catalog-event` — event-specific items
 
-By default, RCARS syncs only `babylon-catalog-prod`. The `--include-dev` flag on `rcars refresh` includes all three.
+All three are synced on every catalog refresh. The stage (prod/dev/event) is derived from the namespace and stored on each catalog item, allowing stage-scoped queries and filtering throughout the system.
 
 ### CI Hierarchy
 
