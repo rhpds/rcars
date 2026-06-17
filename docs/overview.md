@@ -7,43 +7,73 @@ description: What RCARS is, why it exists, and how it works
 
 ## What is RCARS?
 
-RCARS (RHDP Content Advisory & Recommendation System) is an AI-powered tool that helps Red Hat field teams find the right demos and hands-on labs for any event, booth, or customer conversation. Ask it a question in plain English — "what should we show at a developer-focused Kubernetes conference?" — and it returns a ranked list of RHDP catalog items that fit, each with a plain-language explanation of why it's a good match.
+RCARS (RHDP Content Advisory & Recommendation System) is an AI-powered platform for managing Red Hat Demo Platform catalog content. It reads every lab and demo in the RHDP catalog, understands what each one teaches, and uses that understanding to help teams find the right content, detect duplicate material, and identify items that should be retired.
+
+Ask it a question in plain English — "what should we show at a developer-focused Kubernetes conference?" — and it returns a ranked list of catalog items that fit, each with a rationale. But RCARS has grown beyond recommendations into a broader content intelligence system: it tracks infrastructure metadata, detects content overlap, imports usage and sales data from the RHDP reporting system, and scores items for retirement.
 
 ## The Problem It Solves
 
-The Red Hat Demo Platform catalog contains hundreds of demos and workshop labs across every Red Hat product line. Finding the right content for a specific event — the right topic, audience level, duration, and format — requires someone who knows the catalog well. That expertise is scarce and doesn't scale. New team members don't know what exists. Even experienced people miss content outside their product area. Events get staffed with familiar demos rather than the best-fit ones.
+The Red Hat Demo Platform catalog contains hundreds of demos and workshop labs across every Red Hat product line. Several problems compound at this scale:
 
-RCARS solves this by doing the reading that no one has time to do. It reads the actual lab content — the step-by-step instructions, the exercises, the modules — not just the titles and descriptions. It understands what a learner will actually do and learn in each lab, and uses that understanding to match content to requests.
+**Finding the right content** requires knowing the catalog well. New team members don't know what exists. Even experienced people miss content outside their product area. Events get staffed with familiar demos rather than the best-fit ones.
+
+**Duplicate content** accumulates as different teams build labs that cover the same material under different names and structures. Without a way to detect semantic overlap, the catalog grows without bounds.
+
+**Stale content** lingers after products evolve. Items that were once popular may no longer reflect current products or drive meaningful sales. Without data-driven retirement analysis, these items consume infrastructure resources and confuse content selectors.
+
+RCARS addresses all three by reading the actual lab content — not just titles and descriptions — and combining that understanding with usage, sales, and infrastructure data from the broader RHDP ecosystem.
 
 ## How It Works
 
-RCARS runs in four stages:
+### Content Ingestion
 
-1. **Catalog sync.** RCARS reads the live RHDP catalog directly from the platform's configuration system (Babylon). Every catalog item — its name, category, product, audience tags, and links to its lab content — is stored in a local database.
+RCARS reads the live RHDP catalog directly from the Babylon platform's Kubernetes CRDs. For every catalog item with a Showroom (lab content repository), it clones the repo, reads the AsciiDoc modules, and sends the content to Claude Sonnet for structured analysis: what the lab covers, learning objectives, audience, duration estimate, and format suitability. The analysis is stored alongside 384-dimensional vector embeddings that capture the semantic meaning of each piece of content.
 
-2. **Content analysis.** For every catalog item that has associated lab content (a Showroom), RCARS clones the content repository and reads it. It sends that content to Claude Sonnet, which produces a structured analysis: what the lab covers, what skills it teaches, who the intended audience is, how long it takes, and whether it's suitable for a booth demo, a hands-on session, or a presentation. These analyses are stored alongside 384-dimensional vector embeddings that capture the semantic meaning of each piece of content.
+For AgnosticD v2 items, RCARS also extracts infrastructure metadata — cloud provider, OCP version, installed workloads — and maps workload roles to human-readable product names through a curated mapping table.
 
-3. **Recommendations.** When someone asks a question, RCARS runs a three-phase pipeline. First, the query is converted into a vector embedding and run against stored content embeddings to find semantically similar candidates. Second, a fast AI model (Claude Haiku) triages those candidates — scoring each one for relevance and filtering out poor matches. Third, the top-scoring candidates are sent to Claude Sonnet, which generates a structured analysis for each: why it fits, how to use it, and any caveats. The result is a scored, ranked list with a rationale for each item.
+### Recommendations
 
-4. **Stale detection.** RCARS can check whether analyzed Showroom content has changed since the last scan. It clones each Showroom, hashes the content files, and compares against the stored hash. Items whose content has materially changed are marked stale and picked up automatically by the next scan.
+When someone asks a question, RCARS runs a three-phase pipeline:
 
-Each of these stages is independent. The catalog can be refreshed without re-analyzing content. Content can be re-analyzed without clearing existing recommendations. Stale detection can run without triggering a rescan. Nothing is hardwired.
+1. **Vector search** — the query is embedded and compared against stored content embeddings using pgvector cosine similarity
+2. **Haiku triage** — a fast AI model scores each candidate for relevance and filters poor matches
+3. **Sonnet rationale** — the top candidates get structured rationales: why it fits, how to use it, suggested format, caveats
 
-## Who Uses It and How
+The pipeline supports event URL parsing (paste a conference URL, get matched content), duration-aware reranking, and acronym expansion for Red Hat product abbreviations.
 
-**Field teams and event staff** use the RCARS web UI. The interface is a simple two-pane layout: a conversation on the left, recommendations on the right. Type what you need, read what fits. No training required.
+### Content Overlap Detection
 
-**Curators** — people who maintain catalog quality — can use the web UI's curator mode to tag catalog items with custom labels, add notes, and flag content that needs review. These enrichments feed back into future recommendations.
+RCARS compares lab embeddings against each other to find catalog items that teach substantially the same material. This is a curator tool for identifying duplicates — items with 85%+ cosine similarity are flagged as near-duplicates, and 75-84% as related content worth reviewing. Comparisons are scoped by stage (prod vs prod only).
 
-**Ops admins** who manage the RCARS deployment use the command-line interface and the Admin pages. The CLI provides full control: syncing the catalog, running or re-running content scans, checking system status, and starting the web server. The Admin pages in the web UI provide visual monitoring of catalog status, worker health, token usage, and query history. See the [CLI Admin Guide](admin/cli-guide.md) for details.
+### Retirement Analysis
+
+RCARS imports provision counts, sales pipeline data, closed revenue, and infrastructure cost from the RHDP reporting database (the same source as the SuperSet management dashboard). It uses this data to score each production item for retirement on a percentile basis — items in the bottom tier for usage, pipeline, and revenue relative to their peers score highest.
+
+The retirement dashboard has two views: **Prod Retirements** (scored table for items with production deployments) and **Without Prod** (age-based list of dev/event-only items that haven't been promoted).
+
+### Nightly Maintenance
+
+A nightly pipeline runs at 04:00 UTC and chains five steps: catalog refresh, stale content detection, re-analysis of changed items, workload repo scanning, and reporting data sync. Each step runs independently — a failure in one does not block the others.
+
+## Who Uses It
+
+**Field teams and event staff** use the Advisor to find content for events, booths, and customer conversations. The interface is a two-pane layout: conversation on the left, recommendation cards on the right. Follow-up queries refine results. No training required.
+
+**Content curators** use Browse to review catalog items, tag content, set duration estimates, and mark best-fit recommendations. Content Analysis provides overlap detection (which labs duplicate each other?) and retirement scoring (which items should we sunset?).
+
+**Platform admins** use the Admin pages and CLI to monitor catalog health, trigger scans, manage workload mappings, track LLM token usage, and review query history.
+
+**Publishing House** (the RHDP content management system) calls RCARS APIs to check content overlap during intake and search by infrastructure characteristics.
 
 ## What It Runs On
 
-RCARS runs on Red Hat OpenShift as four deployments: a React frontend, a FastAPI JSON API, and two arq background workers (one for bulk scans, one for user-facing advisor queries). It is backed by PostgreSQL with the pgvector extension for fast similarity search over stored content embeddings. AI analysis and recommendations use Claude Sonnet via Red Hat's Vertex AI integration. Access is controlled through OpenShift's built-in OAuth proxy, so users log in with their standard Red Hat SSO credentials.
+RCARS runs on OpenShift as four deployments: a React frontend (LCARS-themed), a FastAPI API, and two arq background workers (scan and recommend, split to prevent bulk operations from blocking user queries). It is backed by PostgreSQL with pgvector for semantic search and Redis for job queuing and SSE streaming.
 
-## Current Status
+LLM calls use LiteMaaS (Red Hat's internal AI service) as the primary provider with Vertex AI as an automatic fallback. Three models: Sonnet for content analysis and rationale, Haiku for triage and workload scanning.
 
-RCARS is running in a development environment on the RHDP infrastructure cluster. The catalog is actively synced from the production Babylon namespace, and content analysis is underway. The web UI is accessible to authenticated Red Hat users with access to the deployment.
+Reporting data is imported from the RHDP reporting MCP server, which provides access to the same `provisions_summary` materialized view that powers the SuperSet management dashboard.
+
+Access is controlled through OpenShift's OAuth proxy with Red Hat SSO, with three role tiers: viewer, curator, and admin.
 
 ## A Note on the Name
 
