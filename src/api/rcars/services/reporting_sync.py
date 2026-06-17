@@ -15,8 +15,8 @@ logger = structlog.get_logger(component="reporting_sync")
 STAGE_SUFFIXES = (".prod", ".dev", ".event", ".test")
 
 PROVISION_FILTERS = """
-    AND p.environment = 'PROD'
-    AND p.user_group IN ('Only Regular Users', 'Red Hat Console')
+    AND ps.environment = 'PROD'
+    AND ps.user_group IN ('Only Regular Users', 'Red Hat Console')
 """
 
 
@@ -167,21 +167,21 @@ def _build_provisions_sql(start_date: str) -> str:
         SELECT
             ci.name AS catalog_base_name,
             ci.display_name,
-            COUNT(DISTINCT p.uuid) AS provisions,
-            COUNT(DISTINCT p.request_id) AS requests,
-            SUM(p.user_experiences) AS experiences,
-            COUNT(DISTINCT p.user_id) AS unique_users,
+            COUNT(DISTINCT ps.uuid) AS provisions,
+            COUNT(DISTINCT ps.request_id) AS requests,
+            SUM(ps.user_experiences) AS experiences,
+            COUNT(DISTINCT ps.user_id) AS unique_users,
             ROUND(
-                COUNT(DISTINCT CASE WHEN p.provision_result = 'success' THEN p.uuid END)::numeric
-                / NULLIF(COUNT(DISTINCT p.uuid), 0), 4
+                SUM(ps.provision_success)::numeric
+                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
             ) AS success_ratio,
             ROUND(
-                COUNT(DISTINCT CASE WHEN p.provision_result = 'failure' THEN p.uuid END)::numeric
-                / NULLIF(COUNT(DISTINCT p.uuid), 0), 4
+                SUM(ps.provision_failure)::numeric
+                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
             ) AS failure_ratio
-        FROM provisions p
-        JOIN catalog_items ci ON ci.id = p.catalog_id
-        WHERE p.provisioned_at >= '{start_date}'
+        FROM provisions_summary ps
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE ps.provisioned_at >= '{start_date}'
           {PROVISION_FILTERS}
         GROUP BY ci.name, ci.display_name
     """
@@ -189,10 +189,10 @@ def _build_provisions_sql(start_date: str) -> str:
 
 def _build_provisions_quarter_sql(start_date: str) -> str:
     return f"""
-        SELECT ci.name AS catalog_base_name, COUNT(DISTINCT p.uuid) AS provisions_quarter
-        FROM provisions p
-        JOIN catalog_items ci ON ci.id = p.catalog_id
-        WHERE p.provisioned_at >= '{start_date}'
+        SELECT ci.name AS catalog_base_name, COUNT(DISTINCT ps.uuid) AS provisions_quarter
+        FROM provisions_summary ps
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE ps.provisioned_at >= '{start_date}'
           {PROVISION_FILTERS}
         GROUP BY ci.name
     """
@@ -202,15 +202,15 @@ def _build_touched_sql(start_date: str) -> str:
     """Opportunities touched by PROD provisions from real users in the date window."""
     return f"""
         WITH unique_opps AS (
-            SELECT DISTINCT
+            SELECT DISTINCT ON (so.number, ci.name)
                 ci.name AS catalog_base_name, so.number, so.amount
-            FROM provisions p
-            JOIN catalog_items ci ON ci.id = p.catalog_id
-            JOIN provision_sales ps ON ps.provision_uuid = p.uuid
-            JOIN sales_opportunity so ON so.number = ps.sales_opportunity_number
-            WHERE p.provisioned_at >= '{start_date}'
-              AND ps.sales_opportunity_number IS NOT NULL
+            FROM provisions_summary ps
+            JOIN catalog_items ci ON ci.id = ps.catalog_id
+            JOIN sales_opportunity so ON so.id = ps.sales_opportunity_id
+            WHERE ps.sales_opportunity_id IS NOT NULL
+              AND ps.provisioned_at >= '{start_date}'
               {PROVISION_FILTERS}
+            ORDER BY so.number, ci.name
         )
         SELECT catalog_base_name, SUM(amount) AS touched_amount
         FROM unique_opps
@@ -222,17 +222,17 @@ def _build_closed_sql(start_date: str) -> str:
     """Closed-won deals from PROD/real-user provisions, filtered by close date."""
     return f"""
         WITH unique_opps AS (
-            SELECT DISTINCT
+            SELECT DISTINCT ON (so.number, ci.name)
                 ci.name AS catalog_base_name, so.number, so.amount
-            FROM provisions p
-            JOIN catalog_items ci ON ci.id = p.catalog_id
-            JOIN provision_sales ps ON ps.provision_uuid = p.uuid
-            JOIN sales_opportunity so ON so.number = ps.sales_opportunity_number
-            WHERE ps.sales_opportunity_number IS NOT NULL
+            FROM provisions_summary ps
+            JOIN catalog_items ci ON ci.id = ps.catalog_id
+            JOIN sales_opportunity so ON so.id = ps.sales_opportunity_id
+            WHERE ps.sales_opportunity_id IS NOT NULL
               AND so.is_closed = true
               AND so.stage IN ('Closed Won', 'Closed Booked')
               AND so.closed_at >= '{start_date}'
               {PROVISION_FILTERS}
+            ORDER BY so.number, ci.name
         )
         SELECT catalog_base_name, SUM(amount) AS closed_amount
         FROM unique_opps
@@ -253,8 +253,8 @@ def _build_cost_sql(start_date: str) -> str:
             SUM(c.total_cost) AS total_cost,
             ROUND(SUM(c.total_cost) / NULLIF(COUNT(*), 0), 2) AS avg_cost_per_provision
         FROM costs c
-        JOIN provisions p ON p.uuid = c.provision_uuid
-        JOIN catalog_items ci ON ci.id = p.catalog_id
+        JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
         WHERE 1=1 {PROVISION_FILTERS}
         GROUP BY ci.name
     """
@@ -263,10 +263,10 @@ def _build_cost_sql(start_date: str) -> str:
 DATES_SQL = f"""
     SELECT
         ci.name AS catalog_base_name,
-        MIN(p.provisioned_at)::date::text AS first_provision,
-        MAX(p.provisioned_at)::date::text AS last_provision
-    FROM provisions p
-    JOIN catalog_items ci ON ci.id = p.catalog_id
+        MIN(ps.provisioned_at)::date::text AS first_provision,
+        MAX(ps.provisioned_at)::date::text AS last_provision
+    FROM provisions_summary ps
+    JOIN catalog_items ci ON ci.id = ps.catalog_id
     WHERE 1=1 {PROVISION_FILTERS}
     GROUP BY ci.name
 """
