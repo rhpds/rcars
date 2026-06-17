@@ -5,6 +5,7 @@ type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amou
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
+type TimeWindow = '1q' | '2q' | '3q' | '1y'
 
 const fmt = (n: number) => {
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
@@ -48,6 +49,7 @@ export function RetirementPage() {
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all')
   const [ageFilter, setAgeFilter] = useState<AgeFilter>('all')
   const [search, setSearch] = useState('')
+  const [window, setWindow] = useState<TimeWindow>('1y')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const loadData = useCallback(async () => {
@@ -61,6 +63,7 @@ export function RetirementPage() {
         min_score: tab === 'prod' ? minScore : undefined,
         has_prod: tab === 'prod' ? true : false,
         search: search || undefined,
+        window: tab === 'prod' ? window : undefined,
       })
       let filtered = data.items
       if (tab === 'prod' && maxForKeepers) {
@@ -74,7 +77,7 @@ export function RetirementPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, sortBy, sortDir, scoreFilter, search])
+  }, [tab, sortBy, sortDir, scoreFilter, search, window])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -136,7 +139,20 @@ export function RetirementPage() {
         <h3>Retirement Analysis</h3>
         <span className="ca-subtitle" style={{ marginBottom: 0 }}>Last synced: {syncAge}</span>
       </div>
-      <p className="ca-subtitle">Retirement scoring based on provisions, sales, cost, and catalog presence over the trailing year.</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
+        <p className="ca-subtitle" style={{ margin: 0 }}>Retirement scoring based on provisions, sales, cost, and catalog presence.</p>
+        {tab === 'prod' && (
+          <div className="ca-controls" style={{ margin: 0, padding: 0 }}>
+            {([['1q', '1 Quarter'], ['2q', '2 Quarters'], ['3q', '3 Quarters'], ['1y', '1 Year']] as [TimeWindow, string][]).map(([w, label]) => (
+              <button key={w} onClick={() => setWindow(w)}
+                className={`ca-filter-btn${window === w ? ' active' : ''}`}
+                style={{ fontSize: '11px', padding: '3px 8px' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="ca-tab-bar" style={{ marginBottom: '12px' }}>
         <button className={`ca-tab-btn${tab === 'prod' ? ' active' : ''}`} onClick={() => setTab('prod')}>Prod Retirements</button>

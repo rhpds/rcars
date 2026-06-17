@@ -277,6 +277,167 @@ def _build_cost_sql(start_date: str) -> str:
     """
 
 
+def _build_provisions_by_quarter_sql(start_date: str) -> str:
+    return f"""
+        SELECT
+            ci.name AS catalog_base_name,
+            TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q') AS quarter,
+            COUNT(DISTINCT ps.uuid) AS provisions
+        FROM provisions_summary ps
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE ps.provisioned_at >= '{start_date}'
+          {PROVISION_FILTERS}
+        GROUP BY ci.name, quarter
+    """
+
+
+def _build_touched_by_quarter_sql(start_date: str) -> str:
+    return f"""
+        WITH unique_opps AS (
+            SELECT DISTINCT ON (so.number, ci.name,
+                TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q'))
+                ci.name AS catalog_base_name, so.number, so.amount,
+                TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q') AS quarter
+            FROM provisions_summary ps
+            JOIN catalog_items ci ON ci.id = ps.catalog_id
+            JOIN sales_opportunity so ON so.id = ps.sales_opportunity_id
+            WHERE ps.sales_opportunity_id IS NOT NULL
+              AND ps.provisioned_at >= '{start_date}'
+              {PROVISION_FILTERS}
+            ORDER BY so.number, ci.name,
+                TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q')
+        )
+        SELECT catalog_base_name, quarter, SUM(amount) AS touched_amount
+        FROM unique_opps
+        GROUP BY catalog_base_name, quarter
+    """
+
+
+def _build_closed_by_quarter_sql(start_date: str) -> str:
+    return f"""
+        WITH unique_opps AS (
+            SELECT DISTINCT ON (so.number, ci.name,
+                TO_CHAR(DATE_TRUNC('quarter', so.closed_at), 'YYYY-"Q"Q'))
+                ci.name AS catalog_base_name, so.number, so.amount,
+                TO_CHAR(DATE_TRUNC('quarter', so.closed_at), 'YYYY-"Q"Q') AS quarter
+            FROM provisions_summary ps
+            JOIN catalog_items ci ON ci.id = ps.catalog_id
+            JOIN sales_opportunity so ON so.id = ps.sales_opportunity_id
+            WHERE ps.sales_opportunity_id IS NOT NULL
+              AND so.is_closed = true
+              AND so.stage IN ('Closed Won', 'Closed Booked')
+              AND so.closed_at >= '{start_date}'
+              {PROVISION_FILTERS}
+            ORDER BY so.number, ci.name,
+                TO_CHAR(DATE_TRUNC('quarter', so.closed_at), 'YYYY-"Q"Q')
+        )
+        SELECT catalog_base_name, quarter, SUM(amount) AS closed_amount
+        FROM unique_opps
+        GROUP BY catalog_base_name, quarter
+    """
+
+
+def _build_cost_by_quarter_sql(start_date: str) -> str:
+    return f"""
+        WITH costs AS (
+            SELECT provision_uuid,
+                TO_CHAR(DATE_TRUNC('quarter', month_ts), 'YYYY-"Q"Q') AS quarter,
+                SUM(total_cost) AS total_cost
+            FROM provision_cost
+            WHERE month_ts >= '{start_date}'
+            GROUP BY provision_uuid, quarter
+        )
+        SELECT
+            ci.name AS catalog_base_name,
+            c.quarter,
+            SUM(c.total_cost) AS total_cost
+        FROM costs c
+        JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE 1=1 {PROVISION_FILTERS}
+        GROUP BY ci.name, c.quarter
+    """
+
+
+def _build_quarterly_data(
+    prov_q_rows: list[dict],
+    touched_q_rows: list[dict],
+    closed_q_rows: list[dict],
+    cost_q_rows: list[dict],
+) -> dict[str, dict]:
+    """Build per-base-name quarterly breakdown dict from query results."""
+    result: dict[str, dict[str, dict]] = {}
+
+    for r in prov_q_rows:
+        name, q = r["catalog_base_name"], r["quarter"]
+        result.setdefault(name, {}).setdefault(q, {})["provisions"] = int(r["provisions"])
+
+    for r in touched_q_rows:
+        name, q = r["catalog_base_name"], r["quarter"]
+        result.setdefault(name, {}).setdefault(q, {})["touched"] = float(r["touched_amount"] or 0)
+
+    for r in closed_q_rows:
+        name, q = r["catalog_base_name"], r["quarter"]
+        result.setdefault(name, {}).setdefault(q, {})["closed"] = float(r["closed_amount"] or 0)
+
+    for r in cost_q_rows:
+        name, q = r["catalog_base_name"], r["quarter"]
+        result.setdefault(name, {}).setdefault(q, {})["cost"] = float(r["total_cost"] or 0)
+
+    return result
+
+
+def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
+    """Recompute retirement scores for a subset of trailing quarters.
+
+    Sums provisions/touched/closed/cost from the most recent N quarters,
+    computes fresh percentile rankings, and returns items with updated scores.
+    """
+    all_quarters = set()
+    for item in items:
+        qd = item.get("quarterly_data") or {}
+        all_quarters.update(qd.keys())
+
+    recent = sorted(all_quarters, reverse=True)[:num_quarters]
+    recent_set = set(recent)
+
+    windowed = []
+    for item in items:
+        qd = item.get("quarterly_data") or {}
+        prov = sum(qd.get(q, {}).get("provisions", 0) for q in recent_set)
+        touched = sum(qd.get(q, {}).get("touched", 0) for q in recent_set)
+        closed = sum(qd.get(q, {}).get("closed", 0) for q in recent_set)
+        cost = sum(qd.get(q, {}).get("cost", 0) for q in recent_set)
+
+        windowed.append({
+            **item,
+            "provisions": prov,
+            "touched_amount": touched,
+            "closed_amount": closed,
+            "total_cost": cost,
+            "avg_cost_per_provision": round(cost / prov, 2) if prov > 0 else 0,
+        })
+
+    sorted_provisions = sorted(w["provisions"] for w in windowed)
+    sorted_touched = sorted(w["touched_amount"] for w in windowed if w["touched_amount"] > 0)
+    sorted_closed = sorted(w["closed_amount"] for w in windowed if w["closed_amount"] > 0)
+
+    for w in windowed:
+        w["retirement_score"] = compute_retirement_score(
+            provisions_pct=_percentile_rank(w["provisions"], sorted_provisions),
+            touched_zero=w["touched_amount"] == 0,
+            touched_pct=_percentile_rank(w["touched_amount"], sorted_touched),
+            closed_zero=w["closed_amount"] == 0,
+            closed_pct=_percentile_rank(w["closed_amount"], sorted_closed),
+            total_cost=w["total_cost"],
+            closed_amount=w["closed_amount"],
+            first_provision=w.get("first_provision") or "",
+        )
+        w["sales_impact"] = compute_sales_impact(w["closed_amount"])
+
+    return windowed
+
+
 DATES_SQL = f"""
     SELECT
         ci.name AS catalog_base_name,
@@ -331,6 +492,14 @@ def run_reporting_sync(db, settings) -> dict:
     date_data = {r["catalog_base_name"]: r for r in date_rows}
     log.info("fetched_dates", count=len(date_data))
 
+    log.info("fetching_quarterly_breakdowns")
+    prov_q_rows = mcp_query(_build_provisions_by_quarter_sql(sales_start), url=url, token=token)
+    touched_q_rows = mcp_query(_build_touched_by_quarter_sql(sales_start), url=url, token=token)
+    closed_q_rows = mcp_query(_build_closed_by_quarter_sql(sales_start), url=url, token=token)
+    cost_q_rows = mcp_query(_build_cost_by_quarter_sql(sales_start), url=url, token=token)
+    quarterly = _build_quarterly_data(prov_q_rows, touched_q_rows, closed_q_rows, cost_q_rows)
+    log.info("fetched_quarterly", items_with_quarters=len(quarterly))
+
     all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
     excluded = {n for n in all_names if any(n.startswith(p) for p in EXCLUDE_PREFIXES)}
     filtered_names = all_names - excluded
@@ -359,6 +528,7 @@ def run_reporting_sync(db, settings) -> dict:
             "avg_cost_per_provision": float(cost.get("avg_cost_per_provision", 0) or 0),
             "first_provision": (dates.get("first_provision", "") or "") or None,
             "last_provision": (dates.get("last_provision", "") or None),
+            "quarterly_data": json.dumps(quarterly.get(name, {})),
         })
 
     sorted_provisions = sorted(r["provisions"] for r in merged_rows)
