@@ -193,7 +193,7 @@ def _build_provisions_sql(start_date: str) -> str:
             ci.display_name,
             COUNT(DISTINCT ps.uuid) AS provisions,
             COUNT(DISTINCT ps.request_id) AS requests,
-            SUM(ps.user_experiences) AS experiences,
+            COALESCE(SUM(ps.user_experiences), 0) AS experiences,
             COUNT(DISTINCT ps.user_id) AS unique_users,
             ROUND(
                 SUM(ps.provision_success)::numeric
