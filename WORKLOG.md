@@ -27,6 +27,56 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-17 — Nate + Claude (Retirement Phase 2 — data validation + scoring + docs)
+
+**Done:**
+- **Data validation investigation and fix (3 root causes found and fixed):**
+  1. Sales SQL was filtering by `p.provisioned_at` (provision date) instead of `so.closed_at` (opportunity close date). Split `_build_sales_sql()` into `_build_touched_sql()` (provision-date filtered) and `_build_closed_sql()` (closed_at filtered). Fixed sandbox-ocp from $45M → $104M closed.
+  2. All queries filtered to `environment='PROD'` and `user_group IN ('Only Regular Users', 'Red Hat Console')` to match SuperSet dashboard scope. Removed 42% of inflated provisions from DEV/TEST/EVENT and internal users.
+  3. Switched all queries from raw `provisions` table to `provisions_summary` materialized view (the same source SuperSet uses), and from `provision_sales` intermediary join to direct `provisions_summary.sales_opportunity_id → sales_opportunity.id` FK. Fixed RHADS from $1.1B → $213M touched.
+- **Percentile-based retirement scoring:**
+  - Replaced fixed-threshold scoring with percentile ranking against catalog peers
+  - Removed `has_prod` from scoring — dev-only items handled in separate tab
+  - Excluded test/infra items (`tests.*`, `clusterplatform.*`, `resourcehub.*`) from sync
+  - Two-pass scoring in `run_reporting_sync()`: collect data → compute percentiles → score
+  - Max score 75 (headroom for future dimensions), age discount unchanged
+- **Retirement dashboard redesign:**
+  - Split into Prod Retirements (scored) and Without Prod (age-based) tabs
+  - Stat cards compute from filtered items (not global summary)
+  - Without Prod: expandable rows with detail, clickable stage badges linking to Browse, age filter pills (All / >1 Year / 6-12 Mo / < 6 Mo)
+- **Admin status cards redesigned:**
+  - LLM Provider: models under both LiteMaaS and Vertex AI, Analysis/Triage/Rationale rows
+  - Reporting Sync: "Assets tracked" with color-coded score breakdown replacing opaque counts
+- **API memory bumped** from 512Mi/2Gi to 1Gi/4Gi to prevent OOM during sync
+- **Documentation overhaul:**
+  - Split monolithic `system-design.md` (684 lines) into 5 focused pages: system design, scan pipeline, recommendation engine, content overlap, retirement analysis
+  - Rewrote overview.md to reflect current RCARS capabilities
+  - Fixed inaccuracies: namespace sync (all 3, not prod-only), ZTE naming, workload extraction vs scanning, catalog reader extraction list, vector embeddings explanation
+  - Scan pipeline: added intro, nav.adoc in diagram, rewrote Step 4 with actual prompt fields + example output, rewrote Step 6 embeddings with clear explanation, moved dedup after Step 7, added change detection section
+  - Recommendation engine: vertical diagram with subgroups, expanded Phase 1 vector search explanation, triage prompt/response examples, clarified triage (compact 8-field) vs rationale (full analysis) data, acronym table
+  - Retirement analysis: explained 75-point max, added three worked scoring examples
+  - Added config/CLI/API reference sections to all architecture pages
+- **Backlog additions:** robust acronym expansion, lower overlap threshold for broader detection
+- All changes deployed to dev, sync verified
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Time window filter for retirement dashboard (1Q / 2Q / 3Q / 1Y selector). Design decision needed: store per-quarter breakdowns during sync vs re-query MCP on demand. The nightly sync already pulls trailing year; the filter would recompute scores on the selected subset.
+- Re-sync on dev and verify percentile score distribution looks right (new scoring deployed but hasn't been synced yet with latest frontend fixes)
+- Documentation review continuation (CLI/API reference sections added but content review paused mid-stream)
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Notes:**
+- `provisions_summary` is a PostgreSQL materialized view (not in `information_schema`, found via `pg_matviews`). It has ~15K fewer rows than `provisions` and different opportunity linkage — must be used for dashboard-matching numbers.
+- The `PROVISION_FILTERS` constant in `reporting_sync.py` applies environment + user_group filters to all queries.
+- `EXCLUDE_PREFIXES` in `reporting_sync.py` filters out test/infra items before scoring.
+- Reporting MCP env vars were manually injected on dev via `oc set env` because `--tags apply` failed transiently. Next `--tags deploy` will set them up canonically via the template.
+- The frontend TS build is strict — unused variables cause build failures. The `summary` state removal caught this.
+
+---
+
 ### 2026-06-16 — Nate + Claude (Retirement analysis + LiteMaaS + code review)
 
 **Done:**
