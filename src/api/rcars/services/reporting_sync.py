@@ -494,7 +494,7 @@ def run_reporting_sync(db, settings) -> dict:
     prov_q_rows = mcp_query(_build_provisions_by_quarter_sql(sales_start), url=url, token=token)
     touched_q_rows = mcp_query(_build_touched_by_quarter_sql(sales_start), url=url, token=token)
     closed_q_rows = mcp_query(_build_closed_by_quarter_sql(sales_start), url=url, token=token)
-    cost_q_rows = mcp_query(_build_cost_by_quarter_sql(sales_start), url=url, token=token)
+    cost_q_rows = mcp_query(_build_cost_by_quarter_sql(sales_start), url=url, token=token, timeout=300)
     quarterly = _build_quarterly_data(prov_q_rows, touched_q_rows, closed_q_rows, cost_q_rows)
     log.info("fetched_quarterly", items_with_quarters=len(quarterly))
 
