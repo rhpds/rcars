@@ -254,7 +254,7 @@ An OAuth proxy authenticates users against Red Hat SSO and injects `X-Forwarded-
 - **Curator** — email in `RCARS_CURATOR_EMAILS_STR`. Can trigger single-item analysis and manage enrichment tags.
 - **Viewer** — authenticated but not in either list. Can use the advisor and browse.
 
-In local development, `RCARS_DEV_USER` bypasses auth entirely. ServiceAccount tokens are validated via K8s TokenReview API against a configurable allowlist.
+ServiceAccount tokens (used by Publishing House and other platform services) are validated via K8s TokenReview API against a configurable allowlist.
 
 ---
 
