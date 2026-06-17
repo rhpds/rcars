@@ -159,7 +159,18 @@ RCARS uses PostgreSQL with the pgvector extension. Schema is managed with two co
 
 ### Understanding Vector Embeddings
 
-A **vector embedding** is a fixed-length list of numbers (384 in RCARS) that represents the meaning of a piece of text. Texts that mean similar things produce similar vectors, even with completely different wording. RCARS generates these for every analyzed Showroom using `all-MiniLM-L6-v2`. When a user asks a question, it is converted into the same kind of vector, and pgvector's cosine similarity search finds the closest matches.
+A **vector embedding** is a fixed-length list of numbers (in RCARS, 384 numbers) that represents the meaning of a piece of text. The numbers are produced by a machine learning model (`all-MiniLM-L6-v2`) trained to place semantically similar texts close together in a 384-dimensional space. The key property: texts that mean similar things end up with similar vectors, even if they use completely different words.
+
+For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.
+
+RCARS generates an embedding for every analyzed Showroom during the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings). These embeddings are stored in the `embeddings` table and serve two purposes:
+
+- **Recommendations** — when a user asks a question, the query text is embedded with the same model, and pgvector's cosine similarity search finds the closest lab embeddings. This is the core of the [recommendation engine's](recommendation-engine.md#phase-1--vector-search) first phase.
+- **Overlap detection** — lab embeddings are compared against each other to find catalog items that teach substantially the same material. See [content overlap](content-overlap.md#how-cosine-similarity-works) for the math.
+
+**Cosine similarity** measures the angle between two vectors regardless of magnitude. A score of 1.0 means identical meaning; 0.0 means completely unrelated. pgvector's `<=>` operator returns cosine *distance* (1 minus similarity), so lower distance means better match. An IVFFlat index on the embedding column makes this search fast even with thousands of vectors.
+
+The sentence-transformers model runs locally inside the RCARS pod — no external API call is needed for embedding generation.
 
 ### Tables
 
