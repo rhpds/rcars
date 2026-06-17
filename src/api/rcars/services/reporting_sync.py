@@ -378,7 +378,8 @@ def run_reporting_sync(db, settings) -> dict:
         )
 
     upserted = db.upsert_reporting_metrics(merged_rows)
-    orphans = db.delete_orphan_reporting_metrics()
+    synced_names = {r["catalog_base_name"] for r in merged_rows}
+    orphans = db.delete_orphan_reporting_metrics(synced_names=synced_names)
 
     summary = {
         "synced": upserted,
