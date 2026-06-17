@@ -1451,18 +1451,40 @@ class Database:
             conn.commit()
         return len(rows)
 
-    def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
-        """Delete reporting_metrics rows not in the current sync batch."""
-        if not synced_names:
-            return 0
+    def get_catalog_base_names(self) -> dict[str, str]:
+        """Get all unique base names from catalog_items with their display names."""
+        sql = """
+            SELECT DISTINCT ON (base)
+                substring(ci_name FROM '^(.+)\\.[^.]+$') AS base,
+                display_name
+            FROM catalog_items
+            ORDER BY base, CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
+        """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                placeholders = ",".join(["%s"] * len(synced_names))
-                cur.execute(
-                    f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
-                    list(synced_names),
-                )
-                deleted = cur.rowcount
+                cur.execute(sql)
+                return {r[0]: r[1] for r in cur.fetchall() if r[0]}
+
+    def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
+        """Delete reporting_metrics rows not in current sync or not in current catalog."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                deleted = 0
+                if synced_names:
+                    placeholders = ",".join(["%s"] * len(synced_names))
+                    cur.execute(
+                        f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
+                        list(synced_names),
+                    )
+                    deleted += cur.rowcount
+                cur.execute("""
+                    DELETE FROM reporting_metrics rm
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM catalog_items ci
+                        WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
+                    )
+                """)
+                deleted += cur.rowcount
             conn.commit()
         return deleted
 
@@ -1515,15 +1537,9 @@ class Database:
 
         if has_prod is True:
             conditions.append("""
-                (
-                    EXISTS (
-                        SELECT 1 FROM catalog_items ci3
-                        WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
-                    )
-                    OR NOT EXISTS (
-                        SELECT 1 FROM catalog_items ci4
-                        WHERE ci4.ci_name LIKE rm.catalog_base_name || '.%%'
-                    )
+                EXISTS (
+                    SELECT 1 FROM catalog_items ci3
+                    WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
                 )
             """)
         elif has_prod is False:
@@ -1531,10 +1547,6 @@ class Database:
                 NOT EXISTS (
                     SELECT 1 FROM catalog_items ci3
                     WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
-                )
-                AND EXISTS (
-                    SELECT 1 FROM catalog_items ci5
-                    WHERE ci5.ci_name LIKE rm.catalog_base_name || '.%%'
                 )
             """)
 
@@ -1566,7 +1578,8 @@ class Database:
         from rcars.services.reporting_sync import extract_base_name
         placeholders = ",".join(["%s"] * len(base_names))
         sql = f"""
-            SELECT ci_name, catalog_namespace, stage
+            SELECT ci_name, catalog_namespace, stage,
+                   (showroom_url IS NOT NULL AND showroom_url != '') AS has_showroom
             FROM catalog_items
             WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
             ORDER BY ci_name
@@ -1581,6 +1594,7 @@ class Database:
                         "stage": row["stage"],
                         "ci_name": row["ci_name"],
                         "catalog_url": f"https://catalog.demo.redhat.com/catalog?item={row['catalog_namespace']}/{row['ci_name']}",
+                        "has_showroom": row["has_showroom"],
                     }
                     result.setdefault(base, []).append(stage_info)
         return result

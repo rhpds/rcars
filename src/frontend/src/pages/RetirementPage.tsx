@@ -260,14 +260,14 @@ export function RetirementPage() {
                                           {s.stage}
                                         </a>
                                       ))}
-                                      {!item.in_rcars && item.catalog_url && (
+                                      {!item.has_content && item.catalog_url && (
                                         <a href={item.catalog_url} target="_blank" rel="noreferrer"
                                           className="ca-env-tag" style={{ background: 'rgba(150,150,150,0.2)', color: '#999', border: '1px solid #555' }}
                                           onClick={e => e.stopPropagation()}>
                                           catalog
                                         </a>
                                       )}
-                                      {item.in_rcars && item.stages.length === 0 && <span className="ca-color-muted">none</span>}
+                                      {item.has_content && item.stages.length === 0 && <span className="ca-color-muted">none</span>}
                                     </span>
                                   </div>
                                   <div className="ca-detail-item">
