@@ -366,11 +366,11 @@ export function RetirementPage() {
                 <table className="ca-table">
                   <thead>
                     <tr>
-                      <th onClick={() => toggleSort('display_name')} style={{ width: '40%' }}>Name{sortIndicator('display_name')}</th>
+                      <th style={{ width: '40%' }}>Name</th>
                       <th style={{ width: '12%' }}>Stages</th>
                       <th style={{ width: '12%' }}>First Provision</th>
                       <th style={{ width: '12%' }}>Last Provision</th>
-                      <th className="num" onClick={() => toggleSort('provisions')} style={{ width: '10%' }}>Provisions{sortIndicator('provisions')}</th>
+                      <th className="num" style={{ width: '10%' }}>Provisions</th>
                       <th className="num" style={{ width: '10%' }}>Age (days)</th>
                     </tr>
                   </thead>
