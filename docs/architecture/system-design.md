@@ -109,13 +109,14 @@ RCARS imports usage, sales, and cost data from the RHDP reporting database via a
 
 ## Catalog Reader (`services/catalog.py`)
 
-The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `CatalogItem` and `AgnosticVComponent` resources. CatalogItems provide catalog metadata (display name, category, stage); AgnosticVComponents provide the showroom URLs from `spec.definition`.
+The catalog reader connects to the Babylon Kubernetes API using the configured kubeconfig and lists all `CatalogItem` and `AgnosticVComponent` resources.
 
 For each component, it extracts:
 
 - **Display name, category, product, description, keywords, stage** — from CatalogItem CRD metadata and labels
 - **Showroom URL and ref** — extracted from the AgnosticVComponent using a two-path extraction strategy (see below)
 - **Published/base CI relationship** — derived from `__meta__.components[].item` references
+- **Infrastructure metadata** (AgnosticD v2 items only) — config type, cloud provider, OCP version, OS image, workload roles, ACL groups. See [Infrastructure Metadata Extraction](#infrastructure-metadata-extraction-agnosticd-v2) below.
 
 The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
 
