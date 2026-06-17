@@ -1452,25 +1452,17 @@ class Database:
         return len(rows)
 
     def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
-        """Delete reporting_metrics rows not in current sync or without catalog entries."""
+        """Delete reporting_metrics rows not in the current sync batch."""
+        if not synced_names:
+            return 0
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                deleted = 0
-                if synced_names:
-                    placeholders = ",".join(["%s"] * len(synced_names))
-                    cur.execute(
-                        f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
-                        list(synced_names),
-                    )
-                    deleted += cur.rowcount
-                cur.execute("""
-                    DELETE FROM reporting_metrics rm
-                    WHERE NOT EXISTS (
-                        SELECT 1 FROM catalog_items ci
-                        WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
-                    )
-                """)
-                deleted += cur.rowcount
+                placeholders = ",".join(["%s"] * len(synced_names))
+                cur.execute(
+                    f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
+                    list(synced_names),
+                )
+                deleted = cur.rowcount
             conn.commit()
         return deleted
 
@@ -1523,9 +1515,15 @@ class Database:
 
         if has_prod is True:
             conditions.append("""
-                EXISTS (
-                    SELECT 1 FROM catalog_items ci3
-                    WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                (
+                    EXISTS (
+                        SELECT 1 FROM catalog_items ci3
+                        WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                    )
+                    OR NOT EXISTS (
+                        SELECT 1 FROM catalog_items ci4
+                        WHERE ci4.ci_name LIKE rm.catalog_base_name || '.%%'
+                    )
                 )
             """)
         elif has_prod is False:
@@ -1533,6 +1531,10 @@ class Database:
                 NOT EXISTS (
                     SELECT 1 FROM catalog_items ci3
                     WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM catalog_items ci5
+                    WHERE ci5.ci_name LIKE rm.catalog_base_name || '.%%'
                 )
             """)
 

@@ -40,6 +40,7 @@ def _percentile_rank(val: float, sorted_vals: list[float]) -> float:
 
 
 def compute_retirement_score(
+    provisions_zero: bool,
     provisions_pct: float,
     touched_zero: bool,
     touched_pct: float,
@@ -51,16 +52,18 @@ def compute_retirement_score(
 ) -> int:
     """Compute retirement score 0-100 using percentile ranks.
 
-    Higher = stronger retirement candidate. Percentile args are 0-100 where
-    0 = lowest among peers. touched_pct/closed_pct are ranks among non-zero
-    items only; the _zero flags handle the zero case separately.
+    Higher = stronger retirement candidate. Percentile args are 0-100
+    ranks among non-zero peers only; the _zero flags handle the zero
+    case separately. Max achievable ~80.
     """
     score = 0
 
-    if provisions_pct < 10:
-        score += 20
+    if provisions_zero:
+        score += 25
+    elif provisions_pct < 10:
+        score += 18
     elif provisions_pct < 25:
-        score += 15
+        score += 14
     elif provisions_pct < 50:
         score += 8
     elif provisions_pct < 75:
@@ -98,9 +101,9 @@ def compute_retirement_score(
                 first_date = datetime.strptime(str(first_provision), "%Y-%m-%d")
             age_days = (datetime.now() - first_date).days
             if age_days <= 90:
-                score = max(0, score - 40)
+                score = max(0, score - 30)
             elif age_days <= 180:
-                score = max(0, score - 15)
+                score = max(0, score - 10)
         except (ValueError, TypeError):
             pass
 
@@ -420,12 +423,13 @@ def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
             "avg_cost_per_provision": round(cost / prov, 2) if prov > 0 else 0,
         })
 
-    sorted_provisions = sorted(w["provisions"] for w in windowed)
+    sorted_provisions = sorted(w["provisions"] for w in windowed if w["provisions"] > 0)
     sorted_touched = sorted(w["touched_amount"] for w in windowed if w["touched_amount"] > 0)
     sorted_closed = sorted(w["closed_amount"] for w in windowed if w["closed_amount"] > 0)
 
     for w in windowed:
         w["retirement_score"] = compute_retirement_score(
+            provisions_zero=w["provisions"] == 0,
             provisions_pct=_percentile_rank(w["provisions"], sorted_provisions),
             touched_zero=w["touched_amount"] == 0,
             touched_pct=_percentile_rank(w["touched_amount"], sorted_touched),
@@ -533,12 +537,13 @@ def run_reporting_sync(db, settings) -> dict:
             "quarterly_data": json.dumps(quarterly.get(name, {})),
         })
 
-    sorted_provisions = sorted(r["provisions"] for r in merged_rows)
+    sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
 
     for row in merged_rows:
         row["retirement_score"] = compute_retirement_score(
+            provisions_zero=row["provisions"] == 0,
             provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
             touched_zero=row["touched_amount"] == 0,
             touched_pct=_percentile_rank(row["touched_amount"], sorted_touched),
