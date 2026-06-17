@@ -716,9 +716,9 @@ export function AdminCatalogPage() {
                       <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.vertex_models.join(', ')}</span></div>
                     )}
                     <div className="admin-stat-row-divider" />
-                    <div className="admin-stat-row"><span className="admin-stat-row-label">Analysis</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.analysis_model}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Content scan</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.analysis_model}</span></div>
                     <div className="admin-stat-row"><span className="admin-stat-row-label">Triage</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.triage_model}</span></div>
-                    <div className="admin-stat-row"><span className="admin-stat-row-label">Scanning</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.scanning_model}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Workload scan</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.scanning_model}</span></div>
                   </>
                 ) : (
                   <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
