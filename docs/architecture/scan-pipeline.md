@@ -146,6 +146,39 @@ The sentence-transformers model requires no external API call — it runs locall
 
 The analysis and embeddings are written to the database. The temporary clone directory is deleted. This cleanup runs in a `finally` block — the clone is always deleted regardless of whether earlier steps succeeded or failed.
 
+---
+
+## Deduplication and Propagation
+
+Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant. With ~600 scannable items in the catalog, deduplication and change detection are essential to keeping the nightly pipeline fast and LLM costs reasonable.
+
+### Sibling Grouping
+
+RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
+
+1. All scannable items (with Showroom URL, non-published) are grouped by `(url, ref)`.
+2. One representative per group is selected for scanning (prod preferred, then event, then dev).
+3. After scanning the representative, the analysis and embeddings are **propagated** to all siblings in the same group.
+4. Each sibling gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable and recommendable.
+
+**Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
+
+**`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
+
+### Change Detection — Only Scan What Changed
+
+RCARS does not rescan the entire catalog on every run. Whether triggered by the nightly pipeline or a manual scan, only items whose content has actually changed are reprocessed. The change detection is a two-phase process:
+
+1. **Fast check (`git ls-remote`)** — for every analyzed Showroom, RCARS calls `git ls-remote` to get the current commit SHA for the configured ref. This is a lightweight network call that does not clone the repository. If the SHA matches the one recorded during the last scan, the item is unchanged and skipped entirely.
+
+2. **Content hash comparison** — if the SHA has changed (or the item has never been scanned), RCARS clones the repo and hashes the content files. If the hash matches the stored `content_hash`, the content is identical despite the SHA change (e.g., a merge commit that didn't modify the content directory). The item is still skipped.
+
+Only items that fail both checks — new SHA **and** different content hash — are sent through the full scan pipeline (Steps 1-7 above). In practice, the nightly pipeline typically rescans 5-20 items out of ~600, completing in minutes rather than hours.
+
+Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) when GitHub rate limiting is detected.
+
+---
+
 ## Error Classification
 
 When a scan fails, RCARS classifies the error into one of these categories (stored in `catalog_items.scan_error_class`):
@@ -163,28 +196,3 @@ When a scan fails, RCARS classifies the error into one of these categories (stor
 | `unknown` | Unclassified error |
 
 Error classes enable targeted debugging — `jinja_url` errors indicate a catalog metadata issue, while `no_content` errors may need a custom `content_path` override.
-
-## Git Retry Logic
-
-Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) when GitHub rate limiting is detected. The `git ls-remote` fast check during stale detection has a 30-second timeout.
-
----
-
-## Deduplication and Propagation
-
-Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant.
-
-RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
-
-1. All scannable items (with Showroom URL, non-published) are grouped by `(url, ref)`.
-2. One representative per group is selected for scanning (prod preferred, then event, then dev).
-3. After scanning the representative, the analysis and embeddings are **propagated** to all siblings in the same group.
-4. Each sibling gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable and recommendable.
-
-**Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
-
-**`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
-
-**No content caching.** Every scan is a fresh `git clone` with the ref resolved at clone time. There is no persistent cache of repo content between scans.
-
-Both the CLI (`rcars scan`) and the worker (`run_analysis`) implement propagation identically.
