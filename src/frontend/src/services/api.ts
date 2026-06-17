@@ -209,6 +209,7 @@ export const api = {
   getRetirementDashboard: (params?: {
     sort_by?: string; sort_dir?: string; min_score?: number;
     category?: string; has_prod?: boolean; search?: string;
+    window?: string;
   }) => {
     const qs = new URLSearchParams()
     if (params) {

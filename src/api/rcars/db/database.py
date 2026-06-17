@@ -1417,12 +1417,13 @@ class Database:
                 catalog_base_name, display_name, provisions, provisions_quarter,
                 requests, experiences, unique_users, success_ratio, failure_ratio,
                 touched_amount, closed_amount, total_cost, avg_cost_per_provision,
-                first_provision, last_provision, retirement_score, synced_at
+                first_provision, last_provision, retirement_score, quarterly_data, synced_at
             ) VALUES (
                 %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
                 %(requests)s, %(experiences)s, %(unique_users)s, %(success_ratio)s, %(failure_ratio)s,
                 %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
-                %(first_provision)s, %(last_provision)s, %(retirement_score)s, NOW()
+                %(first_provision)s, %(last_provision)s, %(retirement_score)s,
+                %(quarterly_data)s::jsonb, NOW()
             )
             ON CONFLICT (catalog_base_name) DO UPDATE SET
                 display_name = EXCLUDED.display_name,
@@ -1440,6 +1441,7 @@ class Database:
                 first_provision = EXCLUDED.first_provision,
                 last_provision = EXCLUDED.last_provision,
                 retirement_score = EXCLUDED.retirement_score,
+                quarterly_data = EXCLUDED.quarterly_data,
                 synced_at = NOW()
         """
         with self._pool.connection() as conn:
