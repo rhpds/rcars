@@ -27,39 +27,50 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
-### 2026-06-17 — Nate + Claude (Retirement scoring verification + time window filter)
+### 2026-06-17 — Nate + Claude (Retirement scoring + time window + catalog completeness)
 
 **Done:**
-- **Stale scoring cleanup (3 root causes found and fixed):**
-  1. `delete_orphan_reporting_metrics` only checked for catalog entry existence — items from old syncs (pre-PROVISION_FILTERS) with stale fixed-threshold scores (85, 100) survived because they had catalog entries. Fixed: pass synced base names to orphan cleanup to remove items not in the current sync batch.
-  2. After #1, 1863 reporting-only items without RCARS catalog entries flooded the Without Prod tab. Fixed: dual cleanup — remove both stale items AND non-catalog items.
-  3. 163 stale items had old scoring from before percentile-based scoring was deployed. After fix: 352 items, scores 0-55, zero items ≥75 (max achievable is 75 from current scoring weights).
+- **Stale scoring cleanup:**
+  - `delete_orphan_reporting_metrics` now removes items not in the current sync batch AND items no longer in `catalog_items`
+  - 163 stale items from old scoring (85, 100) cleaned up — scores now 0-65 max
 - **Time window filter for retirement dashboard:**
   - Migration 007: `quarterly_data JSONB` column on `reporting_metrics`
-  - 4 new quarterly SQL queries (provisions, touched, closed, cost grouped by `TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY-"Q"Q')`)
-  - `_build_quarterly_data()` merges quarterly results into `{quarter: {provisions, touched, closed, cost}}` dict per base name
-  - `compute_windowed_scores()` sums relevant quarters and recomputes percentile rankings — pure CPU, sub-millisecond for 336 items
-  - API: `window` query parameter (1q/2q/3q/1y), strips quarterly_data JSONB from response
-  - Frontend: pill selector on Prod tab (1 Quarter / 2 Quarters / 3 Quarters / 1 Year)
-  - Cost quarterly query: uses provision quarter (provisioned_at) not billing quarter (month_ts) for consistency. 300s timeout for the 4-page pagination.
-  - Fixed `compute_retirement_score` to handle `datetime.date` objects from psycopg3 (was expecting str)
-- **Verified scoring distribution:**
-  - 1Y: 336 items, scores 0-55, avg 24.1, 16 items in review (≥50)
-  - 1Q: 336 items, scores 0-63, avg 39.2, 70 items in review — narrower window correctly pushes scores up for items with sporadic recent activity
+  - 4 new quarterly SQL queries grouped by `TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY-"Q"Q')`
+  - `compute_windowed_scores()` recomputes percentile rankings from stored quarterly data — no MCP re-query
+  - API: `window` query parameter (1q/2q/3q/1y); frontend: pill selector on Prod tab
+  - Cost quarterly query uses provision quarter (provisioned_at) not billing quarter (month_ts). 300s timeout.
+  - Fixed `compute_retirement_score` to handle `datetime.date` objects from psycopg3
+- **More aggressive scoring:**
+  - Added `provisions_zero` flag (+25), matching touched_zero/closed_zero pattern
+  - Provision percentiles computed among non-zero peers only (was diluted by all items)
+  - Bumped provision weights: < 25th pct +14, < 10th +18
+  - Reduced age discount from -40/-15 to -30/-10
+  - Lowered thresholds: high ≥55, review ≥35 (was 75/50)
+- **Full catalog coverage in retirement dashboard:**
+  - `get_catalog_base_names()` pulls all 528 unique base names from `catalog_items`
+  - Sync backfills zero-data entries for catalog items with no reporting data (176 items)
+  - Items without Showroom get `has_content=false` and gray "catalog" badge linking to demo.redhat.com
+  - `get_stages_for_base_names()` now includes `has_showroom` flag
+  - All windows: Prod (353) + Without Prod (175) = 528 unique catalog items
+- **Removed activity filter** — all 353 prod items always shown regardless of window; items with zero recent activity are retirement candidates, not items to hide
+- **Investigated cross-namespace duplication** — items like `zt-ansiblebu.zt-ans-bu-writing-playbook` and `zt-rhel.zt-ans-bu-writing-playbook` share sales opportunities, inflating per-item touched/closed amounts. Conservative error (makes items look like keepers). Added as low-priority backlog item.
+- **Isolation verified** — changes confined to retirement endpoint, reporting_sync, and database methods only used by retirement code. Scan pipeline, recommendation pipeline, overlap detection, and admin functions untouched.
 
 **In progress:**
 - Nothing — clean handoff
 
 **Next:**
-- Visual verification of the retirement dashboard (OAuth login required, couldn't test via automation)
-- Documentation review continuation (CLI/API reference sections)
+- Visual verification of the retirement dashboard via browser (OAuth login required)
+- Retirement Phase 2: workflow actions (mark as Under Review / Approved / Retired)
+- Documentation update for retirement analysis architecture page
 - Babydev cluster migration (deadline: end of June 2026)
 
 **Notes:**
 - The kubeconfig for dev management is at `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
-- Score distribution is now 0-55 for the 1Y window. The max achievable score is 75 (20 provisions + 15 touched + 25 closed + 15 ROI), with age discount subtracting up to 40 for new items.
-- Quarterly data is stored per-item as JSONB: `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`. The sync adds ~60s for the 4 quarterly queries (provisions ~5s, touched ~3s, closed ~3s, cost ~40s across 4 pages).
-- The `delete_orphan_reporting_metrics` method now takes an optional `synced_names` set. When provided, it deletes all items not in the set AND items without catalog entries. Without it (backward compat), it only checks catalog entries.
+- Max achievable score is ~80 (provisions_zero 25 + touched_zero 15 + closed_zero 25 + high cost no closed 15). Age discount subtracts up to 30 for items < 90 days old.
+- Quarterly data stored as JSONB: `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`. Sync adds ~60s for quarterly queries.
+- `delete_orphan_reporting_metrics` takes `synced_names` set — removes items not in the current sync AND items without catalog entries.
+- The Ansible deploy playbook intermittently fails cluster connectivity checks (404 from k8s API). Workaround: use `oc start-build` directly with the management SA kubeconfig.
 
 ---
 
