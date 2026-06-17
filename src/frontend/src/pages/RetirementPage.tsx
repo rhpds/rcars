@@ -3,6 +3,7 @@ import { api, ReportingMetricsItem } from '../services/api'
 
 type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
+type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
 
 const fmt = (n: number) => {
@@ -46,6 +47,7 @@ export function RetirementPage() {
   const [sortBy, setSortBy] = useState<SortField>('retirement_score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all')
+  const [ageFilter, setAgeFilter] = useState<AgeFilter>('all')
   const [search, setSearch] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
@@ -81,6 +83,7 @@ export function RetirementPage() {
   useEffect(() => {
     setExpanded(new Set())
     setScoreFilter('all')
+    setAgeFilter('all')
     setSearch('')
     setSortBy(tab === 'prod' ? 'retirement_score' : 'provisions')
     setSortDir(tab === 'prod' ? 'asc' : 'desc')
@@ -313,6 +316,12 @@ export function RetirementPage() {
           </div>
 
           <div className="ca-controls">
+            {([['all', 'All'], ['old', '> 1 Year'], ['med', '6-12 Mo'], ['new', '< 6 Mo']] as [AgeFilter, string][]).map(([f, label]) => (
+              <button key={f} onClick={() => setAgeFilter(f)}
+                className={`ca-filter-btn${ageFilter === f ? ' active' : ''}`}>
+                {label}
+              </button>
+            ))}
             <input
               type="text" placeholder="Search by name..."
               value={search} onChange={e => setSearch(e.target.value)}
@@ -322,9 +331,16 @@ export function RetirementPage() {
 
           {loading ? (
             <p className="ca-color-muted">Loading...</p>
-          ) : (
+          ) : (() => {
+            const filtered = ageFilter === 'all' ? items : items.filter(i => {
+              const d = ageDays(i.first_provision)
+              if (ageFilter === 'old') return d !== null && d > 365
+              if (ageFilter === 'med') return d !== null && d > 180 && d <= 365
+              return d === null || d <= 180
+            })
+            return (
             <>
-              <div className="ca-row-count">{items.length} items without production deployment</div>
+              <div className="ca-row-count">{filtered.length} of {items.length} items without production deployment</div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
@@ -338,7 +354,7 @@ export function RetirementPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map(item => {
+                    {filtered.map(item => {
                       const age = ageDays(item.first_provision)
                       const isExpanded = expanded.has(item.catalog_base_name)
                       return (
@@ -410,7 +426,8 @@ export function RetirementPage() {
                 </table>
               </div>
             </>
-          )}
+            )
+          })()}
         </>
       )}
     </div>
