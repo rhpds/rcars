@@ -13,15 +13,6 @@ router = APIRouter(prefix="/analysis")
 WINDOW_QUARTERS = {"1q": 1, "2q": 2, "3q": 3, "1y": 4}
 
 
-def _has_window_activity(item: dict) -> bool:
-    """Check if an item had any activity in the selected window (post-windowed-scoring)."""
-    return (
-        item.get("provisions", 0) > 0
-        or item.get("touched_amount", 0) > 0
-        or item.get("closed_amount", 0) > 0
-        or item.get("total_cost", 0) > 0
-    )
-
 
 @router.get("/retirement")
 async def retirement_dashboard(
@@ -54,7 +45,6 @@ async def retirement_dashboard(
     if num_q < 4:
         from rcars.services.reporting_sync import compute_windowed_scores
         items = compute_windowed_scores(items, num_q)
-        items = [i for i in items if _has_window_activity(i)]
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
