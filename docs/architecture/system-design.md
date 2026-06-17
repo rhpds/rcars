@@ -150,110 +150,22 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 ---
 
-## PostgreSQL Schema
+## PostgreSQL and Vector Embeddings
 
-RCARS uses PostgreSQL with the pgvector extension. Schema is managed with two complementary mechanisms:
+RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed with `CREATE TABLE IF NOT EXISTS` for fresh installs and Alembic migrations for changes to existing tables. For the full table list and column-level details, see the [Schema Reference](schema-reference.md).
 
-- **`db.create_schema()`** — `CREATE TABLE IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` for all tables. Handles fresh installs. Called by `rcars init-db` and on API startup.
-- **Alembic** — `ALTER TABLE` migrations for schema changes to existing tables. Migration files live in `src/api/alembic/versions/`.
-
-### Understanding Vector Embeddings
-
-A **vector embedding** is a fixed-length list of numbers (in RCARS, 384 numbers) that represents the meaning of a piece of text. The numbers are produced by a machine learning model (`all-MiniLM-L6-v2`) trained to place semantically similar texts close together in a 384-dimensional space. The key property: texts that mean similar things end up with similar vectors, even if they use completely different words.
+The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 384 numbers produced by a locally-running sentence-transformers model (`all-MiniLM-L6-v2`). These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
 For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.
 
-RCARS generates an embedding for every analyzed Showroom during the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings). These embeddings are stored in the `embeddings` table and serve two purposes:
+These embeddings power two core features:
 
-- **Recommendations** — when a user asks a question, the query text is embedded with the same model, and pgvector's cosine similarity search finds the closest lab embeddings. This is the core of the [recommendation engine's](recommendation-engine.md#phase-1--vector-search) first phase.
-- **Overlap detection** — lab embeddings are compared against each other to find catalog items that teach substantially the same material. See [content overlap](content-overlap.md#how-cosine-similarity-works) for the math.
+- **[Recommendations](recommendation-engine.md#phase-1--vector-search)** — a user's query is embedded with the same model, then pgvector's cosine similarity search (`<=>` operator) finds the labs whose embeddings are closest to the query. This replaces keyword matching with semantic understanding.
+- **[Content overlap detection](content-overlap.md#how-cosine-similarity-works)** — lab embeddings are compared against each other to find catalog items that teach the same material under different names.
 
-**Cosine similarity** measures the angle between two vectors regardless of magnitude. A score of 1.0 means identical meaning; 0.0 means completely unrelated. pgvector's `<=>` operator returns cosine *distance* (1 minus similarity), so lower distance means better match. An IVFFlat index on the embedding column makes this search fast even with thousands of vectors.
+**Cosine similarity** measures the angle between two vectors. A score of 1.0 means identical meaning; 0.0 means unrelated. pgvector returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index makes this search fast even across thousands of embeddings.
 
-The sentence-transformers model runs locally inside the RCARS pod — no external API call is needed for embedding generation.
-
-### Tables
-
-RCARS uses 16 tables. For full column-level details, see the [Schema Reference](schema-reference.md).
-
-| Table | Purpose |
-|---|---|
-| `catalog_items` | CatalogItem CRDs from Babylon. Metadata, stage, Showroom URL, scan status, infrastructure fields |
-| `showroom_analysis` | LLM analysis results — summary, modules, learning objectives, staleness tracking |
-| `embeddings` | 384-dim vectors for semantic search (ci_summary + module types) |
-| `enrichment_tags` | Curator-applied labels (tag_type + tag_value per CI) |
-| `catalog_item_workloads` | Junction table: which workload roles each v2 CI deploys |
-| `workload_mapping` | Curated mapping: workload role → product name, description, category |
-| `workload_aliases` | Product name aliases for query resolution (e.g. RHOAI → OpenShift AI) |
-| `catalog_item_acl_groups` | ACL groups per CI from `__meta__.access_control.allow_groups` |
-| `workload_scan_state` | Last-scanned SHA per agDv2 collection repo for change detection |
-| `reporting_metrics` | Usage, sales, cost data from RHDP reporting DB with retirement scores |
-| `content_similarity` | Pairwise cosine similarity scores for overlap detection |
-| `analysis_log` | Append-only audit trail of operations |
-| `token_usage` | LLM token tracking per operation/model/provider |
-| `advisor_sessions` | User queries, results, and selections (multi-turn) |
-| `jobs` | Background job tracking (recommend, analyze, refresh, maintenance, workload_scan, reporting_sync) |
-| `api_keys` | API key management (future, not yet active) |
-
-### Data Model
-
-```mermaid
-erDiagram
-    catalog_items ||--o| showroom_analysis : "analysis"
-    catalog_items ||--o{ enrichment_tags : "tags"
-    catalog_items ||--o{ embeddings : "vectors"
-    catalog_items ||--o{ catalog_item_workloads : "workloads"
-    catalog_items ||--o{ catalog_item_acl_groups : "acl"
-    catalog_item_workloads }o--o| workload_mapping : "role mapping"
-    workload_mapping ||--o{ workload_aliases : "aliases"
-    
-    catalog_items {
-        text ci_name PK
-        text display_name
-        text stage
-        text showroom_url
-        boolean is_agd_v2
-        text agd_config
-        text cloud_provider
-        text os_image
-    }
-    
-    showroom_analysis {
-        text ci_name PK_FK
-        text summary
-        jsonb modules_json
-        boolean is_stale
-    }
-    
-    catalog_item_workloads {
-        serial id PK
-        text ci_name FK
-        text workload_fqcn
-        text workload_role
-    }
-    
-    workload_mapping {
-        serial id PK
-        text workload_role UK
-        text product_name
-        boolean verified
-    }
-    
-    reporting_metrics {
-        text catalog_base_name PK
-        integer provisions
-        numeric touched_amount
-        numeric closed_amount
-        integer retirement_score
-    }
-
-    embeddings {
-        serial id PK
-        text ci_name FK
-        text embed_type
-        vector embedding
-    }
-```
+The sentence-transformers model runs locally inside the RCARS pod — embedding generation requires no external API call and adds negligible latency.
 
 ---
 
