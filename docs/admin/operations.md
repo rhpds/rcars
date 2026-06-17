@@ -31,19 +31,44 @@ Logs: `/tmp/rcars-scan-worker.log` and `/tmp/rcars-recommend-worker.log`
 
 ## Scaling
 
-Workers are stateless — add replicas by deploying more pods. In Ansible vars:
+Workers are stateless — add replicas by deploying more pods. Replica counts and resource limits are set in `ansible/vars/common.yml` (or overridden per environment in `dev.yml`/`prod.yml`):
 
 ```yaml
-scan_worker_replicas: 2      # for bulk scan throughput
-recommend_worker_replicas: 3  # each replica handles 3 concurrent queries
+# Replica counts
+scan_worker_replicas: 1       # increase for bulk scan throughput
+recommend_worker_replicas: 1  # each replica handles 3 concurrent queries
+
+# API resource limits
+api_cpu_request: 500m
+api_cpu_limit: "2"
+api_memory_request: 1Gi
+api_memory_limit: 4Gi
+
+# Scan worker resource limits
+worker_cpu_request: 500m
+worker_cpu_limit: "2"
+worker_memory_request: 1Gi
+worker_memory_limit: 4Gi
+
+# Recommend worker resource limits
+recommend_worker_cpu_request: 250m
+recommend_worker_cpu_limit: "1"
+recommend_worker_memory_request: 1Gi
+recommend_worker_memory_limit: 2Gi
 ```
+
+After changing vars, deploy with `--tags apply` to update the manifests without rebuilding images.
+
+Each worker pod has a fixed concurrency limit (hardcoded in `src/api/rcars/workers/settings.py`):
 
 | Setting | Scan Worker | Recommend Worker |
 |---|---|---|
-| `max_jobs` | 5 | 3 |
-| `job_timeout` | 600s (default) | 120s |
-| CPU request/limit | 500m / 2 | 250m / 1 |
-| Memory request/limit | 1Gi / 4Gi | 1Gi / 2Gi |
+| Concurrent jobs per pod | 5 | 3 |
+| Default job timeout | 600s | 120s |
+
+These per-pod limits cannot be changed via configuration. To increase total concurrency, increase the number of replicas. For example, setting `recommend_worker_replicas: 2` gives 6 concurrent recommendation queries (3 per pod × 2 pods).
+
+Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
 The scan worker has higher resource limits because it runs `git clone` operations and loads the sentence-transformers model for embedding generation.
 
@@ -61,12 +86,13 @@ Example: if `agd-v2.modernize-ocp-virt` has dev (ref=main), event (ref=v1.0.0), 
 
 ## Scheduled Maintenance Pipeline
 
-The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains four steps sequentially:
+The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains five steps sequentially:
 
 1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data.
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 4. **Workload Repo Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses Claude Haiku to determine what product each role installs. Updates the workload mapping table with verified product names. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
+5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes retirement scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Retirement Analysis](../architecture/retirement-analysis.md) for details.
 
 Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking or workload scanning.
 

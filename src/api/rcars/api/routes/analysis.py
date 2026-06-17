@@ -10,6 +10,10 @@ from rcars.workers.ops import sha_dedup_scan_items
 router = APIRouter(prefix="/analysis")
 
 
+WINDOW_QUARTERS = {"1q": 1, "2q": 2, "3q": 3, "1y": 4}
+
+
+
 @router.get("/retirement")
 async def retirement_dashboard(
     request: Request,
@@ -20,6 +24,7 @@ async def retirement_dashboard(
     category: str | None = Query(None),
     has_prod: bool | None = Query(None),
     search: str | None = Query(None),
+    window: str = Query("1y"),
 ):
     db = request.app.state.db
     items = db.list_reporting_metrics(
@@ -27,13 +32,42 @@ async def retirement_dashboard(
         category=category, has_prod=has_prod, search=search,
     )
 
+    import json as _json
+    num_q = WINDOW_QUARTERS.get(window, 4)
+
+    for item in items:
+        qd = item.get("quarterly_data")
+        if isinstance(qd, str):
+            item["quarterly_data"] = _json.loads(qd)
+        elif qd is None:
+            item["quarterly_data"] = {}
+
+    if num_q < 4:
+        from rcars.services.reporting_sync import compute_windowed_scores
+        items = compute_windowed_scores(items, num_q)
+
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
 
     from rcars.services.reporting_sync import compute_sales_impact
     for item in items:
-        item["stages"] = stages_map.get(item["catalog_base_name"], [])
-        item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
+        stages = stages_map.get(item["catalog_base_name"], [])
+        item["stages"] = stages
+        has_showroom = any(True for s in stages if s.get("has_showroom"))
+        item["has_content"] = has_showroom
+        if not has_showroom:
+            item["catalog_url"] = f"https://demo.redhat.com/catalog?search={item['catalog_base_name']}"
+        if "sales_impact" not in item:
+            item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
+
+    allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name"}
+    if num_q < 4 and sort_by in allowed_sorts:
+        reverse = sort_dir.lower() == "desc"
+        default = "" if sort_by == "display_name" else 0
+        items.sort(key=lambda i: (i.get(sort_by) or default), reverse=reverse)
+
+    for item in items:
+        item.pop("quarterly_data", None)
 
     sync_status = db.get_reporting_sync_status()
     return {
@@ -41,6 +75,7 @@ async def retirement_dashboard(
         "total": len(items),
         "synced_at": sync_status.get("last_synced") if sync_status else None,
         "summary": sync_status,
+        "window": window,
     }
 
 

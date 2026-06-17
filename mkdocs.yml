@@ -33,6 +33,10 @@ nav:
   - Overview: overview.md
   - Architecture:
       - System Design: architecture/system-design.md
+      - Scan Pipeline: architecture/scan-pipeline.md
+      - Recommendation Engine: architecture/recommendation-engine.md
+      - Content Overlap: architecture/content-overlap.md
+      - Retirement Analysis: architecture/retirement-analysis.md
       - Schema Reference: architecture/schema-reference.md
   - User Guides:
       - Web UI Guide: user/web-guide.md

@@ -1417,12 +1417,13 @@ class Database:
                 catalog_base_name, display_name, provisions, provisions_quarter,
                 requests, experiences, unique_users, success_ratio, failure_ratio,
                 touched_amount, closed_amount, total_cost, avg_cost_per_provision,
-                first_provision, last_provision, retirement_score, synced_at
+                first_provision, last_provision, retirement_score, quarterly_data, synced_at
             ) VALUES (
                 %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
                 %(requests)s, %(experiences)s, %(unique_users)s, %(success_ratio)s, %(failure_ratio)s,
                 %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
-                %(first_provision)s, %(last_provision)s, %(retirement_score)s, NOW()
+                %(first_provision)s, %(last_provision)s, %(retirement_score)s,
+                %(quarterly_data)s::jsonb, NOW()
             )
             ON CONFLICT (catalog_base_name) DO UPDATE SET
                 display_name = EXCLUDED.display_name,
@@ -1440,6 +1441,7 @@ class Database:
                 first_provision = EXCLUDED.first_provision,
                 last_provision = EXCLUDED.last_provision,
                 retirement_score = EXCLUDED.retirement_score,
+                quarterly_data = EXCLUDED.quarterly_data,
                 synced_at = NOW()
         """
         with self._pool.connection() as conn:
@@ -1449,19 +1451,40 @@ class Database:
             conn.commit()
         return len(rows)
 
-    def delete_orphan_reporting_metrics(self) -> int:
-        """Delete reporting_metrics rows with no matching catalog_items entry."""
+    def get_catalog_base_names(self) -> dict[str, str]:
+        """Get all unique base names from catalog_items with their display names."""
         sql = """
-            DELETE FROM reporting_metrics rm
-            WHERE NOT EXISTS (
-                SELECT 1 FROM catalog_items ci
-                WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
-            )
+            SELECT DISTINCT ON (base)
+                substring(ci_name FROM '^(.+)\\.[^.]+$') AS base,
+                display_name
+            FROM catalog_items
+            ORDER BY base, CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql)
-                deleted = cur.rowcount
+                return {r["base"]: r["display_name"] for r in cur.fetchall() if r["base"]}
+
+    def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
+        """Delete reporting_metrics rows not in current sync or not in current catalog."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                deleted = 0
+                if synced_names:
+                    placeholders = ",".join(["%s"] * len(synced_names))
+                    cur.execute(
+                        f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
+                        list(synced_names),
+                    )
+                    deleted += cur.rowcount
+                cur.execute("""
+                    DELETE FROM reporting_metrics rm
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM catalog_items ci
+                        WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
+                    )
+                """)
+                deleted += cur.rowcount
             conn.commit()
         return deleted
 
@@ -1555,7 +1578,8 @@ class Database:
         from rcars.services.reporting_sync import extract_base_name
         placeholders = ",".join(["%s"] * len(base_names))
         sql = f"""
-            SELECT ci_name, catalog_namespace, stage
+            SELECT ci_name, catalog_namespace, stage,
+                   (showroom_url IS NOT NULL AND showroom_url != '') AS has_showroom
             FROM catalog_items
             WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
             ORDER BY ci_name
@@ -1570,6 +1594,7 @@ class Database:
                         "stage": row["stage"],
                         "ci_name": row["ci_name"],
                         "catalog_url": f"https://catalog.demo.redhat.com/catalog?item={row['catalog_namespace']}/{row['ci_name']}",
+                        "has_showroom": row["has_showroom"],
                     }
                     result.setdefault(base, []).append(stage_info)
         return result
