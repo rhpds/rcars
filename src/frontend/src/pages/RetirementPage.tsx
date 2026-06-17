@@ -41,7 +41,6 @@ export function RetirementPage() {
   const [tab, setTab] = useState<RetirementTab>('prod')
   const [items, setItems] = useState<ReportingMetricsItem[]>([])
   const [allItems, setAllItems] = useState<ReportingMetricsItem[]>([])
-  const [summary, setSummary] = useState<{ total: number; high: number; review: number; keepers: number } | null>(null)
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [sortBy, setSortBy] = useState<SortField>('retirement_score')
@@ -71,7 +70,6 @@ export function RetirementPage() {
       }
       setItems(filtered)
       setAllItems(data.items)
-      setSummary(data.summary)
       setSyncedAt(data.synced_at)
     } finally {
       setLoading(false)
