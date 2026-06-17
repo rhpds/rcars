@@ -91,13 +91,17 @@ def compute_retirement_score(
 
     if first_provision:
         try:
-            first_date = datetime.strptime(first_provision, "%Y-%m-%d")
+            from datetime import date
+            if isinstance(first_provision, date):
+                first_date = datetime.combine(first_provision, datetime.min.time())
+            else:
+                first_date = datetime.strptime(str(first_provision), "%Y-%m-%d")
             age_days = (datetime.now() - first_date).days
             if age_days <= 90:
                 score = max(0, score - 40)
             elif age_days <= 180:
                 score = max(0, score - 15)
-        except ValueError:
+        except (ValueError, TypeError):
             pass
 
     return min(score, 100)
