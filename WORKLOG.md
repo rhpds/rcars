@@ -27,6 +27,42 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-17 — Nate + Claude (Retirement scoring verification + time window filter)
+
+**Done:**
+- **Stale scoring cleanup (3 root causes found and fixed):**
+  1. `delete_orphan_reporting_metrics` only checked for catalog entry existence — items from old syncs (pre-PROVISION_FILTERS) with stale fixed-threshold scores (85, 100) survived because they had catalog entries. Fixed: pass synced base names to orphan cleanup to remove items not in the current sync batch.
+  2. After #1, 1863 reporting-only items without RCARS catalog entries flooded the Without Prod tab. Fixed: dual cleanup — remove both stale items AND non-catalog items.
+  3. 163 stale items had old scoring from before percentile-based scoring was deployed. After fix: 352 items, scores 0-55, zero items ≥75 (max achievable is 75 from current scoring weights).
+- **Time window filter for retirement dashboard:**
+  - Migration 007: `quarterly_data JSONB` column on `reporting_metrics`
+  - 4 new quarterly SQL queries (provisions, touched, closed, cost grouped by `TO_CHAR(DATE_TRUNC('quarter', date), 'YYYY-"Q"Q')`)
+  - `_build_quarterly_data()` merges quarterly results into `{quarter: {provisions, touched, closed, cost}}` dict per base name
+  - `compute_windowed_scores()` sums relevant quarters and recomputes percentile rankings — pure CPU, sub-millisecond for 336 items
+  - API: `window` query parameter (1q/2q/3q/1y), strips quarterly_data JSONB from response
+  - Frontend: pill selector on Prod tab (1 Quarter / 2 Quarters / 3 Quarters / 1 Year)
+  - Cost quarterly query: uses provision quarter (provisioned_at) not billing quarter (month_ts) for consistency. 300s timeout for the 4-page pagination.
+  - Fixed `compute_retirement_score` to handle `datetime.date` objects from psycopg3 (was expecting str)
+- **Verified scoring distribution:**
+  - 1Y: 336 items, scores 0-55, avg 24.1, 16 items in review (≥50)
+  - 1Q: 336 items, scores 0-63, avg 39.2, 70 items in review — narrower window correctly pushes scores up for items with sporadic recent activity
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Visual verification of the retirement dashboard (OAuth login required, couldn't test via automation)
+- Documentation review continuation (CLI/API reference sections)
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Notes:**
+- The kubeconfig for dev management is at `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
+- Score distribution is now 0-55 for the 1Y window. The max achievable score is 75 (20 provisions + 15 touched + 25 closed + 15 ROI), with age discount subtracting up to 40 for new items.
+- Quarterly data is stored per-item as JSONB: `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`. The sync adds ~60s for the 4 quarterly queries (provisions ~5s, touched ~3s, closed ~3s, cost ~40s across 4 pages).
+- The `delete_orphan_reporting_metrics` method now takes an optional `synced_names` set. When provided, it deletes all items not in the set AND items without catalog entries. Without it (backward compat), it only checks catalog entries.
+
+---
+
 ### 2026-06-17 — Nate + Claude (Retirement Phase 2 — data validation + scoring + docs)
 
 **Done:**
