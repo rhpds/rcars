@@ -14,6 +14,11 @@ logger = structlog.get_logger(component="reporting_sync")
 
 STAGE_SUFFIXES = (".prod", ".dev", ".event", ".test")
 
+PROVISION_FILTERS = """
+    AND p.environment = 'PROD'
+    AND p.user_group IN ('Only Regular Users', 'Red Hat Console')
+"""
+
 
 def extract_base_name(ci_name: str) -> str:
     """Strip stage suffix from an RCARS ci_name to get the reporting DB base name."""
@@ -177,6 +182,7 @@ def _build_provisions_sql(start_date: str) -> str:
         FROM provisions p
         JOIN catalog_items ci ON ci.id = p.catalog_id
         WHERE p.provisioned_at >= '{start_date}'
+          {PROVISION_FILTERS}
         GROUP BY ci.name, ci.display_name
     """
 
@@ -187,12 +193,13 @@ def _build_provisions_quarter_sql(start_date: str) -> str:
         FROM provisions p
         JOIN catalog_items ci ON ci.id = p.catalog_id
         WHERE p.provisioned_at >= '{start_date}'
+          {PROVISION_FILTERS}
         GROUP BY ci.name
     """
 
 
 def _build_touched_sql(start_date: str) -> str:
-    """Opportunities touched by provisions in the date window."""
+    """Opportunities touched by PROD provisions from real users in the date window."""
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT
@@ -203,6 +210,7 @@ def _build_touched_sql(start_date: str) -> str:
             JOIN sales_opportunity so ON so.number = ps.sales_opportunity_number
             WHERE p.provisioned_at >= '{start_date}'
               AND ps.sales_opportunity_number IS NOT NULL
+              {PROVISION_FILTERS}
         )
         SELECT catalog_base_name, SUM(amount) AS touched_amount
         FROM unique_opps
@@ -211,7 +219,7 @@ def _build_touched_sql(start_date: str) -> str:
 
 
 def _build_closed_sql(start_date: str) -> str:
-    """Closed-won deals whose close date falls in the window, regardless of provision date."""
+    """Closed-won deals from PROD/real-user provisions, filtered by close date."""
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT
@@ -224,6 +232,7 @@ def _build_closed_sql(start_date: str) -> str:
               AND so.is_closed = true
               AND so.stage IN ('Closed Won', 'Closed Booked')
               AND so.closed_at >= '{start_date}'
+              {PROVISION_FILTERS}
         )
         SELECT catalog_base_name, SUM(amount) AS closed_amount
         FROM unique_opps
@@ -246,17 +255,19 @@ def _build_cost_sql(start_date: str) -> str:
         FROM costs c
         JOIN provisions p ON p.uuid = c.provision_uuid
         JOIN catalog_items ci ON ci.id = p.catalog_id
+        WHERE 1=1 {PROVISION_FILTERS}
         GROUP BY ci.name
     """
 
 
-DATES_SQL = """
+DATES_SQL = f"""
     SELECT
         ci.name AS catalog_base_name,
         MIN(p.provisioned_at)::date::text AS first_provision,
         MAX(p.provisioned_at)::date::text AS last_provision
     FROM provisions p
     JOIN catalog_items ci ON ci.id = p.catalog_id
+    WHERE 1=1 {PROVISION_FILTERS}
     GROUP BY ci.name
 """
 
