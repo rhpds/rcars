@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import bisect
 import json
 import ssl
 import urllib.error
@@ -19,6 +20,8 @@ PROVISION_FILTERS = """
     AND ps.user_group IN ('Only Regular Users', 'Red Hat Console')
 """
 
+EXCLUDE_PREFIXES = ("tests.", "clusterplatform.", "resourcehub.")
+
 
 def extract_base_name(ci_name: str) -> str:
     """Strip stage suffix from an RCARS ci_name to get the reporting DB base name."""
@@ -28,40 +31,54 @@ def extract_base_name(ci_name: str) -> str:
     return ci_name
 
 
+def _percentile_rank(val: float, sorted_vals: list[float]) -> float:
+    """Return 0-100 percentile rank (0=lowest, 100=highest)."""
+    if not sorted_vals:
+        return 0.0
+    pos = bisect.bisect_right(sorted_vals, val)
+    return (pos / len(sorted_vals)) * 100
+
+
 def compute_retirement_score(
-    provisions: int,
-    experiences: int,
-    touched_amount: float,
-    closed_amount: float,
+    provisions_pct: float,
+    touched_zero: bool,
+    touched_pct: float,
+    closed_zero: bool,
+    closed_pct: float,
     total_cost: float,
-    has_prod: bool,
+    closed_amount: float,
     first_provision: str,
 ) -> int:
-    """Compute retirement score 0-100. Higher = stronger retirement candidate."""
+    """Compute retirement score 0-100 using percentile ranks.
+
+    Higher = stronger retirement candidate. Percentile args are 0-100 where
+    0 = lowest among peers. touched_pct/closed_pct are ranks among non-zero
+    items only; the _zero flags handle the zero case separately.
+    """
     score = 0
 
-    if not has_prod:
+    if provisions_pct < 10:
         score += 20
-
-    if provisions < 60:
-        score += 20
-    elif provisions < 120:
+    elif provisions_pct < 25:
+        score += 15
+    elif provisions_pct < 50:
         score += 8
+    elif provisions_pct < 75:
+        score += 3
 
-    if experiences < 300:
+    if touched_zero:
+        score += 15
+    elif touched_pct < 50:
         score += 10
-    elif experiences < 600:
+    elif touched_pct < 75:
         score += 4
 
-    if touched_amount < 10_000_000:
+    if closed_zero:
+        score += 25
+    elif closed_pct < 50:
         score += 15
-    elif touched_amount < 50_000_000:
-        score += 6
-
-    if closed_amount < 5_000_000:
-        score += 20
-    elif closed_amount < 25_000_000:
-        score += 8
+    elif closed_pct < 75:
+        score += 5
 
     if total_cost > 0 and closed_amount > 0:
         roi = closed_amount / total_cost
@@ -314,50 +331,51 @@ def run_reporting_sync(db, settings) -> dict:
     date_data = {r["catalog_base_name"]: r for r in date_rows}
     log.info("fetched_dates", count=len(date_data))
 
-    prod_base_names = db.get_all_base_names_with_prod()
-
     all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
-    log.info("merging", total_base_names=len(all_names))
+    excluded = {n for n in all_names if any(n.startswith(p) for p in EXCLUDE_PREFIXES)}
+    filtered_names = all_names - excluded
+    log.info("merging", total_base_names=len(all_names), excluded=len(excluded),
+             filtered=len(filtered_names))
 
     merged_rows = []
-    for name in all_names:
+    for name in filtered_names:
         prov = prov_data.get(name, {})
         cost = cost_data.get(name, {})
         dates = date_data.get(name, {})
 
-        provisions = int(prov.get("provisions", 0))
-        experiences = int(prov.get("experiences", 0))
-        touched = touched_data.get(name, 0.0)
-        closed = closed_data.get(name, 0.0)
-        total_cost = float(cost.get("total_cost", 0) or 0)
-        first_prov = dates.get("first_provision", "") or ""
-        has_prod = name in prod_base_names
-
-        score = compute_retirement_score(
-            provisions=provisions, experiences=experiences,
-            touched_amount=touched, closed_amount=closed,
-            total_cost=total_cost, has_prod=has_prod,
-            first_provision=first_prov,
-        )
-
         merged_rows.append({
             "catalog_base_name": name,
             "display_name": prov.get("display_name", "") or dates.get("display_name", "") or name,
-            "provisions": provisions,
+            "provisions": int(prov.get("provisions", 0)),
             "provisions_quarter": quarter_data.get(name, 0),
             "requests": int(prov.get("requests", 0)),
-            "experiences": experiences,
+            "experiences": int(prov.get("experiences", 0)),
             "unique_users": int(prov.get("unique_users", 0)),
             "success_ratio": float(prov.get("success_ratio", 0) or 0),
             "failure_ratio": float(prov.get("failure_ratio", 0) or 0),
-            "touched_amount": touched,
-            "closed_amount": closed,
-            "total_cost": total_cost,
+            "touched_amount": touched_data.get(name, 0.0),
+            "closed_amount": closed_data.get(name, 0.0),
+            "total_cost": float(cost.get("total_cost", 0) or 0),
             "avg_cost_per_provision": float(cost.get("avg_cost_per_provision", 0) or 0),
-            "first_provision": first_prov or None,
+            "first_provision": (dates.get("first_provision", "") or "") or None,
             "last_provision": (dates.get("last_provision", "") or None),
-            "retirement_score": score,
         })
+
+    sorted_provisions = sorted(r["provisions"] for r in merged_rows)
+    sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
+    sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
+
+    for row in merged_rows:
+        row["retirement_score"] = compute_retirement_score(
+            provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
+            touched_zero=row["touched_amount"] == 0,
+            touched_pct=_percentile_rank(row["touched_amount"], sorted_touched),
+            closed_zero=row["closed_amount"] == 0,
+            closed_pct=_percentile_rank(row["closed_amount"], sorted_closed),
+            total_cost=row["total_cost"],
+            closed_amount=row["closed_amount"],
+            first_provision=row["first_provision"] or "",
+        )
 
     upserted = db.upsert_reporting_metrics(merged_rows)
     orphans = db.delete_orphan_reporting_metrics()

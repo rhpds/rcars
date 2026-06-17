@@ -932,6 +932,19 @@ body {
 .ca-filter-btn:hover { border-color: #4a9eff; }
 .ca-filter-btn.active { border-color: #4a9eff; background: rgba(74,158,255,0.1); }
 
+.ca-tab-bar { display: flex; gap: 0; border-bottom: 1px solid #0f3460; }
+.ca-tab-btn {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.ca-tab-btn:hover { color: var(--text-primary); }
+.ca-tab-btn.active { color: #4a9eff; border-bottom-color: #4a9eff; }
+
 .ca-select {
   background: #16213e;
   border: 1px solid #0f3460;
