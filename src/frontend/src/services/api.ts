@@ -134,13 +134,13 @@ export const api = {
   // LLM provider
   getLlmProviderStatus: () => request<{
     litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[];
-    vertex_enabled: boolean; vertex_region: string | null;
-    analysis_model: string; triage_model: string; rationale_model: string;
+    vertex_enabled: boolean; vertex_region: string | null; vertex_models: string[];
+    analysis_model: string; triage_model: string; rationale_model: string; scanning_model: string;
   }>('/admin/llm-provider'),
 
   // Reporting status
   getReportingStatus: () => request<{
-    configured: boolean; total: number; orphans_removed: number; last_synced: string | null;
+    configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null;
   }>('/admin/reporting-status'),
 
   // Infrastructure

@@ -623,8 +623,8 @@ export function AdminCatalogPage() {
   const [tab, setTab] = useState<AdminTab>('status')
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
-  const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; analysis_model: string; triage_model: string; rationale_model: string } | null>(null)
-  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; orphans_removed: number; last_synced: string | null } | null>(null)
+  const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; vertex_models: string[]; analysis_model: string; triage_model: string; rationale_model: string; scanning_model: string } | null>(null)
+  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null } | null>(null)
 
   const loadStatus = () => {
     api.getCatalogStats().then(data => setStatus(data as CatalogStatus)).catch(() => {})
@@ -709,12 +709,16 @@ export function AdminCatalogPage() {
                   <>
                     <div className="admin-stat-row"><span className="admin-stat-row-label">LiteMaaS</span><span style={{ color: llmProvider.litemaas_enabled ? '#3e8635' : '#666' }}>{llmProvider.litemaas_enabled ? 'Active' : 'Off'}</span></div>
                     {llmProvider.litemaas_enabled && (
-                      <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value">{llmProvider.litemaas_models.join(', ')}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.litemaas_models.join(', ')}</span></div>
                     )}
-                    <div className="admin-stat-row"><span className="admin-stat-row-label">Vertex AI</span><span style={{ color: llmProvider.vertex_enabled ? '#3e8635' : '#666' }}>{llmProvider.vertex_enabled ? 'Fallback' : 'Off'}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Vertex AI</span><span style={{ color: llmProvider.vertex_enabled ? '#3e8635' : '#666' }}>{llmProvider.vertex_enabled ? (llmProvider.litemaas_enabled ? 'Fallback' : 'Active') : 'Off'}</span></div>
+                    {llmProvider.vertex_enabled && llmProvider.vertex_models.length > 0 && (
+                      <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.vertex_models.join(', ')}</span></div>
+                    )}
                     <div className="admin-stat-row-divider" />
                     <div className="admin-stat-row"><span className="admin-stat-row-label">Analysis</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.analysis_model}</span></div>
                     <div className="admin-stat-row"><span className="admin-stat-row-label">Triage</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.triage_model}</span></div>
+                    <div className="admin-stat-row"><span className="admin-stat-row-label">Scanning</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.scanning_model}</span></div>
                   </>
                 ) : (
                   <div style={{ color: '#666', fontSize: '12px' }}>Loading...</div>
@@ -727,8 +731,15 @@ export function AdminCatalogPage() {
                   reportingStatus.total > 0 ? (
                     <>
                       <div className="admin-stat-row"><span className="admin-stat-row-label">Status</span><span style={{ color: '#5cb85c' }}>Connected</span></div>
-                      <div className="admin-stat-row"><span className="admin-stat-row-label">Items synced</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
-                      <div className="admin-stat-row"><span className="admin-stat-row-label">Orphans removed</span><span className="admin-stat-row-value">{reportingStatus.orphans_removed}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Assets tracked</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
+                      <div className="admin-stat-row">
+                        <span className="admin-stat-row-indent">Breakdown</span>
+                        <span className="admin-stat-row-value" style={{ fontSize: '11px' }}>
+                          <span style={{ color: '#c9190b' }}>{reportingStatus.high}</span>{' high / '}
+                          <span style={{ color: '#e8a838' }}>{reportingStatus.review}</span>{' review / '}
+                          <span style={{ color: '#3e8635' }}>{reportingStatus.keepers}</span>{' keepers'}
+                        </span>
+                      </div>
                       <div className="admin-stat-row-divider" />
                       <div className="admin-stat-row"><span className="admin-stat-row-label">Last synced</span><span style={{ fontSize: '12px', color: '#888' }}>{reportingStatus.last_synced ? new Date(reportingStatus.last_synced).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never'}</span></div>
                     </>
