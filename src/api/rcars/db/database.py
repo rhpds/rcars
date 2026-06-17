@@ -1449,18 +1449,24 @@ class Database:
             conn.commit()
         return len(rows)
 
-    def delete_orphan_reporting_metrics(self) -> int:
-        """Delete reporting_metrics rows with no matching catalog_items entry."""
-        sql = """
-            DELETE FROM reporting_metrics rm
-            WHERE NOT EXISTS (
-                SELECT 1 FROM catalog_items ci
-                WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
-            )
-        """
+    def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
+        """Delete reporting_metrics rows not in the current sync or without catalog entries."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute(sql)
+                if synced_names:
+                    placeholders = ",".join(["%s"] * len(synced_names))
+                    cur.execute(
+                        f"DELETE FROM reporting_metrics WHERE catalog_base_name NOT IN ({placeholders})",
+                        list(synced_names),
+                    )
+                else:
+                    cur.execute("""
+                        DELETE FROM reporting_metrics rm
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM catalog_items ci
+                            WHERE ci.ci_name LIKE rm.catalog_base_name || '.%'
+                        )
+                    """)
                 deleted = cur.rowcount
             conn.commit()
         return deleted
