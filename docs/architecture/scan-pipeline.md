@@ -196,3 +196,30 @@ When a scan fails, RCARS classifies the error into one of these categories (stor
 | `unknown` | Unclassified error |
 
 Error classes enable targeted debugging — `jinja_url` errors indicate a catalog metadata issue, while `no_content` errors may need a custom `content_path` override.
+
+---
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RCARS_MODEL` | `claude-sonnet-4-6` | Model used for content analysis |
+| `RCARS_MAX_PARALLEL` | 5 | Max concurrent scan jobs per worker pod |
+| `RCARS_CLONE_DIR` | `/tmp/rcars-clones` | Temporary directory for git clones |
+| `RCARS_STALE_DAYS` | 3 | Days before content is considered potentially stale |
+
+## CLI
+
+```bash
+rcars refresh              # Sync catalog from Babylon CRDs
+rcars scan [--max N]       # Analyze unanalyzed items (optionally limit batch size)
+rcars status [--failures]  # Show catalog and analysis status
+```
+
+## API
+
+- `POST /analysis/scan` — start scan of unanalyzed items
+- `POST /analysis/check-stale` — run stale content detection
+- `POST /analysis/rescan-all` — mark all stale and full rescan
+- `POST /analysis/{ci_name}` — analyze a single item
+- `POST /catalog/refresh` — trigger catalog refresh

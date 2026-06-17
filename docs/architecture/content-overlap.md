@@ -76,3 +76,24 @@ The overlap system and the recommendation pipeline both use pgvector cosine simi
 - **Overlap** compares *lab embeddings* against each other to find duplicate content across the catalog. It runs on demand by an admin, and results are cached in the `content_similarity` table.
 
 The recommendation pipeline has its own deduplication logic (content hash grouping, base-to-published promotion) that operates during query time. The overlap system does not need this — it simply compares all items within a stage.
+
+---
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RCARS_SIMILARITY_THRESHOLD` | `0.75` | Minimum similarity to store a pair (related tier) |
+| `RCARS_SIMILARITY_HIGH_THRESHOLD` | `0.85` | Threshold for high overlap tier (red) |
+
+## CLI
+
+```bash
+rcars compute-similarity [--stage prod] [--threshold 0.75]
+```
+
+## API
+
+- `GET /admin/overlap` — all similar pairs for the current stage
+- `GET /catalog/{ci_name}/similar` — similar items for a specific CI
+- `POST /admin/compute-similarity?stage=prod&threshold=0.75` — trigger recomputation
