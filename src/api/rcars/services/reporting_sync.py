@@ -54,18 +54,18 @@ def compute_retirement_score(
 
     Higher = stronger retirement candidate. Percentile args are 0-100
     ranks among non-zero peers only; the _zero flags handle the zero
-    case separately. Max achievable ~80.
+    case separately. Max achievable ~85.
     """
     score = 0
 
     if provisions_zero:
         score += 25
     elif provisions_pct < 10:
-        score += 18
+        score += 22
     elif provisions_pct < 25:
-        score += 14
+        score += 18
     elif provisions_pct < 50:
-        score += 8
+        score += 10
     elif provisions_pct < 75:
         score += 3
 
@@ -89,8 +89,10 @@ def compute_retirement_score(
             score += 15
         elif roi < 50:
             score += 5
-    elif total_cost > 5000 and closed_amount == 0:
+    elif closed_amount == 0 and total_cost > 5000:
         score += 15
+    elif closed_amount == 0 and total_cost > 0:
+        score += 10
 
     if first_provision:
         try:

@@ -115,7 +115,7 @@ Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `reporting_metrics`
 
 **Time window:** `quarterly_data` JSONB column stores per-quarter breakdowns. The API's `window` parameter (1q/2q/3q/1y) triggers `compute_windowed_scores()` which sums relevant quarters, recomputes percentile rankings, and rescores. No MCP re-query needed.
 
-**Scoring thresholds:** High ≥ 55, Review ≥ 35, Keepers < 35 (frontend). The CLI `reporting-db status` still uses the old 75/50 thresholds.
+**Scoring thresholds:** High ≥ 55, Review ≥ 35, Keepers < 35 (frontend and CLI).
 
 **Ansible deployment:** Reporting MCP env vars must be on BOTH the API deployment and scan-worker deployment (template: `manifests-app.yaml.j2`). The secret is in `manifests-infra.yaml.j2`.
 

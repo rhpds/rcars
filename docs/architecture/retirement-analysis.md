@@ -104,7 +104,7 @@ Merged data is stored in the `reporting_metrics` table (one row per catalog base
 
 Each item receives a retirement score from 0 to 100. Higher scores indicate stronger retirement candidates. The score is computed using **percentile-based ranking** — each item is scored relative to its catalog peers, not against fixed dollar thresholds.
 
-The theoretical maximum score is approximately **80 points** across the four scoring components. The scale goes to 100, but reaching 80 requires an item to have zero provisions, zero pipeline, zero revenue, and high cost with no return. In practice, most items score between 10 and 65. The headroom above 80 accommodates future scoring dimensions (e.g., failure rate, trend detection).
+The theoretical maximum score is approximately **85 points** across the four scoring components. The scale goes to 100, but reaching 85 requires an item to have zero provisions, zero pipeline, zero revenue, and high cost with no return. In practice, most items score between 10 and 70. The headroom above 85 accommodates future scoring dimensions (e.g., failure rate, trend detection).
 
 ### Scoring Components
 
@@ -113,21 +113,35 @@ The theoretical maximum score is approximately **80 points** across the four sco
 | **Usage** | 25 | Zero provisions gets max; non-zero ranked by percentile among non-zero peers |
 | **Pipeline** | 15 | Touched amount — zero gets max points; non-zero ranked by percentile |
 | **Revenue** | 25 | Closed amount — zero gets max points; non-zero ranked by percentile |
-| **Cost efficiency** | 15 | ROI (closed ÷ cost) — poor ROI or high cost with zero revenue |
+| **Cost efficiency** | 15 | ROI (closed ÷ cost) — poor ROI, or any cost with zero revenue |
 | **Age discount** | -30 | Items less than 90 days old get a score reduction (-30); items 90-180 days old get -10 |
 
 ### Percentile Breakdown
 
 All three main dimensions use the same pattern: a zero-value flag for the worst case, then percentile ranking among non-zero peers only. Percentiles are computed against non-zero items to prevent the large population of zero-activity items from diluting the rankings.
 
+The bottom percentile brackets are compressed toward the zero-value score to avoid a steep cliff between "zero provisions" and "a handful of provisions" — an item with 4 provisions in a year is functionally inactive and should score nearly as high as zero.
+
 | Percentile | Usage points | Pipeline points (non-zero) | Revenue points (non-zero) |
 |---|---|---|---|
 | Zero value | 25 | 15 | 25 |
-| p0–p10 | 18 | — | — |
-| p10–p25 | 14 | — | — |
-| Below p50 | 8 | 10 | 15 |
+| p0–p10 | 22 | — | — |
+| p10–p25 | 18 | — | — |
+| p25–p50 | 10 | 10 | 15 |
 | p50–p75 | 3 | 4 | 5 |
 | p75+ | 0 | 0 | 0 |
+
+### Cost Efficiency Scoring
+
+Cost efficiency uses ROI when both cost and revenue are non-zero, and a penalty for any cost with zero revenue:
+
+| Condition | Points |
+|---|---|
+| Cost > $0, revenue > $0, ROI < 10x | 15 |
+| Cost > $0, revenue > $0, ROI 10–50x | 5 |
+| Revenue = $0, cost > $5,000 | 15 |
+| Revenue = $0, cost > $0 | 10 |
+| Revenue = $0, cost = $0 | 0 |
 
 ### Dashboard Thresholds
 
@@ -156,24 +170,24 @@ To illustrate how percentile scoring works in practice, here are three hypotheti
 
 | Metric | Value | Percentile | Points |
 |---|---|---|---|
-| Provisions | 53 | p18 (bottom 20%) | 15 |
+| Provisions | 53 | p18 (bottom 20%) | 18 |
 | Touched | $604K | p58 (non-zero) | 4 |
 | Closed | $0 | zero | 25 |
 | Cost | $5.8K, zero closed | cost > $5K, no revenue | 15 |
 
-**Score: 59** — low provisions, zero closed revenue, and costs $5.8K/year with no return. The touched amount keeps it out of the highest tier (someone is at least linking it to opportunities), but it's a strong review candidate.
+**Score: 62** — low provisions, zero closed revenue, and costs $5.8K/year with no return. The touched amount keeps it out of the highest tier (someone is at least linking it to opportunities), but it's a strong retirement candidate.
 
 **Example 3: "RHEL Image Mode Workshop"** — a new item, 4 months old
 
 | Metric | Value | Percentile | Points |
 |---|---|---|---|
-| Provisions | 280 | p42 | 8 |
+| Provisions | 280 | p42 | 10 |
 | Touched | $0 | zero | 15 |
 | Closed | $0 | zero | 25 |
 | Cost | $12K, zero closed | cost > $5K, no revenue | 15 |
-| Age | 120 days | ≤ 180 days | -15 |
+| Age | 120 days | ≤ 180 days | -10 |
 
-**Score: 48** (63 before age discount) — zero sales data looks bad, but the item is only 4 months old. The age discount reduces the score by 15 points, keeping it out of the "high retirement" tier while it has time to build a track record. Without the discount, it would score 63 and show up as a review candidate prematurely.
+**Score: 55** (65 before age discount) — zero sales data looks bad, but the item is only 4 months old. The age discount reduces the score by 10 points, keeping it at the border of "high retirement" while it has time to build a track record. Without the discount, it would score 65 and show up as a strong candidate prematurely.
 
 ### Why Percentile-Based
 
