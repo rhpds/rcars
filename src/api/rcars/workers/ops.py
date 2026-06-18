@@ -118,12 +118,12 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
                                        phase="catalog_refresh", status="upserting",
                                        message=f"Upserting... {i}/{total}", current=i, total=total)
 
-        removed = wctx.db.delete_removed_items(current_ci_names)
+        retired = wctx.db.retire_removed_items(current_ci_names)
 
-        result = {"total_items": len(items), "removed_items": len(removed)}
+        result = {"total_items": len(items), "retired_items": len(retired)}
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="complete", status="complete",
-                               message=f"Catalog refreshed: {len(items)} items, {len(removed)} removed",
+                               message=f"Catalog refreshed: {len(items)} items, {len(retired)} retired",
                                **result)
         wctx.db.complete_job(job_id, result_json=result)
         log.info("refresh_complete", action="job_complete", **result)
@@ -263,7 +263,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         refresh_result = await run_catalog_refresh(ctx, refresh_job_id)
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:refresh", status="complete",
-                               message=f"Step 1 complete: {refresh_result['total_items']} catalog items synced from Babylon, {refresh_result['removed_items']} removed")
+                               message=f"Step 1 complete: {refresh_result['total_items']} catalog items synced from Babylon, {refresh_result.get('retired_items', 0)} retired")
         log.info("pipeline_refresh_complete", action="pipeline_step_complete", step="refresh", **refresh_result)
     except Exception as e:
         msg = f"Step 1 failed (catalog refresh): {e}"

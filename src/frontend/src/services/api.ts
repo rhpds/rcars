@@ -45,6 +45,7 @@ export const api = {
     agd_config?: string;
     content_filter?: string;
     category?: string;
+    include_retired?: boolean;
     limit?: number;
     offset?: number;
   }) => {
@@ -56,6 +57,7 @@ export const api = {
     if (params?.agd_config) qs.set('agd_config', params.agd_config);
     if (params?.content_filter) qs.set('content_filter', params.content_filter);
     if (params?.category) qs.set('category', params.category);
+    if (params?.include_retired) qs.set('include_retired', 'true');
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
@@ -140,7 +142,7 @@ export const api = {
 
   // Reporting status
   getReportingStatus: () => request<{
-    configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null;
+    configured: boolean; total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null;
   }>('/admin/reporting-status'),
 
   // Infrastructure
@@ -256,5 +258,5 @@ export interface RetirementDashboardResponse {
   items: ReportingMetricsItem[]
   total: number
   synced_at: string | null
-  summary: { total: number; high: number; review: number; keepers: number; last_synced: string | null } | null
+  summary: { total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null } | null
 }

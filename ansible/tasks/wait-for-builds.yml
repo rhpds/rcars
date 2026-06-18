@@ -1,5 +1,5 @@
 ---
-# Build both API and frontend images, then restart all deployments
+# Build both API and frontend images, then wait for rollouts
 
 - name: Trigger API build
   ansible.builtin.command:
@@ -63,18 +63,20 @@
      | last).status.phase in ['Failed', 'Error', 'Cancelled']
   changed_when: false
 
-- name: Wait for API rollout
-  kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
-    api_version: apps/v1
-    kind: Deployment
-    namespace: "{{ target_namespace }}"
-    name: "{{ app_name }}-api"
-  register: api_rollout
-  until: >-
-    api_rollout.resources | default([]) | length > 0 and
-    (api_rollout.resources[0].status.readyReplicas | default(0) | int) ==
-    (api_rollout.resources[0].spec.replicas | default(1) | int)
-  retries: 20
-  delay: 10
+- name: Wait for new API rollout to complete
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-api
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=300s
+  changed_when: false
+
+- name: Wait for new frontend rollout to complete
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-frontend
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=300s
   changed_when: false

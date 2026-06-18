@@ -61,11 +61,11 @@ def compute_retirement_score(
     if provisions_zero:
         score += 25
     elif provisions_pct < 10:
-        score += 18
+        score += 22
     elif provisions_pct < 25:
-        score += 14
+        score += 18
     elif provisions_pct < 50:
-        score += 8
+        score += 10
     elif provisions_pct < 75:
         score += 3
 
@@ -89,8 +89,10 @@ def compute_retirement_score(
             score += 15
         elif roi < 50:
             score += 5
-    elif total_cost > 5000 and closed_amount == 0:
+    elif closed_amount == 0 and total_cost > 5000:
         score += 15
+    elif closed_amount == 0 and total_cost > 0:
+        score += 10
 
     if first_provision:
         try:
@@ -274,12 +276,10 @@ def _build_cost_sql(start_date: str) -> str:
         )
         SELECT
             ci.name AS catalog_base_name,
-            SUM(c.total_cost) AS total_cost,
-            ROUND(SUM(c.total_cost) / NULLIF(COUNT(*), 0), 2) AS avg_cost_per_provision
+            SUM(c.total_cost) AS total_cost
         FROM costs c
         JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
         JOIN catalog_items ci ON ci.id = ps.catalog_id
-        WHERE 1=1 {PROVISION_FILTERS}
         GROUP BY ci.name
     """
 
@@ -346,21 +346,15 @@ def _build_closed_by_quarter_sql(start_date: str) -> str:
 
 def _build_cost_by_quarter_sql(start_date: str) -> str:
     return f"""
-        WITH costs AS (
-            SELECT provision_uuid, SUM(total_cost) AS total_cost
-            FROM provision_cost
-            WHERE month_ts >= DATE_TRUNC('month', '{start_date}'::date)
-            GROUP BY provision_uuid
-        )
         SELECT
             ci.name AS catalog_base_name,
-            TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q') AS quarter,
-            SUM(c.total_cost) AS total_cost
-        FROM costs c
-        JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
+            TO_CHAR(DATE_TRUNC('quarter', pc.month_ts), 'YYYY-"Q"Q') AS quarter,
+            SUM(pc.total_cost) AS total_cost
+        FROM provision_cost pc
+        JOIN provisions_summary ps ON ps.uuid = pc.provision_uuid
         JOIN catalog_items ci ON ci.id = ps.catalog_id
-        WHERE 1=1 {PROVISION_FILTERS}
-        GROUP BY ci.name, DATE_TRUNC('quarter', ps.provisioned_at)
+        WHERE pc.month_ts >= DATE_TRUNC('month', '{start_date}'::date)
+        GROUP BY ci.name, DATE_TRUNC('quarter', pc.month_ts)
     """
 
 
@@ -508,8 +502,10 @@ def run_reporting_sync(db, settings) -> dict:
 
     all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
     excluded = {n for n in all_names if any(n.startswith(p) for p in EXCLUDE_PREFIXES)}
-    filtered_names = all_names - excluded
+    retired_names = db.get_fully_retired_base_names()
+    filtered_names = all_names - excluded - retired_names
     log.info("merging", total_base_names=len(all_names), excluded=len(excluded),
+             retired_excluded=len(retired_names & all_names),
              filtered=len(filtered_names))
 
     merged_rows = []
@@ -531,7 +527,7 @@ def run_reporting_sync(db, settings) -> dict:
             "touched_amount": touched_data.get(name, 0.0),
             "closed_amount": closed_data.get(name, 0.0),
             "total_cost": float(cost.get("total_cost", 0) or 0),
-            "avg_cost_per_provision": float(cost.get("avg_cost_per_provision", 0) or 0),
+            "avg_cost_per_provision": round(float(cost.get("total_cost", 0) or 0) / int(prov.get("provisions", 0)), 2) if int(prov.get("provisions", 0)) > 0 else 0,
             "first_provision": (dates.get("first_provision", "") or "") or None,
             "last_provision": (dates.get("last_provision", "") or None),
             "quarterly_data": json.dumps(quarterly.get(name, {})),
