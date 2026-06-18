@@ -274,12 +274,10 @@ def _build_cost_sql(start_date: str) -> str:
         )
         SELECT
             ci.name AS catalog_base_name,
-            SUM(c.total_cost) AS total_cost,
-            ROUND(SUM(c.total_cost) / NULLIF(COUNT(*), 0), 2) AS avg_cost_per_provision
+            SUM(c.total_cost) AS total_cost
         FROM costs c
         JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
         JOIN catalog_items ci ON ci.id = ps.catalog_id
-        WHERE 1=1 {PROVISION_FILTERS}
         GROUP BY ci.name
     """
 
@@ -359,7 +357,6 @@ def _build_cost_by_quarter_sql(start_date: str) -> str:
         FROM costs c
         JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
         JOIN catalog_items ci ON ci.id = ps.catalog_id
-        WHERE 1=1 {PROVISION_FILTERS}
         GROUP BY ci.name, DATE_TRUNC('quarter', ps.provisioned_at)
     """
 
@@ -531,7 +528,7 @@ def run_reporting_sync(db, settings) -> dict:
             "touched_amount": touched_data.get(name, 0.0),
             "closed_amount": closed_data.get(name, 0.0),
             "total_cost": float(cost.get("total_cost", 0) or 0),
-            "avg_cost_per_provision": float(cost.get("avg_cost_per_provision", 0) or 0),
+            "avg_cost_per_provision": round(float(cost.get("total_cost", 0) or 0) / int(prov.get("provisions", 0)), 2) if int(prov.get("provisions", 0)) > 0 else 0,
             "first_provision": (dates.get("first_provision", "") or "") or None,
             "last_provision": (dates.get("last_provision", "") or None),
             "quarterly_data": json.dumps(quarterly.get(name, {})),
