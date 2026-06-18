@@ -505,8 +505,10 @@ def run_reporting_sync(db, settings) -> dict:
 
     all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
     excluded = {n for n in all_names if any(n.startswith(p) for p in EXCLUDE_PREFIXES)}
-    filtered_names = all_names - excluded
+    retired_names = db.get_fully_retired_base_names()
+    filtered_names = all_names - excluded - retired_names
     log.info("merging", total_base_names=len(all_names), excluded=len(excluded),
+             retired_excluded=len(retired_names & all_names),
              filtered=len(filtered_names))
 
     merged_rows = []

@@ -218,11 +218,12 @@ The Browse page hides retired items by default. Curators see a **Show Retired** 
 
 ### Interaction with Reporting Data
 
-Retired items remain in `catalog_items`, so the orphan cleanup in `delete_orphan_reporting_metrics()` does not remove their reporting data. However, `get_catalog_base_names()` — which drives the catalog backfill during reporting sync — excludes retired items by default. This means:
+Fully-retired items (all stage variants soft-deleted) are excluded from the reporting sync and the retirement dashboard:
 
-- Retired items that already have reporting data **keep it** indefinitely
-- Retired items are **not backfilled** with new zero-data entries during future syncs
-- The retirement dashboard's Prod/Without Prod tabs only count **active** items in their totals
+- **Sync exclusion** — `run_reporting_sync()` calls `get_fully_retired_base_names()` and removes those names from the MCP import before computing percentile rankings. This prevents retired items from diluting the scoring pool — a mediocre active item shouldn't look good just because there are retired items with zero activity below it.
+- **Dashboard exclusion** — `list_reporting_metrics()` requires at least one active `catalog_items` entry (`retired_at IS NULL`) for the base name. A fully-retired item won't appear in either the Prod or Without Prod tab.
+- **Orphan cleanup** — since retired items are excluded from the sync, they're not in the synced-names set, and the orphan cleanup removes their `reporting_metrics` rows. This is intentional: reporting data is always re-derivable from the MCP server, unlike analysis and embeddings which are unique computed data.
+- **Partial retirement** — if only the `.prod` variant is retired but `.dev` is still active, the item IS included in the sync and scores normally. It appears in the "Without Prod" tab, correctly reflecting that it's now a dev-only item.
 
 ---
 
