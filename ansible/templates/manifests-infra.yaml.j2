@@ -89,20 +89,6 @@ type: Opaque
 stringData:
   token: "{{ rcars_reporting_mcp_token }}"
 {% endif %}
-{% if github_token is defined and github_token != 'CHANGEME' %}
----
-# GitHub source secret (for private repo access during builds)
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ app_name }}-github-source
-  labels:
-    app: {{ app_name }}
-type: kubernetes.io/basic-auth
-stringData:
-  username: "{{ github_token }}"
-  password: ""
-{% endif %}
 ---
 # PostgreSQL PVC
 apiVersion: v1
@@ -321,10 +307,6 @@ spec:
       uri: "https://github.com/{{ github_repo }}.git"
       ref: "{{ git_ref }}"
     contextDir: src/api
-{% if github_token is defined and github_token != 'CHANGEME' %}
-    sourceSecret:
-      name: {{ app_name }}-github-source
-{% endif %}
   strategy:
     type: Docker
     dockerStrategy:
@@ -351,10 +333,6 @@ spec:
       uri: "https://github.com/{{ github_repo }}.git"
       ref: "{{ git_ref }}"
     contextDir: src/frontend
-{% if github_token is defined and github_token != 'CHANGEME' %}
-    sourceSecret:
-      name: {{ app_name }}-github-source
-{% endif %}
   strategy:
     type: Docker
     dockerStrategy:
