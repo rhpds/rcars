@@ -99,7 +99,23 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## Database
 
-15 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/`. Key tables: `catalog_items` (CRD metadata), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata).
+15 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-007). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns).
+
+## Retirement Analysis — Key Implementation Details
+
+Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `reporting_metrics` table → `/analysis/retirement` endpoint → frontend.
+
+**Cost methodology:** Cost queries include ALL environments (dev/event/prod) — no `PROVISION_FILTERS`. The `avg_cost_per_provision` is computed in Python as `total_cost / provisions` where provisions is PROD-only. This amortizes dev/event infrastructure costs into each production deployment, reflecting the full cost of maintaining an item.
+
+**Query scoping:** Provisions, touched, closed, and dates queries apply `PROVISION_FILTERS` (PROD environment + real users). Cost queries do NOT apply this filter. The `PROVISION_FILTERS` constant in `reporting_sync.py` controls this.
+
+**Catalog completeness:** After importing from the reporting MCP, `get_catalog_base_names()` pulls all unique base names from `catalog_items` (the local catalog — ALL Babylon items). Items in the catalog but missing from reporting data are backfilled with zero values. The orphan cleanup then removes items not in the current sync AND not in the current catalog. Result: Prod tab + Without Prod tab = total unique catalog items.
+
+**Time window:** `quarterly_data` JSONB column stores per-quarter breakdowns. The API's `window` parameter (1q/2q/3q/1y) triggers `compute_windowed_scores()` which sums relevant quarters, recomputes percentile rankings, and rescores. No MCP re-query needed.
+
+**Scoring thresholds:** High ≥ 55, Review ≥ 35, Keepers < 35 (frontend). The CLI `reporting-db status` still uses the old 75/50 thresholds.
+
+**Ansible deployment:** Reporting MCP env vars must be on BOTH the API deployment and scan-worker deployment (template: `manifests-app.yaml.j2`). The secret is in `manifests-infra.yaml.j2`.
 
 ## CLI
 
