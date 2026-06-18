@@ -42,6 +42,19 @@ Session handoff notes between developers. Read before starting work. Write befor
   - CLAUDE.md: documented soft-delete pattern, updated migration count
   - BACKLOG.md: marked soft-delete complete
 
+- **Retirement analysis exclusion fix:**
+  - Retired items from the reporting MCP were being imported, scored, and could appear in the dashboard's Without Prod tab
+  - `get_fully_retired_base_names()` — new DB method returns base names where ALL stage variants are soft-deleted
+  - `run_reporting_sync()` now excludes fully-retired base names from `merged_rows` before percentile scoring, preventing retired items from diluting active item rankings
+  - `list_reporting_metrics()` now requires at least one active `catalog_items` entry (`retired_at IS NULL`) to appear in the dashboard
+  - Partial retirement handled correctly: if only `.prod` is retired but `.dev` is active, the item still scores and appears in Without Prod tab
+- **Documentation updates:**
+  - overview.md: new "Catalog Preservation" section
+  - retirement-analysis.md: full "Soft-Delete" section covering mechanics, query filtering, Browse integration, and reporting data interaction
+  - system-design.md: database section note on soft-delete pattern
+  - schema-reference.md: retired_at and retirement_reason column docs
+  - operations.md: catalog refresh step mentions soft-delete
+
 **In progress:**
 - Dev deployment running (`--tags update`)
 
@@ -52,7 +65,7 @@ Session handoff notes between developers. Read before starting work. Write befor
 - Babydev cluster migration (deadline: end of June 2026)
 
 **Notes:**
-- `delete_orphan_reporting_metrics()` intentionally does NOT filter by `retired_at` — retired items ARE still in `catalog_items`, so their reporting data is preserved and not orphaned
+- Fully-retired items (all stages soft-deleted) are excluded from the reporting sync and orphan cleanup removes their `reporting_metrics` rows. Reporting data is re-derivable from the MCP; analysis and embeddings are unique data that IS preserved.
 - `get_catalog_item()` (single item lookup) intentionally does NOT filter retired items — you can still view a retired item's detail page
 - The upsert path clears `retired_at` and `retirement_reason` on every upsert, ensuring any item present in the CRD scan is automatically active
 - DB test fixture has a pre-existing error (dict access on tuple rows) — not related to this change
