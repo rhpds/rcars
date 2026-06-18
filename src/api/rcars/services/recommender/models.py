@@ -26,6 +26,9 @@ class Candidate:
     vector_distance: float = 0.0
     vector_similarity_pct: int = 0
 
+    # Populated between vector search and triage (from reporting_metrics)
+    provisions_quarter: int | None = None
+
     # Populated after Phase 2 (Haiku triage)
     relevance_score: int | None = None
     relevant: bool | None = None

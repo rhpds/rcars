@@ -118,6 +118,46 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
                      old_score=old_score, new_score=c.relevance_score)
 
 
+def _apply_usage_boost(candidates: list[Candidate], db) -> None:
+    """Boost relevance scores for candidates with proven usage.
+
+    Looks up provisions_quarter from reporting_metrics and applies a
+    gentle multiplicative boost based on percentile rank among candidates
+    with non-zero provisions. Max boost is 12% — enough to swap adjacent
+    candidates but not enough to jump a tier.
+    """
+    import bisect
+    from rcars.services.reporting_sync import extract_base_name
+
+    for c in candidates:
+        base = extract_base_name(c.ci_name)
+        metrics = db.get_reporting_metrics(base)
+        c.provisions_quarter = metrics["provisions_quarter"] if metrics else None
+
+    prov_values = [c.provisions_quarter for c in candidates if c.provisions_quarter and c.provisions_quarter > 0]
+    if not prov_values:
+        return
+    sorted_provs = sorted(prov_values)
+
+    for c in candidates:
+        if c.relevance_score is None or not c.provisions_quarter or c.provisions_quarter <= 0:
+            continue
+        pct = (bisect.bisect_right(sorted_provs, c.provisions_quarter) / len(sorted_provs)) * 100
+        if pct >= 90:
+            multiplier = 1.12
+        elif pct >= 75:
+            multiplier = 1.09
+        elif pct >= 50:
+            multiplier = 1.06
+        else:
+            multiplier = 1.03
+        old_score = c.relevance_score
+        c.relevance_score = round(old_score * multiplier)
+        logger.debug("usage_boost", ci_name=c.ci_name,
+                     provisions_quarter=c.provisions_quarter, percentile=round(pct),
+                     multiplier=multiplier, old_score=old_score, new_score=c.relevance_score)
+
+
 async def run_query(
     query: str,
     db: Database,
@@ -171,7 +211,7 @@ async def run_query(
                 "learning_objectives": c.learning_objectives,
                 "why_it_fits": c.why_it_fits, "how_to_use": c.how_to_use,
                 "suggested_format": c.suggested_format, "duration_notes": c.duration_notes,
-                "caveats": c.caveats,
+                "caveats": c.caveats, "provisions_quarter": c.provisions_quarter,
             }
             for c in candidates
         ]
@@ -203,14 +243,20 @@ async def run_query(
         await emit({"phase": "complete", "results": 0})
         return state
 
+    # Usage boost (between triage and rationale)
+    _apply_usage_boost(state.candidates, db)
+
     # Duration re-ranking (between triage and rationale)
     duration_target, is_hard = _extract_duration_target(query)
     if duration_target:
         _apply_duration_penalty(state.candidates, duration_target, is_hard)
-        state.candidates.sort(key=lambda c: (
-            0 if c.tier == "yellow" else 1,
-            -(c.relevance_score or 0) if c.tier == "yellow" else -(c.vector_similarity_pct or 0),
-        ))
+
+    # Re-sort after usage boost and duration penalty
+    state.candidates.sort(key=lambda c: (
+        0 if c.tier == "yellow" else 1,
+        -(c.relevance_score or 0) if c.tier == "yellow" else -(c.vector_similarity_pct or 0),
+    ))
+    if duration_target:
         logger.info("duration_rerank", target=duration_target, hard=is_hard)
 
     # Phase 3: Rationale
