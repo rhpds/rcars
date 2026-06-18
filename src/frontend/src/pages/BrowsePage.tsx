@@ -20,6 +20,7 @@ interface CatalogItem {
   is_agd_v2?: boolean
   agd_config?: string | null
   cloud_provider?: string | null
+  retired_at?: string | null
 }
 
 interface Module {
@@ -117,6 +118,7 @@ export function BrowsePage() {
   const [contentFilter, setContentFilter] = useState<ContentFilter | ''>(
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
+  const [showRetired, setShowRetired] = useState(searchParams.get('include_retired') === 'true')
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   const [items, setItems] = useState<CatalogItem[]>([])
@@ -171,6 +173,7 @@ export function BrowsePage() {
       if (agdConfig) params.agd_config = agdConfig
       if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
       if (contentFilter) params.content_filter = contentFilter
+      if (showRetired) (params as Record<string, unknown>).include_retired = true
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
       setItems(data.items as CatalogItem[])
@@ -179,7 +182,7 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired])
 
   useEffect(() => {
     const params: Record<string, string> = {}
@@ -190,9 +193,10 @@ export function BrowsePage() {
     if (agdConfig) params.agd_config = agdConfig
     if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
     if (contentFilter) params.content_filter = contentFilter
+    if (showRetired) params.include_retired = 'true'
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired, page, setSearchParams])
 
   useEffect(() => {
     setPage(1)
@@ -465,6 +469,9 @@ export function BrowsePage() {
                    cf.charAt(0).toUpperCase() + cf.slice(1)}
                 </span>
               ))}
+              <span style={{ marginLeft: '12px', borderLeft: '1px solid #555', paddingLeft: '12px' }}>
+                <LcarsToggle label="Show Retired" active={showRetired} onToggle={() => setShowRetired(!showRetired)} />
+              </span>
             </div>
           )}
         </div>
@@ -481,7 +488,7 @@ export function BrowsePage() {
             const isZt = isZtItem(item)
 
             return (
-              <div key={item.ci_name} className="curate-item">
+              <div key={item.ci_name} className="curate-item" style={item.retired_at ? { opacity: 0.6 } : undefined}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <div>
                     <div className="curate-item-title" style={{ cursor: 'pointer' }} onClick={() => handleExpand(item.ci_name)}>
@@ -494,6 +501,7 @@ export function BrowsePage() {
                       {item.is_agd_v2 && <span style={{ display: 'inline-block', background: '#1a2a3a', color: '#73bcf7', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>v2</span>}
                       {item.scan_status === 'failed' && <span style={{ display: 'inline-block', background: '#5a2020', color: '#ff9999', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>FAILED</span>}
                       {item.enrichment_review_needed && <span className="review-badge">needs review</span>}
+                      {item.retired_at && <span style={{ display: 'inline-block', background: '#3a2a1a', color: '#cc9966', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>RETIRED {new Date(item.retired_at).toLocaleDateString()}</span>}
                     </div>
                     <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
                   </div>

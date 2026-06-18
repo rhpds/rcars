@@ -51,7 +51,9 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     os_image TEXT,
     worker_instance_count TEXT,
     control_plane_instance_count TEXT,
-    instances_json JSONB
+    instances_json JSONB,
+    retired_at TIMESTAMPTZ,
+    retirement_reason TEXT
 );
 
 CREATE TABLE IF NOT EXISTS showroom_analysis (
@@ -308,6 +310,8 @@ class Database:
         ]
         present = {k: item.get(k) for k in fields if k in item}
         present["last_refreshed"] = datetime.now(timezone.utc)
+        present["retired_at"] = None
+        present["retirement_reason"] = None
 
         if "owners_json" in present and present["owners_json"] is not None:
             present["owners_json"] = Jsonb(present["owners_json"])
@@ -339,10 +343,12 @@ class Database:
 
     def list_catalog_items(
         self, prod_only: bool = False, category: str | None = None,
-        stage: str | None = None,
+        stage: str | None = None, include_retired: bool = False,
     ) -> list[dict[str, Any]]:
         conditions = []
         params: dict[str, Any] = {}
+        if not include_retired:
+            conditions.append("ci.retired_at IS NULL")
         if prod_only:
             conditions.append("ci.is_prod = TRUE")
         if category:
@@ -371,10 +377,14 @@ class Database:
         content_filter: str | None = None,
         limit: int = 50,
         offset: int = 0,
+        include_retired: bool = False,
     ) -> dict[str, Any]:
         conditions = []
         params: dict[str, Any] = {}
         joins = []
+
+        if not include_retired:
+            conditions.append("ci.retired_at IS NULL")
 
         if stages:
             conditions.append("ci.stage = ANY(%(stages)s)")
@@ -458,21 +468,45 @@ class Database:
 
         return {"items": items, "total": total}
 
-    def delete_removed_items(self, current_ci_names: set[str]) -> list[dict]:
+    def retire_removed_items(self, current_ci_names: set[str]) -> list[dict]:
+        """Mark catalog items not in current CRD scan as retired instead of deleting them."""
         with self._pool.connection() as conn:
-            cur = conn.execute("SELECT ci_name, display_name, stage FROM catalog_items")
+            cur = conn.execute(
+                "SELECT ci_name, display_name, stage, retired_at FROM catalog_items"
+            )
             all_items = cur.fetchall()
-            removed = [i for i in all_items if i["ci_name"] not in current_ci_names]
-            for item in removed:
+
+            newly_retired = []
+            unretired = []
+
+            for item in all_items:
                 ci = item["ci_name"]
-                conn.execute("DELETE FROM enrichment_tags WHERE ci_name = %s", (ci,))
-                conn.execute("DELETE FROM embeddings WHERE ci_name = %s", (ci,))
-                conn.execute("DELETE FROM analysis_log WHERE ci_name = %s", (ci,))
-                conn.execute("DELETE FROM showroom_analysis WHERE ci_name = %s", (ci,))
-                conn.execute("DELETE FROM catalog_items WHERE ci_name = %s", (ci,))
-            if removed:
+                was_retired = item.get("retired_at") is not None
+
+                if ci not in current_ci_names and not was_retired:
+                    conn.execute(
+                        "UPDATE catalog_items SET retired_at = NOW(), "
+                        "retirement_reason = 'Disappeared from Babylon CRDs' "
+                        "WHERE ci_name = %s",
+                        (ci,),
+                    )
+                    newly_retired.append(item)
+                elif ci in current_ci_names and was_retired:
+                    conn.execute(
+                        "UPDATE catalog_items SET retired_at = NULL, "
+                        "retirement_reason = NULL WHERE ci_name = %s",
+                        (ci,),
+                    )
+                    unretired.append(item)
+
+            if newly_retired or unretired:
                 conn.commit()
-            return removed
+            if unretired:
+                logger.info("unretired_items",
+                            component="rcars", action="unretire",
+                            count=len(unretired),
+                            items=[i["ci_name"] for i in unretired])
+            return newly_retired
 
     def set_content_path(self, ci_name: str, path: str | None):
         with self._pool.connection() as conn:
@@ -603,7 +637,7 @@ class Database:
             FROM embeddings e
             JOIN catalog_items ci ON e.ci_name = ci.ci_name
             LEFT JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
-            WHERE e.embed_type = %s {stage_filter} {zt_filter}
+            WHERE e.embed_type = %s AND ci.retired_at IS NULL {stage_filter} {zt_filter}
             ORDER BY distance ASC
             LIMIT %s
         """
@@ -811,9 +845,9 @@ class Database:
     def get_infra_stats(self) -> dict:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) AS count FROM catalog_items WHERE is_agd_v2 = TRUE")
+                cur.execute("SELECT COUNT(*) AS count FROM catalog_items WHERE is_agd_v2 = TRUE AND retired_at IS NULL")
                 v2_items = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(DISTINCT ci_name) AS count FROM catalog_item_workloads")
+                cur.execute("SELECT COUNT(DISTINCT ciw.ci_name) AS count FROM catalog_item_workloads ciw JOIN catalog_items ci ON ci.ci_name = ciw.ci_name WHERE ci.retired_at IS NULL")
                 with_workloads = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) AS count FROM workload_mapping")
                 mapped_count = cur.fetchone()["count"]
@@ -840,7 +874,7 @@ class Database:
                 SELECT wm.product_name, wm.category, COUNT(DISTINCT ciw.ci_name) AS ci_count
                 FROM workload_mapping wm
                 JOIN catalog_item_workloads ciw ON ciw.workload_role = wm.workload_role
-                JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.is_prod = TRUE
+                JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.is_prod = TRUE AND ci.retired_at IS NULL
                 GROUP BY wm.product_name, wm.category
                 ORDER BY ci_count DESC
             """)
@@ -848,7 +882,7 @@ class Database:
 
             cur = conn.execute("""
                 SELECT agd_config, COUNT(*) AS ci_count
-                FROM catalog_items WHERE is_agd_v2 = TRUE AND is_prod = TRUE
+                FROM catalog_items WHERE is_agd_v2 = TRUE AND is_prod = TRUE AND retired_at IS NULL
                 GROUP BY agd_config ORDER BY ci_count DESC
             """)
             configs = cur.fetchall()
@@ -856,7 +890,7 @@ class Database:
             cur = conn.execute("""
                 SELECT cloud_provider, COUNT(*) AS ci_count
                 FROM catalog_items WHERE is_agd_v2 = TRUE AND cloud_provider IS NOT NULL
-                  AND cloud_provider != 'none' AND is_prod = TRUE
+                  AND cloud_provider != 'none' AND is_prod = TRUE AND retired_at IS NULL
                 GROUP BY cloud_provider ORDER BY ci_count DESC
             """)
             cloud_providers = cur.fetchall()
@@ -864,7 +898,7 @@ class Database:
             cur = conn.execute("""
                 SELECT os_image, COUNT(*) AS ci_count
                 FROM catalog_items WHERE is_agd_v2 = TRUE AND os_image IS NOT NULL
-                  AND is_prod = TRUE
+                  AND is_prod = TRUE AND retired_at IS NULL
                 GROUP BY os_image ORDER BY ci_count DESC
             """)
             os_images = cur.fetchall()
@@ -887,7 +921,7 @@ class Database:
         prod_only: bool = True,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        conditions = ["ci.is_agd_v2 = TRUE"]
+        conditions = ["ci.is_agd_v2 = TRUE", "ci.retired_at IS NULL"]
         params: dict[str, Any] = {}
         joins = []
 
@@ -977,6 +1011,8 @@ class Database:
                       AND ci_b.stage = %(stage)s
                       AND (ci_a.is_published IS NULL OR ci_a.is_published = FALSE)
                       AND (ci_b.is_published IS NULL OR ci_b.is_published = FALSE)
+                      AND ci_a.retired_at IS NULL
+                      AND ci_b.retired_at IS NULL
                 """, {"threshold": threshold, "stage": stage})
                 inserted = cur.rowcount
             conn.commit()
@@ -1132,6 +1168,7 @@ class Database:
                 WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
                   AND (ci.is_published IS NULL OR ci.is_published = FALSE)
                   AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
+                  AND ci.retired_at IS NULL
                 ORDER BY ci.ci_name
             """)
             all_needing = cur.fetchall()
@@ -1159,6 +1196,7 @@ class Database:
                 WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
                   AND (ci.is_published IS NULL OR ci.is_published = FALSE)
                   AND (sa.ci_name IS NULL OR sa.is_stale = TRUE)
+                  AND ci.retired_at IS NULL
                 GROUP BY COALESCE(ci.showroom_url_override, ci.showroom_url), COALESCE(ci.showroom_ref, '')
             """)
             groups = cur.fetchall()
@@ -1170,7 +1208,7 @@ class Database:
     def get_siblings_by_showroom(self, showroom_url: str, showroom_ref: str | None) -> list[dict[str, Any]]:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT * FROM catalog_items WHERE showroom_url = %s AND COALESCE(showroom_ref, '') = COALESCE(%s, '') AND (is_published IS NULL OR is_published = FALSE) ORDER BY ci_name",
+                "SELECT * FROM catalog_items WHERE showroom_url = %s AND COALESCE(showroom_ref, '') = COALESCE(%s, '') AND (is_published IS NULL OR is_published = FALSE) AND retired_at IS NULL ORDER BY ci_name",
                 (showroom_url, showroom_ref),
             )
             return cur.fetchall()
@@ -1193,7 +1231,7 @@ class Database:
         with self._pool.connection() as conn:
             cur = conn.execute("""
                 SELECT ci_name, display_name, stage, scan_error_class, scan_error, scan_failed_at, showroom_url, showroom_url_override
-                FROM catalog_items WHERE scan_status = 'failed' ORDER BY scan_failed_at DESC
+                FROM catalog_items WHERE scan_status = 'failed' AND retired_at IS NULL ORDER BY scan_failed_at DESC
             """)
             return cur.fetchall()
 
@@ -1207,24 +1245,26 @@ class Database:
     def get_status_summary(self) -> dict[str, int]:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE retired_at IS NULL")
                 total = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE AND retired_at IS NULL")
                 prod = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE showroom_url IS NOT NULL AND showroom_url != '' AND (is_published IS NULL OR is_published = FALSE)")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE showroom_url IS NOT NULL AND showroom_url != '' AND (is_published IS NULL OR is_published = FALSE) AND retired_at IS NULL")
                 with_showroom = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis")
+                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN catalog_items ci ON ci.ci_name = sa.ci_name WHERE ci.retired_at IS NULL")
                 analyzed = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis WHERE is_stale = TRUE")
+                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN catalog_items ci ON ci.ci_name = sa.ci_name WHERE sa.is_stale = TRUE AND ci.retired_at IS NULL")
                 stale = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed'")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed' AND retired_at IS NULL")
                 scan_failures = cur.fetchone()["count"]
-        return {"total": total, "prod": prod, "with_showroom": with_showroom, "analyzed": analyzed, "stale": stale, "scan_failures": scan_failures}
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE retired_at IS NOT NULL")
+                retired = cur.fetchone()["count"]
+        return {"total": total, "prod": prod, "with_showroom": with_showroom, "analyzed": analyzed, "stale": stale, "scan_failures": scan_failures, "retired": retired}
 
     def get_db_currency(self, stale_days: int = 3) -> dict:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT MAX(last_refreshed) as max_refreshed FROM catalog_items")
+                cur.execute("SELECT MAX(last_refreshed) as max_refreshed FROM catalog_items WHERE retired_at IS NULL")
                 row = cur.fetchone()
                 last_refresh = row["max_refreshed"] if row else None
                 catalog_stale = True
@@ -1232,13 +1272,13 @@ class Database:
                 if last_refresh:
                     catalog_stale = (datetime.now(timezone.utc) - last_refresh) > timedelta(days=stale_days)
                     catalog_date = last_refresh.strftime("%Y.%m.%d")
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE showroom_url IS NOT NULL AND showroom_url != '' AND (is_published IS NULL OR is_published = FALSE)")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE showroom_url IS NOT NULL AND showroom_url != '' AND (is_published IS NULL OR is_published = FALSE) AND retired_at IS NULL")
                 scannable = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis")
+                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN catalog_items ci ON ci.ci_name = sa.ci_name WHERE ci.retired_at IS NULL")
                 analyzed = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis WHERE is_stale = TRUE")
+                cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN catalog_items ci ON ci.ci_name = sa.ci_name WHERE sa.is_stale = TRUE AND ci.retired_at IS NULL")
                 stale_count = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed'")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed' AND retired_at IS NULL")
                 failed_count = cur.fetchone()["count"]
                 cur.execute("SELECT MAX(last_analyzed) as max_analyzed FROM showroom_analysis")
                 row = cur.fetchone()
@@ -1249,14 +1289,16 @@ class Database:
         analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE retired_at IS NULL")
                 total = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE is_prod = TRUE AND retired_at IS NULL")
                 prod = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'dev'")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'dev' AND retired_at IS NULL")
                 dev = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'event'")
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE stage = 'event' AND retired_at IS NULL")
                 event = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE retired_at IS NOT NULL")
+                retired = cur.fetchone()["count"]
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("""
@@ -1265,11 +1307,12 @@ class Database:
                         FROM catalog_items ci
                         WHERE ci.showroom_url IS NOT NULL AND ci.showroom_url != ''
                           AND (ci.is_published IS NULL OR ci.is_published = FALSE)
+                          AND ci.retired_at IS NULL
                     ) sub
                 """)
                 unique_showrooms = cur.fetchone()["cnt"]
         return {
-            "total": total, "prod": prod, "dev": dev, "event": event,
+            "total": total, "prod": prod, "dev": dev, "event": event, "retired": retired,
             "scannable": scannable, "unique_showrooms": unique_showrooms, "analyzed": analyzed,
             "last_refresh": catalog_date, "is_stale": catalog_stale,
             "catalog_stale": catalog_stale, "catalog_date": catalog_date,
@@ -1451,13 +1494,15 @@ class Database:
             conn.commit()
         return len(rows)
 
-    def get_catalog_base_names(self) -> dict[str, str]:
+    def get_catalog_base_names(self, include_retired: bool = False) -> dict[str, str]:
         """Get all unique base names from catalog_items with their display names."""
-        sql = """
+        retired_filter = "" if include_retired else "WHERE retired_at IS NULL"
+        sql = f"""
             SELECT DISTINCT ON (base)
                 substring(ci_name FROM '^(.+)\\.[^.]+$') AS base,
                 display_name
             FROM catalog_items
+            {retired_filter}
             ORDER BY base, CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
         """
         with self._pool.connection() as conn:
@@ -1540,6 +1585,7 @@ class Database:
                 EXISTS (
                     SELECT 1 FROM catalog_items ci3
                     WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                      AND ci3.retired_at IS NULL
                 )
             """)
         elif has_prod is False:
@@ -1547,6 +1593,7 @@ class Database:
                 NOT EXISTS (
                     SELECT 1 FROM catalog_items ci3
                     WHERE ci3.ci_name = rm.catalog_base_name || '.prod'
+                      AND ci3.retired_at IS NULL
                 )
             """)
 
@@ -1560,7 +1607,8 @@ class Database:
                 SELECT category, product, product_family
                 FROM catalog_items
                 WHERE ci_name LIKE rm.catalog_base_name || '.%%'
-                ORDER BY CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
+                ORDER BY CASE WHEN retired_at IS NULL THEN 0 ELSE 1 END,
+                         CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
                 LIMIT 1
             ) ci ON true
             {where}
@@ -1571,17 +1619,19 @@ class Database:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
-    def get_stages_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
+    def get_stages_for_base_names(self, base_names: list[str], include_retired: bool = False) -> dict[str, list[dict]]:
         """Get all stages and catalog URLs for a list of base names."""
         if not base_names:
             return {}
         from rcars.services.reporting_sync import extract_base_name
         placeholders = ",".join(["%s"] * len(base_names))
+        retired_filter = "" if include_retired else "AND retired_at IS NULL"
         sql = f"""
-            SELECT ci_name, catalog_namespace, stage,
+            SELECT ci_name, catalog_namespace, stage, retired_at,
                    (showroom_url IS NOT NULL AND showroom_url != '') AS has_showroom
             FROM catalog_items
             WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+              {retired_filter}
             ORDER BY ci_name
         """
         result: dict[str, list[dict]] = {}
@@ -1616,19 +1666,19 @@ class Database:
                 return cur.fetchone()
 
     def has_prod_stage(self, base_name: str) -> bool:
-        """Check if a base name has a prod-stage catalog item."""
-        sql = "SELECT 1 FROM catalog_items WHERE ci_name = %s LIMIT 1"
+        """Check if a base name has an active prod-stage catalog item."""
+        sql = "SELECT 1 FROM catalog_items WHERE ci_name = %s AND retired_at IS NULL LIMIT 1"
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, (f"{base_name}.prod",))
                 return cur.fetchone() is not None
 
     def get_all_base_names_with_prod(self) -> set[str]:
-        """Return set of base names that have a .prod entry in catalog_items."""
+        """Return set of base names that have an active .prod entry in catalog_items."""
         sql = """
             SELECT DISTINCT substring(ci_name FROM '^(.+)\\.prod$') AS base_name
             FROM catalog_items
-            WHERE ci_name LIKE '%.prod'
+            WHERE ci_name LIKE '%.prod' AND retired_at IS NULL
         """
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
