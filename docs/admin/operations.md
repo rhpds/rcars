@@ -88,7 +88,7 @@ Example: if `agd-v2.modernize-ocp-virt` has dev (ref=main), event (ref=v1.0.0), 
 
 The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains five steps sequentially:
 
-1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data.
+1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data. Items that no longer exist in Babylon are **soft-deleted** (marked with `retired_at` timestamp) rather than purged — all analysis, embeddings, and reporting data is preserved. Items that reappear in a future refresh are automatically un-retired.
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 4. **Workload Repo Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses Claude Haiku to determine what product each role installs. Updates the workload mapping table with verified product names. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
