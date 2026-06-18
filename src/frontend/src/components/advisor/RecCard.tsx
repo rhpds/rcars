@@ -49,6 +49,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
   const [expanded, setExpanded] = useState(false)
   const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
   const [showFullCaveat, setShowFullCaveat] = useState(false)
+  const [showSalesInfo, setShowSalesInfo] = useState(false)
 
   const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
@@ -172,14 +173,23 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             }}>
               <span>{candidate.provisions_quarter.toLocaleString()} deployments (last 90d)</span>
               {candidate.sales_impact && candidate.sales_impact !== 'low' && (
-                <span title="Based on closed sales opportunities linked to provisions of this asset over the trailing year."
-                  style={{
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                  <span style={{
                     padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
                     background: candidate.sales_impact === 'high' ? '#1a4731' : '#3d2e00',
                     color: candidate.sales_impact === 'high' ? '#3e8635' : '#e8a838',
-                    cursor: 'help',
                   }}>
-                  {candidate.sales_impact === 'high' ? 'High Sales Impact' : 'Moderate Sales Impact'}
+                    {candidate.sales_impact === 'high' ? 'High Sales Impact' : 'Moderate Sales Impact'}
+                  </span>
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setShowSalesInfo(!showSalesInfo) }}
+                    style={{ cursor: 'pointer', fontSize: '0.7rem', opacity: 0.6, userSelect: 'none' }}
+                  >ⓘ</span>
+                </span>
+              )}
+              {showSalesInfo && (
+                <span style={{ fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>
+                  Based on closed sales opportunities linked to deployments of this asset over the trailing year.
                 </span>
               )}
             </div>
