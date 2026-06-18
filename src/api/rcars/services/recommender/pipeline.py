@@ -6,8 +6,6 @@ import asyncio
 import re
 import time
 from typing import Callable, Awaitable
-from urllib.parse import urlparse
-
 from rcars.db import Database
 from rcars.config import Settings
 from rcars.services.recommender.models import Candidate, QueryState
@@ -52,25 +50,24 @@ def _expand_acronyms(query: str) -> str:
     return _ACRONYM_RE.sub(_replace, query)
 
 
+_URL_RE = re.compile(r'(?:https?://\S+|www\.\S+\.\S+)', re.IGNORECASE)
+
+
 def _extract_urls(query: str) -> tuple[list[str], str]:
     """Extract URLs from query, return (urls, remaining_text).
 
-    Splits query into URL lines and text lines. URLs are lines that
-    parse as http(s) with a netloc.
+    Finds full URLs (http/https) and bare www. domains anywhere in the text.
+    Bare domains get https:// prepended.
     """
-    lines = [l.strip() for l in query.strip().splitlines() if l.strip()]
+    matches = _URL_RE.findall(query)
     urls = []
-    text_parts = []
-    for line in lines:
-        try:
-            parsed = urlparse(line)
-            if parsed.scheme in ("http", "https") and parsed.netloc:
-                urls.append(line)
-                continue
-        except Exception:
-            pass
-        text_parts.append(line)
-    return urls, " ".join(text_parts)
+    for m in matches:
+        url = m if m.lower().startswith("http") else f"https://{m}"
+        url = url.rstrip(".,;:!?)")
+        urls.append(url)
+    remaining = _URL_RE.sub("", query).strip()
+    remaining = " ".join(remaining.split())
+    return urls, remaining
 
 
 def _extract_duration_target(query: str) -> tuple[int | None, bool]:
