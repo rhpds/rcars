@@ -71,3 +71,12 @@
       --kubeconfig={{ kubeconfig | expanduser }}
       --timeout=300s
   changed_when: false
+
+- name: Wait for new frontend rollout to complete
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-frontend
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=300s
+  changed_when: false

@@ -32,7 +32,6 @@ async def retirement_dashboard(
     if num_q < 4:
         all_items = db.list_reporting_metrics(
             sort_by="retirement_score", sort_dir="desc",
-            has_prod=has_prod,
         )
 
         import json as _json
@@ -47,6 +46,12 @@ async def retirement_dashboard(
         all_items = compute_windowed_scores(all_items, num_q)
 
         items = all_items
+        if has_prod is True:
+            prod_names = db.get_all_base_names_with_prod()
+            items = [i for i in items if i["catalog_base_name"] in prod_names]
+        elif has_prod is False:
+            prod_names = db.get_all_base_names_with_prod()
+            items = [i for i in items if i["catalog_base_name"] not in prod_names]
         if search:
             search_lower = search.lower()
             items = [i for i in items if search_lower in (i.get("display_name") or "").lower()]

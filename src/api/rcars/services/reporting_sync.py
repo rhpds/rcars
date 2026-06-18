@@ -54,7 +54,7 @@ def compute_retirement_score(
 
     Higher = stronger retirement candidate. Percentile args are 0-100
     ranks among non-zero peers only; the _zero flags handle the zero
-    case separately. Max achievable ~85.
+    case separately. Max achievable ~80.
     """
     score = 0
 
@@ -346,20 +346,15 @@ def _build_closed_by_quarter_sql(start_date: str) -> str:
 
 def _build_cost_by_quarter_sql(start_date: str) -> str:
     return f"""
-        WITH costs AS (
-            SELECT provision_uuid, SUM(total_cost) AS total_cost
-            FROM provision_cost
-            WHERE month_ts >= DATE_TRUNC('month', '{start_date}'::date)
-            GROUP BY provision_uuid
-        )
         SELECT
             ci.name AS catalog_base_name,
-            TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q') AS quarter,
-            SUM(c.total_cost) AS total_cost
-        FROM costs c
-        JOIN provisions_summary ps ON ps.uuid = c.provision_uuid
+            TO_CHAR(DATE_TRUNC('quarter', pc.month_ts), 'YYYY-"Q"Q') AS quarter,
+            SUM(pc.total_cost) AS total_cost
+        FROM provision_cost pc
+        JOIN provisions_summary ps ON ps.uuid = pc.provision_uuid
         JOIN catalog_items ci ON ci.id = ps.catalog_id
-        GROUP BY ci.name, DATE_TRUNC('quarter', ps.provisioned_at)
+        WHERE pc.month_ts >= DATE_TRUNC('month', '{start_date}'::date)
+        GROUP BY ci.name, DATE_TRUNC('quarter', pc.month_ts)
     """
 
 

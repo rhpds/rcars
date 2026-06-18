@@ -118,7 +118,7 @@ export function BrowsePage() {
   const [contentFilter, setContentFilter] = useState<ContentFilter | ''>(
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
-  const [showRetired, setShowRetired] = useState(searchParams.get('include_retired') === 'true')
+  const [showRetired, setShowRetired] = useState(false)
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   const [items, setItems] = useState<CatalogItem[]>([])

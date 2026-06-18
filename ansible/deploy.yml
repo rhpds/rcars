@@ -176,27 +176,25 @@
           register: migrate_result
           changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"
 
-        - name: Get expected alembic version from pod
+        - name: Get expected alembic head from code
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
             pod: "{{ migrate_pod }}"
-            command: >-
-              python3 -c "import os; files = sorted(f for f in os.listdir('/opt/app-root/src/alembic/versions') if f.endswith('.py') and not f.startswith('_')); print(files[-1].split('_')[0])"
+            command: alembic heads --resolve-dependencies
           register: expected_version
 
-        - name: Verify alembic migration applied
+        - name: Get current alembic version from database
           kubernetes.core.k8s_exec:
             kubeconfig: "{{ kubeconfig }}"
             namespace: "{{ target_namespace }}"
             pod: "{{ migrate_pod }}"
-            command: >-
-              python3 -c "import psycopg, os; conn = psycopg.connect(os.environ['RCARS_DATABASE_URL']); print(conn.execute('SELECT version_num FROM alembic_version').fetchone()[0]); conn.close()"
+            command: alembic current
           register: actual_version
-          until: actual_version.stdout | default('') | trim == expected_version.stdout | default('') | trim
+          until: expected_version.stdout | default('') | trim in (actual_version.stdout | default(''))
           retries: 6
           delay: 30
-          failed_when: actual_version.stdout | default('') | trim != expected_version.stdout | default('') | trim
+          failed_when: expected_version.stdout | default('') | trim not in (actual_version.stdout | default(''))
       tags: [deploy, migrate, update]
 
   post_tasks:
