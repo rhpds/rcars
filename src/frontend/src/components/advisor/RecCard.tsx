@@ -19,7 +19,6 @@ interface Candidate {
   duration_min: number | null
   duration_source: string | null
   provisions_quarter?: number | null
-  avg_cost_per_provision?: number | null
   sales_impact?: string | null
 }
 
@@ -171,10 +170,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               display: 'flex', gap: '1rem', padding: '0.5rem 0', marginTop: '0.5rem',
               borderTop: '1px solid #2a2d35', fontSize: '0.8rem', color: '#8b949e',
             }}>
-              <span>{candidate.provisions_quarter.toLocaleString()} provisions (last 90d)</span>
-              {candidate.avg_cost_per_provision != null && (
-                <span>${candidate.avg_cost_per_provision.toFixed(2)} / provision</span>
-              )}
+              <span>{candidate.provisions_quarter.toLocaleString()} deployments (last 90d)</span>
               {candidate.sales_impact && candidate.sales_impact !== 'low' && (
                 <span title="Based on closed sales opportunities linked to provisions of this asset over the trailing year."
                   style={{
