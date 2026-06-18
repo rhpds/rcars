@@ -50,6 +50,8 @@ One row per catalog item. The primary source of truth for everything read from t
 | `worker_instance_count` | TEXT | Cluster/VM sizing (TEXT because it can be a Jinja2 template) |
 | `control_plane_instance_count` | TEXT | Control plane nodes — `1` for SNO, `3` for multi-node |
 | `instances_json` | JSONB | VM instance specs for `cloud-vms-base` items (cores, memory, image, count) |
+| `retired_at` | TIMESTAMPTZ | When this item was soft-deleted (disappeared from Babylon). NULL = active. Partial index on `retired_at IS NOT NULL` |
+| `retirement_reason` | TEXT | Why the item was retired (e.g., "Disappeared from Babylon CRDs"). NULL = active |
 
 ---
 

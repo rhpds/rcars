@@ -185,9 +185,50 @@ Fixed thresholds (e.g., "closed < $1M → retirement candidate") fail when the d
 
 ---
 
+## Soft-Delete — Preserving Retired Items
+
+When catalog items disappear from the Babylon CRDs during a catalog refresh, RCARS does **not** delete them. Instead, the item's `retired_at` column is set to the current timestamp and `retirement_reason` is recorded. All associated data — Showroom analysis, vector embeddings, workload mappings, reporting metrics, enrichment tags, and curator notes — is preserved.
+
+### How It Works
+
+During every catalog refresh (nightly pipeline Step 1, or manual trigger), RCARS:
+
+1. **Upserts all items** from the current CRD scan. Any item being upserted automatically has its `retired_at` cleared — this is the un-retire path.
+2. **Marks missing items** as retired. After all upserts, items in `catalog_items` that were NOT in the current scan and don't already have `retired_at` set get `retired_at = NOW()` with reason "Disappeared from Babylon CRDs".
+3. **Logs un-retirements.** Items that were previously retired but reappear in the scan are logged with their ci_names for audit visibility.
+
+### Query Filtering
+
+All active-item queries include a `WHERE retired_at IS NULL` condition. This applies to:
+
+- **Browse** — `list_catalog_items_filtered()` hides retired items by default
+- **Advisor** — `search_embeddings()` excludes retired items from vector search results
+- **Scan pipeline** — `get_items_needing_analysis()` won't queue retired items for analysis
+- **Admin stats** — `get_status_summary()` and `get_db_currency()` count only active items (with a separate retired count)
+- **Facets** — `get_catalog_facets()` excludes retired items from filter dropdowns
+- **Infrastructure search** — `search_by_infrastructure()` only returns active items
+- **Content overlap** — `compute_content_similarity()` excludes retired items from pairwise comparison
+- **Retirement dashboard** — `has_prod` checks and stage lookups filter to active items
+
+The single-item detail view (`get_catalog_item`) intentionally does **not** filter by retirement status — a retired item's full detail page is always accessible via direct URL.
+
+### Browse Integration
+
+The Browse page hides retired items by default. Curators see a **Show Retired** toggle in the curator filter panel. When enabled, retired items appear in the list with an amber "RETIRED" badge showing the retirement date, and the row renders at reduced opacity (60%) to visually distinguish them from active items.
+
+### Interaction with Reporting Data
+
+Retired items remain in `catalog_items`, so the orphan cleanup in `delete_orphan_reporting_metrics()` does not remove their reporting data. However, `get_catalog_base_names()` — which drives the catalog backfill during reporting sync — excludes retired items by default. This means:
+
+- Retired items that already have reporting data **keep it** indefinitely
+- Retired items are **not backfilled** with new zero-data entries during future syncs
+- The retirement dashboard's Prod/Without Prod tabs only count **active** items in their totals
+
+---
+
 ## Dashboard — Two Views
 
-The retirement dashboard at `/analysis/retirement` is split into two tabs. Together they cover the **entire current catalog** — Prod total + Without Prod total = total unique catalog items.
+The retirement dashboard at `/analysis/retirement` is split into two tabs. Together they cover the **entire active catalog** — Prod total + Without Prod total = total unique active catalog items.
 
 ### Time Window Selector
 
