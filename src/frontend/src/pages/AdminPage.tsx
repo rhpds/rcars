@@ -271,7 +271,7 @@ interface ScheduleInfo {
   pipeline_schedule: string
   last_pipeline: {
     job_id: string; status: string; created_at: string; completed_at: string | null
-    result: { refresh?: { total_items?: number; removed_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
+    result: { refresh?: { total_items?: number; retired_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
     error: string | null
   } | null
 }
@@ -758,7 +758,7 @@ export function AdminCatalogPage() {
         <>
           <AdminAction
             title="Catalog Sync"
-            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
+            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and retire items no longer in Babylon."
             buttonLabel="Refresh Catalog"
             onRun={async (addLog) => {
               addLog('Starting catalog refresh...')

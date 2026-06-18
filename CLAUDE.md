@@ -99,7 +99,9 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## Database
 
-15 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-007). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns).
+15 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-008). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom; soft-deleted via `retired_at` column), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns).
+
+**Soft-delete:** Items that disappear from Babylon CRDs get `retired_at = NOW()` instead of being deleted. All active-item queries filter on `retired_at IS NULL`. Items that reappear in a future scan are automatically un-retired. Browse page has a curator-only "Show Retired" toggle.
 
 ## Retirement Analysis — Key Implementation Details
 
