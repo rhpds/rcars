@@ -1600,13 +1600,13 @@ class Database:
         return result
 
     def get_reporting_sync_status(self) -> dict:
-        """Get sync status: last synced, row count, score distribution."""
+        """Get sync health: last synced, row counts, data coverage."""
         sql = """
             SELECT
                 COUNT(*) AS total,
-                COUNT(*) FILTER (WHERE retirement_score >= 75) AS high,
-                COUNT(*) FILTER (WHERE retirement_score >= 50 AND retirement_score < 75) AS review,
-                COUNT(*) FILTER (WHERE retirement_score < 50) AS keepers,
+                COUNT(*) FILTER (WHERE provisions > 0) AS with_provisions,
+                COUNT(*) FILTER (WHERE total_cost > 0) AS with_cost,
+                COUNT(*) FILTER (WHERE closed_amount > 0) AS with_sales,
                 MAX(synced_at) AS last_synced
             FROM reporting_metrics
         """

@@ -295,8 +295,8 @@ async def reporting_status(request: Request, user: str = Depends(require_admin))
     return {
         "configured": bool(settings.reporting_mcp_url and settings.reporting_mcp_token),
         "total": status["total"] if status else 0,
-        "high": status["high"] if status else 0,
-        "review": status["review"] if status else 0,
-        "keepers": status["keepers"] if status else 0,
+        "with_provisions": status["with_provisions"] if status else 0,
+        "with_cost": status["with_cost"] if status else 0,
+        "with_sales": status["with_sales"] if status else 0,
         "last_synced": status["last_synced"] if status else None,
     }

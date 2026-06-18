@@ -140,7 +140,7 @@ export const api = {
 
   // Reporting status
   getReportingStatus: () => request<{
-    configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null;
+    configured: boolean; total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null;
   }>('/admin/reporting-status'),
 
   // Infrastructure
@@ -256,5 +256,5 @@ export interface RetirementDashboardResponse {
   items: ReportingMetricsItem[]
   total: number
   synced_at: string | null
-  summary: { total: number; high: number; review: number; keepers: number; last_synced: string | null } | null
+  summary: { total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null } | null
 }
