@@ -33,6 +33,5 @@ curator_emails:
 admin_emails:
   - your-email@redhat.com
 
-github_repo: rhpds/rcars-advisory
-github_token: CHANGEME
-webhook_secret: CHANGEME
+# GitHub repo for BuildConfig (public — no source secret needed)
+github_repo: rhpds/rcars

@@ -92,7 +92,6 @@ Fill in all values:
 | `vertex_credentials_path` | Path to GCP Vertex AI service account JSON key |
 | `vertex_project_id` | GCP project ID for Vertex AI |
 | `vertex_region` | GCP region (default: `us-east5`) |
-| `github_token` | GitHub PAT with repo read access |
 | `curator_emails` | YAML list of curator-only emails |
 | `admin_emails` | YAML list of admin emails (admins also get curator access) |
 
