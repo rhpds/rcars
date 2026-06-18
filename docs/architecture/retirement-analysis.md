@@ -104,7 +104,7 @@ Merged data is stored in the `reporting_metrics` table (one row per catalog base
 
 Each item receives a retirement score from 0 to 100. Higher scores indicate stronger retirement candidates. The score is computed using **percentile-based ranking** — each item is scored relative to its catalog peers, not against fixed dollar thresholds.
 
-The theoretical maximum score is approximately **85 points** across the four scoring components. The scale goes to 100, but reaching 85 requires an item to have zero provisions, zero pipeline, zero revenue, and high cost with no return. In practice, most items score between 10 and 70. The headroom above 85 accommodates future scoring dimensions (e.g., failure rate, trend detection).
+The theoretical maximum score is approximately **80 points** across the four scoring components. The scale goes to 100, but reaching 85 requires an item to have zero provisions, zero pipeline, zero revenue, and high cost with no return. In practice, most items score between 10 and 70. The headroom above 80 accommodates future scoring dimensions (e.g., failure rate, trend detection).
 
 ### Scoring Components
 

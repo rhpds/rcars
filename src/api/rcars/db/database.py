@@ -375,6 +375,7 @@ class Database:
         agd_config: str | None = None,
         workloads: list[str] | None = None,
         content_filter: str | None = None,
+        category: str | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: bool = False,
@@ -385,6 +386,10 @@ class Database:
 
         if not include_retired:
             conditions.append("ci.retired_at IS NULL")
+
+        if category:
+            conditions.append("ci.category = %(category)s")
+            params["category"] = category
 
         if stages:
             conditions.append("ci.stage = ANY(%(stages)s)")
@@ -470,6 +475,11 @@ class Database:
 
     def retire_removed_items(self, current_ci_names: set[str]) -> list[dict]:
         """Mark catalog items not in current CRD scan as retired instead of deleting them."""
+        if not current_ci_names:
+            logger.warning("retire_skipped_empty_scan",
+                           component="rcars", action="retire_removed",
+                           reason="Empty scan result — refusing to retire all items")
+            return []
         with self._pool.connection() as conn:
             cur = conn.execute(
                 "SELECT ci_name, display_name, stage, retired_at FROM catalog_items"
@@ -808,6 +818,7 @@ class Database:
                 SELECT ciw.workload_role, ciw.workload_collection,
                        COUNT(DISTINCT ciw.ci_name) AS ci_count
                 FROM catalog_item_workloads ciw
+                JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.retired_at IS NULL
                 LEFT JOIN workload_mapping wm ON wm.workload_role = ciw.workload_role
                 WHERE wm.id IS NULL
                 GROUP BY ciw.workload_role, ciw.workload_collection
@@ -856,6 +867,7 @@ class Database:
                 cur.execute("""
                     SELECT COUNT(DISTINCT ciw.workload_role) AS count
                     FROM catalog_item_workloads ciw
+                    JOIN catalog_items ci ON ci.ci_name = ciw.ci_name AND ci.retired_at IS NULL
                     LEFT JOIN workload_mapping wm ON wm.workload_role = ciw.workload_role
                     WHERE wm.id IS NULL
                 """)
@@ -1694,16 +1706,15 @@ class Database:
     def get_fully_retired_base_names(self) -> set[str]:
         """Return base names where ALL stage variants are retired (no active entries)."""
         sql = """
-            SELECT DISTINCT substring(ci_name FROM '^(.+)\\.[^.]+$') AS base
-            FROM catalog_items
-            WHERE retired_at IS NOT NULL
-              AND substring(ci_name FROM '^(.+)\\.[^.]+$') NOT IN (
-                  SELECT DISTINCT substring(ci_name FROM '^(.+)\\.[^.]+$')
-                  FROM catalog_items
-                  WHERE retired_at IS NULL
-              )
+            SELECT base FROM (
+                SELECT substring(ci_name FROM '^(.+)\\.[^.]+$') AS base,
+                       COUNT(*) FILTER (WHERE retired_at IS NULL) AS active_count
+                FROM catalog_items
+                GROUP BY substring(ci_name FROM '^(.+)\\.[^.]+$')
+            ) grouped
+            WHERE base IS NOT NULL AND active_count = 0
         """
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
-                return {row["base"] for row in cur.fetchall() if row["base"]}
+                return {row["base"] for row in cur.fetchall()}

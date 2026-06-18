@@ -35,6 +35,7 @@ async def list_catalog(
         agd_config=agd_config,
         workloads=workload_list,
         content_filter=content_filter,
+        category=category,
         limit=limit,
         offset=offset,
         include_retired=include_retired,
