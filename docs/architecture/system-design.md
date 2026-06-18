@@ -154,6 +154,8 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed with `CREATE TABLE IF NOT EXISTS` for fresh installs and Alembic migrations for changes to existing tables. For the full table list and column-level details, see the [Schema Reference](schema-reference.md).
 
+Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings, reporting metrics) is preserved. Active-item queries filter on `retired_at IS NULL`. See [Retirement Analysis — Soft-Delete](retirement-analysis.md#soft-delete--preserving-retired-items) for details.
+
 The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 384 numbers produced by a locally-running sentence-transformers model (`all-MiniLM-L6-v2`). These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
 For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.

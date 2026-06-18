@@ -116,6 +116,15 @@ spec:
               value: "{{ stale_days }}"
             - name: RCARS_SA_ALLOWLIST_STR
               value: "{{ sa_allowlist | default([]) | join(',') }}"
+{% if rcars_reporting_mcp_url is defined %}
+            - name: RCARS_REPORTING_MCP_URL
+              value: "{{ rcars_reporting_mcp_url }}"
+            - name: RCARS_REPORTING_MCP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-reporting-mcp
+                  key: token
+{% endif %}
             - name: RCARS_DEV_USER
               value: ""
             - name: HF_HOME

@@ -20,6 +20,7 @@ async def list_catalog(
     agd_config: str | None = Query(None, description="Filter by AgnosticD config type"),
     content_filter: str | None = Query(None, description="Curator filter: unanalyzed, scan_failures, stale, needs_review"),
     category: str | None = None,
+    include_retired: bool = Query(False, description="Include retired catalog items"),
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
 ):
@@ -34,8 +35,10 @@ async def list_catalog(
         agd_config=agd_config,
         workloads=workload_list,
         content_filter=content_filter,
+        category=category,
         limit=limit,
         offset=offset,
+        include_retired=include_retired,
     )
 
 

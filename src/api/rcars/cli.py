@@ -99,13 +99,13 @@ def refresh():
         if i % 25 == 0 or i == len(items):
             _print(f"  upserted {i}/{len(items)} items...")
 
-    removed = db.delete_removed_items(refreshed_ci_names)
-    if removed:
-        for r in removed:
-            _print(f"  removed: {r['ci_name']} (stage={r.get('stage', '?')})")
+    retired = db.retire_removed_items(refreshed_ci_names)
+    if retired:
+        for r in retired:
+            _print(f"  retired: {r['ci_name']} (stage={r.get('stage', '?')})")
 
     elapsed = time.monotonic() - t0
-    _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(removed)} removed.")
+    _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(retired)} retired.")
     db.close()
 
 
@@ -677,9 +677,9 @@ def reporting_db_status(ctx):
 
     _print(f"  Last synced:    {status['last_synced']}")
     _print(f"  Total items:    {status['total']}")
-    _print(f"  High (>=75):    {status['high']}")
-    _print(f"  Review (50-74): {status['review']}")
-    _print(f"  Keepers (<50):  {status['keepers']}")
+    _print(f"  High (>=55):    {status['high']}")
+    _print(f"  Review (35-54): {status['review']}")
+    _print(f"  Keepers (<35):  {status['keepers']}")
 
 
 @reporting_db_group.command("show")

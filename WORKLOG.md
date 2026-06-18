@@ -27,6 +27,52 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-18 — Nate + Claude (Soft-delete catalog items)
+
+**Done:**
+- **Soft-delete implementation — full stack:**
+  - Alembic migration 008: `retired_at TIMESTAMPTZ` + `retirement_reason TEXT` on `catalog_items`, partial index on `retired_at IS NOT NULL`
+  - `delete_removed_items()` → `retire_removed_items()`: items missing from CRD scan get `retired_at = NOW()` instead of CASCADE delete
+  - Auto un-retire: items that reappear in a future scan get `retired_at` cleared both via upsert (immediate) and retire pass (logged)
+  - `retired_at IS NULL` filter added to 20+ query methods: `list_catalog_items`, `list_catalog_items_filtered`, `get_items_needing_analysis`, `get_scan_dedup_stats`, `get_siblings_by_showroom`, `get_scan_failures`, `get_status_summary`, `get_db_currency`, `search_embeddings`, `get_infra_stats`, `get_catalog_facets`, `search_by_infrastructure`, `compute_content_similarity`, `get_catalog_base_names`, `get_stages_for_base_names`, `has_prod_stage`, `get_all_base_names_with_prod`, `list_reporting_metrics` (has_prod subqueries + LATERAL join)
+  - Browse API: `include_retired` query parameter, passed through to filtered query
+  - Browse page: curator-only "Show Retired" toggle in curator filter panel, `retired_at` in CatalogItem interface, amber "RETIRED" badge with date, 60% opacity on retired rows
+  - Admin page: updated pipeline result type from `removed_items` to `retired_items`, updated refresh description
+  - CLI: `refresh` command uses `retire_removed_items()`, messages say "retired" not "removed"
+  - CLAUDE.md: documented soft-delete pattern, updated migration count
+  - BACKLOG.md: marked soft-delete complete
+
+- **Retirement analysis exclusion fix:**
+  - Retired items from the reporting MCP were being imported, scored, and could appear in the dashboard's Without Prod tab
+  - `get_fully_retired_base_names()` — new DB method returns base names where ALL stage variants are soft-deleted
+  - `run_reporting_sync()` now excludes fully-retired base names from `merged_rows` before percentile scoring, preventing retired items from diluting active item rankings
+  - `list_reporting_metrics()` now requires at least one active `catalog_items` entry (`retired_at IS NULL`) to appear in the dashboard
+  - Partial retirement handled correctly: if only `.prod` is retired but `.dev` is active, the item still scores and appears in Without Prod tab
+- **Documentation updates:**
+  - overview.md: new "Catalog Preservation" section
+  - retirement-analysis.md: full "Soft-Delete" section covering mechanics, query filtering, Browse integration, and reporting data interaction
+  - system-design.md: database section note on soft-delete pattern
+  - schema-reference.md: retired_at and retirement_reason column docs
+  - operations.md: catalog refresh step mentions soft-delete
+
+**In progress:**
+- Dev deployment running (`--tags update`)
+
+**Next:**
+- Verify dev deployment: run catalog refresh, confirm retired items appear with curator toggle
+- Test un-retire: manually retire an item via SQL, run refresh, confirm it comes back
+- Retirement Phase 2: workflow actions (Under Review / Approved / Retired statuses)
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Notes:**
+- Fully-retired items (all stages soft-deleted) are excluded from the reporting sync and orphan cleanup removes their `reporting_metrics` rows. Reporting data is re-derivable from the MCP; analysis and embeddings are unique data that IS preserved.
+- `get_catalog_item()` (single item lookup) intentionally does NOT filter retired items — you can still view a retired item's detail page
+- The upsert path clears `retired_at` and `retirement_reason` on every upsert, ensuring any item present in the CRD scan is automatically active
+- DB test fixture has a pre-existing error (dict access on tuple rows) — not related to this change
+- `test_use_vertex` fails due to env var `ANTHROPIC_VERTEX_PROJECT_ID` from shell — pre-existing
+
+---
+
 ### 2026-06-17 — Nate + Claude (Retirement scoring + time window + catalog completeness)
 
 **Done:**

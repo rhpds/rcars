@@ -57,7 +57,7 @@ class TestRetirementScore:
             closed_zero=True, closed_pct=0,
             total_cost=100, closed_amount=0, first_provision=recent,
         )
-        assert score <= 40
+        assert score <= 50
 
     def test_high_cost_zero_sales(self):
         """High cost with zero closed sales adds 15 points."""

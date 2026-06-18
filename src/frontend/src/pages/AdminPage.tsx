@@ -271,7 +271,7 @@ interface ScheduleInfo {
   pipeline_schedule: string
   last_pipeline: {
     job_id: string; status: string; created_at: string; completed_at: string | null
-    result: { refresh?: { total_items?: number; removed_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
+    result: { refresh?: { total_items?: number; retired_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
     error: string | null
   } | null
 }
@@ -624,7 +624,7 @@ export function AdminCatalogPage() {
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
   const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; vertex_models: string[]; analysis_model: string; triage_model: string; rationale_model: string; scanning_model: string } | null>(null)
-  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; high: number; review: number; keepers: number; last_synced: string | null } | null>(null)
+  const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null } | null>(null)
 
   const loadStatus = () => {
     api.getCatalogStats().then(data => setStatus(data as CatalogStatus)).catch(() => {})
@@ -730,16 +730,11 @@ export function AdminCatalogPage() {
                 {reportingStatus ? (
                   reportingStatus.total > 0 ? (
                     <>
-                      <div className="admin-stat-row"><span className="admin-stat-row-label">Status</span><span style={{ color: '#5cb85c' }}>Connected</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">Status</span><span style={{ color: '#5cb85c' }}>Synced</span></div>
                       <div className="admin-stat-row"><span className="admin-stat-row-label">Assets tracked</span><span className="admin-stat-row-value">{reportingStatus.total}</span></div>
-                      <div className="admin-stat-row">
-                        <span className="admin-stat-row-indent">Breakdown</span>
-                        <span className="admin-stat-row-value" style={{ fontSize: '11px' }}>
-                          <span style={{ color: '#c9190b' }}>{reportingStatus.high}</span>{' high / '}
-                          <span style={{ color: '#e8a838' }}>{reportingStatus.review}</span>{' review / '}
-                          <span style={{ color: '#3e8635' }}>{reportingStatus.keepers}</span>{' keepers'}
-                        </span>
-                      </div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">With provisions</span><span className="admin-stat-row-value">{reportingStatus.with_provisions}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">With cost data</span><span className="admin-stat-row-value">{reportingStatus.with_cost}</span></div>
+                      <div className="admin-stat-row"><span className="admin-stat-row-label">With sales data</span><span className="admin-stat-row-value">{reportingStatus.with_sales}</span></div>
                       <div className="admin-stat-row-divider" />
                       <div className="admin-stat-row"><span className="admin-stat-row-label">Last synced</span><span style={{ fontSize: '12px', color: '#888' }}>{reportingStatus.last_synced ? new Date(reportingStatus.last_synced).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'never'}</span></div>
                     </>
@@ -763,7 +758,7 @@ export function AdminCatalogPage() {
         <>
           <AdminAction
             title="Catalog Sync"
-            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and reconcile removed items."
+            description="Pull latest catalog metadata from all Babylon namespaces (prod, dev, event) and retire items no longer in Babylon."
             buttonLabel="Refresh Catalog"
             onRun={async (addLog) => {
               addLog('Starting catalog refresh...')
