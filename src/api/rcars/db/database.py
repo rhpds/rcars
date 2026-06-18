@@ -1559,7 +1559,13 @@ class Database:
             sort_by = "retirement_score"
         direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
 
-        conditions = []
+        conditions = [
+            """EXISTS (
+                SELECT 1 FROM catalog_items ci_active
+                WHERE ci_active.ci_name LIKE rm.catalog_base_name || '.%%'
+                  AND ci_active.retired_at IS NULL
+            )""",
+        ]
         params: dict = {}
 
         if min_score is not None:
@@ -1684,3 +1690,20 @@ class Database:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
                 return {row["base_name"] for row in cur.fetchall() if row["base_name"]}
+
+    def get_fully_retired_base_names(self) -> set[str]:
+        """Return base names where ALL stage variants are retired (no active entries)."""
+        sql = """
+            SELECT DISTINCT substring(ci_name FROM '^(.+)\\.[^.]+$') AS base
+            FROM catalog_items
+            WHERE retired_at IS NOT NULL
+              AND substring(ci_name FROM '^(.+)\\.[^.]+$') NOT IN (
+                  SELECT DISTINCT substring(ci_name FROM '^(.+)\\.[^.]+$')
+                  FROM catalog_items
+                  WHERE retired_at IS NULL
+              )
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
+                return {row["base"] for row in cur.fetchall() if row["base"]}
