@@ -22,6 +22,7 @@ Last updated: 2026-06-18
 
 ## Retirement Analysis
 
+- [ ] **Merge published/base CI pairs in reporting sync** — Published CIs (e.g. `published.ocp4-adv-app-platform-demo`) and their base CIs (`openshift-cnv.ocp4-adv-app-platform-demo-cnv`) are separate entries in the reporting DB with different `catalog_items.name` values. The retirement dashboard shows them as two items with split metrics — the published variant gets all the provisions/sales and the base gets almost none. 30 active pairs affected. Fix: during reporting sync, detect published/base relationships via `catalog_items.published_ci_name`, sum their reporting metrics under the published base name, and skip the base CI entry. The recommendation pipeline already deduplicates these (promotes base to published); the retirement dashboard should too.
 - [ ] **Cross-namespace opportunity deduplication (low priority)** — Items that exist under multiple namespace prefixes (e.g. `zt-ansiblebu.zt-ans-bu-writing-playbook` and `zt-rhel.zt-ans-bu-writing-playbook`) share the same sales opportunities but each shows the full amount. Touched/closed figures are inflated per-item because the SQL deduplicates within each base name but not across base names sharing the same content. Conservative error (makes items look like stronger keepers), and most duplicates will be cleaned up through normal retirement. Revisit if it becomes a pattern after initial retirement pass.
 
 ## UI / UX
