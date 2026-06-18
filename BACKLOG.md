@@ -1,24 +1,27 @@
 # RCARS Backlog
 
-Last updated: 2026-06-16
+Last updated: 2026-06-18
 
 ## Active Work (June 2026)
 
-Items selected for current development cycle. Investigations complete, design/implementation in progress.
-
-- [x] **Infrastructure-aware catalog metadata** — Fully deployed (2026-06-15). AgnosticD v2 items: infra extraction, curated workload mapping (46 verified), faceted search API, workload scanner in nightly pipeline. Browse page redesigned with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination, curator-only filter panel. Admin page reorganized with stat cards, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI, Workers page merged into Sync & Analysis tab.
-- [x] **Rec card duration labels + Best Fit button** — Deployed (2026-06-15). Curated duration system (Alembic migration, curator endpoint, `duration_source` threaded through pipeline). Duration in card header + source-labeled pill. Best Fit button redesigned with bold green outline. Duration penalty only on curated values. Acronym case fix, card copy/paste fix, concurrent query fix (`asyncio.to_thread`), nginx HTTP/1.1 for SSE, `recommend_worker_replicas` configurable.
-- [x] **Content overlap detection (Phase 1)** — Deployed (2026-06-15). Pairwise cosine similarity on ci_summary embeddings within a single stage (prod/event/dev selector). New `content_similarity` table, admin Overlap tab with expandable side-by-side comparison, Browse "similar content" section, CLI `rcars compute-similarity`, API endpoints. Stage-scoped comparison eliminates false positives from stage variants.
-- [x] **Retirement analysis (Phase 1)** — Deployed (2026-06-16). Nightly sync from RHDP reporting MCP server (step 5 in pipeline), `reporting_metrics` table (migration 005), retirement scoring (0-100), retirement dashboard under Content Analysis with stat cards and sortable table, rec card enrichment (provisions, cost/provision, sales impact badge), catalog detail enrichment. CLI `rcars reporting-db sync/status/show`. Search filter on overlap page. Spec: `docs/superpowers/specs/2026-06-15-retirement-analysis-integration-design.md`.
-- [ ] **Content overlap detection (Phase 2)** — Cross-stage overlap analysis. Compare dev items against prod items from *different* catalog items to flag "this dev lab duplicates an existing prod lab — reconsider before promoting." Also compare event items against prod. Requires smarter dedup: same-item stage variants must be excluded while cross-item cross-stage pairs are surfaced. Consider a "promotion risk" flag in Browse for dev items that overlap significantly with existing prod content. May also want overlap scores integrated into the nightly pipeline as an automated check rather than manual compute.
-- [ ] **Lower overlap threshold for broader detection** — The current 75% minimum threshold only catches near-duplicates and closely related content. Labs with 50-74% overlap may still share significant material worth reviewing — for example, two labs that both teach "deploying applications on OpenShift" but with different application stacks could score 60-70% and would never surface at the current threshold. Consider adding a third tier (e.g., "Moderate overlap" at 50-74%) or making the threshold configurable in the UI. Store more pairs but default the view to the existing 75%+ to avoid noise.
+- [ ] **Migrate to new babydev cluster (URGENT — deadline end of June)** — Current Babylon readonly cluster (babydev) is being retired. RCARS uses it for catalog refresh (CRD queries via kubeconfig). Need to update kubeconfig paths in `ansible/vars/dev.yml` and `ansible/vars/prod.yml`, verify CRD access on the new cluster, and confirm the nightly pipeline works. Impacts: `babylon_kubeconfig_path` var, potentially `agnosticv_component_namespace` and `catalog_namespaces` if they differ on the new cluster.
+- [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard.
 - [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
 
 ## Bugs
 
-- [ ] **Migration race condition in `--tags update/deploy`** — Alembic migrations can execute on the old pod before the new build rolls out, causing the migration to silently "succeed" at the old version. Has broken both dev and prod deploys. Fix: verify the pod running the migration has the expected migration files before executing, or wait for the new deployment rollout to fully complete before running migrations.
 - [ ] **DB/worker sync divergence** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
 - [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker. Needs a timeout-based cleanup or heartbeat check
+- [ ] **CLI `reporting-db status` uses old thresholds** — The CLI command hardcodes High ≥75 / Review 50-74 but the frontend uses ≥55 / 35-54. Minor inconsistency; should read thresholds from config or match the frontend.
+
+## Content Analysis
+
+- [ ] **Content overlap detection (Phase 2)** — Cross-stage overlap analysis. Compare dev items against prod items from *different* catalog items to flag "this dev lab duplicates an existing prod lab — reconsider before promoting." Also compare event items against prod. Requires smarter dedup: same-item stage variants must be excluded while cross-item cross-stage pairs are surfaced. Consider a "promotion risk" flag in Browse for dev items that overlap significantly with existing prod content. May also want overlap scores integrated into the nightly pipeline as an automated check rather than manual compute.
+- [ ] **Lower overlap threshold for broader detection** — The current 75% minimum threshold only catches near-duplicates and closely related content. Labs with 50-74% overlap may still share significant material worth reviewing. Consider adding a third tier (e.g., "Moderate overlap" at 50-74%) or making the threshold configurable in the UI. Store more pairs but default the view to the existing 75%+ to avoid noise.
+
+## Retirement Analysis
+
+- [ ] **Cross-namespace opportunity deduplication (low priority)** — Items that exist under multiple namespace prefixes (e.g. `zt-ansiblebu.zt-ans-bu-writing-playbook` and `zt-rhel.zt-ans-bu-writing-playbook`) share the same sales opportunities but each shows the full amount. Touched/closed figures are inflated per-item because the SQL deduplicates within each base name but not across base names sharing the same content. Conservative error (makes items look like stronger keepers), and most duplicates will be cleaned up through normal retirement. Revisit if it becomes a pattern after initial retirement pass.
 
 ## UI / UX
 
@@ -31,24 +34,16 @@ Items selected for current development cycle. Investigations complete, design/im
 ## Recommendation Quality
 
 - [ ] **Proper recommendation system evaluation** — current approach (pgvector + LLM triage + LLM rationale) works but doesn't scale well. Evaluate real recommendation frameworks vs hand-built approach as cost/ratings/feedback data grows
-- [ ] **Robust acronym expansion** — the hardcoded 15-acronym list in `pipeline.py` is a bandaid. Replace with a curated dictionary table (loadable from DB, manageable via Admin UI) or automatic expansion from product metadata. Should cover the full Red Hat product portfolio, partner products, and common industry acronyms. The embedding model's inability to recognize acronyms is a fundamental limitation that affects search quality for any query using abbreviations.
-- [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage. Event keywords (e.g. `summit-2026`) should be a hard boost, not just vector similarity. Consider curated keyword allowlist
+- [ ] **Robust acronym expansion** — the hardcoded 15-acronym list in `pipeline.py` is a bandaid. Replace with a curated dictionary table (loadable from DB, manageable via Admin UI) or automatic expansion from product metadata. Should cover the full Red Hat product portfolio, partner products, and common industry acronyms.
+- [ ] **Structured constraint extraction** — current duration handling (soft penalty reranking) is a stopgap. Needs a general constraint extraction pre-processing step: parse query for structured constraints (duration, audience, format, event) and apply as hard filters or scoring overrides before triage.
 - [ ] **Multi-turn conversation context** — true conversational refinement with memory (currently prepends original query text as workaround)
 - [ ] **Multi-vector event search** — multiple queries per category for broad events
 - [ ] **Feedback loop integration** — "Best fit" selections are stored but not yet used to improve scoring
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
-- [ ] **Combined query (infra + vector in Advisor)** — Deferred. For queries like "fraud detection on OpenShift AI", the content vector search already captures product mentions naturally (via Showroom content + acronym expansion). Infrastructure hard-filtering in the Advisor pipeline would either be redundant (content already matches) or harmful (eliminating good content matches that happen to lack the workload metadata). The real use case is PH express mode ("what demos can run on this cluster?") which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically, and consider a soft boost (triage score bump) rather than hard filter
-
-## Retirement Analysis
-
-- [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard.
-- [x] **Enhanced retirement scoring + data validation + time window filter** — Deployed (2026-06-17). Percentile-based scoring with provisions_zero flag (+25), lower thresholds (high ≥55, review ≥35). Catalog backfill ensures all 528 unique catalog items appear (Prod 353 + Without Prod 175 = 528). Time window selector (1Q/2Q/3Q/1Y) recomputes percentile rankings from per-quarter JSONB breakdowns. Items without Showroom get gray "catalog" badge linking to demo.redhat.com. Orphan cleanup removes stale sync items + items no longer in catalog.
-- [ ] **Cross-namespace opportunity deduplication (low priority)** — Items that exist under multiple namespace prefixes (e.g. `zt-ansiblebu.zt-ans-bu-writing-playbook` and `zt-rhel.zt-ans-bu-writing-playbook`) share the same sales opportunities but each shows the full amount. Touched/closed figures are inflated per-item because the SQL deduplicates within each base name but not across base names sharing the same content. Conservative error (makes items look like stronger keepers), and most duplicates will be cleaned up through normal retirement. Revisit if it becomes a pattern after initial retirement pass.
+- [ ] **Combined query (infra + vector in Advisor)** — Deferred. Content vector search already captures product mentions naturally. The real use case is PH express mode which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically.
 
 ## Architecture
 
-- [ ] **Migrate to new babydev cluster** — Current Babylon readonly cluster (babydev) is being retired in ~2 weeks (by end of June 2026). RCARS uses it for catalog refresh (CRD queries via kubeconfig). Need to update kubeconfig paths in `ansible/vars/dev.yml` and `ansible/vars/prod.yml`, verify CRD access on the new cluster, and confirm the nightly pipeline works. Impacts: `babylon_kubeconfig_path` var, potentially `agnosticv_component_namespace` and `catalog_namespaces` if they differ on the new cluster.
-- [x] **LiteMaaS as primary LLM provider** — Deployed (2026-06-16). Unified `call_llm()` function with per-model routing. LiteMaaS (OpenAI-compatible) preferred, Vertex AI as automatic fallback. Model list cached at startup from `/v1/models`. Provider column on `token_usage` table (migration 006). Admin status page shows active provider, models, and token usage by provider. Secrets moved to K8s Secrets with `secretKeyRef`.
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for Publishing House "unpacking" workflow
 - [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing works, this is about deeper conversation context)
 
@@ -62,6 +57,15 @@ Items selected for current development cycle. Investigations complete, design/im
 
 ## Completed
 
+- [x] Infrastructure-aware catalog metadata — deployed 2026-06-15
+- [x] Rec card duration labels + Best Fit button — deployed 2026-06-15
+- [x] Content overlap detection (Phase 1) — deployed 2026-06-15
+- [x] Retirement analysis Phase 1 — reporting sync, dashboard, rec card enrichment, CLI — deployed 2026-06-16
+- [x] Enhanced retirement scoring + time window filter — percentile scoring, provisions_zero, quarterly JSONB, catalog backfill, cost amortization — deployed 2026-06-17
+- [x] LiteMaaS LLM provider — per-model routing with Vertex fallback — deployed 2026-06-16
+- [x] Migration race condition fix — replaced k8s_info Jinja with oc rollout status + post-migration verification — deployed 2026-06-17
+- [x] Code review remediation — secrets to K8s Secrets, defensive checks, HTTPS validation — 2026-06-16
+- [x] Content Analysis unified design — shared CSS, stat cards, sticky headers — 2026-06-16
 - [x] SSE streaming for admin log windows (catalog refresh, stale check)
 - [x] Worker scan log parity — showroom URL, ref, content files, tokens logged
 - [x] Scan dedup breakdown — "577 scannable → 400 unique, 177 propagated"
@@ -101,41 +105,35 @@ Items selected for current development cycle. Investigations complete, design/im
 - [x] Analysis max_tokens bumped to 8192 for large showrooms
 - [x] Stale item visibility — Browse filter + clickable Admin count
 - [x] Recommendation dedup across stages — group by (showroom_url, showroom_ref), prefer prod > published > best distance
-- [x] Admin progress logging — replaced SSE with DB-accumulated message array + polling; proxy chain was killing idle SSE connections
+- [x] Admin progress logging — replaced SSE with DB-accumulated message array + polling
 - [x] Catalog refresh progress — granular "Upserting... 100/968" progress during upsert phase
-- [x] Stale check dedup — clone each unique (url, ref) once instead of per-CI; reduced 555 clones to 388
-- [x] Stale check two-phase — `git ls-remote` first to skip unchanged repos, clone only repos with new commits
-- [x] Stale check timeout — bumped from 10 minutes to 1 hour for large catalog runs
-- [x] GitHub retry with backoff — 3 retries with exponential delay on rate limit/403 errors for ls-remote and clone
-- [x] "Scan" → "Analyze" — consistent terminology across admin UI (buttons, log messages, filter labels)
-- [x] Token Usage page — Triage/Rationale columns replacing confusing nested query list
-- [x] Admin scrollbar hidden — CSS scrollbar-width:none on content area, log windows reduced to 200px
-- [x] Unanalyzed filter — clickable count on admin page + Browse filter, excludes published Virtual CIs
-- [x] New Session fix — works when already in a fresh session (custom event dispatch instead of URL navigation)
-- [x] Vector search candidates — bumped from 10 to 15 for wider triage net
-- [x] Admin query history — full query text visible in expanded view, multiple cards expandable simultaneously
-- [x] Admin query history — stage badges (dev/event) on non-prod candidates
-- [x] Recommendation dedup by content_hash — collapses dev/prod variants with identical Showroom content while preserving genuinely different branch content
-- [x] Dev stage restricted to curators/admins — toggle hidden for regular users, API enforces server-side
-- [x] Triage JSON parsing fix — array fallback extraction for LLM responses with preamble text; added error logging on parse failures
-- [x] Event URL parsing in advisor — paste a URL, RCARS fetches the page, extracts event profile via Sonnet, generates search queries, runs them through the pipeline
-- [x] Mixed text+URL queries — combine user text constraints with event context extracted from URL
-- [x] Admin query history score fallback — show vector_similarity_pct when relevance_score is null (white-tier items)
-- [x] ZT toggle removed — ZT items included by default based on stage, no separate toggle. ZT badge still shown on Browse items
-- [x] Catalog keywords in embeddings — catalog keywords from CRD `spec.keywords` appended to embedding text during analysis
-- [x] Stale detection via ls-remote — two-phase check replaces full-clone-every-repo approach
-- [x] Old monolith code removed — `src/rcars/` and `tests/` (9,505 lines)
-- [x] Scheduled catalog refresh + stale check — nightly maintenance pipeline via arq cron (refresh → stale → re-analyze at 04:00 UTC)
-- [x] RCARS API for PH vetting — PH calls RCARS to check content overlap during intake
-- [x] PH ServiceAccount in SA allowlist — `system:serviceaccount:publishing-house-dev:default` added to dev vars
-- [x] Scan dedup by commit SHA — resolve refs via `git ls-remote` before scanning; batch per URL, pass SHA siblings as job args for propagation
-- [x] Browse page redesign — collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering replacing client-side load-all, numbered pagination, curator-only filter panel (amber), URL state sync, debounced search
-- [x] Admin page reorganization — stat cards (Catalog/Analysis/Infrastructure) replacing monolithic table, tabbed layout (Status / Sync & Analysis / Workloads), workload mapping management UI (mapped + unmapped tables, inline map form), Workers page merged into Sync & Analysis tab
-- [x] Browse filter dropdowns — Cloud Provider, Workloads (multi-select with AND semantics + alias resolution), AgnosticD Config populated from `/catalog/facets` API
-- [x] Admin workload mapping management UI — mapped workloads table with delete, unmapped workloads table sorted by CI count with inline Map form
-- [x] Retirement analysis Phase 1 — reporting sync, retirement dashboard, rec card enrichment, CLI commands (2026-06-16)
-- [x] LiteMaaS LLM provider — per-model routing with Vertex fallback, provider tracking, admin visibility (2026-06-16)
-- [x] Content Analysis unified design — shared CSS, stat cards, sticky headers, full-width tables (2026-06-16)
-- [x] Pipeline step messages — removed hardcoded step counts, clearer descriptions for all 5 steps (2026-06-16)
-- [x] Overlap page search filter — client-side text search on display names and ci_names (2026-06-16)
-- [x] Code review remediation — secrets to K8s Secrets, defensive checks, HTTPS validation, pagination cap (2026-06-16)
+- [x] Stale check dedup — clone each unique (url, ref) once instead of per-CI
+- [x] Stale check two-phase — `git ls-remote` first to skip unchanged repos
+- [x] Stale check timeout — bumped from 10 minutes to 1 hour
+- [x] GitHub retry with backoff — 3 retries with exponential delay on rate limit/403 errors
+- [x] "Scan" → "Analyze" — consistent terminology across admin UI
+- [x] Token Usage page — Triage/Rationale columns
+- [x] Admin scrollbar hidden — CSS scrollbar-width:none
+- [x] Unanalyzed filter — clickable count on admin page + Browse filter
+- [x] New Session fix — custom event dispatch instead of URL navigation
+- [x] Vector search candidates — bumped from 10 to 15
+- [x] Admin query history — full query text, stage badges, score fallback
+- [x] Recommendation dedup by content_hash
+- [x] Dev stage restricted to curators/admins
+- [x] Triage JSON parsing fix — array fallback extraction
+- [x] Event URL parsing in advisor
+- [x] Mixed text+URL queries
+- [x] ZT toggle removed — included by default based on stage
+- [x] Catalog keywords in embeddings
+- [x] Stale detection via ls-remote — two-phase check
+- [x] Old monolith code removed — 9,505 lines
+- [x] Scheduled catalog refresh + stale check — nightly pipeline at 04:00 UTC
+- [x] RCARS API for PH vetting
+- [x] PH ServiceAccount in SA allowlist
+- [x] Scan dedup by commit SHA
+- [x] Browse page redesign — server-side filtering, numbered pagination, curator panel
+- [x] Admin page reorganization — stat cards, tabbed layout, workload management
+- [x] Browse filter dropdowns — Cloud Provider, Workloads, AgnosticD Config
+- [x] Admin workload mapping management UI
+- [x] Pipeline step messages — human-readable descriptions
+- [x] Overlap page search filter
