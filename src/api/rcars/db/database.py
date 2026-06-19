@@ -1525,7 +1525,7 @@ class Database:
     def get_published_base_mapping(self) -> dict[str, str]:
         """Map base CI base_names to their published CI base_names for active pairs."""
         sql = """
-            SELECT DISTINCT
+            SELECT DISTINCT ON (base_base_name)
                 substring(base.ci_name FROM '^(.+)\\.[^.]+$') AS base_base_name,
                 substring(base.published_ci_name FROM '^(.+)\\.[^.]+$') AS published_base_name
             FROM catalog_items base
@@ -1536,6 +1536,8 @@ class Database:
                   WHERE pub.ci_name = base.published_ci_name
                     AND pub.retired_at IS NULL
               )
+            ORDER BY base_base_name,
+                     CASE base.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
         """
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
