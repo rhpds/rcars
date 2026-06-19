@@ -386,6 +386,54 @@ def _build_quarterly_data(
     return result
 
 
+def _merge_published_base_pairs(
+    merged_rows: list[dict],
+    pub_base_map: dict[str, str],
+) -> int:
+    """Merge base CI rows into their published CI counterparts.
+
+    For each published/base pair, sums metrics into the published row
+    and removes the base row. Returns the number of pairs merged.
+    """
+    rows_by_name = {r["catalog_base_name"]: r for r in merged_rows}
+    remove_names: set[str] = set()
+    merged = 0
+
+    for base_name, pub_name in pub_base_map.items():
+        base_row = rows_by_name.get(base_name)
+        pub_row = rows_by_name.get(pub_name)
+        if not base_row or not pub_row:
+            continue
+
+        for field in ("provisions", "provisions_quarter", "requests",
+                      "experiences", "unique_users", "touched_amount",
+                      "closed_amount", "total_cost"):
+            pub_row[field] += base_row[field]
+
+        for field, fn in (("first_provision", min), ("last_provision", max)):
+            vals = [v for v in (pub_row[field], base_row[field]) if v]
+            pub_row[field] = fn(vals) if vals else None
+
+        pub_qd = json.loads(pub_row["quarterly_data"]) if isinstance(pub_row["quarterly_data"], str) else pub_row["quarterly_data"]
+        base_qd = json.loads(base_row["quarterly_data"]) if isinstance(base_row["quarterly_data"], str) else base_row["quarterly_data"]
+        for quarter, metrics in base_qd.items():
+            for metric, value in metrics.items():
+                pub_qd.setdefault(quarter, {}).setdefault(metric, 0)
+                pub_qd[quarter][metric] += value
+        pub_row["quarterly_data"] = json.dumps(pub_qd)
+
+        pub_row["avg_cost_per_provision"] = (
+            round(pub_row["total_cost"] / pub_row["provisions"], 2)
+            if pub_row["provisions"] > 0 else 0
+        )
+
+        remove_names.add(base_name)
+        merged += 1
+
+    merged_rows[:] = [r for r in merged_rows if r["catalog_base_name"] not in remove_names]
+    return merged
+
+
 def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
     """Recompute retirement scores for a subset of trailing quarters.
 
@@ -533,11 +581,15 @@ def run_reporting_sync(db, settings) -> dict:
             "quarterly_data": json.dumps(quarterly.get(name, {})),
         })
 
+    pub_base_map = db.get_published_base_mapping()
+    log.info("published_base_mapping", pairs=len(pub_base_map))
+
     catalog_names = db.get_catalog_base_names()
-    missing = set(catalog_names) - filtered_names
+    published_bases = set(pub_base_map.keys())
+    missing = set(catalog_names) - filtered_names - published_bases
     log.info("backfilling_catalog", catalog_items=len(catalog_names),
              already_in_reporting=len(filtered_names & set(catalog_names)),
-             missing=len(missing))
+             missing=len(missing), published_bases_excluded=len(published_bases & set(catalog_names)))
     for name in missing:
         merged_rows.append({
             "catalog_base_name": name,
@@ -557,6 +609,9 @@ def run_reporting_sync(db, settings) -> dict:
             "last_provision": None,
             "quarterly_data": json.dumps({}),
         })
+
+    merged_pairs = _merge_published_base_pairs(merged_rows, pub_base_map)
+    log.info("merged_published_base", pairs=merged_pairs)
 
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
@@ -583,6 +638,7 @@ def run_reporting_sync(db, settings) -> dict:
         "synced": upserted,
         "orphans_removed": orphans,
         "catalog_backfilled": len(missing),
+        "published_base_merged": merged_pairs,
         "provisions_rows": len(prov_data),
         "touched_rows": len(touched_data),
         "closed_rows": len(closed_data),

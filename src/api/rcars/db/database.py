@@ -1522,6 +1522,30 @@ class Database:
                 cur.execute(sql)
                 return {r["base"]: r["display_name"] for r in cur.fetchall() if r["base"]}
 
+    def get_published_base_mapping(self) -> dict[str, str]:
+        """Map base CI base_names to their published CI base_names for active pairs."""
+        sql = """
+            SELECT DISTINCT
+                substring(base.ci_name FROM '^(.+)\\.[^.]+$') AS base_base_name,
+                substring(base.published_ci_name FROM '^(.+)\\.[^.]+$') AS published_base_name
+            FROM catalog_items base
+            WHERE base.published_ci_name IS NOT NULL
+              AND base.retired_at IS NULL
+              AND EXISTS (
+                  SELECT 1 FROM catalog_items pub
+                  WHERE pub.ci_name = base.published_ci_name
+                    AND pub.retired_at IS NULL
+              )
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                return {
+                    r["base_base_name"]: r["published_base_name"]
+                    for r in cur.fetchall()
+                    if r["base_base_name"] and r["published_base_name"]
+                }
+
     def delete_orphan_reporting_metrics(self, synced_names: set[str] | None = None) -> int:
         """Delete reporting_metrics rows not in current sync or not in current catalog."""
         with self._pool.connection() as conn:
