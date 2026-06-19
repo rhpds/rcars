@@ -27,6 +27,56 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-19 — Nate + Claude (Retirement analysis data validation + published/base merge)
+
+**Done:**
+- **Retirement data validation against Superset:**
+  - Compared RCARS prod `reporting_metrics` against Superset's actual dashboard queries (provisions + sales + cost)
+  - Verified the Superset dashboard queries are correct — they properly deduplicate with `DISTINCT ON (so.number, ps.asset_name)`
+  - Confirmed provision counts match: 314/354 exact, remaining deltas explained by grouping key differences and name issues
+  - Confirmed touched/closed amounts match live when run against the same data (1:1 ratio), stored RCARS values lag by up to ~24h from nightly sync
+  - Confirmed cost methodology difference is by design: RCARS includes all environments (dev/event/prod), Superset PROD-only. RCARS is ~14% higher overall. Documented in CLAUDE.md.
+  - Investigated extreme ROIs (1M+ T-ROI) — confirmed they're driven by single large opportunities linked to low-cost workshops, not data errors. The attribution model gives full credit to every CI that touches an opportunity.
+- **Identified reporting DB name garbling bug (3 items):**
+  - `.dev` stripped from middle of `catalog_items.name` when item name starts with `dev` after a dot boundary
+  - Affected: `sandboxes-gpte.devsecops-ctf-on-openshift`, `sandboxes-gpte.developer-hub-workshop`, `rhdp.dev-sandbox`
+  - Filed GPTEINFRA-16949 with diagnostic queries, updated with third item found during session
+- **Published/base CI merge in reporting sync:**
+  - 30 published/base pairs were appearing as separate entries with split metrics
+  - Base CIs scored 65-80 (high retirement) even though they're actively needed
+  - Added `get_published_base_mapping()` DB method using existing `published_ci_name` field
+  - Added `_merge_published_base_pairs()` post-merge step: sums provisions/touched/closed/cost, merges quarterly data, removes base CI entry
+  - Base CIs excluded from catalog backfill to prevent re-adding with zeros
+  - Used `DISTINCT ON (base_base_name)` for deterministic mapping when multiple stages exist
+  - Verified on dev (30 pairs merged), deployed to prod via PR #18
+- **Prod deployment fix:**
+  - Build config still referenced deleted `rcars-github-source` secret — cleared via `--tags apply`
+  - Cancelled stuck pending builds from prior session
+- **Documentation:**
+  - CLAUDE.md: added `rcars reporting-db` subgroup to CLI section
+  - GPTEINFRA-16949: full bug report with 3 affected items and diagnostic SQL
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Monitor GPTEINFRA-16949 for reporting DB fix (3 items with garbled names)
+- Retirement Phase 2: workflow actions (Under Review / Approved / Retired statuses)
+- Babydev cluster migration (deadline: end of June 2026)
+
+**Blockers:**
+- 3 catalog items show 0 provisions in RCARS due to name garbling in reporting DB — waiting on GPTEINFRA-16949
+
+**Notes:**
+- The custom Superset CSV query the user provided had a dedup bug (missing DISTINCT ON for sales) — the actual Superset dashboard queries are correct
+- 144 Superset items didn't match RCARS by display name — mostly expected: retired items purged before soft-delete, name evolution over time, summit-prefixed variants
+- Cost ROI can appear extreme when low-cost workshops (e.g., $772 for Ansible on AWS) touch large opportunities — this is attribution model behavior, not a data bug
+- Prod API kubeconfig for management: `/Users/nstephan/devel/secrets/rcars-mgmt-prod.kubeconfig`
+- Dev API kubeconfig for management: `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
+- Prod build config was updated to remove `sourceSecret` reference — builds now pull from public repo without credentials
+
+---
+
 ### 2026-06-18 — Nate + Claude (Soft-delete catalog items)
 
 **Done:**
