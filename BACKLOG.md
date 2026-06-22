@@ -44,6 +44,10 @@ Last updated: 2026-06-18
 - [ ] **Catalog description as context** — CRD descriptions contain metadata not in Showroom content. Descriptions are unreliable (often stale), so deprioritized vs keywords. Revisit if keyword-boosted search proves insufficient
 - [ ] **Combined query (infra + vector in Advisor)** — Deferred. Content vector search already captures product mentions naturally. The real use case is PH express mode which is already served by `GET /catalog/search/infrastructure`. Revisit only if PH needs infrastructure-aware results through the Advisor recommendation pipeline specifically.
 
+## Integration
+
+- [ ] **Add RCARS as a link in the RHDP demo support portal** — Phase 1: add as a linked tool alongside MaaS, Architectures, etc. Keep separate from the portal to preserve development velocity. Phase 2 (later): explore deeper integration (embedded UI, shared auth, unified navigation) once RCARS is stable and well-tested. Tracked in RHDPOPS-23580 and #44.
+
 ## Architecture
 
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for Publishing House "unpacking" workflow
