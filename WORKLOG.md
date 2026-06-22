@@ -119,8 +119,8 @@ Session handoff notes between developers. Read before starting work. Write befor
 - The custom Superset CSV query the user provided had a dedup bug (missing DISTINCT ON for sales) — the actual Superset dashboard queries are correct
 - 144 Superset items didn't match RCARS by display name — mostly expected: retired items purged before soft-delete, name evolution over time, summit-prefixed variants
 - Cost ROI can appear extreme when low-cost workshops (e.g., $772 for Ansible on AWS) touch large opportunities — this is attribution model behavior, not a data bug
-- Prod API kubeconfig for management: `/Users/nstephan/devel/secrets/rcars-mgmt-prod.kubeconfig`
-- Dev API kubeconfig for management: `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
+- Prod API kubeconfig for management: `<path-redacted>/rcars-mgmt-prod.kubeconfig`
+- Dev API kubeconfig for management: `<path-redacted>/rcars-mgmt-dev.kubeconfig`
 - Prod build config was updated to remove `sourceSecret` reference — builds now pull from public repo without credentials
 
 ---
@@ -210,7 +210,7 @@ Session handoff notes between developers. Read before starting work. Write befor
 - Babydev cluster migration (deadline: end of June 2026)
 
 **Notes:**
-- The kubeconfig for dev management is at `/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig`
+- The kubeconfig for dev management is at `<path-redacted>/rcars-mgmt-dev.kubeconfig`
 - Max achievable score is ~80 (provisions_zero 25 + touched_zero 15 + closed_zero 25 + high cost no closed 15). Age discount subtracts up to 30 for items < 90 days old.
 - Quarterly data stored as JSONB: `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`. Sync adds ~60s for quarterly queries.
 - `delete_orphan_reporting_metrics` takes `synced_names` set — removes items not in the current sync AND items without catalog entries.
