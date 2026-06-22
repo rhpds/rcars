@@ -152,7 +152,7 @@ def _apply_usage_boost(candidates: list[Candidate], db) -> None:
         else:
             multiplier = 1.03
         old_score = c.relevance_score
-        c.relevance_score = min(100, round(old_score * multiplier))
+        c.relevance_score = max(0, min(100, round(old_score * multiplier)))
         logger.debug("usage_boost", ci_name=c.ci_name,
                      provisions_quarter=c.provisions_quarter, percentile=round(pct),
                      multiplier=multiplier, old_score=old_score, new_score=c.relevance_score)

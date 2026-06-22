@@ -46,7 +46,7 @@
     namespace: "{{ target_namespace }}"
     pod: "{{ smoke_pod }}"
     command: >-
-      curl -s -X POST http://localhost:{{ app_port }}/api/v1/advisor/query
+      curl -sf --max-time 30 -X POST http://localhost:{{ app_port }}/api/v1/advisor/query
       -H 'Content-Type: application/json'
       -H 'X-Forwarded-Email: smoke-test@redhat.com'
       -d '{"query": "OpenShift getting started demo", "include_zt": false}'
@@ -63,7 +63,7 @@
     namespace: "{{ target_namespace }}"
     pod: "{{ smoke_pod }}"
     command: >-
-      curl -s http://localhost:{{ app_port }}/api/v1/advisor/query/{{ smoke_job_id }}/result
+      curl -sf --max-time 30 http://localhost:{{ app_port }}/api/v1/advisor/query/{{ smoke_job_id }}/result
       -H 'X-Forwarded-Email: smoke-test@redhat.com'
   register: smoke_result
   until: >-
