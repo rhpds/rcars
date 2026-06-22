@@ -1209,20 +1209,6 @@ class Database:
         deduped.sort(key=lambda i: i.get("ci_name", ""))
         return deduped
 
-    def get_items_needing_metadata_embedding(self) -> list[dict[str, Any]]:
-        """Return catalog items without Showroom content that have no embeddings yet."""
-        with self._pool.connection() as conn:
-            cur = conn.execute("""
-                SELECT ci.* FROM catalog_items ci
-                LEFT JOIN embeddings e ON ci.ci_name = e.ci_name
-                WHERE (ci.showroom_url IS NULL OR ci.showroom_url = '')
-                  AND ci.retired_at IS NULL
-                  AND e.ci_name IS NULL
-                  AND (ci.display_name IS NOT NULL OR ci.description IS NOT NULL)
-                ORDER BY ci.ci_name
-            """)
-            return cur.fetchall()
-
     def get_scan_dedup_stats(self) -> dict[str, int]:
         """Return total scannable, unique (url, ref) pairs, and propagated sibling count."""
         with self._pool.connection() as conn:
