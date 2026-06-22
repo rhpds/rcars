@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import bisect
 import json
+import re
 import ssl
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta
 
 import structlog
+
+
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_date(value: str) -> None:
+    """Validate that value is a strict ISO date (YYYY-MM-DD). Raises ValueError otherwise."""
+    if not _ISO_DATE_RE.match(value):
+        raise ValueError(f"Invalid date format (expected YYYY-MM-DD): {value!r}")
 
 logger = structlog.get_logger(component="reporting_sync")
 
@@ -189,6 +199,7 @@ def mcp_query(
 
 
 def _build_provisions_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         SELECT
             ci.name AS catalog_base_name,
@@ -214,6 +225,7 @@ def _build_provisions_sql(start_date: str) -> str:
 
 
 def _build_provisions_quarter_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         SELECT ci.name AS catalog_base_name, COUNT(DISTINCT ps.uuid) AS provisions_quarter
         FROM provisions_summary ps
@@ -226,6 +238,7 @@ def _build_provisions_quarter_sql(start_date: str) -> str:
 
 def _build_touched_sql(start_date: str) -> str:
     """Opportunities touched by PROD provisions from real users in the date window."""
+    _validate_date(start_date)
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT ON (so.number, ci.name)
@@ -246,6 +259,7 @@ def _build_touched_sql(start_date: str) -> str:
 
 def _build_closed_sql(start_date: str) -> str:
     """Closed-won deals from PROD/real-user provisions, filtered by close date."""
+    _validate_date(start_date)
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT ON (so.number, ci.name)
@@ -267,6 +281,7 @@ def _build_closed_sql(start_date: str) -> str:
 
 
 def _build_cost_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         WITH costs AS (
             SELECT provision_uuid, SUM(total_cost) AS total_cost
@@ -285,6 +300,7 @@ def _build_cost_sql(start_date: str) -> str:
 
 
 def _build_provisions_by_quarter_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         SELECT
             ci.name AS catalog_base_name,
@@ -299,6 +315,7 @@ def _build_provisions_by_quarter_sql(start_date: str) -> str:
 
 
 def _build_touched_by_quarter_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT ON (so.number, ci.name,
@@ -321,6 +338,7 @@ def _build_touched_by_quarter_sql(start_date: str) -> str:
 
 
 def _build_closed_by_quarter_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         WITH unique_opps AS (
             SELECT DISTINCT ON (so.number, ci.name,
@@ -345,6 +363,7 @@ def _build_closed_by_quarter_sql(start_date: str) -> str:
 
 
 def _build_cost_by_quarter_sql(start_date: str) -> str:
+    _validate_date(start_date)
     return f"""
         SELECT
             ci.name AS catalog_base_name,
