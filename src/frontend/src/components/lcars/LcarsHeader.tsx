@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
+import { useTheme } from '../../hooks/useTheme'
 import { api } from '../../services/api'
 
 interface DbStatus {
@@ -30,8 +31,8 @@ function HeaderMenu() {
         onClick={() => setOpen(!open)}
         style={{
           background: 'transparent',
-          border: '1px solid #333',
-          color: '#999',
+          border: '1px solid var(--input-border)',
+          color: 'var(--text-muted)',
           padding: '4px 10px',
           borderRadius: '4px',
           cursor: 'pointer',
@@ -46,12 +47,12 @@ function HeaderMenu() {
           right: 0,
           top: '100%',
           marginTop: '6px',
-          background: '#1a1f2e',
-          border: '1px solid #333',
+          background: 'var(--menu-bg)',
+          border: '1px solid var(--input-border)',
           borderRadius: '6px',
           minWidth: '180px',
           zIndex: 100,
-          boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
+          boxShadow: '0 4px 12px var(--menu-shadow)',
         }}>
           <a
             href={`${DOCS_BASE}/overview/`}
@@ -71,7 +72,7 @@ function HeaderMenu() {
           >
             Web UI Guide
           </a>
-          <div style={{ borderTop: '1px solid #333' }} />
+          <div style={{ borderTop: '1px solid var(--input-border)' }} />
           <button
             onClick={() => { setOpen(false) }}
             style={{ ...menuItemStyle, width: '100%', textAlign: 'left', background: 'transparent', border: 'none', cursor: 'not-allowed', opacity: 0.5 }}
@@ -87,7 +88,7 @@ function HeaderMenu() {
 const menuItemStyle: React.CSSProperties = {
   display: 'block',
   padding: '10px 16px',
-  color: '#aaa',
+  color: 'var(--text-secondary)',
   textDecoration: 'none',
   fontSize: '14px',
   cursor: 'pointer',
@@ -95,6 +96,7 @@ const menuItemStyle: React.CSSProperties = {
 
 export function LcarsHeader() {
   const auth = useAuth()
+  const { theme, toggleTheme } = useTheme()
   const [dbStatus, setDbStatus] = useState<DbStatus | null>(null)
 
   useEffect(() => {
@@ -121,11 +123,11 @@ export function LcarsHeader() {
           <rect x="236" y="10" width="34" height="30" rx="5" fill="#FFCC99"/>
           <rect x="276" y="10" width="60" height="30" rx="5" fill="#9966CC"/>
           {/* Middle bar */}
-          <rect x="90" y="46" width="246" height="18" rx="4" fill="#1c1c2e"/>
+          <rect x="90" y="46" width="246" height="18" rx="4" fill="var(--lcars-logo-middle)"/>
           {/* Catalog status bar */}
-          <rect x="90" y="70" width="246" height="16" rx="4" fill="#1c1c2e"/>
+          <rect x="90" y="70" width="246" height="16" rx="4" fill="var(--lcars-logo-middle)"/>
           {/* Analysis status bar */}
-          <rect x="90" y="90" width="246" height="16" rx="4" fill="#1c1c2e"/>
+          <rect x="90" y="90" width="246" height="16" rx="4" fill="var(--lcars-logo-middle)"/>
           {/* RCARS */}
           <text x="100" y="32" fontFamily="Arial Black, Impact, sans-serif" fontSize="20" fontWeight="900" fill="#000" letterSpacing="5">RCARS</text>
           {/* RHDP CONTENT ADVISOR */}
@@ -153,6 +155,13 @@ export function LcarsHeader() {
       </div>
 
       <div className="header-right">
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+        >
+          {theme === 'dark' ? '\u2600' : '\u263D'}
+        </button>
         <HeaderMenu />
         {auth.email && <span className="user-email">{auth.email}</span>}
       </div>
