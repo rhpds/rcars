@@ -12,7 +12,8 @@ TEST_DB_URL = os.environ.get(
 def db():
     # Use a separate connection to drop schema to avoid killing pool connections
     import psycopg
-    with psycopg.connect(TEST_DB_URL) as conn:
+    from psycopg.rows import dict_row
+    with psycopg.connect(TEST_DB_URL, row_factory=dict_row) as conn:
         conn.autocommit = True
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         cur = conn.execute(
