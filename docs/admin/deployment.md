@@ -2,47 +2,17 @@
 
 ## Architecture
 
-RCARS runs as four application components plus infrastructure on OpenShift:
+RCARS runs four application deployments plus infrastructure on OpenShift. For the full system design, component diagrams, data flow, and database schema, see the [System Design](../architecture/system-design.md) document.
 
-| Component | Image | Replicas | What it does |
-|---|---|---|---|
-| `rcars-api` | `rcars-api:latest` | 1 | FastAPI JSON API (`/api/v1/*`), health probes |
-| `rcars-scan-worker` | `rcars-api:latest` (same image) | 1 | arq worker: scan, refresh, stale check, nightly maintenance |
-| `rcars-recommend-worker` | `rcars-api:latest` (same image) | 1 | arq worker: advisor recommendation queries |
-| `rcars-frontend` | `rcars-frontend:latest` | 1 | nginx serving React SPA |
-| `rcars-oauth-proxy` | `ose-oauth-proxy` | 1 | OpenShift OAuth proxy, upstream to frontend |
+| Component | Image | Purpose |
+|---|---|---|
+| `rcars-api` | `rcars-api:latest` | FastAPI JSON API (`/api/v1/*`), health probes |
+| `rcars-scan-worker` | `rcars-api:latest` (same image) | arq worker: scan, refresh, stale check, nightly maintenance |
+| `rcars-recommend-worker` | `rcars-api:latest` (same image) | arq worker: advisor recommendation queries |
+| `rcars-frontend` | `rcars-frontend:latest` | nginx serving React SPA |
+| `rcars-oauth-proxy` | `ose-oauth-proxy` | OpenShift OAuth proxy, upstream to frontend |
 
 Infrastructure: PostgreSQL 16 (pgvector, 20Gi PVC), Redis 7 (1Gi PVC), OAuthClient.
-
-```mermaid
-graph TB
-    subgraph "OpenShift Namespace (rcars-dev / rcars-prod)"
-        subgraph "Application Pods"
-            OA[OAuth Proxy<br/>:4180] --> FE[Frontend<br/>nginx :80]
-            FE -->|/api/*| API[API<br/>uvicorn :8080]
-            SW[Scan Worker<br/>arq:queue:scan]
-            RW[Recommend Worker<br/>arq:queue:recommend]
-        end
-        subgraph "Infrastructure"
-            PG[(PostgreSQL 16<br/>pgvector<br/>20Gi PVC)]
-            RD[(Redis 7<br/>1Gi PVC)]
-        end
-        Route[Route<br/>TLS edge] --> OA
-        API --> PG
-        API --> RD
-        SW --> PG
-        SW --> RD
-        RW --> PG
-        RW --> RD
-    end
-    subgraph "Build"
-        IS1[ImageStream<br/>rcars-api]
-        IS2[ImageStream<br/>rcars-frontend]
-        BC1[BuildConfig<br/>src/api/Containerfile]
-        BC2[BuildConfig<br/>src/frontend/Containerfile]
-    end
-    User -->|SSO| Route
-```
 
 Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-prod` (production branch). Each has its own namespace, service account, database, and secrets. Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain secrets and are gitignored.
 
@@ -103,20 +73,12 @@ Requires cluster-admin. Creates the management service account, RBAC, and a kube
 ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
 ```
 
-Verify:
-
-```bash
-KUBECONFIG=~/devel/secrets/rcars-mgmt-dev.kubeconfig oc whoami
-# → system:serviceaccount:rcars-dev:rcars-mgmt-sa
-```
+The playbook generates a management kubeconfig that Ansible uses for all subsequent operations. Store it securely — it grants namespace-scoped admin access.
 
 For prod:
 
 ```bash
 ansible-playbook ansible/deploy.yml -e env=prod -e kubeconfig=~/.kube/config --tags mgmt-rbac
-
-KUBECONFIG=~/devel/secrets/rcars-mgmt-prod.kubeconfig oc whoami
-# → system:serviceaccount:rcars-prod:rcars-mgmt-sa
 ```
 
 ### 3. Deploy
@@ -135,19 +97,24 @@ This does everything in the right order:
 
 ### 4. Load initial data
 
-After pods are running:
+After pods are running, exec into the API pod to run CLI commands. You must be logged into the cluster with `oc login` or have your `KUBECONFIG` set to the management kubeconfig.
 
 ```bash
-export KUBECONFIG=~/devel/secrets/rcars-mgmt-dev.kubeconfig
-
 # Sync catalog from Babylon CRDs
 oc exec deployment/rcars-api -n rcars-dev -- rcars refresh
 
-# Analyze a few items to verify
+# Analyze a few items to verify the pipeline works
 oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 5
+
+# Check results
+oc exec deployment/rcars-api -n rcars-dev -- rcars status
 ```
 
-Once verified, run a full scan via the Admin UI or `rcars scan` (no `--max`).
+Once verified, run a full scan via the Admin UI or:
+
+```bash
+oc exec deployment/rcars-api -n rcars-dev -- rcars scan
+```
 
 ### 5. Verify
 
@@ -177,7 +144,7 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
 
 ### Configure scheduled maintenance
 
-The scan worker includes a nightly maintenance pipeline (catalog refresh → stale check → re-analyze) that runs at 04:00 UTC by default. To change the schedule or disable it, update `ansible/vars/<env>.yml`:
+The scan worker includes a nightly maintenance pipeline (catalog refresh → stale check → re-analyze → workload scan → reporting sync) that runs at 04:00 UTC by default. To change the schedule or disable it, update `ansible/vars/<env>.yml`:
 
 ```yaml
 pipeline_enabled: true   # set to false to disable
@@ -241,11 +208,21 @@ This updates the deployment env vars and triggers a rollout — no image rebuild
 
 ---
 
-## CLI Commands
+## Running CLI Commands
+
+All RCARS CLI commands are run inside the API pod via `oc exec`. You must be logged into the cluster (`oc login`) or have your `KUBECONFIG` set to the management service account kubeconfig.
 
 ```bash
-export KUBECONFIG=~/devel/secrets/rcars-mgmt-dev.kubeconfig
+oc exec deployment/rcars-api -n rcars-dev -- rcars <command>
+```
 
+For prod, use `-n rcars-prod`.
+
+See the [CLI Admin Guide](cli-guide.md) for the full command reference.
+
+Common examples:
+
+```bash
 # Catalog status
 oc exec deployment/rcars-api -n rcars-dev -- rcars status
 
@@ -258,11 +235,81 @@ oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 10
 # Show scan failures
 oc exec deployment/rcars-api -n rcars-dev -- rcars status --failures
 
-# Set custom content path for non-standard Showroom
-oc exec deployment/rcars-api -n rcars-dev -- rcars set-content-path ci-name.prod docs/labs/
+# Sync reporting data
+oc exec deployment/rcars-api -n rcars-dev -- rcars reporting-db sync
 ```
 
-For prod, use `KUBECONFIG=~/devel/secrets/rcars-mgmt-prod.kubeconfig` and `-n rcars-prod`.
+---
+
+## Operational Workflows
+
+### Initial Setup (first deployment)
+
+After the Ansible deploy completes and pods are running:
+
+1. `oc exec deployment/rcars-api -n rcars-dev -- rcars refresh` — populate the catalog from Babylon CRDs.
+2. `oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 5` — verify the AI pipeline works end-to-end with a small batch.
+3. `oc exec deployment/rcars-api -n rcars-dev -- rcars status` — confirm analyzed count increased.
+4. `oc exec deployment/rcars-api -n rcars-dev -- rcars scan` — full scan (may take 30–60 minutes depending on catalog size and parallelism).
+5. `oc exec deployment/rcars-api -n rcars-dev -- rcars reporting-db sync` — pull reporting metrics for the retirement dashboard.
+
+### Fresh Start (reset everything)
+
+```bash
+oc exec deployment/rcars-api -n rcars-dev -- rcars init-db --drop
+oc exec deployment/rcars-api -n rcars-dev -- rcars refresh
+oc exec deployment/rcars-api -n rcars-dev -- rcars scan
+oc exec deployment/rcars-api -n rcars-dev -- rcars reporting-db sync
+```
+
+### Incremental Catalog Sync (routine)
+
+```bash
+oc exec deployment/rcars-api -n rcars-dev -- rcars refresh
+oc exec deployment/rcars-api -n rcars-dev -- rcars scan
+```
+
+`refresh` picks up new and changed items. `scan` analyzes anything new or stale. Items that were already analyzed and whose content has not changed are skipped automatically.
+
+### Checking for Content Updates
+
+Stale detection is triggered from the Admin UI or via the API (`POST /api/v1/analysis/check-stale`). It clones each analyzed Showroom and compares content hashes. Items whose content has changed are marked stale. The subsequent `scan` picks up stale items automatically alongside any new ones.
+
+### Force Full Rescan
+
+Use this when the analysis prompt has changed or when you want to ensure all items reflect the current model's output. Full rescans are triggered from the Admin UI via "Re-Analyze All" (`POST /api/v1/analysis/rescan-all`), which marks all items as stale and enqueues them for re-analysis.
+
+### Debugging a Failed Item
+
+```bash
+oc exec deployment/rcars-api -n rcars-dev -- rcars status --failures
+```
+
+Common failure causes:
+
+| Error Class | Meaning |
+|---|---|
+| `jinja_url` | Showroom URL contains unresolved Jinja2 template variables |
+| `private_repo` | Git repository requires authentication |
+| `http_404` | Repository URL returns a 404 |
+| `clone_failed` | git clone failed (timeout, network, or other git error) |
+| `missing_antora` | Repository does not follow the standard Antora layout |
+| `no_content` | No substantive content files found after filtering boilerplate |
+| `parse_error` | LLM response could not be parsed as JSON |
+| `timeout` | Operation exceeded the timeout limit |
+
+To re-analyze a specific item, use the Browse page's "Re-analyze" button (curator access required) or the API:
+
+```bash
+curl -X POST https://rcars-dev.apps.<domain>/api/v1/analysis/<ci-name> \
+  -H "Authorization: Bearer <token>"
+```
+
+Scan errors are also visible in the Admin page of the web UI.
+
+### Testing Recommendations After a Scan
+
+Use the Advisor page in the web UI to test recommendations. If results look wrong — poor scores, irrelevant items — check that `rcars status` shows a reasonable analyzed count and that embeddings are present. If no embeddings exist, the recommendation engine has no candidates to rank.
 
 ---
 

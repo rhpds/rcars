@@ -27,6 +27,54 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-22 — Nate + Claude (Documentation overhaul — web guide + admin docs)
+
+**Done:**
+- **Web UI Guide (`docs/user/web-guide.md`) — full review and update:**
+  - Added missing **Retirement Analysis** section: time window selector, Prod Retirements tab (stat cards, filter pills, sortable columns, expanded rows), Without Prod tab (age filters, table, expanded rows), scoring overview table
+  - Added **Sidebar Navigation** subsection documenting Content Analysis sub-nav (Overlap + Retirement)
+  - Fixed Content Analysis section: filter pills → dropdown selectors (matches actual UI), added search-by-name input
+  - Restructured Browse page into subsections: Primary Bar, Filters Panel (Cloud Provider, Workloads, AgnosticD Config), Curator Filters, Item Badges, Expanded Item View
+  - Added missing v2 badge for AgnosticD v2 items
+  - Added infrastructure details in expanded view (config, cloud, OCP version, workloads)
+  - Added scan error display in expanded view
+  - Fixed Admin section: Status tab now describes all 5 stat cards (Catalog, Analysis, Infrastructure, LLM Provider, Reporting Sync) plus Refresh button
+  - Added Sync & Analysis tab Recent Jobs section
+  - Added Workloads tab description (Workload Repos scan + Workload Mappings)
+  - Removed Workers page reference (redirects to Catalog — effectively deprecated)
+
+- **Deployment Guide (`docs/admin/deployment.md`) — restructured:**
+  - Replaced full architecture section (mermaid diagram, component walk-through) with brief component table + link to system-design.md
+  - Removed all `~/devel/secrets/rcars-mgmt-*.kubeconfig` local path references
+  - Changed CLI commands to use plain `oc exec` with note about cluster access requirements
+  - Absorbed Operational Workflows from CLI guide: initial setup, fresh start, incremental sync, debugging failed items, force rescan, testing recommendations
+  - Added `reporting-db sync` to initial setup and fresh start workflows
+
+- **CLI Admin Guide (`docs/admin/cli-guide.md`) — restructured:**
+  - Removed local kubeconfig path references and "Local development" access option
+  - Moved environment variables to the bottom, organized into grouped tables (Required, LLM Provider, Models, Tuning, Access Control, Infrastructure, Nightly Pipeline, Reporting)
+  - Removed Operational Workflows section (moved to deployment guide)
+  - Added undocumented `--verbose` global option
+  - All 25 CLI commands verified against `src/api/rcars/cli.py` — all match
+
+- **Operations Guide (`docs/admin/operations.md`):**
+  - Removed Content Overlap Detection section (already covered in `docs/architecture/content-overlap.md` and web guide)
+  - Removed "Running Workers Locally" section
+
+- **Development Guide (`docs/admin/development.md`):**
+  - Deleted entirely — no local development workflow needed
+  - Removed from `mkdocs.yml` nav and `docs/index.md`
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Monitor GPTEINFRA-16949 for reporting DB name garbling fix (3 items)
+- Retirement Phase 2: workflow actions (Under Review / Approved / Retired statuses)
+- Babydev cluster migration (deadline: end of June 2026)
+
+---
+
 ### 2026-06-19 — Nate + Claude (Retirement analysis data validation + published/base merge)
 
 **Done:**
