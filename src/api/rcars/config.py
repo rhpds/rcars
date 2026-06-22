@@ -11,6 +11,11 @@ def _parse_csv(val: str) -> list[str]:
     return [x.strip() for x in val.split(",") if x.strip()] if val else []
 
 
+# Canonical stage ordering used for deduplication and priority across
+# the codebase (database, workers, recommender).
+STAGE_PRIORITY: dict[str, int] = {"prod": 0, "event": 1, "dev": 2}
+
+
 class Settings(BaseSettings):
     model_config = {"env_prefix": "RCARS_", "case_sensitive": False}
 

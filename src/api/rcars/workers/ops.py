@@ -9,9 +9,9 @@ from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
 import structlog
 
-logger = structlog.get_logger()
+from rcars.config import STAGE_PRIORITY
 
-STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
+logger = structlog.get_logger()
 
 
 def sha_dedup_scan_items(
