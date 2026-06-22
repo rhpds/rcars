@@ -1063,7 +1063,7 @@ class Database:
             })
         return results
 
-    def get_overlap_report(self, min_score: float = 0.75) -> list[dict[str, Any]]:
+    def get_overlap_report(self, min_score: float = 0.75, stage: str | None = None) -> list[dict[str, Any]]:
         sql = """
             SELECT cs.ci_name_a, cs.ci_name_b, cs.similarity_score, cs.computed_at,
                    ci_a.display_name AS display_name_a, ci_a.category AS category_a, ci_a.stage AS stage_a,
@@ -1076,22 +1076,34 @@ class Database:
             LEFT JOIN showroom_analysis sa_a ON sa_a.ci_name = cs.ci_name_a
             LEFT JOIN showroom_analysis sa_b ON sa_b.ci_name = cs.ci_name_b
             WHERE cs.similarity_score >= %(min_score)s
-            ORDER BY cs.similarity_score DESC
         """
+        params: dict[str, Any] = {"min_score": min_score}
+        if stage:
+            sql += " AND ci_a.stage = %(stage)s AND ci_b.stage = %(stage)s"
+            params["stage"] = stage
+        sql += " ORDER BY cs.similarity_score DESC"
         with self._pool.connection() as conn:
-            cur = conn.execute(sql, {"min_score": min_score})
+            cur = conn.execute(sql, params)
             return cur.fetchall()
 
-    def get_similarity_stats(self) -> dict[str, Any]:
+    def get_similarity_stats(self, stage: str | None = None) -> dict[str, Any]:
+        stage_filter = ""
+        params: dict[str, Any] = {}
+        if stage:
+            stage_filter = """
+                AND cs.ci_name_a IN (SELECT ci_name FROM catalog_items WHERE stage = %(stage)s)
+                AND cs.ci_name_b IN (SELECT ci_name FROM catalog_items WHERE stage = %(stage)s)
+            """
+            params["stage"] = stage
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) AS count FROM content_similarity")
+                cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE 1=1 {stage_filter}", params)
                 total_pairs = cur.fetchone()["count"]
-                cur.execute("SELECT MAX(computed_at) AS last_computed FROM content_similarity")
+                cur.execute(f"SELECT MAX(cs.computed_at) AS last_computed FROM content_similarity cs WHERE 1=1 {stage_filter}", params)
                 last = cur.fetchone()["last_computed"]
-                cur.execute("SELECT COUNT(*) AS count FROM content_similarity WHERE similarity_score >= 0.85")
+                cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE cs.similarity_score >= 0.85 {stage_filter}", params)
                 high_overlap = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) AS count FROM content_similarity WHERE similarity_score >= 0.75 AND similarity_score < 0.85")
+                cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE cs.similarity_score >= 0.75 AND cs.similarity_score < 0.85 {stage_filter}", params)
                 related = cur.fetchone()["count"]
         return {
             "total_pairs": total_pairs,

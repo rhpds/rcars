@@ -195,10 +195,11 @@ async def overlap_report(
     request: Request,
     user: str = Depends(require_admin),
     min_score: float = Query(0.75, ge=0.0, le=1.0),
+    stage: str | None = Query(None, description="Filter by stage: prod, event, or dev"),
 ):
     db = request.app.state.db
-    pairs = db.get_overlap_report(min_score=min_score)
-    stats = db.get_similarity_stats()
+    pairs = db.get_overlap_report(min_score=min_score, stage=stage)
+    stats = db.get_similarity_stats(stage=stage)
     settings = Settings()
     return {
         "pairs": pairs,

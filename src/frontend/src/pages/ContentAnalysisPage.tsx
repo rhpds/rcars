@@ -28,13 +28,13 @@ export function ContentOverlapPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await api.getOverlapReport(thresholds.related)
+      const data = await api.getOverlapReport(thresholds.related, stage)
       setPairs(data.pairs)
       setStats(data.stats)
       setThresholds(data.thresholds)
     } catch { /* ignore */ }
     setLoading(false)
-  }, [thresholds.related])
+  }, [thresholds.related, stage])
 
   useEffect(() => { loadData() }, [loadData])
 

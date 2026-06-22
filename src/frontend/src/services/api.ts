@@ -193,7 +193,7 @@ export const api = {
       }>
       count: number
     }>(`/catalog/${encodeURIComponent(ciName)}/similar?min_score=${minScore}`),
-  getOverlapReport: (minScore = 0.75) =>
+  getOverlapReport: (minScore = 0.75, stage?: string) =>
     request<{
       pairs: Array<{
         ci_name_a: string; ci_name_b: string; similarity_score: number; computed_at: string
@@ -203,7 +203,7 @@ export const api = {
       total: number
       stats: { total_pairs: number; high_overlap: number; related: number; last_computed: string | null }
       thresholds: { related: number; high_overlap: number }
-    }>(`/admin/overlap?min_score=${minScore}`),
+    }>(`/admin/overlap?min_score=${minScore}${stage ? `&stage=${stage}` : ''}`),
   computeSimilarity: (threshold = 0.75, stage = 'prod') =>
     request<{ pairs_stored: number; threshold: number; stage: string }>(`/admin/compute-similarity?threshold=${threshold}&stage=${stage}`, { method: 'POST' }),
 
