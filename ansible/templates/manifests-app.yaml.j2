@@ -56,6 +56,8 @@ spec:
       labels:
         app: {{ app_name }}
         component: api
+      annotations:
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + oauth_client_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -206,6 +208,8 @@ spec:
       labels:
         app: {{ app_name }}
         component: scan-worker
+      annotations:
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + oauth_client_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -339,6 +343,8 @@ spec:
       labels:
         app: {{ app_name }}
         component: recommend-worker
+      annotations:
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + oauth_client_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true

@@ -51,7 +51,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
   const [showFullCaveat, setShowFullCaveat] = useState(false)
   const [showSalesInfo, setShowSalesInfo] = useState(false)
 
-  const score = candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0
+  const score = Math.min(100, Math.max(0, candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0))
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
 
   const handleSelect = async () => {

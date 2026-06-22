@@ -111,7 +111,7 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
         floor = 0.6 if hard else 0.7
         multiplier = max(floor, 1.0 - coeff * math.log(ratio))
         old_score = c.relevance_score
-        c.relevance_score = round(old_score * multiplier)
+        c.relevance_score = max(0, min(100, round(old_score * multiplier)))
         logger.debug("duration_penalty", ci_name=c.ci_name,
                      duration=c.duration_min, target=target_min,
                      ratio=round(ratio, 1), multiplier=round(multiplier, 2),
@@ -152,7 +152,7 @@ def _apply_usage_boost(candidates: list[Candidate], db) -> None:
         else:
             multiplier = 1.03
         old_score = c.relevance_score
-        c.relevance_score = round(old_score * multiplier)
+        c.relevance_score = min(100, round(old_score * multiplier))
         logger.debug("usage_boost", ci_name=c.ci_name,
                      provisions_quarter=c.provisions_quarter, percentile=round(pct),
                      multiplier=multiplier, old_score=old_score, new_score=c.relevance_score)
