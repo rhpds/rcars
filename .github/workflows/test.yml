@@ -1,0 +1,46 @@
+name: CI Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rcars
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: rcars_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rcars"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: src/api/pyproject.toml
+
+      - name: Install dependencies
+        run: cd src/api && pip install -e ".[dev]"
+
+      - name: Ruff lint check
+        run: ruff check src/api/rcars/
+
+      - name: Run tests
+        env:
+          RCARS_TEST_DATABASE_URL: postgresql://rcars:test@localhost:5432/rcars_test
+        run: cd src/api && pytest -m "not integration" --tb=short
