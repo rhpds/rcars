@@ -63,7 +63,7 @@ function HeaderMenu() {
             Overview
           </a>
           <a
-            href={`${DOCS_BASE}/guide-web/`}
+            href={`${DOCS_BASE}/user/guide-web/`}
             target="_blank"
             rel="noopener noreferrer"
             onClick={() => setOpen(false)}
