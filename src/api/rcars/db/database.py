@@ -13,6 +13,8 @@ from psycopg_pool import ConnectionPool
 
 import structlog
 
+from rcars.config import STAGE_PRIORITY
+
 logger = structlog.get_logger()
 
 SCHEMA_SQL = """
@@ -268,7 +270,6 @@ CREATE INDEX IF NOT EXISTS ix_reporting_metrics_display_name
     ON reporting_metrics (display_name);
 """
 
-STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
 
 
 class Database:
@@ -734,13 +735,11 @@ class Database:
                 result[row["ci_name"]].append(row)
             return result
 
-    def set_enrichment_note(self, ci_name: str, note: str, updated_by: str | None = None) -> None:
+    def set_enrichment_note(self, ci_name: str, note: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE showroom_analysis SET notes = %s WHERE ci_name = %s", (note, ci_name),
             )
-            if conn.execute("SELECT 1").fetchone():
-                pass
             conn.commit()
 
     def set_enrichment_review_flag(self, ci_name: str, needed: bool) -> None:
