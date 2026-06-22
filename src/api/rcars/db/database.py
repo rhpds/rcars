@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -12,6 +13,8 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 import structlog
+
+from rcars.config import STAGE_PRIORITY
 
 logger = structlog.get_logger()
 
@@ -243,7 +246,6 @@ CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(ci_nam
 CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
 """
 
-STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
 
 
 class Database:
@@ -274,6 +276,15 @@ class Database:
             conn.commit()
 
     def drop_schema(self):
+        is_local = "localhost" in self._url or "127.0.0.1" in self._url
+        allow_env = os.environ.get("RCARS_ALLOW_DROP", "").lower() == "true"
+        if not is_local and not allow_env:
+            raise RuntimeError(
+                "drop_schema() refused: target is not localhost and "
+                "RCARS_ALLOW_DROP=true is not set. This safeguard prevents "
+                "accidentally terminating connections on a shared database."
+            )
+
         tables = [
             "content_similarity",
             "embeddings", "enrichment_tags", "showroom_analysis",
@@ -703,13 +714,11 @@ class Database:
                 result[row["ci_name"]].append(row)
             return result
 
-    def set_enrichment_note(self, ci_name: str, note: str, updated_by: str | None = None) -> None:
+    def set_enrichment_note(self, ci_name: str, note: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
                 "UPDATE showroom_analysis SET notes = %s WHERE ci_name = %s", (note, ci_name),
             )
-            if conn.execute("SELECT 1").fetchone():
-                pass
             conn.commit()
 
     def set_enrichment_review_flag(self, ci_name: str, needed: bool) -> None:

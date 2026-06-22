@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import AsyncGenerator
 from redis.asyncio import Redis
 from starlette.responses import StreamingResponse
@@ -19,19 +20,34 @@ class JobProgressRelay:
         channel = f"job:{job_id}"
         await self.redis.publish(channel, json.dumps(message))
 
-    async def subscribe(self, job_id: str, keepalive_interval: float = 15) -> AsyncGenerator[dict | None, None]:
-        """Subscribe to job progress. Yields message dicts, or None as keepalive."""
+    async def subscribe(
+        self, job_id: str, keepalive_interval: float = 15, stream_timeout: float = 600,
+    ) -> AsyncGenerator[dict | None, None]:
+        """Subscribe to job progress. Yields message dicts, or None as keepalive.
+
+        Args:
+            job_id: The job to subscribe to.
+            keepalive_interval: Seconds between keepalive pings when idle.
+            stream_timeout: Max seconds to wait without a real message before
+                yielding a timeout error and closing the stream (default 10 min).
+        """
         channel = f"job:{job_id}"
         pubsub = self.redis.pubsub()
         await pubsub.subscribe(channel)
+        last_message_time = time.monotonic()
         try:
             while True:
                 message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=keepalive_interval)
                 if message is None:
+                    if time.monotonic() - last_message_time > stream_timeout:
+                        logger.warning("sse_stream_timeout", job_id=job_id, timeout=stream_timeout)
+                        yield {"phase": "failed", "status": "failed", "error": f"Stream timed out after {int(stream_timeout)}s with no progress"}
+                        break
                     yield None
                     continue
                 if message["type"] == "message":
                     data = json.loads(message["data"])
+                    last_message_time = time.monotonic()
                     yield data
                     if data.get("phase") in ("complete", "failed"):
                         break
