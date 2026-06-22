@@ -117,7 +117,7 @@ def scan(max_analyze: int | None):
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pathlib import Path
-    from rcars.services.analyzer import analyze_showroom, classify_scan_error, build_metadata_embedding_text, generate_embedding
+    from rcars.services.analyzer import analyze_showroom, classify_scan_error
 
     settings = Settings()
     db = get_db()
@@ -149,176 +149,155 @@ def scan(max_analyze: int | None):
         _print(f"Limiting to first {max_analyze} items (--max)")
         scan_items = scan_items[:max_analyze]
 
-    if scan_items:
-        items = scan_items
-        _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
-        completed = 0
-        errors = 0
-        total = len(items)
-        t0 = time.monotonic()
+    if not scan_items:
+        _print("Nothing to analyze.")
+        db.close()
+        return
 
-        def process_item(item):
-            effective_url = item.get("showroom_url_override") or item["showroom_url"]
-            return analyze_showroom(
-                ci_name=item["ci_name"],
-                display_name=item.get("display_name", ""),
-                category=item.get("category", ""),
-                product=item.get("product", ""),
-                showroom_url=effective_url,
-                showroom_ref=item.get("showroom_ref"),
-                settings=settings,
-                model=settings.model,
-                clone_dir=settings.clone_dir,
-                db=db,
-                content_path=item.get("content_path"),
-                keywords=item.get("keywords") or [],
-            )
+    items = scan_items
+    _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
+    completed = 0
+    errors = 0
+    total = len(items)
+    t0 = time.monotonic()
 
-        with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
-            futures = {executor.submit(process_item, item): item for item in items}
-            for future in as_completed(futures):
-                item = futures[future]
-                try:
-                    result = future.result()
-                    if result and "error" in result:
-                        errors += 1
-                        db.set_scan_status(item["ci_name"], "failed", error_class=result["error"], error_message=result["message"])
-                        _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
-                    elif result and "analysis" in result:
-                        analysis = result["analysis"]
-                        db.upsert_showroom_analysis({
-                            "ci_name": result["ci_name"],
-                            "content_type": analysis.get("content_type"),
-                            "summary": analysis.get("summary"),
-                            "products_json": analysis.get("products"),
-                            "audience_json": analysis.get("audience"),
-                            "topics_json": analysis.get("topics"),
-                            "modules_json": analysis.get("modules"),
-                            "learning_objectives_json": analysis.get("learning_objectives"),
-                            "difficulty": analysis.get("difficulty"),
-                            "estimated_duration_min": analysis.get("estimated_duration_min"),
-                            "event_fit_json": analysis.get("event_fit"),
-                            "use_cases_json": analysis.get("use_cases"),
-                            "last_repo_commit": result.get("last_repo_commit"),
-                            "last_repo_updated": result.get("last_repo_updated"),
-                            "content_hash": result.get("content_hash"),
-                            "is_stale": False,
-                            "stale_commit": None,
-                        })
-                        db.clear_embeddings(result["ci_name"])
+    def process_item(item):
+        effective_url = item.get("showroom_url_override") or item["showroom_url"]
+        return analyze_showroom(
+            ci_name=item["ci_name"],
+            display_name=item.get("display_name", ""),
+            category=item.get("category", ""),
+            product=item.get("product", ""),
+            showroom_url=effective_url,
+            showroom_ref=item.get("showroom_ref"),
+            settings=settings,
+            model=settings.model,
+            clone_dir=settings.clone_dir,
+            db=db,
+            content_path=item.get("content_path"),
+            keywords=item.get("keywords") or [],
+        )
+
+    with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
+        futures = {executor.submit(process_item, item): item for item in items}
+        for future in as_completed(futures):
+            item = futures[future]
+            try:
+                result = future.result()
+                if result and "error" in result:
+                    errors += 1
+                    db.set_scan_status(item["ci_name"], "failed", error_class=result["error"], error_message=result["message"])
+                    _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
+                elif result and "analysis" in result:
+                    analysis = result["analysis"]
+                    db.upsert_showroom_analysis({
+                        "ci_name": result["ci_name"],
+                        "content_type": analysis.get("content_type"),
+                        "summary": analysis.get("summary"),
+                        "products_json": analysis.get("products"),
+                        "audience_json": analysis.get("audience"),
+                        "topics_json": analysis.get("topics"),
+                        "modules_json": analysis.get("modules"),
+                        "learning_objectives_json": analysis.get("learning_objectives"),
+                        "difficulty": analysis.get("difficulty"),
+                        "estimated_duration_min": analysis.get("estimated_duration_min"),
+                        "event_fit_json": analysis.get("event_fit"),
+                        "use_cases_json": analysis.get("use_cases"),
+                        "last_repo_commit": result.get("last_repo_commit"),
+                        "last_repo_updated": result.get("last_repo_updated"),
+                        "content_hash": result.get("content_hash"),
+                        "is_stale": False,
+                        "stale_commit": None,
+                    })
+                    db.clear_embeddings(result["ci_name"])
+                    db.store_embedding(
+                        ci_name=result["ci_name"], embed_type="ci_summary",
+                        content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                    )
+                    for mod_emb in result.get("module_embeddings", []):
                         db.store_embedding(
-                            ci_name=result["ci_name"], embed_type="ci_summary",
+                            ci_name=result["ci_name"], embed_type="module",
+                            module_title=mod_emb["module_title"],
+                            content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
+                        )
+                    db.set_scan_status(result["ci_name"], "success")
+
+                    # Propagate to siblings with same (url, ref)
+                    effective_url = item.get("showroom_url_override") or item["showroom_url"]
+                    siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
+                    propagated_set = {result["ci_name"]}
+                    analysis_data = {
+                        "ci_name": None,
+                        "content_type": analysis.get("content_type"),
+                        "summary": analysis.get("summary"),
+                        "products_json": analysis.get("products"),
+                        "audience_json": analysis.get("audience"),
+                        "topics_json": analysis.get("topics"),
+                        "modules_json": analysis.get("modules"),
+                        "learning_objectives_json": analysis.get("learning_objectives"),
+                        "difficulty": analysis.get("difficulty"),
+                        "estimated_duration_min": analysis.get("estimated_duration_min"),
+                        "event_fit_json": analysis.get("event_fit"),
+                        "use_cases_json": analysis.get("use_cases"),
+                        "last_repo_commit": result.get("last_repo_commit"),
+                        "last_repo_updated": result.get("last_repo_updated"),
+                        "content_hash": result.get("content_hash"),
+                        "is_stale": False,
+                        "stale_commit": None,
+                    }
+
+                    def _cli_propagate(sib_name):
+                        sib_data = dict(analysis_data)
+                        sib_data["ci_name"] = sib_name
+                        db.upsert_showroom_analysis(sib_data)
+                        db.clear_embeddings(sib_name)
+                        db.store_embedding(
+                            ci_name=sib_name, embed_type="ci_summary",
                             content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
                         )
                         for mod_emb in result.get("module_embeddings", []):
                             db.store_embedding(
-                                ci_name=result["ci_name"], embed_type="module",
+                                ci_name=sib_name, embed_type="module",
                                 module_title=mod_emb["module_title"],
                                 content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                             )
-                        db.set_scan_status(result["ci_name"], "success")
+                        db.set_scan_status(sib_name, "success")
 
-                        # Propagate to siblings with same (url, ref)
-                        effective_url = item.get("showroom_url_override") or item["showroom_url"]
-                        siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
-                        propagated_set = {result["ci_name"]}
-                        analysis_data = {
-                            "ci_name": None,
-                            "content_type": analysis.get("content_type"),
-                            "summary": analysis.get("summary"),
-                            "products_json": analysis.get("products"),
-                            "audience_json": analysis.get("audience"),
-                            "topics_json": analysis.get("topics"),
-                            "modules_json": analysis.get("modules"),
-                            "learning_objectives_json": analysis.get("learning_objectives"),
-                            "difficulty": analysis.get("difficulty"),
-                            "estimated_duration_min": analysis.get("estimated_duration_min"),
-                            "event_fit_json": analysis.get("event_fit"),
-                            "use_cases_json": analysis.get("use_cases"),
-                            "last_repo_commit": result.get("last_repo_commit"),
-                            "last_repo_updated": result.get("last_repo_updated"),
-                            "content_hash": result.get("content_hash"),
-                            "is_stale": False,
-                            "stale_commit": None,
-                        }
+                    for sibling in siblings:
+                        if sibling["ci_name"] not in propagated_set:
+                            _cli_propagate(sibling["ci_name"])
+                            propagated_set.add(sibling["ci_name"])
 
-                        def _cli_propagate(sib_name):
-                            sib_data = dict(analysis_data)
-                            sib_data["ci_name"] = sib_name
-                            db.upsert_showroom_analysis(sib_data)
-                            db.clear_embeddings(sib_name)
-                            db.store_embedding(
-                                ci_name=sib_name, embed_type="ci_summary",
-                                content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
-                            )
-                            for mod_emb in result.get("module_embeddings", []):
-                                db.store_embedding(
-                                    ci_name=sib_name, embed_type="module",
-                                    module_title=mod_emb["module_title"],
-                                    content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-                                )
-                            db.set_scan_status(sib_name, "success")
+                    # Propagate to SHA siblings (different ref, same commit)
+                    sha_sibs = sha_siblings_map.get(item["ci_name"], [])
+                    for sha_sib in sha_sibs:
+                        sib_name = sha_sib["ci_name"]
+                        if sib_name not in propagated_set:
+                            _cli_propagate(sib_name)
+                            propagated_set.add(sib_name)
+                            # Also propagate to this SHA sibling's ref-based siblings
+                            ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
+                            for ref_sib in ref_sibs:
+                                if ref_sib["ci_name"] not in propagated_set:
+                                    _cli_propagate(ref_sib["ci_name"])
+                                    propagated_set.add(ref_sib["ci_name"])
 
-                        for sibling in siblings:
-                            if sibling["ci_name"] not in propagated_set:
-                                _cli_propagate(sibling["ci_name"])
-                                propagated_set.add(sibling["ci_name"])
-
-                        # Propagate to SHA siblings (different ref, same commit)
-                        sha_sibs = sha_siblings_map.get(item["ci_name"], [])
-                        for sha_sib in sha_sibs:
-                            sib_name = sha_sib["ci_name"]
-                            if sib_name not in propagated_set:
-                                _cli_propagate(sib_name)
-                                propagated_set.add(sib_name)
-                                # Also propagate to this SHA sibling's ref-based siblings
-                                ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
-                                for ref_sib in ref_sibs:
-                                    if ref_sib["ci_name"] not in propagated_set:
-                                        _cli_propagate(ref_sib["ci_name"])
-                                        propagated_set.add(ref_sib["ci_name"])
-
-                        propagated = len(propagated_set) - 1
-                        completed += 1
-                        prop_msg = f" (+{propagated} siblings)" if propagated else ""
-                        _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
-                    else:
-                        errors += 1
-                        db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
-                        _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
-                except Exception as e:
-                    error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
+                    propagated = len(propagated_set) - 1
+                    completed += 1
+                    prop_msg = f" (+{propagated} siblings)" if propagated else ""
+                    _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
+                else:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
-                    _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
+                    db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
+                    _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
+            except Exception as e:
+                error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
+                errors += 1
+                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
 
-        elapsed = time.monotonic() - t0
-        _print(f"Done in {elapsed:.1f}s. {completed}/{total} analyzed, {errors} errors")
-    else:
-        _print("Nothing to analyze.")
-
-    # ── Metadata-only embedding pass ──
-    # Generate embeddings for items without Showroom URLs so they appear in advisor search
-    meta_items = db.get_items_needing_metadata_embedding()
-    if meta_items:
-        _print(f"Generating metadata embeddings for {len(meta_items)} item(s) without Showroom content...")
-        meta_done = 0
-        for mi in meta_items:
-            text = build_metadata_embedding_text(mi)
-            if not text.strip():
-                continue
-            embedding = generate_embedding(text)
-            db.store_embedding(
-                ci_name=mi["ci_name"],
-                embed_type="ci_summary",
-                content_text=text,
-                embedding=embedding,
-            )
-            meta_done += 1
-            if meta_done % 10 == 0 or meta_done == len(meta_items):
-                _print(f"  metadata embeddings: {meta_done}/{len(meta_items)}")
-        _print(f"Metadata embeddings complete: {meta_done} items.")
-
+    elapsed = time.monotonic() - t0
+    _print(f"Done in {elapsed:.1f}s. {completed}/{total} analyzed, {errors} errors")
     db.close()
 
 
