@@ -45,7 +45,6 @@ nav:
       - CLI Reference: admin/cli-guide.md
       - Token Usage: admin/token-usage.md
       - Operations: admin/operations.md
-      - Development: admin/development.md
 
 markdown_extensions:
   - tables
