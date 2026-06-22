@@ -562,20 +562,6 @@ def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = 
     return " ".join(str(p) for p in parts if p)
 
 
-def build_metadata_embedding_text(item: dict) -> str:
-    """Build embedding text from catalog metadata for items without Showroom content."""
-    parts = []
-    if item.get("display_name"):
-        parts.append(item["display_name"])
-    if item.get("description"):
-        parts.append(item["description"])
-    if item.get("category"):
-        parts.append(f"Category: {item['category']}")
-    if item.get("product"):
-        parts.append(f"Product: {item['product']}")
-    return "\n".join(parts)
-
-
 def build_module_embedding_text(module: dict[str, Any]) -> str:
     """Build text for module-level embedding."""
     parts = [
