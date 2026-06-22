@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, HttpUrl
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 
 router = APIRouter(prefix="/catalog")
@@ -230,13 +230,13 @@ async def flag_item(ci_name: str, request: Request, user: str = Depends(require_
 
 
 class OverrideUrlRequest(BaseModel):
-    url: str
+    url: HttpUrl
 
 
 @router.post("/{ci_name}/override-url")
 async def override_url(ci_name: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_showroom_url_override(ci_name, body.url)
+    db.set_showroom_url_override(ci_name, str(body.url))
     return {"status": "ok"}
 
 
