@@ -4,7 +4,6 @@ import json
 import shutil
 import structlog
 from pathlib import Path
-from typing import Any
 
 from rcars.services.analyzer import clone_showroom, ls_remote_sha
 from rcars.db import Database

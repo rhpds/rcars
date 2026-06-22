@@ -48,6 +48,7 @@ def test_translate_failed():
     assert "Vertex API 429" in result
 
 
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_relay_publishes_and_receives():
     redis = Redis.from_url("redis://localhost:6379", decode_responses=True)

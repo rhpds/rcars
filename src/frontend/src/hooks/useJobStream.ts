@@ -52,7 +52,13 @@ export function useJobStream(jobId: string | null): StreamState {
     const eventSource = new EventSource(`/api/v1/advisor/query/${jobId}/stream`)
 
     eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data)
+      let data: Record<string, unknown>
+      try {
+        data = JSON.parse(event.data)
+      } catch (err) {
+        console.error('Failed to parse SSE message:', err)
+        return
+      }
       setState(prev => {
         const newMessage: ProgressMessage = {
           phase: data.phase,

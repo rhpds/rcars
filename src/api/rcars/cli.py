@@ -113,7 +113,6 @@ def refresh():
 @click.option("--max", "max_analyze", type=int, default=None, help="Max items to analyze")
 def scan(max_analyze: int | None):
     """Analyze Showroom content via Sonnet API."""
-    import shutil
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
     from pathlib import Path

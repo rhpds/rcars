@@ -145,8 +145,18 @@ export function BrowsePage() {
   const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pollTimerRef = useRef<number | null>(null)
   const searchRef = useRef(search)
   searchRef.current = search
+
+  useEffect(() => {
+    return () => {
+      if (pollTimerRef.current != null) {
+        clearTimeout(pollTimerRef.current)
+        pollTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     api.getCatalogFacets().then(data => setFacets(data as Facets)).catch(() => {})
@@ -268,74 +278,121 @@ export function BrowsePage() {
   }
 
   const handleAnalyze = async (ciName: string) => {
-    setAnalyzing(ciName)
-    const { job_id } = await api.analyzeSingle(ciName)
-    const poll = async () => {
-      const result = await api.getJobStatus(job_id)
-      if (result.status === 'complete' || result.status === 'failed') {
-        setAnalyzing(null)
-        fetchItems(page)
-        if (expandedItems.has(ciName)) {
-          const detail = await api.getCatalogItem(ciName) as ItemDetail
-          setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    try {
+      setAnalyzing(ciName)
+      const { job_id } = await api.analyzeSingle(ciName)
+      const poll = async () => {
+        if (pollTimerRef.current == null) return
+        try {
+          const result = await api.getJobStatus(job_id)
+          if (result.status === 'complete' || result.status === 'failed') {
+            pollTimerRef.current = null
+            setAnalyzing(null)
+            fetchItems(page)
+            if (expandedItems.has(ciName)) {
+              const detail = await api.getCatalogItem(ciName) as ItemDetail
+              setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+            }
+          } else {
+            pollTimerRef.current = window.setTimeout(poll, 3000)
+          }
+        } catch (err) {
+          console.error('Polling error during analysis:', err)
+          pollTimerRef.current = null
+          setAnalyzing(null)
         }
-      } else {
-        setTimeout(poll, 3000)
       }
+      pollTimerRef.current = window.setTimeout(poll, 3000)
+    } catch (err) {
+      console.error('Failed to start analysis:', err)
+      setAnalyzing(null)
     }
-    setTimeout(poll, 3000)
   }
 
   const handleAddTag = async (ciName: string) => {
     const tag = (newTags[ciName] || '').trim()
     if (!tag) return
-    await api.addTag(ciName, 'label', tag)
-    setNewTags(prev => ({ ...prev, [ciName]: '' }))
-    const detail = await api.getCatalogItem(ciName) as ItemDetail
-    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    try {
+      await api.addTag(ciName, 'label', tag)
+      setNewTags(prev => ({ ...prev, [ciName]: '' }))
+      const detail = await api.getCatalogItem(ciName) as ItemDetail
+      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    } catch (err) {
+      console.error('Failed to add tag:', err)
+    }
   }
 
   const handleRemoveTag = async (ciName: string, tagId: number) => {
-    await api.removeTag(ciName, tagId)
-    const detail = await api.getCatalogItem(ciName) as ItemDetail
-    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    try {
+      await api.removeTag(ciName, tagId)
+      const detail = await api.getCatalogItem(ciName) as ItemDetail
+      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    } catch (err) {
+      console.error('Failed to remove tag:', err)
+    }
   }
 
   const handleSaveNote = async (ciName: string) => {
-    await api.setNote(ciName, noteTexts[ciName] || '')
+    try {
+      await api.setNote(ciName, noteTexts[ciName] || '')
+    } catch (err) {
+      console.error('Failed to save note:', err)
+    }
   }
 
   const handleSetContentPath = async (ciName: string) => {
     const path = contentPaths[ciName]?.trim() || null
     setScanningPath(prev => ({ ...prev, [ciName]: true }))
-    await api.setContentPath(ciName, path)
-    setTimeout(async () => {
-      const detail = await api.getCatalogItem(ciName) as ItemDetail
-      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    try {
+      await api.setContentPath(ciName, path)
+      setTimeout(async () => {
+        try {
+          const detail = await api.getCatalogItem(ciName) as ItemDetail
+          setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+          fetchItems(page)
+        } catch (err) {
+          console.error('Failed to refresh after content path scan:', err)
+        } finally {
+          setScanningPath(prev => ({ ...prev, [ciName]: false }))
+        }
+      }, 5000)
+    } catch (err) {
+      console.error('Failed to set content path:', err)
       setScanningPath(prev => ({ ...prev, [ciName]: false }))
-      fetchItems(page)
-    }, 5000)
+    }
   }
 
   const handleOverrideUrl = async (ciName: string) => {
     const url = overrideUrls[ciName]?.trim()
     if (!url) return
-    await api.overrideUrl(ciName, url)
-    const detail = await api.getCatalogItem(ciName) as ItemDetail
-    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    try {
+      await api.overrideUrl(ciName, url)
+      const detail = await api.getCatalogItem(ciName) as ItemDetail
+      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+    } catch (err) {
+      console.error('Failed to override URL:', err)
+    }
   }
 
   const handleSetDuration = async (ciName: string) => {
     const val = curatedDurations[ciName]?.trim()
     const durationMin = val ? parseInt(val, 10) : null
     if (val && isNaN(durationMin!)) return
-    await api.setCuratedDuration(ciName, durationMin)
+    try {
+      await api.setCuratedDuration(ciName, durationMin)
+    } catch (err) {
+      console.error('Failed to set duration:', err)
+    }
   }
 
   const handleFlag = async (ciName: string) => {
-    await api.flagItem(ciName)
-    setFlaggedItems(prev => new Set(prev).add(ciName))
-    fetchItems(page)
+    try {
+      await api.flagItem(ciName)
+      setFlaggedItems(prev => new Set(prev).add(ciName))
+      fetchItems(page)
+    } catch (err) {
+      console.error('Failed to flag item:', err)
+    }
   }
 
   return (
