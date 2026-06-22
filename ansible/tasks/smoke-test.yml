@@ -75,19 +75,20 @@
 - name: Parse smoke test result
   ansible.builtin.set_fact:
     smoke_parsed: "{{ smoke_result.stdout | from_json }}"
+    smoke_candidates: "{{ (smoke_result.stdout | from_json).result.candidates | default([]) }}"
 
 - name: Verify advisor returned results
   ansible.builtin.assert:
     that:
       - smoke_parsed.status == 'complete'
-      - smoke_parsed.recommendations | default([]) | length > 0
+      - smoke_candidates | length > 0
     fail_msg: >-
       Advisor smoke test FAILED.
       Status: {{ smoke_parsed.status | default('unknown') }}.
       Error: {{ smoke_parsed.error | default('none') }}.
-      Recommendations: {{ smoke_parsed.recommendations | default([]) | length }}.
+      Candidates: {{ smoke_candidates | length }}.
       This usually means the LLM provider (LiteMaaS/Vertex) is unreachable or
       returned an authentication error. Check recommend-worker logs:
         oc logs deployment/{{ app_name }}-recommend-worker -n {{ target_namespace }} --tail=50
     success_msg: >-
-      Advisor smoke test PASSED — {{ smoke_parsed.recommendations | length }} recommendations returned.
+      Advisor smoke test PASSED — {{ smoke_candidates | length }} candidates returned.
