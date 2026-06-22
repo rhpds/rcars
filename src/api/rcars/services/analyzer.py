@@ -356,6 +356,9 @@ def clone_showroom(
     url: str, ref: str | None, clone_dir: str = "/tmp"
 ) -> Path | None:
     """Shallow clone a Showroom repo. Returns clone path or None on failure."""
+    if not url.startswith("https://"):
+        raise ValueError(f"Only https:// URLs are allowed for cloning, got: {url}")
+
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
     suffix = uuid.uuid4().hex[:8]
     clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}-{suffix}"
