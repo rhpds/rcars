@@ -192,7 +192,10 @@ def call_llm(
     litemaas_models = fetch_litemaas_models(settings)
 
     if model in litemaas_models:
-        return _call_litemaas(settings, model, messages, max_tokens, temperature)
+        try:
+            return _call_litemaas(settings, model, messages, max_tokens, temperature)
+        except Exception as e:
+            logger.warning("litemaas_call_failed, falling back to anthropic/vertex", model=model, error=str(e))
 
     return _call_anthropic(settings, model, messages, max_tokens, temperature)
 

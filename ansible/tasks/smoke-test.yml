@@ -1,0 +1,93 @@
+---
+# End-to-end advisor smoke test — verifies the full pipeline:
+# vector search → LLM triage → LLM rationale → recommendations
+#
+# Runs a simple query against the advisor API from inside the cluster
+# and checks that results come back without errors.
+
+- name: Wait for recommend-worker rollout
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-recommend-worker
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=120s
+  changed_when: false
+
+- name: Wait for API rollout
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-api
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=120s
+  changed_when: false
+
+- name: Find running API pod
+  ansible.builtin.command:
+    cmd: >-
+      oc get pods -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      -l app={{ app_name }},component=api
+      --field-selector=status.phase=Running
+      --no-headers -o custom-columns=NAME:.metadata.name
+  register: smoke_api_pods
+  until: smoke_api_pods.stdout_lines | default([]) | length > 0
+  retries: 10
+  delay: 5
+
+- name: Select API pod for smoke test
+  ansible.builtin.set_fact:
+    smoke_pod: "{{ smoke_api_pods.stdout_lines[0] }}"
+
+- name: Submit advisor query
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    pod: "{{ smoke_pod }}"
+    command: >-
+      curl -s -X POST http://localhost:{{ app_port }}/api/v1/advisor/query
+      -H 'Content-Type: application/json'
+      -H 'X-Forwarded-Email: smoke-test@redhat.com'
+      -d '{"query": "OpenShift getting started demo", "include_zt": false}'
+  register: smoke_query
+  failed_when: smoke_query.rc != 0
+
+- name: Parse query job ID
+  ansible.builtin.set_fact:
+    smoke_job_id: "{{ (smoke_query.stdout | from_json).job_id }}"
+
+- name: "Poll advisor result (job {{ smoke_job_id }})"
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    pod: "{{ smoke_pod }}"
+    command: >-
+      curl -s http://localhost:{{ app_port }}/api/v1/advisor/query/{{ smoke_job_id }}/result
+      -H 'X-Forwarded-Email: smoke-test@redhat.com'
+  register: smoke_result
+  until: >-
+    (smoke_result.stdout | from_json).status | default('') in ['complete', 'failed']
+  retries: 30
+  delay: 5
+  failed_when: smoke_result.rc != 0
+
+- name: Parse smoke test result
+  ansible.builtin.set_fact:
+    smoke_parsed: "{{ smoke_result.stdout | from_json }}"
+
+- name: Verify advisor returned results
+  ansible.builtin.assert:
+    that:
+      - smoke_parsed.status == 'complete'
+      - smoke_parsed.recommendations | default([]) | length > 0
+    fail_msg: >-
+      Advisor smoke test FAILED.
+      Status: {{ smoke_parsed.status | default('unknown') }}.
+      Error: {{ smoke_parsed.error | default('none') }}.
+      Recommendations: {{ smoke_parsed.recommendations | default([]) | length }}.
+      This usually means the LLM provider (LiteMaaS/Vertex) is unreachable or
+      returned an authentication error. Check recommend-worker logs:
+        oc logs deployment/{{ app_name }}-recommend-worker -n {{ target_namespace }} --tail=50
+    success_msg: >-
+      Advisor smoke test PASSED — {{ smoke_parsed.recommendations | length }} recommendations returned.
