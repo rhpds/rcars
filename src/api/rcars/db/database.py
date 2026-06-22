@@ -6,7 +6,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import psycopg
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
