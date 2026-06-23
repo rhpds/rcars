@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
+from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -301,7 +302,8 @@ class Database:
             conn.commit()
 
     def drop_schema(self):
-        is_local = "localhost" in self._url or "127.0.0.1" in self._url
+        hostname = urlsplit(self._url).hostname or ""
+        is_local = hostname in ("localhost", "127.0.0.1")
         allow_env = os.environ.get("RCARS_ALLOW_DROP", "").lower() == "true"
         if not is_local and not allow_env:
             raise RuntimeError(
