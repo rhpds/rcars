@@ -17,6 +17,13 @@ import structlog
 
 logger = structlog.get_logger()
 
+NO_MATCH_GUIDANCE = (
+    "I help with content recommendations, but I couldn't find a match with the "
+    "detail provided. Try adding more detail — describe the topic, audience, "
+    "product area, or format you need.\n\n"
+    "I currently know about all RHDP items that have demo or lab guides."
+)
+
 
 _ACRONYMS = {
     "AAP": "Ansible Automation Platform",
@@ -228,6 +235,7 @@ async def run_query(
                 "candidate_data": serialize_candidates(state.candidates)})
 
     if state.phase == "NO_MATCHES":
+        state.overall_assessment = NO_MATCH_GUIDANCE
         await emit({"phase": "complete", "results": 0})
         return state
 
@@ -240,6 +248,7 @@ async def run_query(
                 "candidate_data": serialize_candidates(state.candidates)})
 
     if state.phase == "NO_MATCHES":
+        state.overall_assessment = NO_MATCH_GUIDANCE
         await emit({"phase": "complete", "results": 0})
         return state
 
