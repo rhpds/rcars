@@ -184,27 +184,33 @@ def call_llm(
     messages: list[dict],
     max_tokens: int,
     temperature: float = 0,
+    system: str | None = None,
 ) -> LLMResult:
     """Unified LLM call with automatic provider routing.
 
     LiteMaaS preferred if configured and has the model; Vertex/Anthropic as fallback.
+    When system is provided, it is passed as the system prompt (Anthropic API system
+    parameter, or OpenAI-style system role message for LiteMaaS).
     """
     litemaas_models = fetch_litemaas_models(settings)
 
     if model in litemaas_models:
         try:
-            return _call_litemaas(settings, model, messages, max_tokens, temperature)
+            return _call_litemaas(settings, model, messages, max_tokens, temperature, system)
         except Exception as e:
             logger.warning("litemaas_call_failed, falling back to anthropic/vertex", model=model, error=str(e))
 
-    return _call_anthropic(settings, model, messages, max_tokens, temperature)
+    return _call_anthropic(settings, model, messages, max_tokens, temperature, system)
 
 
-def _call_litemaas(settings, model, messages, max_tokens, temperature):
+def _call_litemaas(settings, model, messages, max_tokens, temperature, system=None):
     client = settings.get_litemaas_client()
+    llm_messages = messages
+    if system:
+        llm_messages = [{"role": "system", "content": system}] + messages
     response = client.chat.completions.create(
         model=model,
-        messages=messages,
+        messages=llm_messages,
         max_tokens=max_tokens,
         temperature=temperature,
     )
@@ -218,16 +224,19 @@ def _call_litemaas(settings, model, messages, max_tokens, temperature):
     )
 
 
-def _call_anthropic(settings, model, messages, max_tokens, temperature):
+def _call_anthropic(settings, model, messages, max_tokens, temperature, system=None):
     client = settings.get_anthropic_client()
     if client is None:
         raise RuntimeError("No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
-    response = client.messages.create(
+    kwargs = dict(
         model=model,
         max_tokens=max_tokens,
         temperature=temperature,
         messages=messages,
     )
+    if system:
+        kwargs["system"] = system
+    response = client.messages.create(**kwargs)
     if not response.content:
         raise RuntimeError(f"Anthropic returned empty content for model {model}")
     provider = "vertex" if settings.use_vertex else "anthropic"
