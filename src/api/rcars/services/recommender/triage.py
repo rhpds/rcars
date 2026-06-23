@@ -47,14 +47,14 @@ def triage(
     template = TRIAGE_PROMPT_PATH.read_text()
     candidates_text = format_triage_candidates(state.candidates)
 
-    prompt = (
-        template
-        .replace("{request_description}", state.query)
-        .replace("{candidates}", candidates_text)
-    )
+    # Separate system instructions from user-supplied data (security: M-1/M-4)
+    data_start = template.index("\n## Request\n")
+    instructions_resume = template.index("\nFor each candidate,")
+    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_resume:].strip()
+    user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
 
     from rcars.config import call_llm
-    result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
+    result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
     response_text = result.text
     triage_results = parse_analysis_response(response_text)
