@@ -486,8 +486,11 @@ def build_analysis_prompt(
     category: str,
     product: str,
     content_files: dict[str, str],
-) -> str:
-    """Build the analysis prompt from template and content."""
+) -> tuple[str, str]:
+    """Build analysis prompt split into system instructions and user data.
+
+    Returns (system_prompt, user_message) for system/user separation (M-1/M-4).
+    """
     template = PROMPT_TEMPLATE_PATH.read_text()
 
     # Concatenate file contents with headers
@@ -497,20 +500,23 @@ def build_analysis_prompt(
     all_content = "\n\n".join(content_parts)
     all_content = truncate_content(all_content)
 
-    # Use simple string replacement instead of str.format() to avoid KeyErrors
-    # from AsciiDoc {attribute} syntax in both the template (JSON examples)
-    # and the content files.
-    substitutions = {
-        "{ci_name}": ci_name,
-        "{display_name}": display_name or ci_name,
-        "{category}": category or "Unknown",
-        "{product}": product or "Unknown",
-        "{content_files}": all_content,
-    }
-    result = template
-    for placeholder, value in substitutions.items():
-        result = result.replace(placeholder, value)
-    return result
+    # Split template: system gets role + instructions, user gets item info + content
+    item_info_start = template.index("\n## Item Information\n")
+    instructions_start = template.index("\n## Instructions\n")
+    content_start = template.index("\n## Showroom Content\n")
+
+    system_prompt = template[:item_info_start].strip() + "\n\n" + template[instructions_start:content_start].strip()
+
+    user_message = (
+        f"## Item Information\n"
+        f"- CI Name: {ci_name}\n"
+        f"- Display Name: {display_name or ci_name}\n"
+        f"- Category: {category or 'Unknown'}\n"
+        f"- Product: {product or 'Unknown'}\n\n"
+        f"## Showroom Content\n\n{all_content}"
+    )
+
+    return system_prompt, user_message
 
 
 _embedding_lock = threading.Lock()
@@ -631,13 +637,13 @@ def analyze_showroom(
         content_hash = hash_showroom_content(content_files)
 
         # Build prompt and call Sonnet
-        prompt = build_analysis_prompt(
+        system_prompt, user_message = build_analysis_prompt(
             ci_name, display_name, category, product, content_files
         )
-        log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(prompt))
+        log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(system_prompt) + len(user_message))
 
         from rcars.config import call_llm
-        result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=8192)
+        result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
         input_tokens = result.input_tokens
         output_tokens = result.output_tokens
