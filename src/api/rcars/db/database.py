@@ -677,9 +677,15 @@ class Database:
             )
             conn.commit()
 
-    def remove_enrichment_tag_by_id(self, tag_id: int) -> None:
+    def remove_enrichment_tag_by_id(self, tag_id: int, ci_name: str | None = None) -> None:
+        if ci_name is not None:
+            sql = "DELETE FROM enrichment_tags WHERE id = %s AND ci_name = %s"
+            params = (tag_id, ci_name)
+        else:
+            sql = "DELETE FROM enrichment_tags WHERE id = %s"
+            params = (tag_id,)
         with self._pool.connection() as conn:
-            conn.execute("DELETE FROM enrichment_tags WHERE id = %s", (tag_id,))
+            conn.execute(sql, params)
             conn.commit()
 
     def get_enrichment_tags(self, ci_name: str) -> list[dict]:
@@ -1366,12 +1372,15 @@ class Database:
             conn.commit()
         return row_id
 
-    def update_advisor_session_choice(self, session_id: str, turn_index: int, chosen_ci_name: str) -> None:
+    def update_advisor_session_choice(self, session_id: str, turn_index: int, chosen_ci_name: str, user_email: str | None = None) -> None:
+        if user_email is not None:
+            sql = "UPDATE advisor_sessions SET chosen_ci_name = %s, chosen_at = NOW() WHERE session_id = %s AND turn_index = %s AND user_email = %s"
+            params = (chosen_ci_name, session_id, turn_index, user_email)
+        else:
+            sql = "UPDATE advisor_sessions SET chosen_ci_name = %s, chosen_at = NOW() WHERE session_id = %s AND turn_index = %s"
+            params = (chosen_ci_name, session_id, turn_index)
         with self._pool.connection() as conn:
-            conn.execute(
-                "UPDATE advisor_sessions SET chosen_ci_name = %s, chosen_at = NOW() WHERE session_id = %s AND turn_index = %s",
-                (chosen_ci_name, session_id, turn_index),
-            )
+            conn.execute(sql, params)
             conn.commit()
 
     def list_advisor_sessions(self, user_email: str | None = None, limit: int = 50) -> list[dict]:
@@ -1385,12 +1394,15 @@ class Database:
             cur = conn.execute(sql, params)
             return cur.fetchall()
 
-    def get_advisor_session(self, session_id: str) -> list[dict]:
+    def get_advisor_session(self, session_id: str, user_email: str | None = None) -> list[dict]:
+        if user_email is not None:
+            sql = "SELECT * FROM advisor_sessions WHERE session_id = %s AND user_email = %s ORDER BY turn_index"
+            params = (session_id, user_email)
+        else:
+            sql = "SELECT * FROM advisor_sessions WHERE session_id = %s ORDER BY turn_index"
+            params = (session_id,)
         with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM advisor_sessions WHERE session_id = %s ORDER BY turn_index",
-                (session_id,),
-            )
+            cur = conn.execute(sql, params)
             return cur.fetchall()
 
     # ── Audit log ──
