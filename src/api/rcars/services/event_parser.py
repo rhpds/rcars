@@ -4,10 +4,8 @@ Fetches event web pages, follows links to schedule/program/tracks pages,
 and extracts structured profiles via Sonnet.
 """
 
-import ipaddress
 import logging
 import re
-import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -33,44 +31,8 @@ _HTTP_HEADERS = {
 }
 
 
-_PRIVATE_NETWORKS = [
-    ipaddress.ip_network("127.0.0.0/8"),
-    ipaddress.ip_network("10.0.0.0/8"),
-    ipaddress.ip_network("172.16.0.0/12"),
-    ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),
-    ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),
-]
-
-
-def _validate_url(url: str) -> None:
-    """Validate URL scheme and ensure the hostname does not resolve to a private/internal IP."""
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError(f"URL scheme must be http or https, got: {parsed.scheme!r}")
-
-    hostname = parsed.hostname
-    if not hostname:
-        raise ValueError(f"URL has no hostname: {url}")
-
-    try:
-        addrinfos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror as e:
-        raise ValueError(f"Cannot resolve hostname {hostname!r}: {e}")
-
-    for family, _type, _proto, _canonname, sockaddr in addrinfos:
-        ip = ipaddress.ip_address(sockaddr[0])
-        for network in _PRIVATE_NETWORKS:
-            if ip in network:
-                raise ValueError(
-                    f"URL resolves to private/internal IP {ip} (network {network}): {url}"
-                )
-
-
 def _fetch_html(url: str, timeout: int = 30) -> str | None:
     """Fetch a URL and return raw HTML, or None on failure."""
-    _validate_url(url)
     try:
         response = httpx.get(url, follow_redirects=True, timeout=timeout,
                              headers=_HTTP_HEADERS)
