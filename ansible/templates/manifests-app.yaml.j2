@@ -300,6 +300,7 @@ spec:
               command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
             initialDelaySeconds: 30
             periodSeconds: 60
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: {{ worker_cpu_request }}
@@ -411,6 +412,7 @@ spec:
               command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
             initialDelaySeconds: 30
             periodSeconds: 60
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: {{ recommend_worker_cpu_request }}
