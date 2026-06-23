@@ -3,6 +3,7 @@
 import logging
 import time
 
+from rcars.config import STAGE_PRIORITY
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
@@ -39,7 +40,6 @@ def search(
     #   1. Prefer prod over dev/event (prod is orderable by all users)
     #   2. Prefer published over base (published is the orderable CI)
     #   3. Break ties by vector distance
-    stage_priority = {"prod": 0, "event": 1, "dev": 2}
     rows_by_content: dict[tuple, dict] = {}
     for row in rows:
         if row["distance"] > distance_cutoff:
@@ -64,8 +64,8 @@ def search(
         if existing is None:
             rows_by_content[content_key] = row
         else:
-            row_stage = stage_priority.get(row.get("stage", "prod"), 9)
-            ex_stage = stage_priority.get(existing.get("stage", "prod"), 9)
+            row_stage = STAGE_PRIORITY.get(row.get("stage", "prod"), 9)
+            ex_stage = STAGE_PRIORITY.get(existing.get("stage", "prod"), 9)
             row_pub = 0 if row.get("is_published") else 1
             ex_pub = 0 if existing.get("is_published") else 1
             row_rank = (row_stage, row_pub, row["distance"])

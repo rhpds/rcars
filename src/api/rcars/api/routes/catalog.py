@@ -218,7 +218,7 @@ class NoteRequest(BaseModel):
 @router.put("/{ci_name}/note")
 async def set_note(ci_name: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_enrichment_note(ci_name, body.note, updated_by=user)
+    db.set_enrichment_note(ci_name, body.note)
     return {"status": "ok"}
 
 
