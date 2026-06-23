@@ -241,6 +241,31 @@ CREATE TABLE IF NOT EXISTS content_similarity (
 CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(ci_name_a);
 CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(ci_name_b);
 CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
+
+CREATE TABLE IF NOT EXISTS reporting_metrics (
+    catalog_base_name  TEXT PRIMARY KEY,
+    display_name       TEXT NOT NULL,
+    provisions         INTEGER NOT NULL DEFAULT 0,
+    provisions_quarter INTEGER NOT NULL DEFAULT 0,
+    requests           INTEGER NOT NULL DEFAULT 0,
+    experiences        INTEGER NOT NULL DEFAULT 0,
+    unique_users       INTEGER NOT NULL DEFAULT 0,
+    success_ratio      NUMERIC NOT NULL DEFAULT 0,
+    failure_ratio      NUMERIC NOT NULL DEFAULT 0,
+    touched_amount     NUMERIC NOT NULL DEFAULT 0,
+    closed_amount      NUMERIC NOT NULL DEFAULT 0,
+    total_cost         NUMERIC NOT NULL DEFAULT 0,
+    avg_cost_per_provision NUMERIC NOT NULL DEFAULT 0,
+    first_provision    DATE,
+    last_provision     DATE,
+    retirement_score   INTEGER NOT NULL DEFAULT 0,
+    synced_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    quarterly_data     JSONB DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
+    ON reporting_metrics (retirement_score DESC);
+CREATE INDEX IF NOT EXISTS ix_reporting_metrics_display_name
+    ON reporting_metrics (display_name);
 """
 
 STAGE_PRIORITY = {"prod": 0, "event": 1, "dev": 2}
@@ -275,7 +300,7 @@ class Database:
 
     def drop_schema(self):
         tables = [
-            "content_similarity",
+            "content_similarity", "reporting_metrics",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "catalog_item_workloads", "catalog_item_acl_groups",
