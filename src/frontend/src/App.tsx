@@ -40,6 +40,7 @@ export default function App() {
                     <Route path="/analysis/retirement" element={<RetirementPage />} />
                     <Route path="/admin" element={<Navigate to="/admin/catalog" replace />} />
                     <Route path="/admin/catalog" element={<AdminCatalogPage />} />
+                    <Route path="/admin/workers" element={<Navigate to="/admin/catalog" replace />} />
                     <Route path="/admin/tokens" element={<AdminTokensPage />} />
                     <Route path="/admin/queries" element={<AdminQueriesPage />} />
                   </>
