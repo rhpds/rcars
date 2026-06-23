@@ -890,12 +890,6 @@ function RecentJobsSection() {
   )
 }
 
-export function AdminWorkersPage() {
-  const navigate = useNavigate()
-  useEffect(() => { navigate('/admin/catalog', { replace: true }) }, [navigate])
-  return null
-}
-
 // ── Token Usage Page ──
 
 interface TokenStats {
