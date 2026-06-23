@@ -27,6 +27,26 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-22 — Nate + Claude (LLM fallback, scoring, deploy reliability, overlap fix)
+
+**Done:**
+- **LLM fallback**: `call_llm()` now wraps LiteMaaS in try/except and falls back to Vertex/Anthropic on any error. Previously a LiteMaaS 401 crashed the entire request with no fallback.
+- **Score capping**: `_apply_usage_boost()` and `_apply_duration_penalty()` now clamp scores to 0–100. Frontend `RecCard.tsx` also clamps. Fixes 104% display bug on recommendation cards.
+- **Deploy reliability**: Added `checksum/secrets` annotation to API, scan-worker, and recommend-worker pod templates. Secret value changes (e.g. API key rotation) now trigger automatic rollouts on `--tags apply` — no more stale credentials.
+- **Advisor smoke test**: New `tasks/smoke-test.yml` runs end-to-end advisor query after deploy/apply. Verifies LLM connectivity. Runs on `--tags deploy`, `--tags apply`, `--tags smoke-test`.
+- **Content overlap stage filter**: `get_overlap_report()` and `get_similarity_stats()` now accept a `stage` parameter. Frontend passes selected stage and reloads on stage change. Fixes bug where switching between prod/event/dev showed stale pairs from other stages.
+- **LiteMaaS key rotation**: Updated API key in dev and prod vars, rolled out to both environments. Discovered pods weren't restarting because `secretKeyRef` env vars are only read at pod startup — the checksum annotation fix prevents this going forward.
+- **PR #19 merged to production**: All fixes deployed to prod with smoke test passing (23 candidates).
+
+**In progress:**
+- Nothing — all items shipped
+
+**Next:**
+- Monitor prod for any LiteMaaS issues with the new key
+- Overlap fix needs PR to production when ready
+
+---
+
 ### 2026-06-22 — Nate + Claude (Documentation overhaul — web guide + admin docs)
 
 **Done:**
