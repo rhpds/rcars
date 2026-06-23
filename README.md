@@ -25,6 +25,12 @@ Full documentation is published at **[rhpds.github.io/rcars](https://rhpds.githu
 - [Operations](https://rhpds.github.io/rcars/admin/operations/) — Deployment, monitoring, and maintenance
 - [Development](https://rhpds.github.io/rcars/admin/development/) — Local setup and contributing
 
+## Contributing
+
+All changes must go through a pull request to the `main` branch. The project owner will review and merge. Direct pushes to `main` are blocked by branch protection.
+
+To promote changes to production, open a PR from `main` to the `production` branch. See the [Deployment Guide](https://rhpds.github.io/rcars/admin/deployment/) for the full release process.
+
 ## Deployment
 
 RCARS is deployed to OpenShift via Ansible. See `ansible/` for playbooks and `ansible/vars/common.yml` for shared configuration. Environment-specific vars (`dev.yml`, `prod.yml`) are gitignored.
