@@ -1,12 +1,12 @@
 # RCARS Backlog
 
-Last updated: 2026-06-18
+Last updated: 2026-06-23
 
 ## Active Work (June 2026)
 
 - [x] **Soft-delete catalog items (preserve retired content)** — deployed 2026-06-18
 - [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard. Pairs with soft-delete — retirement status persists after the item leaves Babylon.
-- [ ] **Migrate to new babydev cluster (deadline end of June)** — Current Babylon readonly cluster (babydev) is being retired. RCARS uses it for catalog refresh (CRD queries via kubeconfig). Need to update kubeconfig paths in `ansible/vars/dev.yml` and `ansible/vars/prod.yml`, verify CRD access on the new cluster, and confirm the nightly pipeline works. Impacts: `babylon_kubeconfig_path` var, potentially `agnosticv_component_namespace` and `catalog_namespaces` if they differ on the new cluster. Targeting next week after soft-delete is deployed.
+- [x] **Migrate to new babydev cluster** — deployed to dev 2026-06-23. Catalog refresh verified (1,080 items). Prod uses separate cluster, not affected.
 - [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
 
 ## Bugs
