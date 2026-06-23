@@ -207,7 +207,7 @@ async def add_tag(ci_name: str, body: TagRequest, request: Request, user: str = 
 @router.delete("/{ci_name}/tags/{tag_id}")
 async def remove_tag(ci_name: str, tag_id: int, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.remove_enrichment_tag_by_id(tag_id)
+    db.remove_enrichment_tag_by_id(tag_id, ci_name=ci_name)
     return {"status": "ok"}
 
 

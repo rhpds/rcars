@@ -72,7 +72,7 @@ async def _validate_sa_token(token: str, allowlist: set[str]) -> str | None:
         return None
 
 
-async def get_current_user(request: Request) -> str:
+async def get_current_user(request: Request) -> str | None:
     settings: Settings = request.app.state.settings
     if settings.dev_user:
         return settings.dev_user
@@ -91,7 +91,7 @@ async def get_current_user(request: Request) -> str:
     email = request.headers.get("X-Forwarded-Email", "")
     if not email:
         email = request.headers.get("X-Forwarded-User", "")
-    return email
+    return email or None
 
 
 async def require_auth(request: Request) -> str:
