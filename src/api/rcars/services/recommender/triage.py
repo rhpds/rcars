@@ -49,8 +49,8 @@ def triage(
 
     # Separate system instructions from user-supplied data (security: M-1/M-4)
     data_start = template.index("\n## Request\n")
-    instructions_resume = template.index("\nFor each candidate,")
-    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_resume:].strip()
+    instructions_start = template.index("\n## Instructions\n")
+    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
     user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
 
     from rcars.config import call_llm
