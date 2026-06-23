@@ -33,16 +33,8 @@ function renderMarkdown(text: string) {
     listItems = []
   }
 
-  const escapeHtml = (s: string) =>
-    s.replace(/&/g, '&amp;')
-     .replace(/</g, '&lt;')
-     .replace(/>/g, '&gt;')
-     .replace(/"/g, '&quot;')
-     .replace(/'/g, '&#39;')
-
   const inlineMd = (s: string) =>
-    escapeHtml(s)
-     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
      .replace(/`([^`]+)`/g, '<code style="background:#1a2030;padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
 
   for (let i = 0; i < lines.length; i++) {
