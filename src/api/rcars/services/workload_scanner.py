@@ -24,6 +24,8 @@ WORKLOAD_SYSTEM_PROMPT = """\
 You are analyzing an Ansible role from the AgnosticD v2 automation framework.
 Your job is to determine what Red Hat product, operator, or service this role installs or configures on an OpenShift cluster or RHEL system.
 
+Use ONLY the code provided to determine what the role does — do not guess from the name.
+
 Respond with a JSON object:
 {
   "product_name": "Human-readable product name (e.g. 'OpenShift AI', 'Advanced Cluster Security')",
@@ -39,8 +41,6 @@ Return ONLY the JSON object, no other text."""
 WORKLOAD_USER_TEMPLATE = """\
 Role name: {role_name}
 Collection: {collection_name}
-
-Below is the actual code from this role. Use ONLY the code to determine what this role does — do not guess from the name.
 
 {code_content}"""
 
