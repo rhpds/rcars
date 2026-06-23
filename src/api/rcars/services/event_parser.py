@@ -4,8 +4,10 @@ Fetches event web pages, follows links to schedule/program/tracks pages,
 and extracts structured profiles via Sonnet.
 """
 
+import ipaddress
 import logging
 import re
+import socket
 from pathlib import Path
 from typing import Any
 from urllib.parse import urljoin, urlparse
@@ -31,14 +33,50 @@ _HTTP_HEADERS = {
 }
 
 
-def _fetch_html(url: str, timeout: int = 30) -> str | None:
-    """Fetch a URL and return raw HTML, or None on failure."""
+def _validate_url(url: str) -> None:
+    """Validate URL scheme and ensure hostname does not resolve to a private/internal IP."""
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(f"URL scheme must be http or https, got: {parsed.scheme!r}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError(f"URL has no hostname: {url}")
+
     try:
-        response = httpx.get(url, follow_redirects=True, timeout=timeout,
-                             headers=_HTTP_HEADERS)
-        response.raise_for_status()
-        return response.text
-    except httpx.HTTPError as e:
+        addrinfos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as e:
+        raise ValueError(f"Cannot resolve hostname {hostname!r}: {e}")
+
+    for _family, _type, _proto, _canonname, sockaddr in addrinfos:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if hasattr(ip, "ipv4_mapped") and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
+        if not ip.is_global:
+            raise ValueError(
+                f"URL resolves to non-global IP {ip}: {url}"
+            )
+
+
+def _fetch_html(url: str, timeout: int = 30, _max_redirects: int = 5) -> str | None:
+    """Fetch a URL and return raw HTML, or None on failure."""
+    _validate_url(url)
+    try:
+        for _ in range(_max_redirects):
+            response = httpx.get(url, follow_redirects=False, timeout=timeout,
+                                 headers=_HTTP_HEADERS)
+            if response.is_redirect:
+                location = response.headers.get("location", "")
+                if not location:
+                    return None
+                url = urljoin(str(response.url), location)
+                _validate_url(url)
+                continue
+            response.raise_for_status()
+            return response.text
+        log.warning("event_parser: too many redirects for %s", url)
+        return None
+    except (httpx.HTTPError, ValueError) as e:
         log.warning("event_parser: failed to fetch %s: %s", url, e)
         return None
 
