@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -300,6 +301,14 @@ class Database:
             conn.commit()
 
     def drop_schema(self):
+        is_local = "localhost" in self._url or "127.0.0.1" in self._url
+        allow_env = os.environ.get("RCARS_ALLOW_DROP", "").lower() == "true"
+        if not is_local and not allow_env:
+            raise RuntimeError(
+                "drop_schema() refused: target is not localhost and "
+                "RCARS_ALLOW_DROP=true is not set."
+            )
+
         tables = [
             "content_similarity", "reporting_metrics",
             "embeddings", "enrichment_tags", "showroom_analysis",

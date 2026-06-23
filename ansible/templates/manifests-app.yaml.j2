@@ -295,6 +295,11 @@ spec:
 {% endif %}
             - name: clone-workspace
               mountPath: /tmp/rcars-clones
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
           resources:
             requests:
               cpu: {{ worker_cpu_request }}
@@ -401,6 +406,11 @@ spec:
               subPath: credentials.json
               readOnly: true
 {% endif %}
+          livenessProbe:
+            exec:
+              command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
           resources:
             requests:
               cpu: {{ recommend_worker_cpu_request }}
