@@ -55,9 +55,9 @@ def format_rationale_candidates(
             if mod_titles:
                 lines.append(f"Modules: {'; '.join(mod_titles)}")
 
-        event_fit = analysis.get("event_fit_json", {})
-        if event_fit:
-            lines.append(f"Event Fit: {json.dumps(event_fit)}")
+        format_suit = analysis.get("format_suitability_json", {})
+        if format_suit:
+            lines.append(f"Format Suitability: {json.dumps(format_suit)}")
 
         parts.append("\n".join(lines))
 
