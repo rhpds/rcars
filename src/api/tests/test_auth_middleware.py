@@ -207,10 +207,10 @@ class TestGetCurrentUser:
         result = await get_current_user(request)
         assert result == "user@redhat.com"
 
-    async def test_no_auth_returns_empty(self):
+    async def test_no_auth_returns_none(self):
         request = _make_request(headers={})
         result = await get_current_user(request)
-        assert result == ""
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
