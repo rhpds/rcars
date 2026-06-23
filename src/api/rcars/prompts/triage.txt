@@ -10,6 +10,8 @@ Be strict: a partial topic overlap is not relevance. If the content does not mea
 
 {candidates}
 
+## Instructions
+
 For each candidate, evaluate whether its content directly addresses the request. Return ONLY valid JSON (no markdown fences, no explanation):
 
 [

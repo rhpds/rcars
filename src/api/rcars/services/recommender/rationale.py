@@ -94,14 +94,14 @@ def generate_rationale(
     template = RATIONALE_PROMPT_PATH.read_text()
     candidates_text = format_rationale_candidates(top_candidates, analyses)
 
-    prompt = (
-        template
-        .replace("{request_description}", state.query)
-        .replace("{candidates}", candidates_text)
-    )
+    # Separate system instructions from user-supplied data (security: M-1/M-4)
+    data_start = template.index("\n## Request\n")
+    instructions_start = template.index("\n## Instructions\n")
+    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
+    user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
 
     from rcars.config import call_llm
-    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=4096)
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=4096, system=system_prompt)
 
     result = parse_analysis_response(llm_result.text)
 

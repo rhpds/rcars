@@ -185,10 +185,15 @@ def parse_event_url(
     log.info("event_parser: sending %d chars to %s for analysis", len(page_text), model)
 
     template = EVENT_PROMPT_PATH.read_text()
-    prompt = template.replace("{page_content}", page_text)
+
+    # Separate system instructions from user-supplied data (security: M-1/M-4)
+    page_start = template.index("\n## Page Content\n")
+    instructions_start = template.index("\n## Instructions\n")
+    system_prompt = template[:page_start].strip() + "\n\n" + template[instructions_start:].strip()
+    user_message = f"## Page Content\n\n{page_text}"
 
     from rcars.config import call_llm
-    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=4096)
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=4096, system=system_prompt)
 
     input_tokens = llm_result.input_tokens
     output_tokens = llm_result.output_tokens

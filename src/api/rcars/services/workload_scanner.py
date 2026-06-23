@@ -20,27 +20,29 @@ AGDV2_COLLECTIONS = [
     {"name": "agnosticd.showroom", "url": "https://github.com/agnosticd/showroom.git"},
 ]
 
-WORKLOAD_ANALYSIS_PROMPT = """You are analyzing an Ansible role from the AgnosticD v2 automation framework.
+WORKLOAD_SYSTEM_PROMPT = """\
+You are analyzing an Ansible role from the AgnosticD v2 automation framework.
 Your job is to determine what Red Hat product, operator, or service this role installs or configures on an OpenShift cluster or RHEL system.
 
-Role name: {role_name}
-Collection: {collection_name}
-
-Below is the actual code from this role. Use ONLY the code to determine what this role does — do not guess from the name.
-
-{code_content}
+Use ONLY the code provided to determine what the role does — do not guess from the name.
 
 Respond with a JSON object:
-{{
+{
   "product_name": "Human-readable product name (e.g. 'OpenShift AI', 'Advanced Cluster Security')",
   "description": "One sentence describing what this role installs/configures",
   "category": "One of: ai_ml, cicd, security, storage, virtualization, networking, runtime, developer_tools, registry, management, automation, messaging, auth, platform, monitoring, other",
   "is_infrastructure_plumbing": true/false
-}}
+}
 
 Set is_infrastructure_plumbing to true if this role is internal setup (authentication, showroom deployment, bastion configuration, namespace creation, certificate management) rather than a user-facing product that someone would search for.
 
 Return ONLY the JSON object, no other text."""
+
+WORKLOAD_USER_TEMPLATE = """\
+Role name: {role_name}
+Collection: {collection_name}
+
+{code_content}"""
 
 
 def read_role_code(role_path: Path, max_chars: int = 12000) -> str:
@@ -105,7 +107,7 @@ def analyze_role(
                  collection=collection_name, role=role_name, reason="no readable code")
         return None
 
-    prompt = WORKLOAD_ANALYSIS_PROMPT.format(
+    user_message = WORKLOAD_USER_TEMPLATE.format(
         role_name=role_name,
         collection_name=collection_name,
         code_content=code_content,
@@ -113,7 +115,7 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": prompt}], max_tokens=1024)
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT)
 
         input_tokens = llm_result.input_tokens
         output_tokens = llm_result.output_tokens
