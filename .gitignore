@@ -50,3 +50,6 @@ ansible/vars/prod.yml
 node_modules
 tsconfig.tsbuildinfo
 /OPERATIONS.md
+
+# Security audit reports (never commit)
+docs/admin/security-audit.md
