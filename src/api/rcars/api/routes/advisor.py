@@ -77,7 +77,7 @@ async def list_sessions(request: Request, user: str = Depends(require_auth)):
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
-    turns = db.get_advisor_session(session_id)
+    turns = db.get_advisor_session(session_id, user_email=user)
     if not turns:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"session_id": session_id, "turns": turns}
@@ -88,9 +88,13 @@ async def select_recommendation(
     session_id: str, body: SelectRequest, request: Request, user: str = Depends(require_auth)
 ):
     db = request.app.state.db
+    turns = db.get_advisor_session(session_id, user_email=user)
+    if not turns:
+        raise HTTPException(status_code=404, detail="Session not found")
     db.update_advisor_session_choice(
         session_id=session_id,
         turn_index=body.turn_index,
         chosen_ci_name=body.ci_name,
+        user_email=user,
     )
     return {"status": "ok"}
