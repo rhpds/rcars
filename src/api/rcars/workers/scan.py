@@ -87,7 +87,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                 "learning_objectives_json": analysis.get("learning_objectives"),
                 "difficulty": analysis.get("difficulty"),
                 "estimated_duration_min": analysis.get("estimated_duration_min"),
-                "event_fit_json": analysis.get("event_fit"),
+                "format_suitability_json": analysis.get("format_suitability"),
                 "use_cases_json": analysis.get("use_cases"),
                 "last_repo_commit": result.get("last_repo_commit"),
                 "last_repo_updated": result.get("last_repo_updated"),

@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
     difficulty TEXT,
     estimated_duration_min INTEGER,
     curated_duration_min INTEGER CHECK (curated_duration_min >= 0),
-    event_fit_json JSONB,
+    format_suitability_json JSONB,
     use_cases_json JSONB,
     last_repo_commit TEXT,
     last_repo_updated TIMESTAMPTZ,
@@ -534,7 +534,7 @@ class Database:
             "products_json", "audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
             "difficulty", "estimated_duration_min",
-            "event_fit_json", "use_cases_json",
+            "format_suitability_json", "use_cases_json",
             "last_repo_commit", "last_repo_updated",
             "last_analyzed", "is_stale", "stale_commit", "content_hash",
             "enrichment_review_needed",
@@ -546,7 +546,7 @@ class Database:
         jsonb_fields = [
             "products_json", "audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
-            "event_fit_json", "use_cases_json",
+            "format_suitability_json", "use_cases_json",
         ]
         for f in jsonb_fields:
             if f in present and present[f] is not None:
