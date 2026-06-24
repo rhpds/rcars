@@ -24,6 +24,19 @@ stringData:
   POSTGRESQL_PASSWORD: "{{ pg_password }}"
   POSTGRESQL_DATABASE: "{{ pg_database }}"
 ---
+# Redis credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-redis
+  labels:
+    app: {{ app_name }}
+    component: redis
+type: Opaque
+stringData:
+  REDIS_PASSWORD: "{{ redis_password }}"
+  REDIS_URL: "redis://:{{ redis_password | urlencode }}@{{ app_name }}-redis:6379"
+---
 # OAuth proxy credentials
 apiVersion: v1
 kind: Secret
@@ -188,6 +201,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/postgresql
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "{{ pg_user }}"]
@@ -206,6 +223,7 @@ spec:
               cpu: 500m
               memory: 512Mi
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -213,6 +231,10 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ app_name }}-postgresql-data
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
 ---
 # Redis Service
 apiVersion: v1
@@ -259,11 +281,20 @@ spec:
       containers:
         - name: redis
           image: {{ redis_image }}
+          command: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)", "--dir", "/var/lib/redis/data"]
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-redis
+                  key: REDIS_PASSWORD
           ports:
             - containerPort: 6379
           volumeMounts:
             - name: data
               mountPath: /var/lib/redis/data
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: {{ redis_cpu_request }}
@@ -272,6 +303,7 @@ spec:
               cpu: {{ redis_cpu_limit }}
               memory: {{ redis_memory_limit }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -279,6 +311,8 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ app_name }}-redis-data
+        - name: tmp
+          emptyDir: {}
 ---
 # API ImageStream
 apiVersion: image.openshift.io/v1
