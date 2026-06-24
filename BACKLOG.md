@@ -32,6 +32,8 @@ Last updated: 2026-06-23
 - [ ] **ZT content classification** — distinguish full workshops from micro-labs in browse and recommendations
 - [ ] **Add mobile mode to UI**
 - [ ] **Contextual sidebar navigation** — Redesign the app sidebar so it changes content based on the active section: Advisor shows session history, Browse shows filter controls, Admin shows sub-page links. Top-level nav moves to sidebar header or app header with a back button between sections. Eliminates the double-sidebar problem and gives each section full sidebar width for its own controls
+- [ ] **Best Fit button visual feedback** — clicking "This is the best fit" has no visual state change. Should show a confirmation (checkmark, color change, or brief toast) so the user knows it registered.
+- [ ] **Browse filter scope warning** — infrastructure filters (Cloud Provider, Workloads, AgnosticD Config) only apply to AgnosticD v2 items. Add a note near the filter dropdowns explaining that not all catalog items will appear in filtered results.
 
 ## Recommendation Quality
 
