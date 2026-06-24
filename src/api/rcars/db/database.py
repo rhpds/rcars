@@ -1514,8 +1514,8 @@ class Database:
             cur = conn.execute(
                 "UPDATE jobs SET status = 'failed', error = 'Orphaned: exceeded max running time' "
                 "WHERE status = 'running' AND ("
-                "  (job_type != 'maintenance' AND created_at < NOW() - make_interval(secs => %s)) OR "
-                "  (job_type = 'maintenance' AND created_at < NOW() - make_interval(secs => %s))"
+                "  (job_type != 'maintenance' AND COALESCE(started_at, created_at) < NOW() - make_interval(secs => %s)) OR "
+                "  (job_type = 'maintenance' AND COALESCE(started_at, created_at) < NOW() - make_interval(secs => %s))"
                 ") RETURNING id, job_type",
                 (max_age_seconds, maintenance_max_age_seconds),
             )

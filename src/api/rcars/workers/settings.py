@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 from arq.connections import RedisSettings
 from redis.asyncio import Redis
 
@@ -15,7 +15,7 @@ def _redis_settings_from_url(url: str) -> RedisSettings:
     return RedisSettings(
         host=parsed.hostname or "localhost",
         port=parsed.port or 6379,
-        password=parsed.password,
+        password=unquote(parsed.password) if parsed.password else None,
         database=int(parsed.path.lstrip("/") or 0) if parsed.path and parsed.path != "/" else 0,
     )
 from rcars.db import Database
