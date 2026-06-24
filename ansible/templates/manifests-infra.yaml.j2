@@ -35,6 +35,7 @@ metadata:
 type: Opaque
 stringData:
   REDIS_PASSWORD: "{{ redis_password }}"
+  REDIS_URL: "redis://:{{ redis_password | urlencode }}@{{ app_name }}-redis:6379"
 ---
 # OAuth proxy credentials
 apiVersion: v1

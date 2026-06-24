@@ -88,7 +88,10 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-redis
+                  key: REDIS_URL
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
@@ -244,7 +247,10 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-redis
+                  key: REDIS_URL
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
@@ -390,7 +396,10 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-redis
+                  key: REDIS_URL
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
               value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
