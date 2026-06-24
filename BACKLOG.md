@@ -46,6 +46,7 @@ Last updated: 2026-06-23
 
 ## Architecture
 
+- [ ] **Advisor query scaling + queue management** — As user base grows beyond 5 to 50+, the single recommend worker (max 3 concurrent jobs) will back up. Three pieces: (1) Per-user concurrent query limit of 1 — reject with "you already have a query running" to prevent queue flooding from a single user. (2) Queue wait feedback — when a query is queued but no worker has picked it up yet, send an SSE message like "Your query is being processed — this may take a moment during busy periods" so users know they're waiting, not hung. (3) Manual scaling via `recommend_worker_replicas` in Ansible vars when user count grows — bump from 1 to 3 to triple throughput. HPA autoscaling deferred — requires custom Prometheus metrics for queue depth, operationally fragile at current scale.
 - [ ] **Showroom live-read endpoint** — on-demand content retrieval for Publishing House "unpacking" workflow
 - [ ] **Conversational advisor** — multi-turn refinement with memory (event URL parsing works, this is about deeper conversation context)
 
