@@ -88,7 +88,7 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://{{ app_name }}-redis:6379"
+              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
@@ -146,6 +146,8 @@ spec:
 {% endif %}
             - name: clone-workspace
               mountPath: /tmp/rcars-clones
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -168,6 +170,7 @@ spec:
               cpu: "{{ api_cpu_limit }}"
               memory: {{ api_memory_limit }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -185,6 +188,8 @@ spec:
         - name: clone-workspace
           emptyDir:
             sizeLimit: 10Gi
+        - name: tmp
+          emptyDir: {}
 ---
 # ── Scan Worker Deployment (analysis, catalog refresh, stale checks) ──
 apiVersion: apps/v1
@@ -239,7 +244,7 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://{{ app_name }}-redis:6379"
+              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
 {% if babylon_kubeconfig_content is defined %}
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
@@ -295,9 +300,11 @@ spec:
 {% endif %}
             - name: clone-workspace
               mountPath: /tmp/rcars-clones
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             exec:
-              command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
+              command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
             initialDelaySeconds: 30
             periodSeconds: 60
             timeoutSeconds: 5
@@ -309,6 +316,7 @@ spec:
               cpu: "{{ worker_cpu_limit }}"
               memory: {{ worker_memory_limit }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -326,6 +334,8 @@ spec:
         - name: clone-workspace
           emptyDir:
             sizeLimit: 10Gi
+        - name: tmp
+          emptyDir: {}
 ---
 # ── Recommend Worker Deployment (advisor queries, separate from scan to avoid starvation) ──
 apiVersion: apps/v1
@@ -380,7 +390,7 @@ spec:
             - name: RCARS_DATABASE_URL
               value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
             - name: RCARS_REDIS_URL
-              value: "redis://{{ app_name }}-redis:6379"
+              value: "redis://:{{ redis_password }}@{{ app_name }}-redis:6379"
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
               value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
@@ -400,16 +410,18 @@ spec:
 {% endif %}
             - name: HF_HOME
               value: /opt/app-root/hf_cache
-{% if vertex_enabled | default(false) %}
           volumeMounts:
+{% if vertex_enabled | default(false) %}
             - name: vertex-credentials
               mountPath: /etc/rcars/vertex-credentials.json
               subPath: credentials.json
               readOnly: true
 {% endif %}
+            - name: tmp
+              mountPath: /tmp
           livenessProbe:
             exec:
-              command: ["python", "-c", "import redis; redis.from_url('redis://{{ redis_host }}:6379').ping()"]
+              command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
             initialDelaySeconds: 30
             periodSeconds: 60
             timeoutSeconds: 5
@@ -421,15 +433,18 @@ spec:
               cpu: "{{ recommend_worker_cpu_limit }}"
               memory: {{ recommend_worker_memory_limit }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-{% if vertex_enabled | default(false) %}
       volumes:
+{% if vertex_enabled | default(false) %}
         - name: vertex-credentials
           secret:
             secretName: {{ app_name }}-vertex-credentials
 {% endif %}
+        - name: tmp
+          emptyDir: {}
 ---
 # ── Frontend Deployment ──
 apiVersion: apps/v1
@@ -464,6 +479,13 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: {{ app_port }}
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+            - name: nginx-run
+              mountPath: /var/run
           livenessProbe:
             httpGet:
               path: /
@@ -484,9 +506,17 @@ spec:
               cpu: {{ frontend_cpu_limit }}
               memory: {{ frontend_memory_limit }}
           securityContext:
+            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: nginx-tmp
+          emptyDir: {}
+        - name: nginx-cache
+          emptyDir: {}
+        - name: nginx-run
+          emptyDir: {}
 ---
 # ── OAuth Proxy (fronts the frontend service) ──
 apiVersion: v1
