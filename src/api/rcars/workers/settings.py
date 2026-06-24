@@ -39,7 +39,7 @@ async def startup(ctx: dict) -> None:
 
     ctx["worker_ctx"] = WorkerContext(db=db, redis=redis, relay=relay, settings=settings)
 
-    orphaned = db.cleanup_orphaned_jobs(max_age_seconds=7200)
+    orphaned = db.cleanup_orphaned_jobs()
     if orphaned:
         log.info("orphaned_jobs_cleaned", action="orphaned_jobs_cleaned", count=orphaned)
 
@@ -59,6 +59,14 @@ async def shutdown(ctx: dict) -> None:
     get_logger().info("worker_stopped", action="worker_stopped")
 
 
+async def cleanup_orphaned_jobs(ctx: dict) -> int:
+    wctx: WorkerContext = ctx["worker_ctx"]
+    count = wctx.db.cleanup_orphaned_jobs()
+    if count:
+        get_logger().info("orphaned_jobs_sweep", action="orphaned_jobs_sweep", count=count)
+    return count
+
+
 _pipeline_enabled = os.environ.get("RCARS_PIPELINE_ENABLED", "true").lower() == "true"
 _pipeline_hour = int(os.environ.get("RCARS_PIPELINE_HOUR", "4"))
 _pipeline_minute = int(os.environ.get("RCARS_PIPELINE_MINUTE", "0"))
@@ -74,10 +82,12 @@ class WorkerSettings:
         func(run_workload_scan, timeout=3600),
         func(run_reporting_sync_job, timeout=600),
     ]
-    cron_jobs = [
+    cron_jobs = ([
         cron(run_nightly_pipeline, hour=_pipeline_hour, minute=_pipeline_minute,
              timeout=7200, unique=True),
-    ] if _pipeline_enabled else []
+    ] if _pipeline_enabled else []) + [
+        cron(cleanup_orphaned_jobs, minute={0, 30}, timeout=60, unique=True),
+    ]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))

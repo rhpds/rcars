@@ -1509,13 +1509,15 @@ class Database:
     def fail_job(self, job_id: str, error: str) -> None:
         self.complete_job(job_id, error=error)
 
-    def cleanup_orphaned_jobs(self, max_age_seconds: int = 7200) -> int:
+    def cleanup_orphaned_jobs(self, max_age_seconds: int = 1800, maintenance_max_age_seconds: int = 7200) -> int:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "UPDATE jobs SET status = 'failed', error = 'Orphaned: exceeded max age with no completion' "
-                "WHERE status = 'running' AND created_at < NOW() - make_interval(secs => %s) "
-                "RETURNING id",
-                (max_age_seconds,),
+                "UPDATE jobs SET status = 'failed', error = 'Orphaned: exceeded max running time' "
+                "WHERE status = 'running' AND ("
+                "  (job_type != 'maintenance' AND created_at < NOW() - make_interval(secs => %s)) OR "
+                "  (job_type = 'maintenance' AND created_at < NOW() - make_interval(secs => %s))"
+                ") RETURNING id, job_type",
+                (max_age_seconds, maintenance_max_age_seconds),
             )
             count = len(cur.fetchall())
             conn.commit()
