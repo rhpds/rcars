@@ -1509,6 +1509,18 @@ class Database:
     def fail_job(self, job_id: str, error: str) -> None:
         self.complete_job(job_id, error=error)
 
+    def cleanup_orphaned_jobs(self, max_age_seconds: int = 7200) -> int:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status = 'failed', error = 'Orphaned: exceeded max age with no completion' "
+                "WHERE status = 'running' AND created_at < NOW() - make_interval(secs => %s) "
+                "RETURNING id",
+                (max_age_seconds,),
+            )
+            count = len(cur.fetchall())
+            conn.commit()
+        return count
+
     def list_jobs(self, limit: int = 50, job_type: str | None = None) -> list[dict]:
         if job_type:
             sql = "SELECT * FROM jobs WHERE job_type = %s ORDER BY created_at DESC LIMIT %s"

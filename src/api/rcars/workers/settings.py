@@ -39,6 +39,10 @@ async def startup(ctx: dict) -> None:
 
     ctx["worker_ctx"] = WorkerContext(db=db, redis=redis, relay=relay, settings=settings)
 
+    orphaned = db.cleanup_orphaned_jobs(max_age_seconds=7200)
+    if orphaned:
+        log.info("orphaned_jobs_cleaned", action="orphaned_jobs_cleaned", count=orphaned)
+
     if settings.use_litemaas:
         from rcars.config import fetch_litemaas_models
         models = fetch_litemaas_models(settings)
