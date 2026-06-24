@@ -1,18 +1,15 @@
 # RCARS Backlog
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ## Active Work (June 2026)
 
-- [x] **Soft-delete catalog items (preserve retired content)** — deployed 2026-06-18
 - [ ] **Retirement analysis (Phase 2): Workflow actions** — Add curation actions to the retirement dashboard: mark items as "Under Review", "Approved for Retirement", "Owner Notified", "Retired". Curator notes per item explaining retention/retirement decisions ("keeping because X"). Reuse existing tag/flag/note primitives where possible, add dedicated retirement status field where needed. Builds on the read-only Phase 1 dashboard. Pairs with soft-delete — retirement status persists after the item leaves Babylon.
-- [x] **Migrate to new babydev cluster** — deployed to dev 2026-06-23. Catalog refresh verified (1,080 items). Prod uses separate cluster, not affected.
 - [ ] **Non-Showroom content: Portfolio Architectures** — Ingest published architectures from OSSPA (manifest: `gitlab.com/osspa/osspa-site` PAList.csv, content: `gitlab.com/osspa/portfolio-architecture-examples` AsciiDoc). New extraction pipeline, new `content_type` field. Arcade/interactive demos deferred (need video access strategy).
 
 ## Bugs
 
 - [ ] **DB/worker sync divergence** — arq worker and API update PostgreSQL independently; if worker crashes mid-pipeline, `jobs.status` and `catalog_items.scan_status` can diverge. Needs reconciliation pass or transactional wrapping
-- [ ] **Orphaned running jobs** — no mechanism to detect jobs stuck in "running" state from a crashed worker. Needs a timeout-based cleanup or heartbeat check
 - [ ] **CLI `reporting-db status` uses old thresholds** — The CLI command hardcodes High ≥75 / Review 50-74 but the frontend uses ≥55 / 35-54. Minor inconsistency; should read thresholds from config or match the frontend.
 
 ## Content Analysis
@@ -62,6 +59,11 @@ Last updated: 2026-06-23
 
 ## Completed
 
+- [x] Security hardening release — audit remediation, operational hardening, production deploy — 2026-06-24
+- [x] Orphaned running jobs — startup cleanup + 30-minute sweep — 2026-06-24
+- [x] Best Fit button fix — sessionId wiring, global feedback scoping — 2026-06-24
+- [x] Babydev cluster migration (dev) — 2026-06-23
+- [x] Soft-delete catalog items — 2026-06-18
 - [x] Infrastructure-aware catalog metadata — deployed 2026-06-15
 - [x] Rec card duration labels + Best Fit button — deployed 2026-06-15
 - [x] Content overlap detection (Phase 1) — deployed 2026-06-15
