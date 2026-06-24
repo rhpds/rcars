@@ -16,6 +16,7 @@ interface TurnResults {
   candidates: StreamCandidate[]
   overall_assessment: string | null
   content_gaps: string[] | null
+  sessionId?: string
 }
 
 function renderMarkdown(text: string) {
@@ -157,7 +158,7 @@ export function AdvisorPage() {
     if (stream.isComplete && activeJobId) {
       api.getQueryResult(activeJobId).then(data => {
         if (data.result && typeof data.result === 'object') {
-          const result = data.result as TurnResults
+          const result = { ...(data.result as TurnResults), sessionId: activeJobId }
           setTurns(prev => [...prev, result])
           setActiveTurn(turns.length)
 
@@ -318,7 +319,7 @@ export function AdvisorPage() {
         {streamingCandidates ? (
           <RecCardList candidates={streamingCandidates} isComplete={false} streamPhase={stream.phase} />
         ) : currentResults ? (
-          <RecCardList candidates={currentResults.candidates} isComplete={true} />
+          <RecCardList candidates={currentResults.candidates} isComplete={true} sessionId={currentResults.sessionId} />
         ) : sending ? (
           <div className="rec-pane-loading">Waiting for results...</div>
         ) : (
@@ -331,10 +332,11 @@ export function AdvisorPage() {
   )
 }
 
-function RecCardList({ candidates, isComplete, streamPhase }: {
+function RecCardList({ candidates, isComplete, streamPhase, sessionId }: {
   candidates: StreamCandidate[]
   isComplete: boolean
   streamPhase?: string
+  sessionId?: string
 }) {
   const green = candidates.filter(c => c.tier === 'green')
   const yellow = candidates.filter(c => c.tier === 'yellow')
@@ -372,23 +374,24 @@ function RecCardList({ candidates, isComplete, streamPhase }: {
       {green.length > 0 && (
         <div style={{ fontSize: '12px', color: '#5cb85c', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
       )}
-      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} />)}
+      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={0} />)}
 
       {yellow.length > 0 && (
-        <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} />
+        <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} sessionId={sessionId} />
       )}
 
       {white.length > 0 && (
-        <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={isComplete} />
+        <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={isComplete} sessionId={sessionId} />
       )}
     </>
   )
 }
 
-function CollapsibleTier({ label, candidates, isComplete }: {
+function CollapsibleTier({ label, candidates, isComplete, sessionId }: {
   label: string
   candidates: StreamCandidate[]
   isComplete: boolean
+  sessionId?: string
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -402,7 +405,7 @@ function CollapsibleTier({ label, candidates, isComplete }: {
       >
         {open ? '▾' : '▸'} {label}
       </button>
-      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} />)}
+      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={0} />)}
     </div>
   )
 }
