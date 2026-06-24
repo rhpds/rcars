@@ -23,6 +23,7 @@ pg_storage_class: ocs-storagecluster-ceph-rbd
 
 # Redis
 redis_pvc_size: 1Gi
+# redis_password: set in dev.yml / prod.yml (required)
 
 # Vertex AI
 vertex_region: us-east5
