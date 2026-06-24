@@ -201,10 +201,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
-            - name: tmp
-              mountPath: /tmp
-            - name: run
-              mountPath: /var/run/postgresql
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "{{ pg_user }}"]
@@ -223,7 +219,6 @@ spec:
               cpu: 500m
               memory: 512Mi
           securityContext:
-            readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
@@ -231,10 +226,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ app_name }}-postgresql-data
-        - name: tmp
-          emptyDir: {}
-        - name: run
-          emptyDir: {}
 ---
 # Redis Service
 apiVersion: v1
