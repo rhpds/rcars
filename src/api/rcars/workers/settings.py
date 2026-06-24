@@ -15,6 +15,7 @@ def _redis_settings_from_url(url: str) -> RedisSettings:
     return RedisSettings(
         host=parsed.hostname or "localhost",
         port=parsed.port or 6379,
+        password=parsed.password,
         database=int(parsed.path.lstrip("/") or 0) if parsed.path and parsed.path != "/" else 0,
     )
 from rcars.db import Database
