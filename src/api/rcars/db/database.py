@@ -433,7 +433,7 @@ class Database:
                 best_item = None
                 best_overlap = 0
                 for row in cur.fetchall():
-                    name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"])}
+                    name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"] or "")}
                     overlap = len(keywords & name_words)
                     if overlap >= min_overlap and overlap > best_overlap:
                         best_overlap = overlap

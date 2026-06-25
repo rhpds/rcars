@@ -56,9 +56,10 @@ def _resolve_ci_references(query: str, db: Database, stages: list[str], include_
 
     results = []
     for item in resolved_items:
-        embedding = db.get_embedding(item["ci_name"], embed_type="ci_summary")
+        embed_ci = item.get("base_ci_name") or item["ci_name"] if item.get("is_published") else item["ci_name"]
+        embedding = db.get_embedding(embed_ci, embed_type="ci_summary")
         if not embedding:
-            log.info("ci_resolve: no embedding for %s, skipping", item["ci_name"])
+            log.info("ci_resolve: no embedding for %s (looked up %s), skipping", item["ci_name"], embed_ci)
             continue
 
         neighbors = db.search_embeddings(
