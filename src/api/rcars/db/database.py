@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
@@ -254,6 +255,9 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     requests           INTEGER NOT NULL DEFAULT 0,
     experiences        INTEGER NOT NULL DEFAULT 0,
     unique_users       INTEGER NOT NULL DEFAULT 0,
+    unique_users_1q    INTEGER NOT NULL DEFAULT 0,
+    unique_users_2q    INTEGER NOT NULL DEFAULT 0,
+    unique_users_3q    INTEGER NOT NULL DEFAULT 0,
     success_ratio      NUMERIC NOT NULL DEFAULT 0,
     failure_ratio      NUMERIC NOT NULL DEFAULT 0,
     touched_amount     NUMERIC NOT NULL DEFAULT 0,
@@ -377,6 +381,70 @@ class Database:
                     {"ci_name": ci_name},
                 )
                 return cur.fetchone()
+
+    def find_catalog_item_by_display_name_prefix(
+        self, pattern: str, stages: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Find a catalog item whose display_name matches a LIKE pattern, preferring prod stage."""
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT * FROM catalog_items WHERE display_name ILIKE %s "
+                    f"AND stage IN ({stage_placeholders}) AND retired_at IS NULL "
+                    f"ORDER BY CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END "
+                    f"LIMIT 1",
+                    (pattern, *stage_list),
+                )
+                return cur.fetchone()
+
+    def get_embedding(self, ci_name: str, embed_type: str = "ci_summary") -> list[float] | None:
+        """Retrieve the embedding vector for a CI as a list of floats."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT embedding::text FROM embeddings WHERE ci_name = %s AND embed_type = %s LIMIT 1",
+                    (ci_name, embed_type),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                raw = row["embedding"]
+                return [float(x) for x in raw.strip("[]").split(",")]
+
+    def find_catalog_item_by_keyword_overlap(
+        self, keywords: set[str], stages: list[str] | None = None, min_overlap: int = 3,
+    ) -> dict[str, Any] | None:
+        """Find a catalog item whose display_name shares the most words with the given keywords.
+
+        Returns the best match with at least min_overlap matching words, or None.
+        Matching is done in Python to avoid complex SQL — the catalog is small enough.
+        """
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT ci_name, display_name, stage FROM catalog_items "
+                    f"WHERE stage IN ({stage_placeholders}) AND retired_at IS NULL",
+                    (*stage_list,),
+                )
+                best_item = None
+                best_overlap = 0
+                for row in cur.fetchall():
+                    name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"] or "")}
+                    overlap = len(keywords & name_words)
+                    if overlap >= min_overlap and overlap > best_overlap:
+                        best_overlap = overlap
+                        best_item = row
+                if best_item:
+                    cur.execute(
+                        "SELECT * FROM catalog_items WHERE ci_name = %s",
+                        (best_item["ci_name"],),
+                    )
+                    return cur.fetchone()
+                return None
 
     def list_catalog_items(
         self, prod_only: bool = False, category: str | None = None,
@@ -1543,12 +1611,16 @@ class Database:
         sql = """
             INSERT INTO reporting_metrics (
                 catalog_base_name, display_name, provisions, provisions_quarter,
-                requests, experiences, unique_users, success_ratio, failure_ratio,
+                requests, experiences, unique_users,
+                unique_users_1q, unique_users_2q, unique_users_3q,
+                success_ratio, failure_ratio,
                 touched_amount, closed_amount, total_cost, avg_cost_per_provision,
                 first_provision, last_provision, retirement_score, quarterly_data, synced_at
             ) VALUES (
                 %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
-                %(requests)s, %(experiences)s, %(unique_users)s, %(success_ratio)s, %(failure_ratio)s,
+                %(requests)s, %(experiences)s, %(unique_users)s,
+                %(unique_users_1q)s, %(unique_users_2q)s, %(unique_users_3q)s,
+                %(success_ratio)s, %(failure_ratio)s,
                 %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
                 %(first_provision)s, %(last_provision)s, %(retirement_score)s,
                 %(quarterly_data)s::jsonb, NOW()
@@ -1560,6 +1632,9 @@ class Database:
                 requests = EXCLUDED.requests,
                 experiences = EXCLUDED.experiences,
                 unique_users = EXCLUDED.unique_users,
+                unique_users_1q = EXCLUDED.unique_users_1q,
+                unique_users_2q = EXCLUDED.unique_users_2q,
+                unique_users_3q = EXCLUDED.unique_users_3q,
                 success_ratio = EXCLUDED.success_ratio,
                 failure_ratio = EXCLUDED.failure_ratio,
                 touched_amount = EXCLUDED.touched_amount,

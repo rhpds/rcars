@@ -18,9 +18,9 @@ import structlog
 logger = structlog.get_logger()
 
 NO_MATCH_GUIDANCE = (
-    "I help with content recommendations, but I couldn't find a match with the "
-    "detail provided. Try adding more detail — describe the topic, audience, "
-    "product area, or format you need.\n\n"
+    "I help with content recommendations, but I couldn't find a close match. "
+    "Try broadening your query — focus on the core topic and technology rather "
+    "than event names, lab numbers, or delivery constraints.\n\n"
     "I currently know about all RHDP items that have demo or lab guides."
 )
 

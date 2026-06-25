@@ -1,6 +1,7 @@
 """Phase 1 — vector search with distance cutoff."""
 
 import logging
+import re
 import time
 
 from rcars.config import STAGE_PRIORITY
@@ -9,6 +10,66 @@ from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
 
 log = logging.getLogger(__name__)
+
+_CI_REF_PATTERN = re.compile(r'\bLB(\d{3,4})\b', re.IGNORECASE)
+
+_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "it", "to", "for", "of", "and", "or", "in", "on",
+    "with", "that", "this", "be", "are", "was", "i", "we", "my", "our", "me",
+    "do", "does", "not", "no", "but", "have", "has", "had", "can", "could",
+    "should", "would", "will", "what", "which", "how", "about", "like",
+    "similar", "looking", "need", "want", "find", "search", "show", "get",
+    "any", "some", "more", "also", "just", "very", "too", "so", "than",
+    "content", "item", "lab", "demo", "workshop", "something", "anything",
+    "current", "existing", "new", "better", "best", "good", "make", "sure",
+    "try", "currently", "suggestion", "minute", "minutes", "hour", "hours",
+})
+
+
+def _resolve_ci_references(query: str, db: Database, stages: list[str], include_zt: bool) -> list[dict]:
+    """Find CI references in the query and return neighbors based on the referenced CI's embedding.
+
+    Two strategies:
+    1. Lab number pattern (LB1234) — exact prefix match on display_name
+    2. Keyword overlap — extract significant words from the query, search display_names
+       for items with high word overlap (3+ matching words)
+    """
+    resolved_items = []
+
+    # Strategy 1: LB number patterns
+    for lab_num in _CI_REF_PATTERN.findall(query):
+        item = db.find_catalog_item_by_display_name_prefix(f"LB{lab_num}%", stages=stages)
+        if item:
+            log.info("ci_resolve: LB%s → %s (%s)", lab_num, item["ci_name"], item.get("display_name", ""))
+            resolved_items.append(item)
+        else:
+            log.info("ci_resolve: LB%s not found in catalog", lab_num)
+
+    # Strategy 2: keyword overlap against display_names (only if no LB match)
+    if not resolved_items:
+        query_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', query)} - _STOP_WORDS
+        if len(query_words) >= 2:
+            item = db.find_catalog_item_by_keyword_overlap(query_words, stages=stages, min_overlap=3)
+            if item:
+                log.info("ci_resolve: keyword match → %s (%s)", item["ci_name"], item.get("display_name", ""))
+                resolved_items.append(item)
+
+    results = []
+    for item in resolved_items:
+        embed_ci = item.get("base_ci_name") or item["ci_name"] if item.get("is_published") else item["ci_name"]
+        embedding = db.get_embedding(embed_ci, embed_type="ci_summary")
+        if not embedding:
+            log.info("ci_resolve: no embedding for %s (looked up %s), skipping", item["ci_name"], embed_ci)
+            continue
+
+        neighbors = db.search_embeddings(
+            query_embedding=embedding, limit=25, stages=stages, include_zt=include_zt,
+        )
+        for row in neighbors:
+            if row["ci_name"] != item["ci_name"]:
+                results.append(row)
+
+    return results
 
 
 def search(
@@ -24,15 +85,25 @@ def search(
     Returns QueryState with phase VECTOR_DONE or NO_MATCHES.
     """
     t0 = time.monotonic()
+    effective_stages = stages or ["prod"]
 
     query_embedding = generate_embedding(query)
 
     rows = db.search_embeddings(
         query_embedding=query_embedding,
         limit=limit,
-        stages=stages or ["prod"],
+        stages=effective_stages,
         include_zt=include_zt,
     )
+
+    ci_ref_rows = _resolve_ci_references(query, db, effective_stages, include_zt)
+    if ci_ref_rows:
+        log.info("ci_resolve: adding %d neighbor results from CI references", len(ci_ref_rows))
+        seen = {r["ci_name"] for r in rows}
+        for row in ci_ref_rows:
+            if row["ci_name"] not in seen:
+                rows.append(row)
+                seen.add(row["ci_name"])
 
     # Deduplicate by showroom content.  Multiple CIs can share the same
     # showroom repo+ref (prod/dev/event variants, published/base pairs).
