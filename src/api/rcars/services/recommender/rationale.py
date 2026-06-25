@@ -1,6 +1,5 @@
 """Phase 3 — Sonnet rationale generation for top candidates."""
 
-import json
 import logging
 import time
 from pathlib import Path
@@ -54,10 +53,6 @@ def format_rationale_candidates(
             mod_titles = [m.get("title", "") for m in modules if m.get("title")]
             if mod_titles:
                 lines.append(f"Modules: {'; '.join(mod_titles)}")
-
-        format_suit = analysis.get("format_suitability_json", {})
-        if format_suit:
-            lines.append(f"Format Suitability: {json.dumps(format_suit)}")
 
         parts.append("\n".join(lines))
 
