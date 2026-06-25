@@ -5,7 +5,7 @@ def test_defaults():
     s = Settings(database_url="postgresql://test:test@localhost/test", redis_url="redis://localhost:6379")
     assert s.model == "claude-sonnet-4-6"
     assert s.triage_model == "claude-haiku-4-5"
-    assert s.vector_cutoff == 0.55
+    assert s.vector_cutoff == 0.65
     assert s.rationale_top_n == 5
     assert s.triage_cutoff == 30
 
