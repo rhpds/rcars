@@ -118,7 +118,7 @@ For each component, it extracts:
 - **Published/base CI relationship** — derived from `__meta__.components[].item` references
 - **Infrastructure metadata** (AgnosticD v2 items only) — config type, cloud provider, OCP version, OS image, workload roles, ACL groups. See [Infrastructure Metadata Extraction](#infrastructure-metadata-extraction-agnosticd-v2) below.
 
-The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
+The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are soft-deleted (`retired_at = NOW()`) rather than purged — all associated data (analysis, embeddings, tags, workload mappings) is preserved. Items that reappear in a future scan are automatically un-retired.
 
 ### Showroom URL Extraction
 
