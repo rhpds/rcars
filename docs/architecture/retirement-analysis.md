@@ -291,7 +291,7 @@ Items more than a year old without a prod deployment are strong candidates for e
 
 ```bash
 rcars reporting-db sync      # Pull data from MCP, compute scores, upsert
-rcars reporting-db status     # Show sync status and row counts
+rcars reporting-db status     # Show sync status and score distribution
 rcars reporting-db show NAME  # Show metrics for a specific catalog base name
 ```
 
