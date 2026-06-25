@@ -101,17 +101,25 @@ def generate_rationale(
     user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
 
     from rcars.config import call_llm
-    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=4096, system=system_prompt)
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
     result = parse_analysis_response(llm_result.text)
 
-    if result:
-        recs_list = result if isinstance(result, list) else result.get("recommendations", [])
-        recs_by_ci = {
-            r["ci_name"]: r
-            for r in recs_list
-            if isinstance(r, dict) and "ci_name" in r
-        }
+    if result is None:
+        log.error("rationale: failed to parse LLM response, raw=%s", llm_result.text[:500])
+
+    # Build lookup by ci_name — handle both list (truncation recovery) and dict
+    if isinstance(result, list):
+        recs_by_ci = {r["ci_name"]: r for r in result if isinstance(r, dict) and "ci_name" in r}
+    elif isinstance(result, dict) and "recommendations" in result:
+        recs_by_ci = {r["ci_name"]: r for r in result["recommendations"] if isinstance(r, dict) and "ci_name" in r}
+    else:
+        if result is not None:
+            log.warning("rationale: unexpected result type=%s, keys=%s", type(result).__name__,
+                        list(result.keys()) if isinstance(result, dict) else "N/A")
+        recs_by_ci = {}
+
+    if recs_by_ci:
         for c in top_candidates:
             rec = recs_by_ci.get(c.ci_name, {})
             c.why_it_fits = rec.get("why_it_fits")
@@ -141,8 +149,8 @@ def generate_rationale(
         phase="COMPLETE",
         candidates=top_candidates + remaining,
         query=state.query,
-        overall_assessment=result.get("overall_assessment") if result else None,
-        content_gaps=result.get("content_gaps") if result else None,
+        overall_assessment=result.get("overall_assessment") if isinstance(result, dict) else None,
+        content_gaps=result.get("content_gaps") if isinstance(result, dict) else None,
         timings={**state.timings, "rationale": round(elapsed, 3)},
         token_usage=[*state.token_usage, new_token_entry],
     )
