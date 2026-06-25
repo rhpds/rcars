@@ -11,6 +11,16 @@ import structlog
 logger = structlog.get_logger()
 
 
+_VALID_FORMAT_KEYS = {"demo", "hands_on_lab"}
+
+
+def _sanitize_format_suitability(data: dict | None) -> dict | None:
+    """Strip LLM-hallucinated keys from format_suitability — only demo and hands_on_lab are valid."""
+    if not data or not isinstance(data, dict):
+        return data
+    return {k: v for k, v in data.items() if k in _VALID_FORMAT_KEYS}
+
+
 def _propagate_to_sibling(db, sib_name: str, analysis_data: dict, result: dict) -> None:
     """Propagate analysis + embeddings to a single sibling CI."""
     sib_data = dict(analysis_data)
@@ -87,7 +97,7 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                 "learning_objectives_json": analysis.get("learning_objectives"),
                 "difficulty": analysis.get("difficulty"),
                 "estimated_duration_min": analysis.get("estimated_duration_min"),
-                "format_suitability_json": analysis.get("format_suitability"),
+                "format_suitability_json": _sanitize_format_suitability(analysis.get("format_suitability")),
                 "use_cases_json": analysis.get("use_cases"),
                 "last_repo_commit": result.get("last_repo_commit"),
                 "last_repo_updated": result.get("last_repo_updated"),

@@ -11,6 +11,7 @@ from rich.table import Table
 
 from rcars.config import Settings
 from rcars.db import Database
+from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
 log = logging.getLogger("rcars")
@@ -201,7 +202,7 @@ def scan(max_analyze: int | None):
                         "learning_objectives_json": analysis.get("learning_objectives"),
                         "difficulty": analysis.get("difficulty"),
                         "estimated_duration_min": analysis.get("estimated_duration_min"),
-                        "format_suitability_json": analysis.get("format_suitability"),
+                        "format_suitability_json": _sanitize_format_suitability(analysis.get("format_suitability")),
                         "use_cases_json": analysis.get("use_cases"),
                         "last_repo_commit": result.get("last_repo_commit"),
                         "last_repo_updated": result.get("last_repo_updated"),
@@ -237,7 +238,7 @@ def scan(max_analyze: int | None):
                         "learning_objectives_json": analysis.get("learning_objectives"),
                         "difficulty": analysis.get("difficulty"),
                         "estimated_duration_min": analysis.get("estimated_duration_min"),
-                        "format_suitability_json": analysis.get("format_suitability"),
+                        "format_suitability_json": _sanitize_format_suitability(analysis.get("format_suitability")),
                         "use_cases_json": analysis.get("use_cases"),
                         "last_repo_commit": result.get("last_repo_commit"),
                         "last_repo_updated": result.get("last_repo_updated"),
