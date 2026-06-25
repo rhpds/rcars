@@ -21,7 +21,11 @@ flowchart TD
 
     subgraph "Phase 1 — Vector Search"
         Embed --> PGV[pgvector Cosine Search<br/>Find nearest embeddings]
-        PGV --> Cutoff[Apply Distance Cutoff<br/>default ≤ 0.55]
+        PGV --> CIRef{CI Reference<br/>in Query?}
+        CIRef -->|Yes| Resolve[Resolve CI → Embedding<br/>Search Neighbors]
+        CIRef -->|No| Cutoff
+        Resolve --> MergeResults[Merge Neighbor Results<br/>with Query Results]
+        MergeResults --> Cutoff[Apply Distance Cutoff<br/>default ≤ 0.55]
         Cutoff --> Dedup[Content Dedup<br/>+ Base→Published Promotion]
     end
 
@@ -67,6 +71,22 @@ Before passing results to triage, the vector search deduplicates to prevent the 
 **Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data.
 
 **Ref normalization:** For deduplication fallback (when `content_hash` is not available), refs `""`, `"main"`, `"master"`, and `"HEAD"` are all treated as equivalent.
+
+### CI Name Resolution
+
+When a user references a specific catalog item — by lab number or by name — the vector search from the query text alone often produces poor results. Lab numbers ("LB2144") and event/delivery context ("Summit connect", "fill the AI slot") dilute the query embedding and push legitimate matches past the distance cutoff.
+
+CI name resolution solves this by detecting references to known catalog items in the query and searching by their stored embeddings instead of the query embedding. This produces high-quality neighbors because the search starts from the referenced item's own vector — the same representation that was generated during analysis.
+
+**Two resolution strategies run in sequence:**
+
+1. **Lab number pattern** — regex matches `LB\d{3,4}` (case-insensitive). The number is used to find a catalog item whose `display_name` starts with that prefix (e.g., `LB2144` → "LB2144: AI AgentOps OpenShift"). Prod stage is preferred over event/dev.
+
+2. **Keyword overlap** (only if no lab number matched) — significant words (3+ characters, excluding stop words) are extracted from the query. Catalog item display names are scanned for items with 3 or more matching words. For example, "content similar to the Experience OpenShift virtualization item" would match a display name containing "Experience", "OpenShift", and "virtualization."
+
+When a CI is resolved, its stored `ci_summary` embedding is retrieved and used as the query vector for a neighbor search. The referenced item itself is excluded from results (the user already knows about it). Neighbor results are merged with the regular query embedding results before the distance cutoff and deduplication are applied.
+
+**Why not widen the distance cutoff instead?** Widening the cutoff globally (e.g., from 0.55 to 0.65) would let marginal matches through for all queries, not just ones that reference specific content. The triage phase scores candidates relative to the query — if handed a list of weakly-matched items, Haiku still ranks the "best of a bad lot" and can produce plausible-looking but poor recommendations. CI name resolution is targeted: it only affects queries that reference known content and produces genuinely similar results via embedding proximity.
 
 ---
 
@@ -217,6 +237,14 @@ This is a hardcoded list in `pipeline.py` and a known limitation — acronyms no
 | `RCARS_TRIAGE_CUTOFF` | `30` | Minimum triage score to be considered relevant |
 | `RCARS_RATIONALE_MODEL` | `claude-sonnet-4-6` | Model for Phase 3 rationale |
 | `RCARS_RATIONALE_TOP_N` | `5` | Number of top candidates sent to rationale phase |
+
+## No-Match Behavior
+
+When vector search returns zero candidates (even after CI name resolution), the pipeline returns immediately with `phase: NO_MATCHES` and a guidance message advising the user to broaden their query — focus on core topics and technologies rather than event names, lab numbers, or delivery constraints.
+
+This is intentional: the alternative (widening the distance cutoff until something matches) produces low-quality results. Triage scores relative to the query, so handing it a list of marginally-matched items still produces plausible-looking but genuinely poor recommendations. It's better to tell the user "no close match found" than to present a bad recommendation with false confidence.
+
+---
 
 ## API
 

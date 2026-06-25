@@ -91,6 +91,7 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 - **Logging:** structlog JSON with `component`, `job_id`, `action` fields on every line. Verbose logging is preferred — too much is better than too little.
 - **Sibling propagation:** When multiple CIs share the same Showroom (same URL+ref), scan once and propagate analysis + embeddings to all siblings.
 - **Scan deduplication:** Refs are resolved to commit SHAs via batch `git ls-remote`. CIs sharing the same effective URL + SHA are scanned once and propagated. Falls back to ref-based grouping on resolution failure.
+- **CI name resolution:** Vector search detects references to catalog items in queries (LB numbers via regex, display names via keyword overlap) and searches by the referenced item's stored embedding. This handles "what's similar to LB2144?" queries that would otherwise return 0 results because lab numbers and event context dilute the query embedding.
 - **Environment variables:** All prefixed with `RCARS_` (case-insensitive via Pydantic Settings). See `src/api/rcars/config.py` for full list.
 
 ## API Reference

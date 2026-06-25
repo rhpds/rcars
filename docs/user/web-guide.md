@@ -78,12 +78,15 @@ For broad multi-track events, use a follow-up message to narrow results to a spe
 **What makes a query effective:**
 
 - **Audience** — developers, ops, architects, executives, mixed
-- **Format** — booth demo, hands-on lab, presentation support
+- **Format** — demo, hands-on lab
 - **Duration** — 20 minutes, half-day, 90 minutes
 - **Topic or product** — if you already know the focus area
 - **Event context** — conference name, industry, theme, or just paste the URL
+- **Similar to existing content** — reference a lab number like *"What is similar to LB2144?"* or name an existing item like *"content similar to the Parasol Insurance workshop"*
 
 You do not need all of these. Even a short query like *"OpenShift demos for a developer audience"* returns useful results. More context narrows the ranking.
+
+**If you get no results:** the query may be too specific. Event names, lab numbers, and delivery constraints ("Summit connect", "fill the AI slot") dilute the search. Try simplifying to just the core topic — *"beginner AI hands-on lab"* works better than *"90 minute lab for Summit connect to fill the AI slot, beginner level, not advanced."* If you want to find content similar to a specific item, reference it by lab number (e.g., *"What's similar to LB2144?"*) — RCARS will look up that item and search for neighbors directly.
 
 ## Reading Recommendation Cards
 
