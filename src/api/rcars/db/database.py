@@ -400,15 +400,18 @@ class Database:
                 return cur.fetchone()
 
     def get_embedding(self, ci_name: str, embed_type: str = "ci_summary") -> list[float] | None:
-        """Retrieve the raw embedding vector for a CI."""
+        """Retrieve the embedding vector for a CI as a list of floats."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT embedding FROM embeddings WHERE ci_name = %s AND embed_type = %s LIMIT 1",
+                    "SELECT embedding::text FROM embeddings WHERE ci_name = %s AND embed_type = %s LIMIT 1",
                     (ci_name, embed_type),
                 )
                 row = cur.fetchone()
-                return row["embedding"] if row else None
+                if not row:
+                    return None
+                raw = row["embedding"]
+                return [float(x) for x in raw.strip("[]").split(",")]
 
     def find_catalog_item_by_keyword_overlap(
         self, keywords: set[str], stages: list[str] | None = None, min_overlap: int = 3,
