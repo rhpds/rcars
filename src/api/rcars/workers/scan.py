@@ -78,8 +78,9 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
         if result and "error" in result:
             error_class = result["error"]
             error_msg = result["message"]
-            wctx.db.set_scan_status(ci_name, "failed", error_class=error_class, error_message=error_msg)
-            wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error=error_msg)
+            wctx.db.complete_scan(ci_name, job_id, "failed",
+                                  result_json={"ci_name": ci_name, "status": "failed"}, error=error_msg,
+                                  error_class=error_class, error_message=error_msg)
             log.warning("analysis_failed", action="job_failed", error_class=error_class, error_msg=error_msg)
             return {"ci_name": ci_name, "success": False}
 
@@ -123,8 +124,6 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                     embedding=mod_emb["embedding"],
                 )
 
-            wctx.db.set_scan_status(ci_name, "success")
-
             # Propagate analysis to siblings sharing the same Showroom content
             propagated_set = {ci_name}
             effective_url = item.get("showroom_url_override") or item["showroom_url"]
@@ -157,7 +156,8 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                         propagated_set.add(ref_sib["ci_name"])
 
             propagated = len(propagated_set) - 1
-            wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
+            wctx.db.complete_scan(ci_name, job_id, "success",
+                                  result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
             log.info(
                 "analysis_complete",
                 action="job_complete",
@@ -172,14 +172,16 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
             )
             return {"ci_name": ci_name, "success": True}
 
-        wctx.db.set_scan_status(ci_name, "failed", error_class="no_result", error_message="Analysis returned no results")
-        wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error="Analysis returned no results")
+        wctx.db.complete_scan(ci_name, job_id, "failed",
+                              result_json={"ci_name": ci_name, "status": "failed"}, error="Analysis returned no results",
+                              error_class="no_result", error_message="Analysis returned no results")
         log.warning("analysis_empty", action="job_failed")
         return {"ci_name": ci_name, "success": False}
 
     except Exception as e:
         log.error("analysis_failed", action="job_failed", error=str(e))
         error_class, error_msg = classify_scan_error(e, item.get("showroom_url") if item else None)
-        wctx.db.set_scan_status(ci_name, "failed", error_class=error_class, error_message=error_msg)
-        wctx.db.complete_job(job_id, result_json={"ci_name": ci_name, "status": "failed"}, error=str(e))
+        wctx.db.complete_scan(ci_name, job_id, "failed",
+                              result_json={"ci_name": ci_name, "status": "failed"}, error=str(e),
+                              error_class=error_class, error_message=error_msg)
         raise
