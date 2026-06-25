@@ -289,7 +289,12 @@ def _build_provisions_by_quarter_sql(start_date: str) -> str:
         SELECT
             ci.name AS catalog_base_name,
             TO_CHAR(DATE_TRUNC('quarter', ps.provisioned_at), 'YYYY-"Q"Q') AS quarter,
-            COUNT(DISTINCT ps.uuid) AS provisions
+            COUNT(DISTINCT ps.uuid) AS provisions,
+            COALESCE(SUM(ps.user_experiences), 0) AS experiences,
+            COUNT(DISTINCT ps.user_id) AS unique_users,
+            COUNT(DISTINCT ps.request_id) AS requests,
+            SUM(ps.provision_success) AS success_count,
+            SUM(ps.provision_failure) AS failure_count
         FROM provisions_summary ps
         JOIN catalog_items ci ON ci.id = ps.catalog_id
         WHERE ps.provisioned_at >= '{start_date}'
@@ -369,7 +374,13 @@ def _build_quarterly_data(
 
     for r in prov_q_rows:
         name, q = r["catalog_base_name"], r["quarter"]
-        result.setdefault(name, {}).setdefault(q, {})["provisions"] = int(r["provisions"])
+        qdata = result.setdefault(name, {}).setdefault(q, {})
+        qdata["provisions"] = int(r["provisions"])
+        qdata["experiences"] = int(r.get("experiences", 0) or 0)
+        qdata["unique_users"] = int(r.get("unique_users", 0) or 0)
+        qdata["requests"] = int(r.get("requests", 0) or 0)
+        qdata["success_count"] = int(r.get("success_count", 0) or 0)
+        qdata["failure_count"] = int(r.get("failure_count", 0) or 0)
 
     for r in touched_q_rows:
         name, q = r["catalog_base_name"], r["quarter"]
@@ -406,8 +417,9 @@ def _merge_published_base_pairs(
             continue
 
         for field in ("provisions", "provisions_quarter", "requests",
-                      "experiences", "unique_users", "touched_amount",
-                      "closed_amount", "total_cost"):
+                      "experiences", "unique_users",
+                      "unique_users_1q", "unique_users_2q", "unique_users_3q",
+                      "touched_amount", "closed_amount", "total_cost"):
             pub_row[field] += base_row[field]
 
         for field, fn in (("first_provision", min), ("last_provision", max)):
@@ -437,8 +449,8 @@ def _merge_published_base_pairs(
 def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
     """Recompute retirement scores for a subset of trailing quarters.
 
-    Sums provisions/touched/closed/cost from the most recent N quarters,
-    computes fresh percentile rankings, and returns items with updated scores.
+    Sums all metrics from the most recent N quarters, recomputes ratios
+    and percentile rankings, and returns items with updated scores.
     """
     all_quarters = set()
     for item in items:
@@ -452,13 +464,29 @@ def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
     for item in items:
         qd = item.get("quarterly_data") or {}
         prov = sum(qd.get(q, {}).get("provisions", 0) for q in recent_set)
+        experiences = sum(qd.get(q, {}).get("experiences", 0) for q in recent_set)
+        requests = sum(qd.get(q, {}).get("requests", 0) for q in recent_set)
+
+        uu_key = {1: "unique_users_1q", 2: "unique_users_2q", 3: "unique_users_3q"}.get(num_quarters)
+        unique_users = item.get(uu_key, 0) if uu_key else item.get("unique_users", 0)
+        success_count = sum(qd.get(q, {}).get("success_count", 0) for q in recent_set)
+        failure_count = sum(qd.get(q, {}).get("failure_count", 0) for q in recent_set)
         touched = sum(qd.get(q, {}).get("touched", 0) for q in recent_set)
         closed = sum(qd.get(q, {}).get("closed", 0) for q in recent_set)
         cost = sum(qd.get(q, {}).get("cost", 0) for q in recent_set)
 
+        total_results = success_count + failure_count
+        success_ratio = round(success_count / total_results, 4) if total_results > 0 else 0
+        failure_ratio = round(failure_count / total_results, 4) if total_results > 0 else 0
+
         windowed.append({
             **item,
             "provisions": prov,
+            "experiences": experiences,
+            "unique_users": unique_users,
+            "requests": requests,
+            "success_ratio": success_ratio,
+            "failure_ratio": failure_ratio,
             "touched_amount": touched,
             "closed_amount": closed,
             "total_cost": cost,
@@ -484,6 +512,29 @@ def compute_windowed_scores(items: list[dict], num_quarters: int) -> list[dict]:
         w["sales_impact"] = compute_sales_impact(w["closed_amount"])
 
     return windowed
+
+
+def _quarter_start(quarters_back: int) -> str:
+    """Return the start date of N quarters back from the current quarter."""
+    now = datetime.now()
+    current_q_month = (now.month - 1) // 3 * 3 + 1
+    q_start = now.replace(month=current_q_month, day=1)
+    for _ in range(quarters_back):
+        q_start = (q_start - timedelta(days=1)).replace(day=1)
+        q_start = q_start.replace(month=(q_start.month - 1) // 3 * 3 + 1)
+    return q_start.strftime("%Y-%m-%d")
+
+
+def _build_unique_users_window_sql(start_date: str) -> str:
+    return f"""
+        SELECT ci.name AS catalog_base_name,
+               COUNT(DISTINCT ps.user_id) AS unique_users
+        FROM provisions_summary ps
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE ps.provisioned_at >= '{start_date}'
+          {PROVISION_FILTERS}
+        GROUP BY ci.name
+    """
 
 
 DATES_SQL = f"""
@@ -548,6 +599,15 @@ def run_reporting_sync(db, settings) -> dict:
     quarterly = _build_quarterly_data(prov_q_rows, touched_q_rows, closed_q_rows, cost_q_rows)
     log.info("fetched_quarterly", items_with_quarters=len(quarterly))
 
+    log.info("fetching_windowed_unique_users")
+    uu_windows: dict[str, dict[str, int]] = {}
+    for nq, label in ((1, "1q"), (2, "2q"), (3, "3q")):
+        q_start = _quarter_start(nq - 1)
+        rows = mcp_query(_build_unique_users_window_sql(q_start), url=url, token=token)
+        for r in rows:
+            uu_windows.setdefault(r["catalog_base_name"], {})[label] = int(r["unique_users"])
+    log.info("fetched_windowed_unique_users", items=len(uu_windows))
+
     all_names = set(prov_data) | set(touched_data) | set(closed_data) | set(cost_data) | set(date_data)
     excluded = {n for n in all_names if any(n.startswith(p) for p in EXCLUDE_PREFIXES)}
     retired_names = db.get_fully_retired_base_names()
@@ -562,6 +622,7 @@ def run_reporting_sync(db, settings) -> dict:
         cost = cost_data.get(name, {})
         dates = date_data.get(name, {})
 
+        uu = uu_windows.get(name, {})
         merged_rows.append({
             "catalog_base_name": name,
             "display_name": prov.get("display_name", "") or dates.get("display_name", "") or name,
@@ -570,6 +631,9 @@ def run_reporting_sync(db, settings) -> dict:
             "requests": int(prov.get("requests", 0)),
             "experiences": int(prov.get("experiences", 0)),
             "unique_users": int(prov.get("unique_users", 0)),
+            "unique_users_1q": uu.get("1q", 0),
+            "unique_users_2q": uu.get("2q", 0),
+            "unique_users_3q": uu.get("3q", 0),
             "success_ratio": float(prov.get("success_ratio", 0) or 0),
             "failure_ratio": float(prov.get("failure_ratio", 0) or 0),
             "touched_amount": touched_data.get(name, 0.0),
@@ -599,6 +663,9 @@ def run_reporting_sync(db, settings) -> dict:
             "requests": 0,
             "experiences": 0,
             "unique_users": 0,
+            "unique_users_1q": 0,
+            "unique_users_2q": 0,
+            "unique_users_3q": 0,
             "success_ratio": 0,
             "failure_ratio": 0,
             "touched_amount": 0.0,
