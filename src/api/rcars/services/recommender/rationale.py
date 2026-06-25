@@ -106,9 +106,11 @@ def generate_rationale(
     result = parse_analysis_response(llm_result.text)
 
     if result:
+        recs_list = result if isinstance(result, list) else result.get("recommendations", [])
         recs_by_ci = {
             r["ci_name"]: r
-            for r in result.get("recommendations", [])
+            for r in recs_list
+            if isinstance(r, dict) and "ci_name" in r
         }
         for c in top_candidates:
             rec = recs_by_ci.get(c.ci_name, {})
