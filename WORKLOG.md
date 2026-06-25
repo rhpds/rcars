@@ -27,6 +27,25 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-24 — Nate + Claude (Security hardening release + production deploy)
+
+**Done:**
+- Security audit remediation — all HIGH and most MEDIUM findings fixed (PRs #30, #50, #51, #52, #53, #54)
+- Triaged and merged 8 external PRs, closed 2 issues (#26, #2)
+- Operational hardening: SSE timeout, liveness probes, orphaned job sweep (#52)
+- Best Fit button fix + orphaned job cleanup
+- Deployed to production via PR #55, smoke test passing
+
+**In progress:**
+- Nothing — clean handoff
+
+**Next:**
+- Close remaining open PRs (#48, #46, #33, #32)
+- Retirement Phase 2: workflow actions
+- Portfolio Architecture ingest
+
+---
+
 ### 2026-06-23 — Nate + Claude (Babydev migration, format_suitability deploy, PR triage)
 
 **Done:**

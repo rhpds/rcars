@@ -64,9 +64,9 @@ def triage(
 
     # Build lookup by ci_name
     if isinstance(triage_results, list):
-        scores_by_ci = {r["ci_name"]: r for r in triage_results}
+        scores_by_ci = {r["ci_name"]: r for r in triage_results if isinstance(r, dict) and "ci_name" in r}
     elif isinstance(triage_results, dict) and "recommendations" in triage_results:
-        scores_by_ci = {r["ci_name"]: r for r in triage_results["recommendations"]}
+        scores_by_ci = {r["ci_name"]: r for r in triage_results["recommendations"] if isinstance(r, dict) and "ci_name" in r}
     else:
         log.warning("triage: unexpected result type=%s, keys=%s", type(triage_results).__name__,
                     list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")

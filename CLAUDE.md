@@ -51,7 +51,7 @@ rcars-advisory/
 │   ├── templates/            # manifests-app.yaml.j2, manifests-infra.yaml.j2
 │   └── vars/                 # common.yml, dev.yml (gitignored), prod.yml (gitignored)
 ├── docs/                     # MkDocs Material → https://rhpds.github.io/rcars/
-├── BACKLOG.md                # Project roadmap — open items by priority
+├── BACKLOG.md                # Historical backlog — active items tracked in Jira (RHDPCD-25)
 ├── WORKLOG.md                # Session handoff notes between developers
 ├── dev-services.sh           # Local development launcher
 └── pyproject.toml            # Python project config (rcars package)
@@ -165,5 +165,5 @@ Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain sec
 
 ## Collaboration
 
-- **BACKLOG.md** — Project roadmap. Open items by priority at top, completed items at bottom. Treat as the source of truth for what to work on next.
+- **Jira Epic [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25)** — Active backlog. Source of truth for prioritization and tracking. `BACKLOG.md` retains completed item history only.
 - **WORKLOG.md** — Session handoff notes. Before ending a session, document what was done, what's in progress, and what's next. Read this before starting work.
