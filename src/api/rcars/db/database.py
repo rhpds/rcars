@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from urllib.parse import urlsplit
 from datetime import datetime, timedelta, timezone
@@ -408,6 +409,39 @@ class Database:
                 )
                 row = cur.fetchone()
                 return row["embedding"] if row else None
+
+    def find_catalog_item_by_keyword_overlap(
+        self, keywords: set[str], stages: list[str] | None = None, min_overlap: int = 3,
+    ) -> dict[str, Any] | None:
+        """Find a catalog item whose display_name shares the most words with the given keywords.
+
+        Returns the best match with at least min_overlap matching words, or None.
+        Matching is done in Python to avoid complex SQL — the catalog is small enough.
+        """
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT ci_name, display_name, stage FROM catalog_items "
+                    f"WHERE stage IN ({stage_placeholders}) AND retired_at IS NULL",
+                    (*stage_list,),
+                )
+                best_item = None
+                best_overlap = 0
+                for row in cur.fetchall():
+                    name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"])}
+                    overlap = len(keywords & name_words)
+                    if overlap >= min_overlap and overlap > best_overlap:
+                        best_overlap = overlap
+                        best_item = row
+                if best_item:
+                    cur.execute(
+                        "SELECT * FROM catalog_items WHERE ci_name = %s",
+                        (best_item["ci_name"],),
+                    )
+                    return cur.fetchone()
+                return None
 
     def list_catalog_items(
         self, prod_only: bool = False, category: str | None = None,
