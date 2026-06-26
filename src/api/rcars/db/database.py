@@ -680,6 +680,20 @@ class Database:
                 )
                 return cur.fetchone()
 
+    def find_prod_ci_by_content_hash(self, content_hash: str) -> dict[str, Any] | None:
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """SELECT ci.ci_name, ci.display_name, ci.stage, ci.catalog_namespace,
+                              ci.published_ci_name, ci.is_published
+                       FROM catalog_items ci
+                       JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
+                       WHERE sa.content_hash = %s AND ci.stage = 'prod' AND ci.retired_at IS NULL
+                       LIMIT 1""",
+                    (content_hash,),
+                )
+                return cur.fetchone()
+
     def mark_stale(self, ci_name: str, new_commit: str | None = None) -> None:
         with self._pool.connection() as conn:
             conn.execute(

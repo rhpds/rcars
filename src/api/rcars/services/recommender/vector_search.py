@@ -75,7 +75,7 @@ def _resolve_ci_references(query: str, db: Database, stages: list[str], include_
 def search(
     query: str,
     db: Database,
-    limit: int = 50,
+    limit: int = 25,
     stages: list[str] | None = None,
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
@@ -143,6 +143,29 @@ def search(
             ex_rank = (ex_stage, ex_pub, existing["distance"])
             if row_rank < ex_rank:
                 rows_by_content[content_key] = row
+
+    # Stage promotion: for any non-prod CI, check if a prod CI with the
+    # same content_hash exists. If so, swap to the prod version. This handles
+    # cases where the LIMIT excluded the prod base CI from vector results —
+    # the content is identical, so always prefer the prod identity.
+    for content_key, row in list(rows_by_content.items()):
+        if row.get("stage") == "prod":
+            continue
+        content_hash = row.get("content_hash")
+        if not content_hash:
+            continue
+        prod_ci = db.find_prod_ci_by_content_hash(content_hash)
+        if prod_ci and prod_ci["ci_name"] != row["ci_name"]:
+            log.info("stage_promote: %s (stage=%s) → %s (prod, same content_hash)",
+                     row["ci_name"], row.get("stage"), prod_ci["ci_name"])
+            row = {**row,
+                   "ci_name": prod_ci["ci_name"],
+                   "display_name": prod_ci.get("display_name", prod_ci["ci_name"]),
+                   "stage": "prod",
+                   "catalog_namespace": prod_ci.get("catalog_namespace", row.get("catalog_namespace", "")),
+                   "published_ci_name": prod_ci.get("published_ci_name"),
+                   "is_published": prod_ci.get("is_published", False)}
+            rows_by_content[content_key] = row
 
     candidates = []
     for row in rows_by_content.values():
