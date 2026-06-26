@@ -49,10 +49,6 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         opted_out=body.opted_out,
         _queue_name="arq:queue:recommend",
     )
-
-    relay = JobProgressRelay(request.app.state.redis)
-    await relay.publish(job_id, {"phase": "queued", "status": "waiting"})
-
     return {"job_id": job_id}
 
 
