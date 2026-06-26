@@ -118,7 +118,7 @@ For each component, it extracts:
 - **Published/base CI relationship** — derived from `__meta__.components[].item` references
 - **Infrastructure metadata** (AgnosticD v2 items only) — config type, cloud provider, OCP version, OS image, workload roles, ACL groups. See [Infrastructure Metadata Extraction](#infrastructure-metadata-extraction-agnosticd-v2) below.
 
-The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are deleted from the database.
+The catalog reader is stateless. Each call to `rcars refresh` performs a full read and upsert. Items removed from Babylon are soft-deleted (`retired_at = NOW()`) rather than purged — all associated data (analysis, embeddings, tags, workload mappings) is preserved. Items that reappear in a future scan are automatically un-retired.
 
 ### Showroom URL Extraction
 
@@ -198,7 +198,7 @@ The split exists because of a starvation problem: with a single worker, a bulk s
 2. **API** enqueues the task to the appropriate Redis queue
 3. **Worker** picks up the task, updates status to `running`
 4. **Worker** executes the task and writes results to PostgreSQL
-5. **Worker** updates job status to `complete` or `failed`
+5. **Worker** atomically updates both `catalog_items.scan_status` and `jobs.status` in a single transaction (via `complete_scan()`)
 6. For recommendation jobs: progress is published to Redis pub/sub, relayed to the browser via SSE
 
 ### Configuration

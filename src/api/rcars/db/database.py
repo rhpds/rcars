@@ -1346,19 +1346,24 @@ class Database:
             )
             return cur.fetchall()
 
-    def set_scan_status(self, ci_name: str, status: str, error_class: str | None = None, error_message: str | None = None):
-        with self._pool.connection() as conn:
+    def set_scan_status(self, ci_name: str, status: str, error_class: str | None = None, error_message: str | None = None, conn=None):
+        def _do(c):
             if status == "success":
-                conn.execute(
+                c.execute(
                     "UPDATE catalog_items SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE ci_name = %s",
                     (ci_name,),
                 )
             else:
-                conn.execute(
+                c.execute(
                     "UPDATE catalog_items SET scan_status = %s, scan_error_class = %s, scan_error = %s, scan_failed_at = %s WHERE ci_name = %s",
                     (status, error_class, error_message, datetime.now(timezone.utc), ci_name),
                 )
-            conn.commit()
+        if conn:
+            _do(conn)
+        else:
+            with self._pool.connection() as conn:
+                _do(conn)
+                conn.commit()
 
     def get_scan_failures(self) -> list[dict]:
         with self._pool.connection() as conn:
@@ -1565,13 +1570,27 @@ class Database:
             )
             conn.commit()
 
-    def complete_job(self, job_id: str, result_json: dict | None = None, error: str | None = None) -> None:
+    def complete_job(self, job_id: str, result_json: dict | None = None, error: str | None = None, conn=None) -> None:
         status = "failed" if error else "complete"
-        with self._pool.connection() as conn:
-            conn.execute(
+        def _do(c):
+            c.execute(
                 "UPDATE jobs SET status = %s, result_json = %s, error = %s, completed_at = %s WHERE id = %s",
                 (status, Jsonb(result_json) if result_json else None, error, datetime.now(timezone.utc), job_id),
             )
+        if conn:
+            _do(conn)
+        else:
+            with self._pool.connection() as conn:
+                _do(conn)
+                conn.commit()
+
+    def complete_scan(self, ci_name: str, job_id: str, scan_status: str,
+                      result_json: dict | None = None, error: str | None = None,
+                      error_class: str | None = None, error_message: str | None = None) -> None:
+        """Atomically update both catalog_items.scan_status and jobs.status in one transaction."""
+        with self._pool.connection() as conn:
+            self.set_scan_status(ci_name, scan_status, error_class=error_class, error_message=error_message, conn=conn)
+            self.complete_job(job_id, result_json=result_json, error=error, conn=conn)
             conn.commit()
 
     def fail_job(self, job_id: str, error: str) -> None:
@@ -1842,13 +1861,16 @@ class Database:
         return result
 
     def get_reporting_sync_status(self) -> dict:
-        """Get sync health: last synced, row counts, data coverage."""
+        """Get sync health: last synced, row counts, data coverage, score distribution."""
         sql = """
             SELECT
                 COUNT(*) AS total,
                 COUNT(*) FILTER (WHERE provisions > 0) AS with_provisions,
                 COUNT(*) FILTER (WHERE total_cost > 0) AS with_cost,
                 COUNT(*) FILTER (WHERE closed_amount > 0) AS with_sales,
+                COUNT(*) FILTER (WHERE retirement_score >= 55) AS high,
+                COUNT(*) FILTER (WHERE retirement_score >= 35 AND retirement_score < 55) AS review,
+                COUNT(*) FILTER (WHERE retirement_score < 35) AS keepers,
                 MAX(synced_at) AS last_synced
             FROM reporting_metrics
         """
