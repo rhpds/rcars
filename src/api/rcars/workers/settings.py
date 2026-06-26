@@ -102,6 +102,6 @@ class RecommendWorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
-    max_jobs = int(os.environ.get("RCARS_RECOMMEND_MAX_JOBS", "10"))
+    max_jobs = int(os.environ.get("RCARS_RECOMMEND_MAX_JOBS", "15"))
     job_timeout = 120
     queue_name = "arq:queue:recommend"

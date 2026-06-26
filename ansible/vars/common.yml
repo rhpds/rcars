@@ -43,7 +43,7 @@ pipeline_minute: 0
 
 # Worker concurrency (max simultaneous jobs per pod)
 scan_max_jobs: 5
-recommend_max_jobs: 10
+recommend_max_jobs: 15
 
 # Scaling (pod replicas)
 api_replicas: 1
