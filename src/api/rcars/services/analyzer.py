@@ -645,46 +645,50 @@ def analyze_showroom(
                 donor_name = donor["ci_name"]
                 log.info("analyze %s: reusing analysis from %s (same content_hash %s)",
                          ci_name, donor_name, content_hash[:12])
+                donor_analysis = {
+                    "content_type": donor.get("content_type"),
+                    "summary": donor.get("summary"),
+                    "products": donor.get("products_json"),
+                    "audience": donor.get("audience_json"),
+                    "topics": donor.get("topics_json"),
+                    "modules": donor.get("modules_json"),
+                    "learning_objectives": donor.get("learning_objectives_json"),
+                    "difficulty": donor.get("difficulty"),
+                    "estimated_duration_min": donor.get("estimated_duration_min"),
+                    "format_suitability": donor.get("format_suitability_json"),
+                    "use_cases": donor.get("use_cases_json"),
+                }
+
+                # Rebuild CI embedding with this CI's own keywords
+                ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords)
+                ci_embedding = generate_embedding(ci_embedding_text)
+
+                # Module embeddings don't include keywords, safe to copy
                 donor_embeddings = db.get_embeddings_for_ci(donor_name)
-                summary_emb = next((e for e in donor_embeddings if e["embed_type"] == "ci_summary"), None)
-                if summary_emb:
-                    module_embeddings = []
-                    for e in donor_embeddings:
-                        if e["embed_type"] == "module":
-                            raw_vec = e["embedding_text"]
-                            module_embeddings.append({
-                                "module_title": e.get("module_title", ""),
-                                "content_text": e["content_text"],
-                                "embedding": [float(x) for x in raw_vec.strip("[]").split(",")],
-                            })
-                    raw_ci_vec = summary_emb["embedding_text"]
-                    elapsed = time.monotonic() - t0
-                    return {
-                        "ci_name": ci_name,
-                        "analysis": {
-                            "content_type": donor.get("content_type"),
-                            "summary": donor.get("summary"),
-                            "products": donor.get("products_json"),
-                            "audience": donor.get("audience_json"),
-                            "topics": donor.get("topics_json"),
-                            "modules": donor.get("modules_json"),
-                            "learning_objectives": donor.get("learning_objectives_json"),
-                            "difficulty": donor.get("difficulty"),
-                            "estimated_duration_min": donor.get("estimated_duration_min"),
-                            "format_suitability": donor.get("format_suitability_json"),
-                            "use_cases": donor.get("use_cases_json"),
-                        },
-                        "ci_embedding_text": summary_emb["content_text"],
-                        "ci_embedding": [float(x) for x in raw_ci_vec.strip("[]").split(",")],
-                        "module_embeddings": module_embeddings,
-                        "last_repo_commit": head_sha,
-                        "last_repo_updated": head_date,
-                        "content_hash": content_hash,
-                        "input_tokens": 0,
-                        "output_tokens": 0,
-                        "content_file_count": len(content_files),
-                        "elapsed_seconds": round(time.monotonic() - t0, 1),
-                        "reused_from": donor_name,
+                module_embeddings = []
+                for e in donor_embeddings:
+                    if e["embed_type"] == "module":
+                        raw_vec = e["embedding_text"]
+                        module_embeddings.append({
+                            "module_title": e.get("module_title", ""),
+                            "content_text": e["content_text"],
+                            "embedding": [float(x) for x in raw_vec.strip("[]").split(",")],
+                        })
+
+                return {
+                    "ci_name": ci_name,
+                    "analysis": donor_analysis,
+                    "ci_embedding_text": ci_embedding_text,
+                    "ci_embedding": ci_embedding,
+                    "module_embeddings": module_embeddings,
+                    "last_repo_commit": head_sha,
+                    "last_repo_updated": head_date,
+                    "content_hash": content_hash,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "content_file_count": len(content_files),
+                    "elapsed_seconds": round(time.monotonic() - t0, 1),
+                    "reused_from": donor_name,
                     }
 
         # Build prompt and call Sonnet

@@ -698,7 +698,8 @@ class Database:
                     JOIN catalog_items ci ON ci.ci_name = sa.ci_name
                     JOIN embeddings e ON e.ci_name = sa.ci_name AND e.embed_type = 'ci_summary'
                     WHERE sa.content_hash = %s AND ci.retired_at IS NULL {exclude_clause}
-                    ORDER BY CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
+                    ORDER BY CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
+                             sa.last_analyzed DESC NULLS LAST, sa.ci_name
                     LIMIT 1
                 """, params)
                 return cur.fetchone()
@@ -722,6 +723,7 @@ class Database:
                        FROM catalog_items ci
                        JOIN showroom_analysis sa ON sa.ci_name = ci.ci_name
                        WHERE sa.content_hash = %s AND ci.stage = 'prod' AND ci.retired_at IS NULL
+                       ORDER BY ci.ci_name
                        LIMIT 1""",
                     (content_hash,),
                 )
