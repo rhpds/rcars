@@ -274,6 +274,8 @@ spec:
 {% endif %}
             - name: RCARS_CLONE_DIR
               value: /tmp/rcars-clones
+            - name: RCARS_SCAN_MAX_JOBS
+              value: "{{ scan_max_jobs | default('5') }}"
             - name: RCARS_PIPELINE_ENABLED
               value: "{{ pipeline_enabled | default('true') }}"
             - name: RCARS_PIPELINE_HOUR
@@ -417,6 +419,8 @@ spec:
                   name: {{ app_name }}-litemaas
                   key: api-key
 {% endif %}
+            - name: RCARS_RECOMMEND_MAX_JOBS
+              value: "{{ recommend_max_jobs | default('10') }}"
             - name: HF_HOME
               value: /opt/app-root/hf_cache
           volumeMounts:
