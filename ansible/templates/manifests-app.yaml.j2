@@ -420,7 +420,7 @@ spec:
                   key: api-key
 {% endif %}
             - name: RCARS_RECOMMEND_MAX_JOBS
-              value: "{{ recommend_max_jobs | default('10') }}"
+              value: "{{ recommend_max_jobs | default('15') }}"
             - name: HF_HOME
               value: /opt/app-root/hf_cache
           volumeMounts:
