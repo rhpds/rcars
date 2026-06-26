@@ -75,7 +75,7 @@ def _resolve_ci_references(query: str, db: Database, stages: list[str], include_
 def search(
     query: str,
     db: Database,
-    limit: int = 25,
+    limit: int = 50,
     stages: list[str] | None = None,
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
