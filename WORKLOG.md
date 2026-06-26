@@ -27,6 +27,27 @@ Session handoff notes between developers. Read before starting work. Write befor
 
 ## Sessions
 
+### 2026-06-26 — Nate + Claude (Bug fix sweep + production deploy)
+
+**Done:**
+- **RHDPCD-29** — Fixed scan status / job completion divergence. Added `complete_scan()` method that atomically updates both `catalog_items.scan_status` and `jobs.status` in a single transaction. Replaced all 4 call sites in `scan.py`. Closed.
+- **RHDPCD-30** — Fixed CLI `rcars reporting-db status` KeyError. Added retirement score distribution counts (`high`, `review`, `keepers`) to `get_reporting_sync_status()` query. Validated on dev. Closed.
+- **RHDPCD-36** — Closed as Not a Bug. The "untagged" filter no longer exists; all four current content filters have matching backend switch cases.
+- Updated architecture docs (`system-design.md`, `retirement-analysis.md`) to reflect atomic scan completion and correct CLI description.
+- **RHDPCD-75** — Fixed GitHub Pages build in `publishing-house-example-ai` (missing Antora extensions in workflow). Tracked under PH BreakFix.
+- Promoted main → production via PR #60 (18 commits). Deployed with `--tags update` including Alembic migration 010. Advisor queries validated on production.
+
+**In progress:**
+- Nothing
+
+**Next:**
+- RCARS bug backlog is clear (zero open bugs)
+- Continue RCARS June sprint items (RHDPCD-25 epic): infra metadata, rec card template+duration+best-fit, overlap detection, architecture ingest
+
+**Notes:**
+- RHDPCD-97 was created for the PH Antora fix but should have used the existing RHDPCD-75 (BreakFix) catch-all. Closed as Duplicate. Memory updated to use RHDPCD-75 for small PH fixes going forward.
+- API admin endpoints require auth even from inside the pod — CLI commands or direct Python are the viable test paths on deployed environments.
+
 ### 2026-06-24 — Nate + Claude (Security hardening release + production deploy)
 
 **Done:**

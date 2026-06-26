@@ -53,6 +53,9 @@ def translate_to_user_message(msg: dict) -> str:
     phase = msg.get("phase", "")
     status = msg.get("status", "")
 
+    if phase == "queued":
+        return "Your query is queued — waiting for a worker..."
+
     if phase == "catalog_refresh":
         return msg.get("message", f"Catalog refresh: {status}")
 
@@ -100,6 +103,10 @@ def translate_to_user_message(msg: dict) -> str:
 
 
 async def sse_stream(relay: JobProgressRelay, job_id: str) -> AsyncGenerator[str, None]:
+    queued_msg = {"phase": "queued", "status": "waiting"}
+    queued_data = {**queued_msg, "user_message": translate_to_user_message(queued_msg)}
+    yield f"data: {json.dumps(queued_data)}\n\n"
+
     async for msg in relay.subscribe(job_id):
         if msg is None:
             yield ": keepalive\n\n"

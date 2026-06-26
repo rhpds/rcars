@@ -1525,6 +1525,14 @@ class Database:
 
     # ── Jobs ──
 
+    def has_active_recommend_job(self, user_email: str) -> bool:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT 1 FROM jobs WHERE job_type = 'recommend' AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
+                (user_email,),
+            )
+            return cur.fetchone() is not None
+
     def create_job(self, job_type: str, queue: str, created_by: str | None = None) -> str:
         job_id = str(uuid.uuid4())
         with self._pool.connection() as conn:

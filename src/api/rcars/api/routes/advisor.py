@@ -30,6 +30,10 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
     arq_redis = request.app.state.arq_redis
     settings: Settings = request.app.state.settings
 
+    if not settings.is_curator(user) and not settings.is_admin(user):
+        if db.has_active_recommend_job(user):
+            raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
+
     stages = body.stages
     if "dev" in stages and not settings.is_curator(user) and not settings.is_admin(user):
         stages = [s for s in stages if s != "dev"]

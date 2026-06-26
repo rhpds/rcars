@@ -10,6 +10,17 @@ from redis.asyncio import Redis
 from rcars.config import Settings
 
 
+def _parse_max_jobs(env_var: str, default: int) -> int:
+    raw = os.environ.get(env_var, str(default))
+    try:
+        value = int(raw)
+    except ValueError:
+        raise SystemExit(f"{env_var}={raw!r} is not a valid integer")
+    if value < 1:
+        raise SystemExit(f"{env_var}={value} must be >= 1")
+    return value
+
+
 def _redis_settings_from_url(url: str) -> RedisSettings:
     parsed = urlparse(url)
     return RedisSettings(
@@ -91,7 +102,7 @@ class WorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
-    max_jobs = 5
+    max_jobs = _parse_max_jobs("RCARS_SCAN_MAX_JOBS", 5)
     job_timeout = 600
     queue_name = "arq:queue:scan"
 
@@ -102,6 +113,6 @@ class RecommendWorkerSettings:
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
-    max_jobs = 3
+    max_jobs = _parse_max_jobs("RCARS_RECOMMEND_MAX_JOBS", 15)
     job_timeout = 120
     queue_name = "arq:queue:recommend"
