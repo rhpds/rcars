@@ -680,6 +680,39 @@ class Database:
                 )
                 return cur.fetchone()
 
+    def find_donor_by_content_hash(self, content_hash: str, exclude_ci: str | None = None) -> dict[str, Any] | None:
+        """Find a CI that already has analysis + embeddings for this content hash.
+
+        Returns the showroom_analysis row if a donor exists, None otherwise.
+        Prefers prod stage donors, falls back to any stage.
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                exclude_clause = "AND sa.ci_name != %s" if exclude_ci else ""
+                params = [content_hash]
+                if exclude_ci:
+                    params.append(exclude_ci)
+                cur.execute(f"""
+                    SELECT sa.*, ci.stage
+                    FROM showroom_analysis sa
+                    JOIN catalog_items ci ON ci.ci_name = sa.ci_name
+                    JOIN embeddings e ON e.ci_name = sa.ci_name AND e.embed_type = 'ci_summary'
+                    WHERE sa.content_hash = %s AND ci.retired_at IS NULL {exclude_clause}
+                    ORDER BY CASE ci.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
+                    LIMIT 1
+                """, params)
+                return cur.fetchone()
+
+    def get_embeddings_for_ci(self, ci_name: str) -> list[dict[str, Any]]:
+        """Return all embeddings for a CI (summary + modules)."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT embed_type, content_text, module_title, embedding::text as embedding_text FROM embeddings WHERE ci_name = %s",
+                    (ci_name,),
+                )
+                return cur.fetchall()
+
     def find_prod_ci_by_content_hash(self, content_hash: str) -> dict[str, Any] | None:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
