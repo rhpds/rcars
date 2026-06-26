@@ -53,6 +53,9 @@ def translate_to_user_message(msg: dict) -> str:
     phase = msg.get("phase", "")
     status = msg.get("status", "")
 
+    if phase == "queued":
+        return "Your query is queued — waiting for a worker..."
+
     if phase == "catalog_refresh":
         return msg.get("message", f"Catalog refresh: {status}")
 
