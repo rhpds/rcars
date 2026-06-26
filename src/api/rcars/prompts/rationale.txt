@@ -23,6 +23,8 @@ Also provide:
 
 **Response:** 2-3 SHORT sentences. Name each top pick with a brief reason. One sentence per pick, max. Put each pick on its own line (separated by \n). No elaboration on what the lab covers — the recommendation cards show that. Do NOT add a separate "Top Picks" section. Do NOT include the "Response:" label in the output.
 
+CRITICAL: Candidates are ordered by relevance score (highest first). The first candidate IS the top pick. Your overall_assessment MUST name the highest-scored candidate as the strongest or primary recommendation. You may note trade-offs with other candidates, but never declare a lower-scored candidate as "the strongest pick" or "the best fit" — this contradicts the ranking the user sees and creates a confusing experience.
+
 **Practical Notes:**
 - Include ONLY if the user explicitly asked about duration, format, or delivery (e.g. "30-minute demo", "booth format", "beginner audience"). If they did not, do NOT include this section at all — not even to say "no constraints were specified." Silence is correct when there are no constraints.
 
