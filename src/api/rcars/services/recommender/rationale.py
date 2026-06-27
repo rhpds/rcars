@@ -108,6 +108,13 @@ def _call_synthesis(
         log.warning("synthesis: failed to parse response")
         result = {}
 
+    # Join picks array into overall_assessment with newlines (formatting in code, not LLM)
+    picks = result.get("picks", [])
+    if picks and isinstance(picks, list):
+        result["overall_assessment"] = "\n".join(picks)
+    elif not result.get("overall_assessment"):
+        result["overall_assessment"] = ""
+
     result["tokens"] = {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}
     return result
 
