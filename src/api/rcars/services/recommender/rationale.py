@@ -107,6 +107,8 @@ def _call_synthesis(
     if result is None:
         log.warning("synthesis: failed to parse response")
         result = {}
+    elif isinstance(result, list):
+        result = result[0] if result else {}
 
     # Join picks array into overall_assessment with newlines (formatting in code, not LLM)
     picks = result.get("picks", [])
@@ -114,6 +116,9 @@ def _call_synthesis(
         result["overall_assessment"] = "\n".join(picks)
     elif not result.get("overall_assessment"):
         result["overall_assessment"] = ""
+
+    if "content_gaps" not in result:
+        result["content_gaps"] = []
 
     result["tokens"] = {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}
     return result
@@ -148,8 +153,7 @@ def generate_rationale(
             analyses[c.ci_name] = analysis
 
     # Phase 3a: Parallel per-candidate Sonnet calls
-    total_input_tokens = 0
-    total_output_tokens = 0
+    tokens_by_provider: dict[str, dict[str, int]] = {}
     rationale_results = {}
 
     with ThreadPoolExecutor(max_workers=min(top_n, 5)) as executor:
@@ -164,8 +168,10 @@ def generate_rationale(
             try:
                 result = future.result()
                 tokens = result.pop("tokens", {})
-                total_input_tokens += tokens.get("input", 0)
-                total_output_tokens += tokens.get("output", 0)
+                provider = tokens.get("provider", "unknown")
+                bucket = tokens_by_provider.setdefault(provider, {"input": 0, "output": 0})
+                bucket["input"] += tokens.get("input", 0)
+                bucket["output"] += tokens.get("output", 0)
                 rationale_results[ci_name] = result
             except Exception as e:
                 log.error("rationale_single: failed for %s: %s", ci_name, e)
@@ -200,16 +206,18 @@ def generate_rationale(
         {
             "operation": "rationale",
             "model": model,
-            "input_tokens": total_input_tokens,
-            "output_tokens": total_output_tokens,
-            "provider": "litemaas",
-        },
+            "input_tokens": bucket["input"],
+            "output_tokens": bucket["output"],
+            "provider": provider,
+        }
+        for provider, bucket in tokens_by_provider.items()
+    ] + [
         {
             "operation": "synthesis",
             "model": synthesis_model,
             "input_tokens": synthesis_tokens.get("input", 0),
             "output_tokens": synthesis_tokens.get("output", 0),
-            "provider": synthesis_tokens.get("provider", "litemaas"),
+            "provider": synthesis_tokens.get("provider", "unknown"),
         },
     ]
 

@@ -276,7 +276,7 @@ async def run_query(
     # Assign green tier to the top N candidates by score (deterministic,
     # independent of whether the LLM generated why_it_fits for them)
     yellow_by_score = [c for c in state.candidates if c.tier == "yellow"]
-    yellow_by_score.sort(key=lambda c: -(c.relevance_score or 0))
+    yellow_by_score.sort(key=lambda c: (-(c.relevance_score or 0), c.ci_name))
     for c in yellow_by_score[:top_n]:
         c.tier = "green"
 
