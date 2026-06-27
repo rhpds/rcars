@@ -94,7 +94,11 @@ def generate_rationale(
     data_start = template.index("\n## Request\n")
     instructions_start = template.index("\n## Instructions\n")
     system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
-    user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
+
+    # Tell the LLM which candidate is the top pick — don't let it decide
+    top_pick = top_candidates[0]
+    top_pick_note = f"\n\nNote: {top_pick.display_name} is the highest-scored candidate ({top_pick.relevance_score}%). Your overall_assessment must lead with this item."
+    user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}{top_pick_note}"
 
     from rcars.config import call_llm
     llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
