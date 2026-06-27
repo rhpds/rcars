@@ -21,6 +21,7 @@ class Candidate:
     stage: str = "prod"
     duration_source: str = "ai"  # "curated" | "ai"
     catalog_namespace: str = ""
+    base_ci_name: str | None = None
     learning_objectives: list[str] = field(default_factory=list)
     tier: str = "white"  # white | yellow | green — set by pipeline phases
     vector_distance: float = 0.0

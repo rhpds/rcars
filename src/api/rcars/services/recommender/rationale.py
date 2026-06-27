@@ -79,10 +79,11 @@ def generate_rationale(
     top_candidates = state.candidates[:top_n]
     remaining = state.candidates[top_n:]
 
-    # Fetch full analysis for top candidates
+    # Fetch full analysis for top candidates (published CIs store analysis on their base CI)
     analyses = {}
     for c in top_candidates:
-        analysis = db.get_showroom_analysis(c.ci_name)
+        analysis_ci = c.base_ci_name or c.ci_name
+        analysis = db.get_showroom_analysis(analysis_ci)
         if analysis:
             analyses[c.ci_name] = analysis
 

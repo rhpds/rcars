@@ -216,6 +216,7 @@ def search(
             content_type=(analysis or {}).get("content_type", ""),
             stage=row.get("stage", "prod"),
             catalog_namespace=row.get("catalog_namespace", ""),
+            base_ci_name=row.get("base_ci_name"),
             learning_objectives=learning_objs,
             vector_distance=row["distance"],
             vector_similarity_pct=Candidate.similarity_pct(row["distance"]),
