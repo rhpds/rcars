@@ -273,10 +273,12 @@ async def run_query(
     await emit({"phase": "rationale", "status": "started", "top_n": top_n})
     state = await asyncio.to_thread(generate_rationale, state, db, settings=settings, model=settings.rationale_model, top_n=top_n)
 
-    # Promote candidates with full rationale to green tier
-    for c in state.candidates:
-        if c.why_it_fits and c.tier == "yellow":
-            c.tier = "green"
+    # Assign green tier to the top N candidates by score (deterministic,
+    # independent of whether the LLM generated why_it_fits for them)
+    yellow_by_score = [c for c in state.candidates if c.tier == "yellow"]
+    yellow_by_score.sort(key=lambda c: -(c.relevance_score or 0))
+    for c in yellow_by_score[:top_n]:
+        c.tier = "green"
 
     green_count = len([c for c in state.candidates if c.tier == "green"])
     db.log_token_usage("rationale", settings.rationale_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query, provider=state.token_usage[-1].get("provider", "anthropic")) if len(state.token_usage) > 1 else None

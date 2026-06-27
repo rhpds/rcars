@@ -115,12 +115,28 @@ def generate_rationale(
                         list(result.keys()) if isinstance(result, dict) else "N/A")
         recs_by_ci = {}
 
+    expected_names = {c.ci_name for c in top_candidates}
+    returned_names = set(recs_by_ci.keys())
+    missing = expected_names - returned_names
+    extra = returned_names - expected_names
+    if missing:
+        log.warning("rationale: LLM dropped candidates", missing=sorted(missing))
+    if extra:
+        log.warning("rationale: LLM returned unexpected ci_names", extra=sorted(extra),
+                     expected=sorted(expected_names))
+        # Try fuzzy match: LLM may have truncated ".prod"/".dev" suffix
+        for extra_name in extra:
+            for c in top_candidates:
+                if c.ci_name.startswith(extra_name) or extra_name.startswith(c.ci_name):
+                    log.info("rationale: fuzzy match %s → %s", extra_name, c.ci_name)
+                    recs_by_ci[c.ci_name] = recs_by_ci.pop(extra_name)
+                    break
+
     if recs_by_ci:
         for c in top_candidates:
             rec = recs_by_ci.get(c.ci_name, {})
             c.why_it_fits = rec.get("why_it_fits")
             c.how_to_use = rec.get("how_to_use")
-            # Build rationale from structured fields for backward compat
             c.rationale = c.why_it_fits or rec.get("rationale")
             c.suggested_format = rec.get("suggested_format")
             c.duration_notes = rec.get("duration_notes")
