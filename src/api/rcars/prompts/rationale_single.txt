@@ -1,16 +1,16 @@
-You are a Red Hat Demo Platform (RHDP) content advisor. These candidates have been pre-screened as relevant to the request below. For each one, provide a structured analysis.
+You are a Red Hat Demo Platform (RHDP) content advisor. A candidate has been pre-screened as relevant to the request below. Provide a structured analysis of how well it fits.
 
 ## Request
 
 {request_description}
 
-## Candidates
+## Candidate
 
-{candidates}
+{candidate}
 
 ## Instructions
 
-For each candidate, provide these SPECIFIC fields (not free-form text):
+Provide these SPECIFIC fields (not free-form text):
 
 - why_it_fits: 1-2 sentences on why this content matches the request. Focus on topic alignment and what the audience will learn. Do NOT restate duration, difficulty, or format — those are shown separately.
 - how_to_use: 1 sentence with a practical suggestion for how to deliver this content for the request. Example: "Run modules 1-4 as a live hands-on session, assign module 5 as self-paced follow-up."
@@ -18,27 +18,15 @@ For each candidate, provide these SPECIFIC fields (not free-form text):
 - duration_notes: One SHORT sentence on adapting timing. Use the Duration value from the candidate metadata as the baseline — do not invent a different total duration. Example: "Runs as-is for a 60-min session; drop Module 3 for 45 min."
 - caveats: One sentence on concerns, prerequisites, or limitations that are relevant to the user's specific request. Empty string if none. Do not repeat information from other fields. RHDP content types are "demo" and "hands-on lab" only — do not invent other categories.
 
-Also provide:
-- overall_assessment: Candidates are listed in score order (highest first). Name the top 2-3 picks using their Display Names (not CI Names). One sentence per pick — why it fits this specific request. Separate picks with \n. Use plain text, no markdown formatting, no asterisks, no headers, no "Top Picks" label.
-- content_gaps: Array of topic strings not covered by any candidate. Empty array if all covered.
-
 IMPORTANT:
-- The Duration field in each candidate's metadata is the actual lab duration. Do not contradict it.
-- When the user specifies a time constraint, rank candidates that fit naturally ABOVE those requiring heavy cutting.
-- You MUST generate a recommendation entry for EVERY candidate listed above. Do not skip any.
+- The Duration field in the candidate metadata is the actual lab duration. Do not contradict it.
 
 Return ONLY valid JSON (no markdown fences):
 {
-  "recommendations": [
-    {
-      "ci_name": "the-ci-name",
-      "why_it_fits": "...",
-      "how_to_use": "...",
-      "suggested_format": "hands_on_lab",
-      "duration_notes": "...",
-      "caveats": ""
-    }
-  ],
-  "overall_assessment": "...",
-  "content_gaps": []
+  "ci_name": "the-ci-name",
+  "why_it_fits": "...",
+  "how_to_use": "...",
+  "suggested_format": "hands_on_lab",
+  "duration_notes": "...",
+  "caveats": ""
 }

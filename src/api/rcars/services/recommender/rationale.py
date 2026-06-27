@@ -1,7 +1,8 @@
-"""Phase 3 — Sonnet rationale generation for top candidates."""
+"""Phase 3 — per-candidate Sonnet rationale + Haiku synthesis."""
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -11,52 +12,116 @@ from rcars.services.recommender.models import Candidate, QueryState
 
 log = logging.getLogger(__name__)
 
-RATIONALE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale.txt"
+SINGLE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_single.txt"
+SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_synthesis.txt"
 
 
-def format_rationale_candidates(
-    candidates: list[Candidate],
-    analyses: dict[str, dict[str, Any]],
-) -> str:
-    """Format candidates with full analysis data for the rationale prompt."""
-    parts = []
-    for i, c in enumerate(candidates, 1):
-        analysis = analyses.get(c.ci_name, {})
-        lines = [
-            f"--- Candidate {i} (relevance: {c.relevance_score or 0}%) ---",
-            f"CI Name: {c.ci_name}",
-            f"Display Name: {c.display_name}",
-            f"Category: {c.category}",
-            f"Content Type: {c.content_type}",
-            f"Summary: {c.summary}",
-            f"Difficulty: {c.difficulty}",
-            f"Duration: {c.duration_min or '?'} min",
-            f"Topics: {', '.join(c.topics)}",
-            f"Products: {', '.join(c.products)}",
-        ]
+def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
+    """Format one candidate with full analysis data for the per-candidate prompt."""
+    lines = [
+        f"CI Name: {c.ci_name}",
+        f"Display Name: {c.display_name}",
+        f"Category: {c.category}",
+        f"Content Type: {c.content_type}",
+        f"Relevance Score: {c.relevance_score or 0}%",
+        f"Summary: {c.summary}",
+        f"Difficulty: {c.difficulty}",
+        f"Duration: {c.duration_min or '?'} min",
+        f"Topics: {', '.join(c.topics)}",
+        f"Products: {', '.join(c.products)}",
+    ]
 
-        audience = analysis.get("audience_json", [])
-        if audience:
-            lines.append(f"Audience: {', '.join(audience)}")
+    audience = analysis.get("audience_json", [])
+    if audience:
+        lines.append(f"Audience: {', '.join(audience)}")
 
-        objectives = analysis.get("learning_objectives_json", {})
-        if isinstance(objectives, dict):
-            stated = objectives.get("stated", [])
-            inferred = objectives.get("inferred", [])
-            if stated:
-                lines.append(f"Stated Objectives: {'; '.join(stated)}")
-            if inferred:
-                lines.append(f"Inferred Objectives: {'; '.join(inferred)}")
+    objectives = analysis.get("learning_objectives_json", {})
+    if isinstance(objectives, dict):
+        stated = objectives.get("stated", [])
+        inferred = objectives.get("inferred", [])
+        if stated:
+            lines.append(f"Stated Objectives: {'; '.join(stated)}")
+        if inferred:
+            lines.append(f"Inferred Objectives: {'; '.join(inferred)}")
 
-        modules = analysis.get("modules_json", [])
-        if modules:
-            mod_titles = [m.get("title", "") for m in modules if m.get("title")]
-            if mod_titles:
-                lines.append(f"Modules: {'; '.join(mod_titles)}")
+    modules = analysis.get("modules_json", [])
+    if modules:
+        mod_titles = [m.get("title", "") for m in modules if m.get("title")]
+        if mod_titles:
+            lines.append(f"Modules: {'; '.join(mod_titles)}")
 
-        parts.append("\n".join(lines))
+    return "\n".join(lines)
 
-    return "\n\n".join(parts)
+
+def _call_rationale_single(
+    c: Candidate, analysis: dict[str, Any], query: str, settings, model: str,
+) -> dict:
+    """Generate rationale for a single candidate. Returns the parsed result dict."""
+    from rcars.config import call_llm
+
+    template = SINGLE_PROMPT_PATH.read_text()
+    candidate_text = _format_single_candidate(c, analysis)
+
+    data_start = template.index("\n## Request\n")
+    instructions_start = template.index("\n## Instructions\n")
+    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
+    user_message = f"## Request\n\n{query}\n\n## Candidate\n\n{candidate_text}"
+
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=2048, system=system_prompt)
+
+    result = parse_analysis_response(llm_result.text)
+    if result is None:
+        log.warning("rationale_single: failed to parse response for %s", c.ci_name)
+        return {"ci_name": c.ci_name, "tokens": {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}}
+
+    if isinstance(result, list) and result:
+        result = result[0]
+
+    result["ci_name"] = c.ci_name
+    result["tokens"] = {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}
+    return result
+
+
+def _call_synthesis(
+    query: str, candidates: list[Candidate], settings, model: str,
+) -> dict:
+    """Generate overall assessment + content gaps via Haiku synthesis."""
+    from rcars.config import call_llm
+
+    template = SYNTHESIS_PROMPT_PATH.read_text()
+
+    lines = []
+    for c in candidates:
+        why = c.why_it_fits or ""
+        lines.append(f"- {c.display_name} ({c.relevance_score or 0}%): {why}")
+    recs_text = "\n".join(lines)
+
+    data_start = template.index("\n## Request\n")
+    instructions_start = template.index("\n## Instructions\n")
+    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
+    user_message = f"## Request\n\n{query}\n\n## Recommendations (in score order, highest first)\n\n{recs_text}"
+
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=system_prompt)
+
+    result = parse_analysis_response(llm_result.text)
+    if result is None:
+        log.warning("synthesis: failed to parse response")
+        result = {}
+    elif isinstance(result, list):
+        result = result[0] if result else {}
+
+    # Join picks array into overall_assessment with newlines (formatting in code, not LLM)
+    picks = result.get("picks", [])
+    if picks and isinstance(picks, list):
+        result["overall_assessment"] = "\n".join(picks)
+    elif not result.get("overall_assessment"):
+        result["overall_assessment"] = ""
+
+    if "content_gaps" not in result:
+        result["content_gaps"] = []
+
+    result["tokens"] = {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}
+    return result
 
 
 def generate_rationale(
@@ -66,11 +131,11 @@ def generate_rationale(
     model: str = "claude-sonnet-4-6",
     top_n: int = 5,
 ) -> QueryState:
-    """Generate Sonnet rationale for top candidates.
+    """Generate per-candidate Sonnet rationale + Haiku synthesis.
 
-    Only the top_n candidates (by relevance_score) are sent to Sonnet.
-    All candidates are preserved in the result — non-top-n keep their
-    triage data but get no rationale.
+    1. Fire parallel Sonnet calls for each of the top N candidates
+    2. Apply results to candidates
+    3. Run a Haiku synthesis call for overall_assessment + content_gaps
 
     Returns QueryState with phase COMPLETE.
     """
@@ -87,66 +152,81 @@ def generate_rationale(
         if analysis:
             analyses[c.ci_name] = analysis
 
-    template = RATIONALE_PROMPT_PATH.read_text()
-    candidates_text = format_rationale_candidates(top_candidates, analyses)
+    # Phase 3a: Parallel per-candidate Sonnet calls
+    tokens_by_provider: dict[str, dict[str, int]] = {}
+    rationale_results = {}
 
-    # Separate system instructions from user-supplied data (security: M-1/M-4)
-    data_start = template.index("\n## Request\n")
-    instructions_start = template.index("\n## Instructions\n")
-    system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
-    user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
-
-    from rcars.config import call_llm
-    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
-
-    result = parse_analysis_response(llm_result.text)
-
-    if result is None:
-        log.error("rationale: failed to parse LLM response, raw=%s", llm_result.text[:500])
-
-    # Build lookup by ci_name — handle both list (truncation recovery) and dict
-    if isinstance(result, list):
-        recs_by_ci = {r["ci_name"]: r for r in result if isinstance(r, dict) and "ci_name" in r}
-    elif isinstance(result, dict) and "recommendations" in result:
-        recs_by_ci = {r["ci_name"]: r for r in result["recommendations"] if isinstance(r, dict) and "ci_name" in r}
-    else:
-        if result is not None:
-            log.warning("rationale: unexpected result type=%s, keys=%s", type(result).__name__,
-                        list(result.keys()) if isinstance(result, dict) else "N/A")
-        recs_by_ci = {}
-
-    if recs_by_ci:
+    with ThreadPoolExecutor(max_workers=min(top_n, 5)) as executor:
+        futures = {}
         for c in top_candidates:
-            rec = recs_by_ci.get(c.ci_name, {})
-            c.why_it_fits = rec.get("why_it_fits")
-            c.how_to_use = rec.get("how_to_use")
-            # Build rationale from structured fields for backward compat
-            c.rationale = c.why_it_fits or rec.get("rationale")
-            c.suggested_format = rec.get("suggested_format")
-            c.duration_notes = rec.get("duration_notes")
-            c.caveats = rec.get("caveats")
+            analysis = analyses.get(c.ci_name, {})
+            future = executor.submit(_call_rationale_single, c, analysis, state.query, settings, model)
+            futures[future] = c.ci_name
+
+        for future in as_completed(futures):
+            ci_name = futures[future]
+            try:
+                result = future.result()
+                tokens = result.pop("tokens", {})
+                provider = tokens.get("provider", "unknown")
+                bucket = tokens_by_provider.setdefault(provider, {"input": 0, "output": 0})
+                bucket["input"] += tokens.get("input", 0)
+                bucket["output"] += tokens.get("output", 0)
+                rationale_results[ci_name] = result
+            except Exception as e:
+                log.error("rationale_single: failed for %s: %s", ci_name, e)
+
+    # Apply rationale results to candidates
+    for c in top_candidates:
+        rec = rationale_results.get(c.ci_name, {})
+        c.why_it_fits = rec.get("why_it_fits")
+        c.how_to_use = rec.get("how_to_use")
+        c.rationale = c.why_it_fits or rec.get("rationale")
+        c.suggested_format = rec.get("suggested_format")
+        c.duration_notes = rec.get("duration_notes")
+        c.caveats = rec.get("caveats")
+
+    matched = sum(1 for c in top_candidates if c.why_it_fits)
+    if matched < len(top_candidates):
+        missing = [c.ci_name for c in top_candidates if not c.why_it_fits]
+        log.warning("rationale: %d/%d candidates missing why_it_fits", len(missing), len(top_candidates), missing=missing)
+
+    rationale_elapsed = time.monotonic() - t0
+    log.info("rationale: %d/%d candidates completed (%.1fs)", matched, len(top_candidates), rationale_elapsed)
+
+    # Phase 3b: Haiku synthesis for overall_assessment + content_gaps
+    synthesis_model = settings.triage_model
+    synthesis_result = _call_synthesis(state.query, top_candidates, settings, synthesis_model)
+    synthesis_tokens = synthesis_result.pop("tokens", {})
 
     elapsed = time.monotonic() - t0
+    log.info("synthesis: complete (%.1fs, model=%s)", time.monotonic() - t0 - rationale_elapsed, synthesis_model)
 
-    log.info(
-        "rationale: generated for %d candidates (elapsed=%.3fs)",
-        len(top_candidates), elapsed,
-    )
-
-    new_token_entry = {
-        "operation": "rationale",
-        "model": model,
-        "input_tokens": llm_result.input_tokens,
-        "output_tokens": llm_result.output_tokens,
-        "provider": llm_result.provider,
-    }
+    token_entries = [
+        {
+            "operation": "rationale",
+            "model": model,
+            "input_tokens": bucket["input"],
+            "output_tokens": bucket["output"],
+            "provider": provider,
+        }
+        for provider, bucket in tokens_by_provider.items()
+    ] + [
+        {
+            "operation": "synthesis",
+            "model": synthesis_model,
+            "input_tokens": synthesis_tokens.get("input", 0),
+            "output_tokens": synthesis_tokens.get("output", 0),
+            "provider": synthesis_tokens.get("provider", "unknown"),
+        },
+    ]
 
     return QueryState(
         phase="COMPLETE",
         candidates=top_candidates + remaining,
         query=state.query,
-        overall_assessment=result.get("overall_assessment") if isinstance(result, dict) else None,
-        content_gaps=result.get("content_gaps") if isinstance(result, dict) else None,
+        overall_assessment=synthesis_result.get("overall_assessment"),
+        content_gaps=synthesis_result.get("content_gaps"),
         timings={**state.timings, "rationale": round(elapsed, 3)},
-        token_usage=[*state.token_usage, new_token_entry],
+        token_usage=[*state.token_usage, *token_entries],
     )
