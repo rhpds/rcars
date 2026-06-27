@@ -281,7 +281,9 @@ async def run_query(
         c.tier = "green"
 
     green_count = len([c for c in state.candidates if c.tier == "green"])
-    db.log_token_usage("rationale", settings.rationale_model, state.token_usage[-1]["input_tokens"], state.token_usage[-1]["output_tokens"], query_text=query, provider=state.token_usage[-1].get("provider", "anthropic")) if len(state.token_usage) > 1 else None
+    for tu in state.token_usage:
+        if tu.get("operation") in ("rationale", "synthesis"):
+            db.log_token_usage(tu["operation"], tu["model"], tu["input_tokens"], tu["output_tokens"], query_text=query, provider=tu.get("provider", "anthropic"))
     await emit({"phase": "complete", "results": green_count})
 
     elapsed = round(time.monotonic() - t0, 2)
