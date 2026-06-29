@@ -12,7 +12,6 @@ const STORAGE_KEY = 'rcars-theme'
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'dark' || stored === 'light') return stored
-  if (window.matchMedia('(prefers-color-scheme: light)').matches) return 'light'
   return 'dark'
 }
 

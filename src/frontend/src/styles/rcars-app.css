@@ -1131,6 +1131,7 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.6;
+  list-style: disc;
 }
 
 .browse-objectives li {

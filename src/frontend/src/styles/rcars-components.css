@@ -355,7 +355,7 @@ body {
 .rec-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
 .rec-row-label { color: var(--text-muted); font-weight: 500; min-width: 85px; flex-shrink: 0; }
 .rec-row-value { color: var(--text-secondary); flex: 1; }
-.rec-objectives-list { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+.rec-objectives-list { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; list-style: disc; }
 
 /* Caveat */
 .rec-caveat { font-size: 12px; color: var(--score-amber); margin-top: 4px; margin-bottom: 8px; padding: 0; line-height: 1.5; }
