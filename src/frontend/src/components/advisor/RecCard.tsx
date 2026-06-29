@@ -1,12 +1,4 @@
-import { useState, ReactNode } from 'react'
-
-// Temporary shim replacing deleted LcarsCard. Full PF6 Card migration in Task 4.
-function LcarsCard({ children, tier = 'white', className = '', onClick }: {
-  children: ReactNode; tier?: 'green' | 'yellow' | 'white'; className?: string; onClick?: () => void
-}) {
-  const tierClass = tier === 'green' ? 'tier-green' : tier === 'yellow' ? 'tier-yellow' : ''
-  return <div className={`rec-card ${tierClass} ${className}`} onClick={onClick}>{children}</div>
-}
+import { useState } from 'react'
 import { api } from '../../services/api'
 
 interface Candidate {
@@ -48,8 +40,8 @@ const FORMAT_LABELS: Record<string, string> = {
 }
 
 const FORMAT_COLORS: Record<string, { bg: string; color: string }> = {
-  hands_on_lab: { bg: '#1a2a3a', color: '#73bcf7' },
-  demo: { bg: '#2a2a1a', color: '#e8a838' },
+  hands_on_lab: { bg: 'var(--badge-blue-bg)', color: 'var(--badge-blue-text)' },
+  demo: { bg: 'var(--badge-amber-bg)', color: 'var(--badge-amber-text)' },
 }
 
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
@@ -60,6 +52,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
 
   const score = Math.min(100, Math.max(0, candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0))
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
+  const tierClass = tier === 'green' ? 'tier-green' : tier === 'yellow' ? 'tier-yellow' : ''
 
   const handleSelect = async () => {
     if (!sessionId || turnIndex == null) return
@@ -76,10 +69,10 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
 
   const formatKey = candidate.suggested_format || ''
   const formatLabel = FORMAT_LABELS[formatKey] || (formatKey ? formatKey.replace(/_/g, ' ') : null)
-  const formatStyle = FORMAT_COLORS[formatKey] || { bg: '#1a2a3a', color: '#73bcf7' }
+  const formatStyle = FORMAT_COLORS[formatKey] || { bg: 'var(--badge-blue-bg)', color: 'var(--badge-blue-text)' }
 
   return (
-    <LcarsCard tier={tier}>
+    <div className={`rec-card ${tierClass}`}>
       <div
         className="rec-card-header"
         role="button"
@@ -89,29 +82,29 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(!expanded) } }}
         style={{ cursor: 'pointer' }}
       >
-        <span className="rec-score">{score}%</span>
+        <span className="rec-score" style={{ fontFamily: 'var(--ff-display)' }}>{score}%</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="rec-title">{candidate.display_name}</div>
+          <div className="rec-title" style={{ fontFamily: 'var(--ff-display)' }}>{candidate.display_name}</div>
           <div className="rec-meta">
             {candidate.stage !== 'prod' && (
-              <span className="rec-badge" style={{ background: candidate.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: candidate.stage === 'dev' ? '#99ccff' : '#ffcc66' }}>
+              <span className="rec-badge" style={{ background: candidate.stage === 'dev' ? 'var(--badge-blue-bg)' : 'var(--badge-amber-bg)', color: candidate.stage === 'dev' ? 'var(--badge-blue-text)' : 'var(--badge-amber-text)' }}>
                 {candidate.stage.toUpperCase()}
               </span>
             )}
             {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name.startsWith('zt-')) && (
-              <span className="rec-badge" style={{ background: '#1a3a2a', color: '#66cc99' }}>ZT</span>
+              <span className="rec-badge" style={{ background: 'var(--score-green-bg)', color: 'var(--score-green)' }}>ZT</span>
             )}
             {formatLabel && (
               <span className="rec-badge" style={{ background: formatStyle.bg, color: formatStyle.color }}>{formatLabel}</span>
             )}
-            <span>{candidate.ci_name}</span>
+            <span style={{ fontFamily: 'var(--ff-mono)' }}>{candidate.ci_name}</span>
             {durationSourceLabel && (
-              <><span style={{ color: '#444', margin: '0 4px' }}>·</span><span>{durationSourceLabel}</span></>
+              <><span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>·</span><span>{durationSourceLabel}</span></>
             )}
           </div>
         </div>
         {candidate.duration_min && (
-          <span style={{ fontSize: '14px', color: '#999', fontWeight: 500, flexShrink: 0 }}>
+          <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500, flexShrink: 0, fontFamily: 'var(--ff-mono)' }}>
             ~{candidate.duration_min} min
           </span>
         )}
@@ -119,7 +112,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
       </div>
 
       {expanded && (
-        <div className="rec-expanded">
+        <div className="rec-expanded" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
           {candidate.why_it_fits && (
             <div className="rec-row">
               <span className="rec-row-label">Why it fits</span>
@@ -146,7 +139,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               <div className="rec-row-value">
                 <div>{candidate.how_to_use}</div>
                 {candidate.duration_notes && (
-                  <div style={{ color: '#777', marginTop: '2px' }}>{candidate.duration_notes}</div>
+                  <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>{candidate.duration_notes}</div>
                 )}
               </div>
             </div>
@@ -155,7 +148,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
           {!candidate.how_to_use && candidate.duration_notes && (
             <div className="rec-row">
               <span className="rec-row-label">Timing</span>
-              <span className="rec-row-value" style={{ color: '#777' }}>{candidate.duration_notes}</span>
+              <span className="rec-row-value" style={{ color: 'var(--text-muted)' }}>{candidate.duration_notes}</span>
             </div>
           )}
 
@@ -176,17 +169,18 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
           {candidate.provisions_quarter !== null && candidate.provisions_quarter !== undefined && (
             <div style={{
               display: 'flex', gap: '1rem', padding: '0.5rem 0', marginTop: '0.5rem',
-              borderTop: '1px solid #2a2d35', fontSize: '0.8rem', color: '#8b949e',
+              borderTop: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-muted)',
+              alignItems: 'center', flexWrap: 'wrap',
             }}>
               <span>{candidate.provisions_quarter.toLocaleString()} deployments (last 90d)</span>
               {candidate.sales_impact && candidate.sales_impact !== 'low' && (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
                   <span style={{
                     padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
-                    background: candidate.sales_impact === 'high' ? '#1a4731' : '#3d2e00',
-                    color: candidate.sales_impact === 'high' ? '#3e8635' : '#e8a838',
+                    background: candidate.sales_impact === 'high' ? 'var(--score-green-bg)' : 'var(--score-amber-bg)',
+                    color: candidate.sales_impact === 'high' ? 'var(--score-green)' : 'var(--score-amber)',
                   }}>
-                    {candidate.sales_impact === 'high' ? 'High Sales Impact' : 'Moderate Sales Impact'}
+                    {candidate.sales_impact === 'high' ? '$ High Sales Impact' : '$ Moderate Sales Impact'}
                   </span>
                   <span
                     onClick={(e) => { e.stopPropagation(); setShowSalesInfo(!showSalesInfo) }}
@@ -194,8 +188,31 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                   >ⓘ</span>
                 </span>
               )}
+              {isComplete && (tier === 'green' || tier === 'yellow') && (
+                selected ? (
+                  <span style={{
+                    padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
+                    background: 'var(--score-green-bg)', color: 'var(--score-green)',
+                  }}>
+                    ★ Best fit
+                  </span>
+                ) : (
+                  <span
+                    className="btn-best-fit-badge"
+                    title="Helps us improve recommendations by tracking which results are most useful"
+                    onClick={(e) => { e.stopPropagation(); handleSelect() }}
+                    style={{
+                      padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
+                      background: 'transparent', color: 'var(--score-green)',
+                      border: '1px solid var(--score-green)', cursor: 'pointer',
+                    }}
+                  >
+                    ★ Best fit?
+                  </span>
+                )
+              )}
               {showSalesInfo && (
-                <span style={{ fontSize: '0.75rem', color: '#666', fontStyle: 'italic' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
                   Based on closed sales opportunities linked to deployments of this asset over the trailing year.
                 </span>
               )}
@@ -210,22 +227,15 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             >
               View in RHDP Catalog
             </a>
-            {isComplete && (tier === 'green' || tier === 'yellow') && (
-              selected ? (
-                <span style={{ color: '#5cb85c', fontSize: '13px', fontWeight: 500 }}>✓ Best fit</span>
-              ) : (
-                <button
-                  className="btn-best-fit"
-                  title="Helps us improve recommendations by tracking which results are most useful"
-                  onClick={(e) => { e.stopPropagation(); handleSelect() }}
-                >
-                  ★ Best fit
-                </button>
-              )
-            )}
+            <a
+              href={'/browse?search=' + encodeURIComponent(candidate.ci_name)}
+              onClick={(e) => e.stopPropagation()}
+            >
+              View in RCARS
+            </a>
           </div>
         </div>
       )}
-    </LcarsCard>
+    </div>
   )
 }

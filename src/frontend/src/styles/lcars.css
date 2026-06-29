@@ -174,7 +174,7 @@ body {
   flex: 2;
   min-width: 320px;
   min-height: 0;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--border-default, var(--border));
   display: flex;
   flex-direction: column;
   padding: 20px;
@@ -191,14 +191,15 @@ body {
 .chat-turns { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 
 .chat-turn-user {
-  background: #0d1a0d;
+  background: var(--chat-user-bg, #0d1a0d);
   border-radius: 8px;
   padding: 12px 16px;
-  color: #bbb;
+  color: var(--text-secondary);
   font-style: italic;
   font-size: 16px;
   align-self: flex-end;
   max-width: 85%;
+  border: 1px solid var(--chat-user-border, transparent);
 }
 
 .chat-turn-assistant {
@@ -209,7 +210,7 @@ body {
   cursor: pointer;
   border: 1px solid transparent;
 }
-.chat-turn-assistant:hover { border-color: #333; }
+.chat-turn-assistant:hover { border-color: var(--border-default); }
 
 .assistant-content {
   line-height: 1.7;
@@ -234,15 +235,16 @@ body {
   font-weight: 600;
 }
 .assistant-content em {
-  color: #bbb;
+  color: var(--text-secondary);
   font-style: italic;
 }
 .assistant-content code {
-  background: #151822;
+  background: var(--bg-input, #151822);
   padding: 1px 6px;
   border-radius: 3px;
   font-size: 13px;
-  color: var(--lcars-amber);
+  color: var(--rcars-amber-vivid, var(--lcars-amber));
+  font-family: var(--ff-mono);
 }
 
 .rec-rationale ul, .rec-rationale ol {
@@ -254,13 +256,14 @@ body {
   line-height: 1.5;
 }
 
-.chat-turn-restore { font-size: 13px; color: #555; margin-top: 8px; border-top: 1px solid #252530; padding-top: 6px; }
+.chat-turn-restore { font-size: 13px; color: var(--text-muted); margin-top: 8px; border-top: 1px solid var(--border-subtle); padding-top: 6px; }
 
 .chat-welcome {
   background: var(--bg-card);
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   padding: 16px;
   margin-bottom: 10px;
+  border: 1px solid var(--border-subtle, transparent);
 }
 .chat-welcome p { font-size: 16px; margin-bottom: 8px; }
 .chat-welcome .hint { font-size: 14px; color: var(--text-muted); }
@@ -274,27 +277,29 @@ body {
 
 .chat-input {
   flex: 1;
-  background: var(--bg-card);
-  border: 1px solid #333;
-  border-radius: 8px;
+  background: var(--bg-input, var(--bg-card));
+  border: 1px solid var(--border-default, #333);
+  border-radius: var(--radius-md, 8px);
   color: var(--text-primary);
   padding: 12px 16px;
   font-size: 16px;
   resize: vertical;
-  font-family: inherit;
+  font-family: var(--ff-body, inherit);
 }
-.chat-input:focus { outline: none; border-color: var(--accent-blue); }
+.chat-input:focus { outline: none; border-color: var(--border-focus, var(--accent-blue)); }
 
 .btn-send {
-  background: #1a3a5a;
+  background: var(--badge-blue-bg, #1a3a5a);
   border: none;
-  color: var(--accent-blue);
+  color: var(--text-link, var(--accent-blue));
   padding: 12px 24px;
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   cursor: pointer;
   font-size: 16px;
+  font-family: var(--ff-body, inherit);
+  transition: background var(--transition-fast, 150ms ease);
 }
-.btn-send:hover { background: #1f4a70; }
+.btn-send:hover { background: var(--bg-elevated, #1f4a70); }
 
 /* Recommendations pane — slightly wider than chat */
 .rec-pane {
@@ -306,9 +311,16 @@ body {
 
 /* Recommendation cards */
 .rec-card {
-  border-radius: 8px;
+  border-radius: var(--radius-md, 8px);
   padding: 16px 20px;
   border-left: 4px solid transparent;
+  box-shadow: var(--shadow-card, 0 1px 4px rgba(0, 0, 0, 0.3));
+  transition: transform var(--transition-fast, 150ms ease), box-shadow var(--transition-fast, 150ms ease);
+  margin-bottom: 8px;
+}
+.rec-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-elevated, 0 4px 16px rgba(0, 0, 0, 0.4));
 }
 .rec-card.score-green { background: var(--bg-card-green); border-left-color: var(--score-green); }
 .rec-card.score-amber { background: var(--bg-card-amber); border-left-color: var(--score-amber); }
@@ -318,12 +330,14 @@ body {
 
 .rec-card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
 
-.rec-score { font-weight: 700; font-size: 22px; min-width: 48px; }
+.rec-score { font-weight: 700; font-size: 22px; min-width: 48px; font-family: var(--ff-display, inherit); }
 .score-green .rec-score { color: var(--score-green); }
 .score-amber .rec-score { color: var(--score-amber); }
 .score-red .rec-score { color: var(--score-red); }
+.tier-green .rec-score { color: var(--score-green); }
+.tier-yellow .rec-score { color: var(--score-amber); }
 
-.rec-title { font-weight: 600; font-size: 16px; }
+.rec-title { font-weight: 600; font-size: 16px; font-family: var(--ff-display, inherit); }
 .rec-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .rec-badge {
   display: inline-block;
@@ -332,7 +346,7 @@ body {
   font-size: 10px;
   font-weight: 600;
 }
-.rec-expand-hint { font-size: 13px; color: #444; margin-left: auto; flex-shrink: 0; }
+.rec-expand-hint { font-size: 13px; color: var(--text-muted); margin-left: auto; flex-shrink: 0; }
 
 /* Expanded card body */
 .rec-expanded { margin-top: 10px; }
@@ -340,15 +354,15 @@ body {
 /* Uniform two-column rows */
 .rec-row { display: flex; gap: 8px; margin-bottom: 8px; font-size: 13px; line-height: 1.5; }
 .rec-row-label { color: var(--text-muted); font-weight: 500; min-width: 85px; flex-shrink: 0; }
-.rec-row-value { color: #bbb; flex: 1; }
-.rec-objectives-list { margin: 0; padding-left: 16px; font-size: 12px; color: #aaa; line-height: 1.5; }
+.rec-row-value { color: var(--text-secondary); flex: 1; }
+.rec-objectives-list { margin: 0; padding-left: 16px; font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
 
 /* Caveat */
-.rec-caveat { font-size: 12px; color: #aa8833; margin-top: 4px; margin-bottom: 8px; padding: 0; line-height: 1.5; }
+.rec-caveat { font-size: 12px; color: var(--score-amber); margin-top: 4px; margin-bottom: 8px; padding: 0; line-height: 1.5; }
 .rec-caveat-toggle {
   background: none;
   border: none;
-  color: var(--accent-blue);
+  color: var(--text-link, var(--accent-blue));
   cursor: pointer;
   font-size: 11px;
   padding: 0 4px;
@@ -357,7 +371,8 @@ body {
 
 /* Footer row */
 .rec-footer { margin-top: 8px; display: flex; align-items: center; gap: 12px; }
-.rec-footer a { color: var(--accent-blue); font-size: 13px; }
+.rec-footer a { color: var(--text-link, var(--accent-blue)); font-size: 13px; text-decoration: none; }
+.rec-footer a:hover { text-decoration: underline; }
 
 .tag-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .tag-pill {
@@ -371,8 +386,8 @@ body {
 /* Expanded card extras */
 .rec-expanded { margin-top: 10px; }
 .rec-detail-row { font-size: 14px; color: var(--text-muted); margin-bottom: 4px; }
-.rec-detail-row span { color: #aaa; }
-.rec-catalog-link { color: var(--accent-blue); font-size: 14px; }
+.rec-detail-row span { color: var(--text-secondary); }
+.rec-catalog-link { color: var(--text-link, var(--accent-blue)); font-size: 14px; }
 
 .curator-actions {
   border-top: 1px solid #2a3a2a;
@@ -394,15 +409,17 @@ body {
 .btn-curator.secondary { background: var(--bg-card); border-color: #333; color: var(--text-muted); }
 .btn-best-fit {
   background: transparent;
-  border: 1px solid #5cb85c;
-  color: #5cb85c;
+  border: 1px solid var(--score-green);
+  color: var(--score-green);
   padding: 4px 12px;
   border-radius: 4px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
-.btn-best-fit:hover { background: rgba(92, 184, 92, 0.1); }
+.btn-best-fit:hover { background: var(--score-green-bg, rgba(92, 184, 92, 0.1)); }
+
+.btn-best-fit-badge:hover { background: var(--score-green-bg, rgba(92, 184, 92, 0.1)) !important; }
 
 .new-session-btn {
   background: transparent;
@@ -598,7 +615,7 @@ body {
   pointer-events: none;
 }
 
-/* LCARS pill toggle switch */
+/* LCARS pill toggle switch (legacy, kept for backward compat) */
 .lcars-toggle {
   display: inline-flex;
   align-items: center;
@@ -606,29 +623,29 @@ body {
   cursor: pointer;
   user-select: none;
   font-size: 13px;
-  color: #666;
+  color: var(--text-muted);
 }
-.lcars-toggle.active { color: var(--lcars-amber); }
+.lcars-toggle.active { color: var(--rcars-amber-vivid, var(--lcars-amber)); }
 
 .lcars-toggle-track {
   width: 36px;
   height: 18px;
   border-radius: 9px;
-  background: #1e2030;
-  border: 1px solid #333;
+  background: var(--bg-input, #1e2030);
+  border: 1px solid var(--border-default, #333);
   position: relative;
   transition: background 0.2s, border-color 0.2s;
 }
 .lcars-toggle.active .lcars-toggle-track {
-  background: #2a2a1a;
-  border-color: var(--lcars-amber);
+  background: var(--badge-amber-bg, #2a2a1a);
+  border-color: var(--rcars-amber-vivid, var(--lcars-amber));
 }
 
 .lcars-toggle-knob {
   width: 14px;
   height: 14px;
   border-radius: 7px;
-  background: #444;
+  background: var(--text-muted, #444);
   position: absolute;
   top: 1px;
   left: 1px;
@@ -636,7 +653,48 @@ body {
 }
 .lcars-toggle.active .lcars-toggle-knob {
   left: 19px;
-  background: var(--lcars-amber);
+  background: var(--rcars-amber-vivid, var(--lcars-amber));
+}
+
+/* PF6-style toggle switch */
+.rcars-toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.rcars-toggle-switch.active { color: var(--rcars-amber-vivid, var(--lcars-amber)); }
+
+.rcars-toggle-switch-track {
+  width: 36px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--bg-input, #1e2030);
+  border: 1px solid var(--border-default, #333);
+  position: relative;
+  transition: background var(--transition-fast, 0.2s), border-color var(--transition-fast, 0.2s);
+}
+.rcars-toggle-switch.active .rcars-toggle-switch-track {
+  background: var(--badge-amber-bg, #2a2a1a);
+  border-color: var(--rcars-amber-vivid, var(--lcars-amber));
+}
+
+.rcars-toggle-switch-knob {
+  width: 14px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--text-muted, #444);
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  transition: left var(--transition-fast, 0.2s), background var(--transition-fast, 0.2s);
+}
+.rcars-toggle-switch.active .rcars-toggle-switch-knob {
+  left: 19px;
+  background: var(--rcars-amber-vivid, var(--lcars-amber));
 }
 
 /* ── Pagination ── */
