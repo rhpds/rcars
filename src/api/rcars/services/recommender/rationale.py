@@ -1,4 +1,4 @@
-"""Phase 3 — per-candidate Sonnet rationale + Haiku synthesis."""
+"""Phase 3 — per-candidate Sonnet rationale + Haiku content gap synthesis."""
 
 import logging
 import time
@@ -82,10 +82,26 @@ def _call_rationale_single(
     return result
 
 
+def _build_deterministic_assessment(candidates: list[Candidate], max_picks: int = 3) -> str:
+    """Build overall_assessment deterministically from per-candidate Sonnet results."""
+    with_rationale = [c for c in candidates if c.why_it_fits]
+    if not with_rationale:
+        picks = candidates[:max_picks]
+        lines = [f"{c.display_name} ({c.relevance_score or 0}%) matched your query." for c in picks]
+    else:
+        lines = []
+        for i, c in enumerate(with_rationale[:max_picks]):
+            if i == 0:
+                lines.append(f"{c.display_name} is the top pick because {c.why_it_fits}")
+            else:
+                lines.append(f"{c.display_name} fits because {c.why_it_fits}")
+    return "\n".join(lines)
+
+
 def _call_synthesis(
     query: str, candidates: list[Candidate], settings, model: str,
 ) -> dict:
-    """Generate overall assessment + content gaps via Haiku synthesis."""
+    """Identify content gaps via Haiku synthesis."""
     from rcars.config import call_llm
 
     template = SYNTHESIS_PROMPT_PATH.read_text()
@@ -110,13 +126,6 @@ def _call_synthesis(
     elif isinstance(result, list):
         result = result[0] if result else {}
 
-    # Join picks array into overall_assessment with newlines (formatting in code, not LLM)
-    picks = result.get("picks", [])
-    if picks and isinstance(picks, list):
-        result["overall_assessment"] = "\n".join(picks)
-    elif not result.get("overall_assessment"):
-        result["overall_assessment"] = ""
-
     if "content_gaps" not in result:
         result["content_gaps"] = []
 
@@ -131,11 +140,12 @@ def generate_rationale(
     model: str = "claude-sonnet-4-6",
     top_n: int = 5,
 ) -> QueryState:
-    """Generate per-candidate Sonnet rationale + Haiku synthesis.
+    """Generate per-candidate Sonnet rationale + Haiku content gap synthesis.
 
     1. Fire parallel Sonnet calls for each of the top N candidates
     2. Apply results to candidates
-    3. Run a Haiku synthesis call for overall_assessment + content_gaps
+    3. Build overall_assessment deterministically from per-candidate results
+    4. Run a Haiku synthesis call for content_gaps only
 
     Returns QueryState with phase COMPLETE.
     """
@@ -194,7 +204,10 @@ def generate_rationale(
     rationale_elapsed = time.monotonic() - t0
     log.info("rationale: %d/%d candidates completed (%.1fs)", matched, len(top_candidates), rationale_elapsed)
 
-    # Phase 3b: Haiku synthesis for overall_assessment + content_gaps
+    # Build overall_assessment deterministically from per-candidate results
+    deterministic_assessment = _build_deterministic_assessment(top_candidates)
+
+    # Phase 3b: Haiku synthesis for content_gaps only
     synthesis_model = settings.triage_model
     synthesis_result = _call_synthesis(state.query, top_candidates, settings, synthesis_model)
     synthesis_tokens = synthesis_result.pop("tokens", {})
@@ -225,7 +238,7 @@ def generate_rationale(
         phase="COMPLETE",
         candidates=top_candidates + remaining,
         query=state.query,
-        overall_assessment=synthesis_result.get("overall_assessment"),
+        overall_assessment=deterministic_assessment,
         content_gaps=synthesis_result.get("content_gaps"),
         timings={**state.timings, "rationale": round(elapsed, 3)},
         token_usage=[*state.token_usage, *token_entries],
