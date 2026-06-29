@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation, useSearchParams, useNavigate } from 'react-router-dom'
+import { NavLink, useLocation, useSearchParams } from 'react-router-dom'
 import { PageSidebar, PageSidebarBody } from '@patternfly/react-core'
 import { useAuth } from '../hooks/useAuth'
 import { api } from '../services/api'
@@ -19,7 +19,6 @@ export function RcarsSidebar() {
   const auth = useAuth()
   const location = useLocation()
   const [searchParams] = useSearchParams()
-  const navigate = useNavigate()
   const isAdvisorPage = location.pathname === '/advisor'
   const activeSession = searchParams.get('session')
   const [sessions, setSessions] = useState<SessionSummary[]>([])
