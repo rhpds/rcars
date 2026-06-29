@@ -133,6 +133,23 @@ def _call_synthesis(
     return result
 
 
+def generate_content_gaps(
+    query: str,
+    candidates: list[Candidate],
+    settings,
+    model: str | None = None,
+) -> tuple[list[str], dict]:
+    """Run synthesis for content gaps only (no per-candidate rationale).
+
+    Used when triage returns NO_MATCHES — we still want to tell the user
+    what topics are missing from the catalog.
+    """
+    synthesis_model = model or settings.triage_model
+    result = _call_synthesis(query, candidates, settings, synthesis_model)
+    tokens = result.pop("tokens", {})
+    return result.get("content_gaps", []), tokens
+
+
 def generate_rationale(
     state: QueryState,
     db: Database,
