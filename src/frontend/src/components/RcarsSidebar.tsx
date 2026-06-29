@@ -53,43 +53,27 @@ export function RcarsSidebar() {
           </NavLink>
 
           {/* History sub-items when on Advisor page */}
-          {isAdvisorPage && (
+          {isAdvisorPage && sessions.length > 0 && (
             <>
-              <a
-                href="/advisor"
-                className="rcars-nav-new-session"
-                onClick={(e) => {
-                  e.preventDefault()
-                  window.dispatchEvent(new Event('rcars:new-session'))
-                  navigate('/advisor', { replace: true })
-                }}
+              <div
+                className="rcars-nav-session-label"
+                style={{ cursor: 'pointer' }}
+                onClick={() => setHistoryOpen(!historyOpen)}
               >
-                + New Session
-              </a>
-
-              {sessions.length > 0 && (
-                <>
-                  <div
-                    className="rcars-nav-session-label"
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => setHistoryOpen(!historyOpen)}
-                  >
-                    {historyOpen ? '▾' : '▸'} History
-                  </div>
-                  {historyOpen && sessions.map(s => (
-                    <NavLink
-                      key={s.session_id}
-                      to={`/advisor?session=${s.session_id}`}
-                      className={`rcars-nav-session-item${activeSession === s.session_id ? ' active' : ''}`}
-                      title={s.first_query || new Date(s.started_at).toLocaleString()}
-                    >
-                      {s.first_query
-                        ? truncate(s.first_query, 32)
-                        : new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </NavLink>
-                  ))}
-                </>
-              )}
+                {historyOpen ? '▾' : '▸'} History
+              </div>
+              {historyOpen && sessions.map(s => (
+                <NavLink
+                  key={s.session_id}
+                  to={`/advisor?session=${s.session_id}`}
+                  className={`rcars-nav-session-item${activeSession === s.session_id ? ' active' : ''}`}
+                  title={s.first_query || new Date(s.started_at).toLocaleString()}
+                >
+                  {s.first_query
+                    ? truncate(s.first_query, 32)
+                    : new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                </NavLink>
+              ))}
             </>
           )}
 
