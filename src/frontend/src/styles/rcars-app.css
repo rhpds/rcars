@@ -1,0 +1,318 @@
+/* ── RCARS App Shell ── */
+
+/* Full viewport layout */
+html, body, #root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--ff-body);
+  margin: 0;
+}
+
+/* ── Masthead ── */
+.rcars-masthead {
+  height: 72px;
+  background: var(--bg-masthead);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--sp-lg);
+}
+
+.rcars-masthead-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+}
+
+.rcars-masthead-logo {
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+}
+
+.rcars-masthead-logo svg {
+  height: 48px;
+  width: auto;
+}
+
+.rcars-masthead-status {
+  display: flex;
+  gap: var(--sp-lg);
+  font-size: 11px;
+  font-family: var(--ff-mono);
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.rcars-masthead-status-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rcars-masthead-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+}
+
+.rcars-theme-toggle {
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 16px;
+  transition: color var(--transition-fast), border-color var(--transition-fast);
+  line-height: 1;
+}
+
+.rcars-theme-toggle:hover {
+  color: var(--text-secondary);
+  border-color: var(--border-focus);
+}
+
+.rcars-user-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-family: var(--ff-display);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* ── Sidebar ── */
+.rcars-sidebar {
+  width: 220px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-default);
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.rcars-nav-section-label {
+  padding: 16px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  font-family: var(--ff-display);
+}
+
+.rcars-nav-item {
+  display: block;
+  padding: 8px 16px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+  cursor: pointer;
+}
+
+.rcars-nav-item:hover {
+  background: var(--nav-hover-bg);
+  color: var(--text-primary);
+}
+
+.rcars-nav-item.active {
+  background: var(--nav-active-bg);
+  color: var(--text-link);
+  border-left-color: var(--nav-active-border);
+  font-weight: 500;
+}
+
+.rcars-nav-item--indent {
+  padding-left: 32px;
+  font-size: 13px;
+}
+
+.rcars-nav-new-session {
+  display: block;
+  padding: 4px 16px 4px 32px;
+  font-size: 12px;
+  color: var(--text-link);
+  text-decoration: none;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity var(--transition-fast);
+}
+
+.rcars-nav-new-session:hover {
+  opacity: 1;
+}
+
+.rcars-nav-session-label {
+  padding: 8px 16px 4px 32px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rcars-nav-session-item {
+  display: block;
+  padding: 5px 16px 5px 32px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-decoration: none;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.rcars-nav-session-item:hover {
+  color: var(--text-secondary);
+}
+
+.rcars-nav-session-item.active {
+  color: var(--text-link);
+  background: var(--nav-active-bg);
+  border-left-color: var(--nav-active-border);
+}
+
+/* ── Page layout ── */
+.rcars-page-body {
+  display: flex;
+  height: calc(100vh - 72px);
+  overflow: hidden;
+}
+
+.rcars-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-lg);
+}
+
+/* ── Card hover effect ── */
+.pf-v6-c-card:hover,
+.rcars-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-elevated);
+}
+
+/* ── Sticky table headers ── */
+.rcars-main table thead th,
+.status-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bg-table-header);
+}
+
+/* ── SVG logo fill classes ── */
+.rcars-svg-arc { fill: var(--logo-arc); }
+.rcars-svg-arc-stroke { stroke: var(--logo-arc-stroke); }
+.rcars-svg-bar1 { fill: var(--logo-bar1); }
+.rcars-svg-bar2 { fill: var(--logo-bar2); }
+.rcars-svg-bar3 { fill: var(--logo-bar3); }
+.rcars-svg-mid { fill: var(--logo-mid); }
+.rcars-svg-bar-b1 { fill: var(--logo-bar-b1); }
+.rcars-svg-bar-b2 { fill: var(--logo-bar-b2); }
+.rcars-svg-bar-b3 { fill: var(--logo-bar-b3); }
+.rcars-svg-title { fill: var(--logo-title-fill); }
+.rcars-svg-subtitle { fill: var(--logo-subtitle); }
+
+/* ── Status dot indicators ── */
+.rcars-status-dot {
+  display: inline-block;
+  position: relative;
+  padding-left: 12px;
+}
+
+.rcars-status-dot::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.rcars-status-dot--ok::before {
+  background: var(--score-green);
+}
+
+.rcars-status-dot--stale::before {
+  background: var(--score-red);
+}
+
+/* ── Theme toggle button ── */
+.rcars-theme-toggle:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* ── Scrollbar styling for dark theme ── */
+[data-theme="dark"] .rcars-sidebar::-webkit-scrollbar,
+[data-theme="dark"] .rcars-main::-webkit-scrollbar {
+  width: 6px;
+}
+
+[data-theme="dark"] .rcars-sidebar::-webkit-scrollbar-track,
+[data-theme="dark"] .rcars-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme="dark"] .rcars-sidebar::-webkit-scrollbar-thumb,
+[data-theme="dark"] .rcars-main::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+}
+
+[data-theme="dark"] .rcars-sidebar::-webkit-scrollbar-thumb:hover,
+[data-theme="dark"] .rcars-main::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Light theme scrollbar */
+[data-theme="light"] .rcars-sidebar::-webkit-scrollbar,
+[data-theme="light"] .rcars-main::-webkit-scrollbar {
+  width: 6px;
+}
+
+[data-theme="light"] .rcars-sidebar::-webkit-scrollbar-track,
+[data-theme="light"] .rcars-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+[data-theme="light"] .rcars-sidebar::-webkit-scrollbar-thumb,
+[data-theme="light"] .rcars-main::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+[data-theme="light"] .rcars-sidebar::-webkit-scrollbar-thumb:hover,
+[data-theme="light"] .rcars-main::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+/* ── PF6 overrides for RCARS shell ── */
+.pf-v6-c-page {
+  background: var(--bg-page);
+}
+
+.pf-v6-c-page__sidebar {
+  --pf-v6-c-page__sidebar--Width: 220px;
+}

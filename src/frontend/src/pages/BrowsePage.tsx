@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
-import { LcarsButton } from '../components/lcars'
+import { Button } from '@patternfly/react-core'
+
+// Temporary shim: maps old LcarsButton API to PF6 Button for compilation.
+// Full migration to PF6 Button variants happens in Task 4.
+function LcarsButton(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string }) {
+  const { variant: _variant, ...rest } = props
+  return <Button variant="secondary" size="sm" {...rest as Record<string, unknown>} />
+}
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
 

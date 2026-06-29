@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
-import { LcarsButton } from '../components/lcars'
+import { Button } from '@patternfly/react-core'
+
+// Temporary shim: maps old LcarsButton API to PF6 Button for compilation.
+// Full migration to PF6 Button variants happens in Task 5.
+function LcarsButton(props: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: string }) {
+  const { variant: _variant, ...rest } = props
+  return <Button variant="secondary" size="sm" {...rest as Record<string, unknown>} />
+}
 
 // ── Content Overlap Page ──
 
