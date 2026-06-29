@@ -178,6 +178,7 @@ body {
   display: flex;
   flex-direction: column;
   padding: 20px;
+  background: var(--bg-page);
 }
 
 .pane-label {
@@ -307,6 +308,7 @@ body {
   padding: 20px;
   min-height: 0;
   overflow-y: auto;
+  background: var(--bg-page);
 }
 
 /* Recommendation cards */
