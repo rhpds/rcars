@@ -1,21 +1,17 @@
+/* Legacy :root tokens removed — all design tokens now in rcars-variables.css,
+   rcars-dark-overrides.css, and rcars-light-overrides.css.
+   Legacy aliases for any remaining references: */
 :root {
-  --bg-primary: #0f1117;
-  --bg-secondary: #0a0d12;
-  --bg-card: #1a1f2e;
-  --bg-card-green: #1a2a1a;
-  --bg-card-amber: #2a2a1a;
-  --bg-card-red: #2a1a1a;
-  --text-primary: #d2d2d2;
-  --text-secondary: #aaa;
-  --text-muted: #666;
-  --text-amber: #e8a838;
-  --score-green: #5cb85c;
-  --score-amber: #e8a838;
-  --score-red: #c9190b;
-  --accent-blue: #73bcf7;
-  --border: #1e2030;
-  --lcars-amber: #FF9900;
-  --lcars-purple: #9966CC;
+  --bg-primary: var(--bg-page);
+  --bg-secondary: var(--bg-sidebar);
+  --bg-card-green: var(--score-green-bg);
+  --bg-card-amber: var(--score-amber-bg);
+  --bg-card-red: var(--score-red-bg);
+  --text-amber: var(--score-amber);
+  --accent-blue: var(--text-link);
+  --border: var(--border-default);
+  --lcars-amber: var(--rcars-amber-vivid);
+  --lcars-purple: var(--rcars-purple);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
