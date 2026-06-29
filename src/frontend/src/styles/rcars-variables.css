@@ -1,0 +1,46 @@
+:root {
+  /* ── RCARS Brand ── */
+  --rcars-amber-vivid: #FF9900;
+  --rcars-purple: #9966CC;
+
+  /* ── Spacing ── */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 16px;
+  --sp-lg: 24px;
+  --sp-xl: 32px;
+
+  /* ── Radius ── */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* ── Transitions ── */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+
+  /* ── Typography ── */
+  --ff-display: 'Red Hat Display', var(--pf-t--global--font--family--heading);
+  --ff-body: 'Red Hat Text', var(--pf-t--global--font--family--body);
+  --ff-mono: 'Red Hat Mono', var(--pf-t--global--font--family--mono);
+
+  /* ── Pill colors (consistent across pages) ── */
+  --pill-product-text: #b088d4;
+  --pill-topic-text: #73bcf7;
+  --pill-workload-text: #88bb88;
+  --pill-module-text: #d4a04a;
+  --pill-curator-text: #cc6666;
+
+  /* ── SVG logo fills (overridden per theme) ── */
+  --logo-arc: #FF9900;
+  --logo-arc-stroke: #CC6600;
+  --logo-bar1: #FF9900;
+  --logo-bar2: #FFCC99;
+  --logo-bar3: #9966CC;
+  --logo-bar-b1: #9966CC;
+  --logo-bar-b2: #FF9900;
+  --logo-bar-b3: #FFCC99;
+  --logo-mid: #1c1c2e;
+  --logo-title-fill: #000;
+  --logo-subtitle: #FF9900;
+}
