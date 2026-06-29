@@ -57,6 +57,32 @@
   --badge-amber-bg: #fef3d5;
   --badge-amber-text: #8c6800;
 
+  --badge-v2-bg: #e7f1ff;
+  --badge-v2-text: #004c99;
+  --badge-stage-dev-bg: #e7f1ff;
+  --badge-stage-dev-text: #004c99;
+  --badge-stage-event-bg: #fef3d5;
+  --badge-stage-event-text: #8c6800;
+  --badge-zt-bg: #e6f4e6;
+  --badge-zt-text: #1b5e20;
+  --badge-failed-bg: #fde8e8;
+  --badge-failed-text: #c62828;
+  --badge-retired-bg: #fef3d5;
+  --badge-retired-text: #8c6800;
+  --badge-review-bg: #fef3d5;
+  --badge-review-text: #8c6800;
+
+  --error-bg: #fde8e8;
+  --error-border: rgba(198, 40, 40, 0.3);
+  --error-title: #c62828;
+  --error-text: #7b1a1a;
+
+  --similar-high: #c62828;
+  --similar-medium: #b8860b;
+
+  --bg-section: #f9f7f4;
+  --border-section: #e8e6e0;
+
   --chat-user-bg: #e8f5e9;
   --chat-user-border: rgba(46, 125, 50, 0.2);
 

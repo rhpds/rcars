@@ -31,6 +31,39 @@
   --pill-module-text: #d4a04a;
   --pill-curator-text: #cc6666;
 
+  /* ── Badge colors ── */
+  --badge-v2-bg: #1a2a3a;
+  --badge-v2-text: #73bcf7;
+  --badge-stage-dev-bg: #2a4a6a;
+  --badge-stage-dev-text: #99ccff;
+  --badge-stage-event-bg: #5a4a1a;
+  --badge-stage-event-text: #ffcc66;
+  --badge-zt-bg: #1a3a2a;
+  --badge-zt-text: #66cc99;
+  --badge-failed-bg: #5a2020;
+  --badge-failed-text: #ff9999;
+  --badge-retired-bg: #3a2a1a;
+  --badge-retired-text: #cc9966;
+  --badge-review-bg: #4a3a1a;
+  --badge-review-text: #e8a838;
+
+  /* ── Scan error ── */
+  --error-bg: #2a1515;
+  --error-border: #5a2020;
+  --error-title: #ff9999;
+  --error-text: #cc8888;
+
+  /* ── Similarity scores ── */
+  --similar-high: #e04848;
+  --similar-medium: #e8a838;
+
+  /* ── Browse sections ── */
+  --bg-section: #111620;
+  --border-section: #1a2030;
+
+  /* ── Drawer ── */
+  --drawer-width: 420px;
+
   /* ── SVG logo fills (overridden per theme) ── */
   --logo-arc: #FF9900;
   --logo-arc-stroke: #CC6600;
