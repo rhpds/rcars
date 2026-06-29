@@ -345,9 +345,25 @@ body {
   background: var(--bg-masthead) !important;
 }
 
-/* Kill PF6 default content background colors */
-.pf-v6-c-page__main {
+/* Kill PF6 default content background colors everywhere */
+.pf-v6-c-page__main,
+.pf-v6-c-page__main-section,
+.pf-v6-c-page__main-group,
+.pf-v6-c-page__main-nav,
+.pf-v6-c-page__main-breadcrumb,
+[class*="pf-v6-c-page__main"] {
   background: var(--bg-page) !important;
+  --pf-v6-c-page__main-section--BackgroundColor: var(--bg-page);
+}
+
+/* Ensure our main content wrapper picks up the right background */
+.rcars-main {
+  background: var(--bg-page);
+}
+
+/* Advisor layout panes */
+.advisor-layout {
+  background: var(--bg-page);
 }
 
 /* ── Analysis Pages (Overlap + Retirement) ── */
