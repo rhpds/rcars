@@ -167,56 +167,58 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
           )}
 
           {candidate.provisions_quarter !== null && candidate.provisions_quarter !== undefined && (
-            <div style={{
-              display: 'flex', gap: '1rem', padding: '0.5rem 0', marginTop: '0.5rem',
-              borderTop: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-muted)',
-              alignItems: 'center', flexWrap: 'wrap',
-            }}>
-              <span>{candidate.provisions_quarter.toLocaleString()} deployments (last 90d)</span>
-              {candidate.sales_impact && candidate.sales_impact !== 'low' && (
-                <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
-                  <span style={{
-                    padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
-                    background: candidate.sales_impact === 'high' ? 'var(--score-green-bg)' : 'var(--score-amber-bg)',
-                    color: candidate.sales_impact === 'high' ? 'var(--score-green)' : 'var(--score-amber)',
-                  }}>
-                    {candidate.sales_impact === 'high' ? '$ High Sales Impact' : '$ Moderate Sales Impact'}
-                  </span>
-                  <span
-                    onClick={(e) => { e.stopPropagation(); setShowSalesInfo(!showSalesInfo) }}
-                    style={{ cursor: 'pointer', fontSize: '0.7rem', opacity: 0.6, userSelect: 'none' }}
-                  >ⓘ</span>
-                </span>
-              )}
-              {isComplete && (tier === 'green' || tier === 'yellow') && (
-                selected ? (
-                  <span style={{
-                    padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
-                    background: 'var(--score-green-bg)', color: 'var(--score-green)',
-                  }}>
-                    ★ Best fit
-                  </span>
-                ) : (
-                  <span
-                    className="btn-best-fit-badge"
-                    title="Helps us improve recommendations by tracking which results are most useful"
-                    onClick={(e) => { e.stopPropagation(); handleSelect() }}
-                    style={{
+            <>
+              <div style={{
+                display: 'flex', gap: '0.6rem', padding: '0.5rem 0', marginTop: '0.5rem',
+                borderTop: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: 'var(--text-muted)',
+                alignItems: 'center', flexWrap: 'wrap',
+              }}>
+                <span>{candidate.provisions_quarter.toLocaleString()} deployments (last 90d)</span>
+                {candidate.sales_impact && candidate.sales_impact !== 'low' && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}>
+                    <span style={{
                       padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
-                      background: 'transparent', color: 'var(--score-green)',
-                      border: '1px solid var(--score-green)', cursor: 'pointer',
-                    }}
-                  >
-                    ★ Best fit?
+                      background: candidate.sales_impact === 'high' ? 'var(--score-green-bg)' : 'var(--score-amber-bg)',
+                      color: candidate.sales_impact === 'high' ? 'var(--score-green)' : 'var(--score-amber)',
+                    }}>
+                      {candidate.sales_impact === 'high' ? '$ High Sales Impact' : '$ Moderate Sales Impact'}
+                    </span>
+                    <span
+                      onClick={(e) => { e.stopPropagation(); setShowSalesInfo(!showSalesInfo) }}
+                      style={{ cursor: 'pointer', fontSize: '0.7rem', opacity: 0.6, userSelect: 'none' }}
+                    >ⓘ</span>
                   </span>
-                )
-              )}
+                )}
+                {isComplete && (tier === 'green' || tier === 'yellow') && (
+                  selected ? (
+                    <span style={{
+                      padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
+                      background: 'var(--score-green-bg)', color: 'var(--score-green)',
+                    }}>
+                      ★ Best fit
+                    </span>
+                  ) : (
+                    <span
+                      className="btn-best-fit-badge"
+                      title="Helps us improve recommendations by tracking which results are most useful"
+                      onClick={(e) => { e.stopPropagation(); handleSelect() }}
+                      style={{
+                        padding: '0.1rem 0.4rem', borderRadius: '3px', fontSize: '0.75rem',
+                        background: 'transparent', color: 'var(--score-green)',
+                        border: '1px solid var(--score-green)', cursor: 'pointer',
+                      }}
+                    >
+                      ★ Best fit?
+                    </span>
+                  )
+                )}
+              </div>
               {showSalesInfo && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic', padding: '0 0 0.5rem' }}>
                   Based on closed sales opportunities linked to deployments of this asset over the trailing year.
-                </span>
+                </div>
               )}
-            </div>
+            </>
           )}
 
           <div className="rec-footer">
@@ -228,7 +230,8 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               View in RHDP Catalog
             </a>
             <a
-              href={'/browse?search=' + encodeURIComponent(candidate.ci_name)}
+              href={'/browse?search=' + encodeURIComponent(candidate.display_name)}
+              target="_blank" rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
             >
               View in RCARS

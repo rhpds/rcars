@@ -27,7 +27,7 @@ function renderMarkdown(text: string) {
   const flushList = () => {
     if (listItems.length === 0) return
     elements.push(
-      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px' }}>
+      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px', listStyle: 'disc' }}>
         {listItems.map((li, i) => <li key={i} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}
       </ul>
     )
