@@ -15,38 +15,42 @@ body {
 
 /* ── Masthead ── */
 .rcars-masthead {
-  height: 72px;
-  background: var(--bg-masthead);
+  height: 64px;
+  background: var(--bg-masthead) !important;
   border-bottom: 1px solid var(--border-default);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 var(--sp-lg);
+  padding: 0 var(--sp-lg) !important;
+}
+
+/* Override PF6 Masthead flexbox — ensure left/right split */
+.rcars-masthead .pf-v6-c-masthead__main {
+  flex: 1;
 }
 
 .rcars-masthead-left {
   display: flex;
   align-items: center;
-  gap: var(--sp-lg);
+  gap: var(--sp-sm);
 }
 
 .rcars-masthead-logo {
   display: flex;
   align-items: center;
   text-decoration: none;
+  flex-shrink: 0;
 }
 
 .rcars-masthead-logo svg {
-  height: 48px;
+  height: 44px;
   width: auto;
 }
 
 .rcars-masthead-status {
   display: flex;
-  gap: var(--sp-lg);
-  font-size: 11px;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
   font-family: var(--ff-mono);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   color: var(--text-muted);
 }
 
@@ -60,23 +64,29 @@ body {
   display: flex;
   align-items: center;
   gap: var(--sp-md);
+  margin-left: auto;
 }
 
 .rcars-theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
   background: transparent;
   border: 1px solid var(--border-default);
   color: var(--text-muted);
-  padding: 6px 10px;
-  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 16px;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: all var(--transition-fast);
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .rcars-theme-toggle:hover {
-  color: var(--text-secondary);
-  border-color: var(--border-focus);
+  color: var(--rcars-amber-vivid);
+  border-color: var(--rcars-amber-vivid);
+  background: var(--score-amber-bg);
 }
 
 .rcars-user-avatar {
@@ -310,11 +320,33 @@ body {
 
 /* ── PF6 overrides for RCARS shell ── */
 .pf-v6-c-page {
-  background: var(--bg-page);
+  background: var(--bg-page) !important;
+  --pf-v6-c-page--BackgroundColor: var(--bg-page);
+}
+
+.pf-v6-c-page__main-section {
+  background: var(--bg-page) !important;
+  --pf-v6-c-page__main-section--BackgroundColor: var(--bg-page);
 }
 
 .pf-v6-c-page__sidebar {
   --pf-v6-c-page__sidebar--Width: 220px;
+  background: var(--bg-sidebar) !important;
+  --pf-v6-c-page__sidebar--BackgroundColor: var(--bg-sidebar);
+}
+
+.pf-v6-c-page__sidebar-body {
+  background: var(--bg-sidebar) !important;
+}
+
+.pf-v6-c-masthead {
+  --pf-v6-c-masthead--BackgroundColor: var(--bg-masthead);
+  background: var(--bg-masthead) !important;
+}
+
+/* Kill PF6 default content background colors */
+.pf-v6-c-page__main {
+  background: var(--bg-page) !important;
 }
 
 /* ── Analysis Pages (Overlap + Retirement) ── */
