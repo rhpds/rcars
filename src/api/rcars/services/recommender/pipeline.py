@@ -11,7 +11,7 @@ from rcars.config import Settings
 from rcars.services.recommender.models import Candidate, QueryState
 from rcars.services.recommender.vector_search import search
 from rcars.services.recommender.triage import triage
-from rcars.services.recommender.rationale import generate_rationale
+from rcars.services.recommender.rationale import generate_rationale, generate_content_gaps
 from rcars.services.event_parser import parse_event_url
 import structlog
 
@@ -248,7 +248,14 @@ async def run_query(
                 "candidate_data": serialize_candidates(state.candidates)})
 
     if state.phase == "NO_MATCHES":
+        # Still generate content gaps so the user knows what's missing
+        content_gaps, gap_tokens = await asyncio.to_thread(
+            generate_content_gaps, state.query, state.candidates[:5], settings,
+        )
+        if gap_tokens:
+            db.log_token_usage("synthesis", settings.triage_model, gap_tokens.get("input", 0), gap_tokens.get("output", 0), query_text=query, provider=gap_tokens.get("provider", "anthropic"))
         state.overall_assessment = NO_MATCH_GUIDANCE
+        state.content_gaps = content_gaps
         await emit({"phase": "complete", "results": 0})
         return state
 

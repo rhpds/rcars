@@ -483,13 +483,16 @@ class Database:
         category: str | None = None,
         limit: int = 50,
         offset: int = 0,
-        include_retired: bool = False,
+        include_retired: str | bool = False,
     ) -> dict[str, Any]:
         conditions = []
         params: dict[str, Any] = {}
         joins = []
 
-        if not include_retired:
+        retired_str = str(include_retired).lower()
+        if retired_str == "only":
+            conditions.append("ci.retired_at IS NOT NULL")
+        elif retired_str not in ("true", "1"):
             conditions.append("ci.retired_at IS NULL")
 
         if category:
