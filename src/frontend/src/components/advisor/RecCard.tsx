@@ -183,10 +183,12 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                     }}>
                       {candidate.sales_impact === 'high' ? '$ High Sales Impact' : '$ Moderate Sales Impact'}
                     </span>
-                    <span
+                    <button
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); setShowSalesInfo(!showSalesInfo) }}
-                      style={{ cursor: 'pointer', fontSize: '0.7rem', opacity: 0.6, userSelect: 'none' }}
-                    >ⓘ</span>
+                      style={{ cursor: 'pointer', fontSize: '0.7rem', opacity: 0.6, userSelect: 'none', background: 'transparent', border: 'none', padding: 0, color: 'inherit' }}
+                      aria-label={showSalesInfo ? 'Hide sales impact details' : 'Show sales impact details'}
+                    >ⓘ</button>
                   </span>
                 )}
                 {isComplete && (tier === 'green' || tier === 'yellow') && (
@@ -198,7 +200,8 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                       ★ Best fit
                     </span>
                   ) : (
-                    <span
+                    <button
+                      type="button"
                       className="btn-best-fit-badge"
                       title="Helps us improve recommendations by tracking which results are most useful"
                       onClick={(e) => { e.stopPropagation(); handleSelect() }}
@@ -209,7 +212,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                       }}
                     >
                       ★ Best fit?
-                    </span>
+                    </button>
                   )
                 )}
               </div>

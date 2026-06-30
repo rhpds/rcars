@@ -386,8 +386,9 @@ body {
 
 .pf-v6-c-page__sidebar {
   --pf-v6-c-page__sidebar--Width: 220px;
-  background: var(--bg-sidebar) !important;
   --pf-v6-c-page__sidebar--BackgroundColor: var(--bg-sidebar);
+
+  background: var(--bg-sidebar) !important;
 }
 
 .pf-v6-c-page__sidebar-body {
@@ -396,6 +397,7 @@ body {
 
 .pf-v6-c-masthead {
   --pf-v6-c-masthead--BackgroundColor: var(--bg-masthead);
+
   background: var(--bg-masthead) !important;
 }
 

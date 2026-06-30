@@ -52,7 +52,15 @@ export function StatusPage() {
 
   const clickableCount = (count: number, filter: string, warnColor = 'var(--score-amber)') => (
     <span
+      role={count > 0 ? 'button' : undefined}
+      tabIndex={count > 0 ? 0 : undefined}
       onClick={() => count > 0 && navigate(`/browse?content_filter=${filter}`)}
+      onKeyDown={(e) => {
+        if (count > 0 && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault()
+          navigate(`/browse?content_filter=${filter}`)
+        }
+      }}
       className={count > 0 ? 'admin-stat-row-link' : undefined}
       style={{ color: count > 0 ? warnColor : 'var(--score-green)' }}
     >{count}</span>

@@ -13,7 +13,9 @@ interface DbStatus {
 }
 
 function formatAge(dateStr: string): string {
-  const ms = Date.now() - new Date(dateStr).getTime()
+  const t = new Date(dateStr).getTime()
+  if (Number.isNaN(t)) return '—'
+  const ms = Date.now() - t
   const hours = Math.floor(ms / 3_600_000)
   if (hours < 1) return '<1h ago'
   if (hours < 24) return `${hours}h ago`

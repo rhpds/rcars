@@ -52,4 +52,4 @@ tsconfig.tsbuildinfo
 /OPERATIONS.md
 
 # Security audit reports (never commit)
-docs/admin/security-audit.md
+docs/admin/security-audit*.md

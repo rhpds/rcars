@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { api } from '../services/api'
 
 // ── Interfaces ──
@@ -61,10 +61,7 @@ export function WorkloadsPage() {
     setLoading(false)
   }, [])
 
-  // Load data on first render
-  if (!loaded && !loading) {
-    loadData()
-  }
+  useEffect(() => { loadData() }, [loadData])
 
   const handleDelete = async (role: string) => {
     await api.deleteWorkloadMapping(role)

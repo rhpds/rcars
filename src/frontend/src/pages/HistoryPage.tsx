@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import { RecCard } from '../components/advisor/RecCard'
 import { StreamCandidate } from '../hooks/useJobStream'
@@ -38,6 +38,7 @@ export function HistoryPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<SessionDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const latestRequestRef = useRef<string | null>(null)
 
   useEffect(() => {
     api.listSessions().then(async (data) => {
@@ -49,20 +50,20 @@ export function HistoryPage() {
         } catch { return s }
       }))
       setSessions(enriched)
-      setLoading(false)
-    })
+    }).finally(() => setLoading(false))
   }, [])
 
   const handleSelect = async (sessionId: string) => {
+    latestRequestRef.current = sessionId
     setSelectedId(sessionId)
     setDetailLoading(true)
     try {
       const d = await api.getSession(sessionId) as SessionDetail
-      setDetail(d)
+      if (latestRequestRef.current === sessionId) setDetail(d)
     } catch {
-      setDetail(null)
+      if (latestRequestRef.current === sessionId) setDetail(null)
     }
-    setDetailLoading(false)
+    if (latestRequestRef.current === sessionId) setDetailLoading(false)
   }
 
   const activeTurn = detail?.turns[detail.turns.length - 1]
@@ -84,8 +85,11 @@ export function HistoryPage() {
             sessions.map(s => (
               <div
                 key={s.session_id}
+                role="button"
+                tabIndex={0}
                 className={`history-session-item${selectedId === s.session_id ? ' active' : ''}`}
                 onClick={() => handleSelect(s.session_id)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(s.session_id) } }}
               >
                 <div className="history-session-query">
                   {s.first_query ? truncate(s.first_query, 60) : '(empty query)'}

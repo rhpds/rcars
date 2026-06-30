@@ -45,7 +45,9 @@ export default function App() {
                   <Route path="/advisor" element={<AdvisorPage />} />
                 <Route path="/advisor/history" element={<HistoryPage />} />
                   <Route path="/browse" element={<BrowsePage />} />
-                  <Route path="/browse/workloads" element={<WorkloadsPage />} />
+                  {auth.isCurator && (
+                    <Route path="/browse/workloads" element={<WorkloadsPage />} />
+                  )}
                   {auth.isAdmin && (
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />

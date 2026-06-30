@@ -442,8 +442,7 @@ export function BrowsePage() {
     if (cloudProvider) params.cloud_provider = cloudProvider
     if (agdConfig) params.agd_config = agdConfig
     if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
-    if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
-    if (contentFilter === 'retired') params.include_retired = 'true'
+    if (contentFilter) params.content_filter = contentFilter
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
   }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, page, setSearchParams])
