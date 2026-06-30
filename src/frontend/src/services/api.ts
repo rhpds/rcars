@@ -45,7 +45,7 @@ export const api = {
     agd_config?: string;
     content_filter?: string;
     category?: string;
-    include_retired?: boolean;
+    include_retired?: string | boolean;
     limit?: number;
     offset?: number;
   }) => {
@@ -57,7 +57,7 @@ export const api = {
     if (params?.agd_config) qs.set('agd_config', params.agd_config);
     if (params?.content_filter) qs.set('content_filter', params.content_filter);
     if (params?.category) qs.set('category', params.category);
-    if (params?.include_retired) qs.set('include_retired', 'true');
+    if (params?.include_retired) qs.set('include_retired', String(params.include_retired));
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
