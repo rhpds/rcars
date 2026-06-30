@@ -35,6 +35,7 @@ export function WorkloadsPage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
   // Section collapse state
+  const [mappedOpen, setMappedOpen] = useState(true)
   const [unmappedSectionOpen, setUnmappedSectionOpen] = useState(false)
 
   // Filter state
@@ -277,11 +278,17 @@ export function WorkloadsPage() {
           {/* ── Mapped Workloads Section ── */}
           {showMapped && (
             <div className="wl-section">
-              <div className="wl-section-header wl-section-header--green">
-                <span>Mapped Workloads</span>
+              <div
+                className="wl-section-header wl-section-header--green wl-section-header--collapsible"
+                onClick={() => setMappedOpen(!mappedOpen)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMappedOpen(!mappedOpen) } }}
+              >
+                <span>{mappedOpen ? '▾' : '▸'} Mapped Workloads</span>
                 <span className="wl-section-count">{filteredMappings.length}</span>
               </div>
-              {filteredMappings.length === 0 ? (
+              {mappedOpen && (filteredMappings.length === 0 ? (
                 <div className="wl-empty">No mapped workloads match the current filters.</div>
               ) : (
                 filteredMappings.map(m => {
@@ -305,9 +312,6 @@ export function WorkloadsPage() {
                             <span className="wl-role-name">{m.workload_role}</span>
                             <span className="wl-product-name">{m.product_name}</span>
                             {m.verified && <span className="verified-badge">verified</span>}
-                          </div>
-                          <div className="browse-item-ci">
-                            {m.category || 'Uncategorized'}
                           </div>
                         </div>
                       </div>
@@ -360,7 +364,7 @@ export function WorkloadsPage() {
                     </div>
                   )
                 })
-              )}
+              ))}
             </div>
           )}
 

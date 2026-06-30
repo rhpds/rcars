@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
-import { Button } from '@patternfly/react-core'
-import { LogWindow } from '../components/admin/LogWindow'
 
 // ── Interfaces ──
 
@@ -30,132 +28,6 @@ interface InfraStats {
   mapped_workloads: number
   verified_workloads: number
   unmapped_workloads: number
-}
-
-interface ScheduleInfo {
-  pipeline_enabled: boolean
-  pipeline_schedule: string
-  last_pipeline: {
-    job_id: string; status: string; created_at: string; completed_at: string | null
-    result: { refresh?: { total_items?: number; retired_items?: number }; stale_check?: { stale?: number; stale_cis?: number; checked?: number; skipped?: number }; analysis_enqueued?: number; warnings?: string[] } | null
-    error: string | null
-  } | null
-}
-
-// ── ScheduledMaintenance (status-page-only component) ──
-
-function ScheduledMaintenance({ onStatusChange }: { onStatusChange: () => void }) {
-  const [schedule, setSchedule] = useState<ScheduleInfo | null>(null)
-  const [log, setLog] = useState<string[]>([])
-  const [logOpen, setLogOpen] = useState(false)
-  const [running, setRunning] = useState(false)
-  const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
-
-  const loadSchedule = useCallback(() => {
-    api.getScheduleStatus().then(data => setSchedule(data as ScheduleInfo))
-  }, [])
-
-  useEffect(() => { loadSchedule() }, [loadSchedule])
-
-  const handleRun = async () => {
-    setLog([])
-    setLogOpen(true)
-    setRunning(true)
-    addLog('Starting maintenance pipeline...')
-    const result = await api.runMaintenance()
-    addLog(`job_id=${result.job_id}`)
-    let seen = 0
-    await new Promise<void>((resolve) => {
-      const interval = setInterval(async () => {
-        try {
-          const job = await api.getJob(result.job_id)
-          const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
-          for (let i = seen; i < messages.length; i++) {
-            if (messages[i].message) addLog(messages[i].message!)
-          }
-          seen = messages.length
-          if (job.status === 'complete' || job.status === 'failed') {
-            clearInterval(interval)
-            if (job.error) addLog(`Error: ${job.error}`)
-            resolve()
-          }
-        } catch { /* ignore */ }
-      }, 3000)
-      setTimeout(() => { clearInterval(interval); resolve() }, 3 * 60 * 60 * 1000)
-    })
-    setRunning(false)
-    loadSchedule()
-    onStatusChange()
-  }
-
-  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
-  const elapsed = (created: string, completed: string | null) => {
-    if (!completed) return 'running'
-    const ms = new Date(completed).getTime() - new Date(created).getTime()
-    const s = Math.round(ms / 1000)
-    if (s < 60) return `${s}s`
-    const m = Math.floor(s / 60)
-    return `${m}m ${s % 60}s`
-  }
-
-  const jobStatusColor = (status: string) =>
-    status === 'complete' ? 'var(--score-green)'
-      : status === 'failed' ? 'var(--score-red)'
-      : status === 'running' ? 'var(--score-amber)' : 'var(--text-muted)'
-
-  return (
-    <div className="admin-section">
-      <h3>Scheduled Maintenance</h3>
-      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Automated nightly pipeline: catalog refresh &rarr; stale check &rarr; re-analyze &rarr; workload scan. Runs inside the scan worker via arq cron.
-      </p>
-      {schedule && (
-        <>
-          <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '10px', fontSize: '13px' }}>
-            <span style={{ color: schedule.pipeline_enabled ? 'var(--score-green)' : 'var(--score-red)', fontWeight: 600 }}>
-              {schedule.pipeline_enabled ? 'Enabled' : 'Disabled'}
-            </span>
-            <span style={{ color: 'var(--text-muted)' }}>Schedule: {schedule.pipeline_schedule}</span>
-          </div>
-          {schedule.last_pipeline && (
-            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.6' }}>
-              <div>
-                Last run: <span style={{ color: 'var(--text-secondary)' }}>{shortTime(schedule.last_pipeline.created_at)}</span>
-                {' '}&mdash; <span style={{ color: jobStatusColor(schedule.last_pipeline.status) }}>{schedule.last_pipeline.status}</span>
-                {schedule.last_pipeline.completed_at && (
-                  <span> ({elapsed(schedule.last_pipeline.created_at, schedule.last_pipeline.completed_at)})</span>
-                )}
-              </div>
-              {schedule.last_pipeline.result && (
-                <div style={{ color: 'var(--text-muted)' }}>
-                  {schedule.last_pipeline.result.refresh && (
-                    <span>{schedule.last_pipeline.result.refresh.total_items} items synced</span>
-                  )}
-                  {schedule.last_pipeline.result.stale_check && (
-                    <span> &middot; {schedule.last_pipeline.result.stale_check.stale} stale</span>
-                  )}
-                  {schedule.last_pipeline.result.analysis_enqueued !== undefined && schedule.last_pipeline.result.analysis_enqueued > 0 && (
-                    <span> &middot; {schedule.last_pipeline.result.analysis_enqueued} queued for re-analysis</span>
-                  )}
-                  {schedule.last_pipeline.result.warnings && schedule.last_pipeline.result.warnings.length > 0 && (
-                    <span style={{ color: 'var(--score-amber)' }}> &middot; {schedule.last_pipeline.result.warnings.length} warning(s)</span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-      <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running}>
-        {running ? 'Running...' : 'Run Maintenance Now'}
-      </Button>
-      <LogWindow
-        lines={log}
-        isOpen={logOpen}
-        onToggle={() => setLogOpen(!logOpen)}
-      />
-    </div>
-  )
 }
 
 // ── StatusPage ──
@@ -196,7 +68,10 @@ export function StatusPage() {
       </div>
 
       {status ? (
-        <div className="admin-stat-cards">
+        <>
+        <div className="admin-section">
+          <h3>Content</h3>
+          <div className="admin-stat-cards">
           <div className="admin-stat-card">
             <div className="admin-stat-card-title">Catalog</div>
             <div className="admin-stat-row"><span className="admin-stat-row-label">Total items</span><span className="admin-stat-row-value">{status.total}</span></div>
@@ -220,8 +95,14 @@ export function StatusPage() {
             <div className="admin-stat-row"><span className="admin-stat-row-label">Last run</span><span style={{ color: statusColor(status.analysis_stale), fontSize: '12px' }}>{status.analysis_date}</span></div>
           </div>
 
+        </div>
+        </div>
+
+        <div className="admin-section">
+          <h3>Infrastructure</h3>
+          <div className="admin-stat-cards">
           <div className="admin-stat-card">
-            <div className="admin-stat-card-title">Infrastructure</div>
+            <div className="admin-stat-card-title">AgnosticD v2</div>
             {infraStats ? (
               <>
                 <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
@@ -236,6 +117,12 @@ export function StatusPage() {
             )}
           </div>
 
+        </div>
+        </div>
+
+        <div className="admin-section">
+          <h3>System</h3>
+          <div className="admin-stat-cards">
           <div className="admin-stat-card">
             <div className="admin-stat-card-title">LLM Provider</div>
             {llmProvider ? (
@@ -279,11 +166,12 @@ export function StatusPage() {
             )}
           </div>
         </div>
+        </div>
+        </>
       ) : (
         <div style={{ color: 'var(--text-muted)' }}>Loading...</div>
       )}
 
-      <ScheduledMaintenance onStatusChange={loadStatus} />
     </div>
   )
 }
