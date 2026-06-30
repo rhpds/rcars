@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo, useRef } from 'react'
 import { api } from '../services/api'
 
 // ── Interfaces ──
@@ -8,7 +8,9 @@ interface WorkloadMapping {
   product_name: string
   description: string | null
   category: string | null
+  source_collection: string | null
   verified: boolean
+  added_by: string | null
 }
 
 interface UnmappedWorkload {
@@ -16,6 +18,9 @@ interface UnmappedWorkload {
   workload_collection: string | null
   ci_count: number
 }
+
+type StatusFilter = 'mapped' | 'unmapped' | 'all'
+type VerificationFilter = 'all' | 'verified' | 'unverified'
 
 // ── WorkloadsPage ──
 
@@ -25,6 +30,21 @@ export function WorkloadsPage() {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [mappingForm, setMappingForm] = useState<Record<string, { product: string; category: string }>>({})
+
+  // Expanded card state
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+
+  // Section collapse state
+  const [unmappedSectionOpen, setUnmappedSectionOpen] = useState(false)
+
+  // Filter state
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('mapped')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
+  const [collectionFilter, setCollectionFilter] = useState('')
+
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -62,102 +82,405 @@ export function WorkloadsPage() {
     loadData()
   }
 
+  const handleExpand = (role: string) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(role)) {
+        next.delete(role)
+      } else {
+        next.add(role)
+      }
+      return next
+    })
+  }
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      // Search is applied via useMemo filtering — no debounced fetch needed
+    }, 150)
+  }
+
+  // ── Derived filter options ──
+
+  const uniqueCategories = useMemo(() => {
+    const cats = new Set<string>()
+    mappings.forEach(m => { if (m.category) cats.add(m.category) })
+    return Array.from(cats).sort()
+  }, [mappings])
+
+  const uniqueCollections = useMemo(() => {
+    const colls = new Set<string>()
+    mappings.forEach(m => { if (m.source_collection) colls.add(m.source_collection) })
+    unmapped.forEach(u => { if (u.workload_collection) colls.add(u.workload_collection) })
+    return Array.from(colls).sort()
+  }, [mappings, unmapped])
+
+  // ── Filtered data ──
+
+  const searchLower = search.toLowerCase()
+
+  const filteredMappings = useMemo(() => {
+    return mappings.filter(m => {
+      if (searchLower && !(
+        m.workload_role.toLowerCase().includes(searchLower) ||
+        m.product_name.toLowerCase().includes(searchLower) ||
+        (m.description && m.description.toLowerCase().includes(searchLower))
+      )) return false
+      if (categoryFilter && m.category !== categoryFilter) return false
+      if (verificationFilter === 'verified' && !m.verified) return false
+      if (verificationFilter === 'unverified' && m.verified) return false
+      if (collectionFilter && m.source_collection !== collectionFilter) return false
+      return true
+    })
+  }, [mappings, searchLower, categoryFilter, verificationFilter, collectionFilter])
+
+  const filteredUnmapped = useMemo(() => {
+    return unmapped.filter(u => {
+      if (searchLower && !(
+        u.workload_role.toLowerCase().includes(searchLower) ||
+        (u.workload_collection && u.workload_collection.toLowerCase().includes(searchLower))
+      )) return false
+      if (collectionFilter && u.workload_collection !== collectionFilter) return false
+      return true
+    })
+  }, [unmapped, searchLower, collectionFilter])
+
+  const showMapped = statusFilter === 'mapped' || statusFilter === 'all'
+  const showUnmapped = statusFilter === 'unmapped' || statusFilter === 'all'
+
+  // ── Active filter chips ──
+
+  const activeFilters: Array<{ label: string; onRemove: () => void }> = []
+  if (categoryFilter) activeFilters.push({ label: `Category: ${categoryFilter}`, onRemove: () => setCategoryFilter('') })
+  if (verificationFilter !== 'all') activeFilters.push({ label: verificationFilter === 'verified' ? 'Verified' : 'Unverified', onRemove: () => setVerificationFilter('all') })
+  if (collectionFilter) activeFilters.push({ label: `Collection: ${collectionFilter}`, onRemove: () => setCollectionFilter('') })
+
+  const clearAllFilters = () => {
+    setCategoryFilter('')
+    setVerificationFilter('all')
+    setCollectionFilter('')
+  }
+
   if (loading && !loaded) {
     return (
-      <div className="admin-layout admin-layout--wide">
-        <div style={{ color: 'var(--text-muted)' }}>Loading workload mappings...</div>
+      <div className="browse-layout">
+        <div className="browse-toolbar">
+          <span className="browse-loading">Loading workload mappings...</span>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="admin-layout admin-layout--wide">
-      <div className="admin-section">
-        <h3>
-          Workload Mappings
-          {mappings.length > 0 && (
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 'normal', textTransform: 'none', letterSpacing: 0, marginLeft: '8px' }}>
-              {mappings.length} mapped &middot; {unmapped.length} unmapped
-            </span>
-          )}
-        </h3>
+    <div className="browse-layout">
+      {/* ── Top Bar ── */}
+      <div className="browse-toolbar">
+        <input
+          type="text"
+          className="browse-search"
+          placeholder="Search by role, product, or description..."
+          value={search}
+          onChange={(e) => handleSearchChange(e.target.value)}
+        />
 
-        {unmapped.length > 0 && (
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{ fontSize: '13px', color: 'var(--score-amber)', marginBottom: '8px', fontWeight: 600 }}>
-              Unmapped Workloads ({unmapped.length})
-            </div>
-            <table className="status-table status-table--compact">
-              <thead><tr><th>Role</th><th>Collection</th><th style={{ textAlign: 'right' }}>CIs</th><th></th></tr></thead>
-              <tbody>
-                {unmapped.map(u => (
-                  <tr key={u.workload_role}>
-                    <td style={{ fontFamily: 'var(--ff-mono)', fontSize: '11px' }}>{u.workload_role}</td>
-                    <td style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{u.workload_collection || '—'}</td>
-                    <td style={{ textAlign: 'right' }}>{u.ci_count}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      {mappingForm[u.workload_role] !== undefined ? (
-                        <div className="mapping-inline-form">
-                          <input
-                            placeholder="Product name"
-                            value={mappingForm[u.workload_role]?.product || ''}
-                            onChange={(e) => setMappingForm(prev => ({
-                              ...prev, [u.workload_role]: { ...prev[u.workload_role], product: e.target.value }
-                            }))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
-                          />
-                          <input
-                            placeholder="Category"
-                            value={mappingForm[u.workload_role]?.category || ''}
-                            onChange={(e) => setMappingForm(prev => ({
-                              ...prev, [u.workload_role]: { ...prev[u.workload_role], category: e.target.value }
-                            }))}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
-                            style={{ width: '100px' }}
-                          />
-                          <button onClick={() => handleMap(u.workload_role)}>Save</button>
-                          <button
-                            onClick={() => setMappingForm(prev => { const next = { ...prev }; delete next[u.workload_role]; return next })}
-                            style={{ background: 'none', color: 'var(--text-muted)' }}
-                          >&#10005;</button>
-                        </div>
-                      ) : (
-                        <button
-                          className="mapping-delete-btn"
-                          style={{ color: 'var(--text-link)' }}
-                          onClick={() => setMappingForm(prev => ({ ...prev, [u.workload_role]: { product: '', category: '' } }))}
-                        >
-                          Map
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {/* Active filter chips */}
+        {activeFilters.length > 0 && (
+          <>
+            <div className="browse-toolbar-divider" />
+            {activeFilters.map(f => (
+              <span key={f.label} className="browse-chip" onClick={f.onRemove}>
+                {f.label} <span className="browse-chip-x">&times;</span>
+              </span>
+            ))}
+            <button className="browse-chip browse-chip--clear" onClick={clearAllFilters}>
+              Clear all
+            </button>
+          </>
         )}
 
-        <div>
-          <div style={{ fontSize: '13px', color: 'var(--score-green)', marginBottom: '8px', fontWeight: 600 }}>
-            Mapped Workloads ({mappings.length})
-          </div>
-          <table className="status-table status-table--compact">
-            <thead><tr><th>Role</th><th>Product Name</th><th>Category</th><th></th><th></th></tr></thead>
-            <tbody>
-              {mappings.map(m => (
-                <tr key={m.workload_role}>
-                  <td style={{ fontFamily: 'var(--ff-mono)', fontSize: '11px' }}>{m.workload_role}</td>
-                  <td>{m.product_name}</td>
-                  <td style={{ color: 'var(--text-muted)' }}>{m.category || '—'}</td>
-                  <td>{m.verified && <span className="verified-badge">verified</span>}</td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button className="mapping-delete-btn" onClick={() => handleDelete(m.workload_role)} title="Remove mapping">&#10005;</button>
-                  </td>
-                </tr>
+        <span className="browse-item-count">
+          {filteredMappings.length} mapped &middot; {filteredUnmapped.length} unmapped
+        </span>
+      </div>
+
+      {/* ── Content: filter sidebar + card list ── */}
+      <div className="browse-content">
+        {/* Filter sidebar */}
+        <div className="browse-filter-sidebar">
+          {/* Status filter */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Status</div>
+            <div className="wl-status-pills">
+              {(['mapped', 'unmapped', 'all'] as StatusFilter[]).map(sf => (
+                <button
+                  key={sf}
+                  className={`browse-curator-pill${statusFilter === sf ? ' active' : ''}`}
+                  onClick={() => setStatusFilter(sf)}
+                >
+                  {sf.charAt(0).toUpperCase() + sf.slice(1)}
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          {/* Category filter */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Category</div>
+            <select
+              className="browse-filter-select"
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+            >
+              <option value="">All categories</option>
+              {uniqueCategories.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Verification filter */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Verification</div>
+            <div className="wl-status-pills">
+              {(['all', 'verified', 'unverified'] as VerificationFilter[]).map(vf => (
+                <button
+                  key={vf}
+                  className={`browse-curator-pill${verificationFilter === vf ? ' active' : ''}`}
+                  onClick={() => setVerificationFilter(vf)}
+                >
+                  {vf.charAt(0).toUpperCase() + vf.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Collection filter */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Collection</div>
+            <select
+              className="browse-filter-select"
+              value={collectionFilter}
+              onChange={(e) => setCollectionFilter(e.target.value)}
+            >
+              <option value="">All collections</option>
+              {uniqueCollections.map(coll => (
+                <option key={coll} value={coll}>{coll}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Card list */}
+        <div className="browse-list">
+          {/* ── Mapped Workloads Section ── */}
+          {showMapped && (
+            <div className="wl-section">
+              <div className="wl-section-header wl-section-header--green">
+                <span>Mapped Workloads</span>
+                <span className="wl-section-count">{filteredMappings.length}</span>
+              </div>
+              {filteredMappings.length === 0 ? (
+                <div className="wl-empty">No mapped workloads match the current filters.</div>
+              ) : (
+                filteredMappings.map(m => {
+                  const isExpanded = expandedItems.has(m.workload_role)
+                  return (
+                    <div
+                      key={m.workload_role}
+                      className={`browse-item${isExpanded ? ' expanded' : ''}`}
+                    >
+                      {/* Collapsed header */}
+                      <div className="browse-item-header">
+                        <div className="browse-item-header-left">
+                          <div
+                            className="browse-item-title"
+                            onClick={() => handleExpand(m.workload_role)}
+                            role="button"
+                            tabIndex={0}
+                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(m.workload_role) } }}
+                          >
+                            <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                            <span className="wl-role-name">{m.workload_role}</span>
+                            <span className="wl-product-name">{m.product_name}</span>
+                            {m.verified && <span className="verified-badge">verified</span>}
+                          </div>
+                          <div className="browse-item-ci">
+                            {m.category || 'Uncategorized'}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Expanded body */}
+                      {isExpanded && (
+                        <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
+                          {m.description && (
+                            <p className="browse-description">{m.description}</p>
+                          )}
+
+                          <div className="wl-detail-grid">
+                            <div className="wl-detail-item">
+                              <span className="wl-detail-label">Category</span>
+                              <span className="wl-detail-value">{m.category || '—'}</span>
+                            </div>
+                            <div className="wl-detail-item">
+                              <span className="wl-detail-label">Collection</span>
+                              <span className="wl-detail-value">{m.source_collection || '—'}</span>
+                            </div>
+                            <div className="wl-detail-item">
+                              <span className="wl-detail-label">Verification</span>
+                              <span className="wl-detail-value">
+                                {m.verified ? (
+                                  <span className="verified-badge">verified</span>
+                                ) : (
+                                  <span style={{ color: 'var(--text-muted)' }}>unverified</span>
+                                )}
+                              </span>
+                            </div>
+                            {m.added_by && (
+                              <div className="wl-detail-item">
+                                <span className="wl-detail-label">Added by</span>
+                                <span className="wl-detail-value">{m.added_by}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="wl-card-actions">
+                            <button
+                              className="mapping-delete-btn"
+                              onClick={() => handleDelete(m.workload_role)}
+                              title="Remove mapping"
+                            >
+                              Remove mapping
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {/* ── Unmapped Workloads Section ── */}
+          {showUnmapped && (
+            <div className="wl-section">
+              <div
+                className="wl-section-header wl-section-header--amber wl-section-header--collapsible"
+                onClick={() => setUnmappedSectionOpen(!unmappedSectionOpen)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setUnmappedSectionOpen(!unmappedSectionOpen) } }}
+              >
+                <span className="browse-toggle-caret" style={unmappedSectionOpen ? { transform: 'rotate(90deg)' } : undefined}>&#9654;</span>
+                <span>Unmapped Workloads</span>
+                <span className="wl-section-count">{filteredUnmapped.length}</span>
+              </div>
+
+              {unmappedSectionOpen && (
+                <>
+                  {filteredUnmapped.length === 0 ? (
+                    <div className="wl-empty">No unmapped workloads match the current filters.</div>
+                  ) : (
+                    filteredUnmapped.map(u => {
+                      const isExpanded = expandedItems.has(u.workload_role)
+                      const hasForm = mappingForm[u.workload_role] !== undefined
+                      return (
+                        <div
+                          key={u.workload_role}
+                          className={`browse-item${isExpanded ? ' expanded' : ''}`}
+                        >
+                          {/* Collapsed header */}
+                          <div className="browse-item-header">
+                            <div className="browse-item-header-left">
+                              <div
+                                className="browse-item-title"
+                                onClick={() => handleExpand(u.workload_role)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(u.workload_role) } }}
+                              >
+                                <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                                <span className="wl-role-name">{u.workload_role}</span>
+                                {u.workload_collection && (
+                                  <span className="wl-collection-muted">{u.workload_collection}</span>
+                                )}
+                                <span className="wl-ci-count-badge">Used by {u.ci_count} CI{u.ci_count !== 1 ? 's' : ''}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Expanded body */}
+                          {isExpanded && (
+                            <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
+                              <div className="wl-detail-grid">
+                                <div className="wl-detail-item">
+                                  <span className="wl-detail-label">Collection</span>
+                                  <span className="wl-detail-value">{u.workload_collection || '—'}</span>
+                                </div>
+                                <div className="wl-detail-item">
+                                  <span className="wl-detail-label">Used by</span>
+                                  <span className="wl-detail-value">{u.ci_count} catalog item{u.ci_count !== 1 ? 's' : ''}</span>
+                                </div>
+                              </div>
+
+                              {/* Inline mapping form */}
+                              {hasForm ? (
+                                <div className="wl-mapping-form">
+                                  <div className="wl-mapping-form-row">
+                                    <input
+                                      className="wl-mapping-input"
+                                      placeholder="Product name"
+                                      value={mappingForm[u.workload_role]?.product || ''}
+                                      onChange={(e) => setMappingForm(prev => ({
+                                        ...prev, [u.workload_role]: { ...prev[u.workload_role], product: e.target.value }
+                                      }))}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                                    />
+                                    <input
+                                      className="wl-mapping-input wl-mapping-input--short"
+                                      placeholder="Category"
+                                      value={mappingForm[u.workload_role]?.category || ''}
+                                      onChange={(e) => setMappingForm(prev => ({
+                                        ...prev, [u.workload_role]: { ...prev[u.workload_role], category: e.target.value }
+                                      }))}
+                                      onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
+                                    />
+                                  </div>
+                                  <div className="wl-mapping-form-actions">
+                                    <button className="browse-btn-action" onClick={() => handleMap(u.workload_role)}>
+                                      Save
+                                    </button>
+                                    <button
+                                      className="wl-mapping-cancel"
+                                      onClick={() => setMappingForm(prev => { const next = { ...prev }; delete next[u.workload_role]; return next })}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="wl-card-actions">
+                                  <button
+                                    className="browse-btn-action"
+                                    onClick={() => setMappingForm(prev => ({ ...prev, [u.workload_role]: { product: '', category: '' } }))}
+                                  >
+                                    Map this workload
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>

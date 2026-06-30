@@ -1673,6 +1673,206 @@ body {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   Workloads Page
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Status pill row ── */
+.wl-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* ── Section headers ── */
+.wl-section {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.wl-section:last-child {
+  border-bottom: none;
+}
+
+.wl-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-family: var(--ff-display);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.wl-section-header--green {
+  color: var(--score-green);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.wl-section-header--amber {
+  color: var(--score-amber);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.wl-section-header--collapsible {
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.wl-section-header--collapsible:hover {
+  background: var(--bg-card-hover);
+}
+
+.wl-section-count {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Card role + product names ── */
+.wl-role-name {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.wl-product-name {
+  font-family: var(--ff-display);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.wl-collection-muted {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--ff-body);
+  font-weight: 400;
+}
+
+.wl-ci-count-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: var(--ff-body);
+  background: var(--badge-v2-bg);
+  color: var(--badge-v2-text);
+  white-space: nowrap;
+}
+
+/* ── Expanded detail grid ── */
+.wl-detail-grid {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.wl-detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wl-detail-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--ff-display);
+  font-weight: 600;
+}
+
+.wl-detail-value {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+/* ── Card actions row ── */
+.wl-card-actions {
+  display: flex;
+  gap: var(--sp-sm);
+  padding-top: 8px;
+  border-top: 1px solid var(--border-section);
+}
+
+/* ── Inline mapping form ── */
+.wl-mapping-form {
+  background: var(--bg-section);
+  border: 1px solid var(--border-section);
+  border-radius: 6px;
+  padding: 12px var(--sp-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+}
+
+.wl-mapping-form-row {
+  display: flex;
+  gap: var(--sp-sm);
+}
+
+.wl-mapping-input {
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: var(--ff-body);
+  outline: none;
+  flex: 1;
+  transition: border-color var(--transition-fast);
+}
+
+.wl-mapping-input:focus {
+  border-color: var(--border-focus);
+}
+
+.wl-mapping-input::placeholder {
+  color: var(--text-muted);
+}
+
+.wl-mapping-input--short {
+  max-width: 140px;
+}
+
+.wl-mapping-form-actions {
+  display: flex;
+  gap: var(--sp-sm);
+  align-items: center;
+}
+
+.wl-mapping-cancel {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--ff-body);
+  padding: 5px 10px;
+  transition: color var(--transition-fast);
+}
+
+.wl-mapping-cancel:hover {
+  color: var(--text-secondary);
+}
+
+/* ── Empty state ── */
+.wl-empty {
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+/* ══════════════════════════════════════════════════════════════════
    Animations (shared)
    ══════════════════════════════════════════════════════════════════ */
 
