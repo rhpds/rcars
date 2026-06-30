@@ -14,6 +14,7 @@ import { RetirementPage } from './pages/RetirementPage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
 import { RecentJobsPage } from './pages/RecentJobsPage'
+import { HistoryPage } from './pages/HistoryPage'
 import './styles/rcars-app.css'
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Navigate to="/advisor" replace />} />
                   <Route path="/advisor" element={<AdvisorPage />} />
+                <Route path="/advisor/history" element={<HistoryPage />} />
                   <Route path="/browse" element={<BrowsePage />} />
                   <Route path="/browse/workloads" element={<WorkloadsPage />} />
                   {auth.isAdmin && (
