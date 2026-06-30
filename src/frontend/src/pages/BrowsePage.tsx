@@ -81,7 +81,7 @@ interface Facets {
   cloud_providers: Array<{ cloud_provider: string; ci_count: number }>
 }
 
-type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review'
+type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
 
 const PAGE_SIZE = 50
 const OBJECTIVES_PREVIEW_COUNT = 5
@@ -101,6 +101,7 @@ const CONTENT_FILTER_LABELS: Record<ContentFilter, string> = {
   scan_failures: 'Failures',
   stale: 'Stale',
   needs_review: 'Needs Review',
+  retired: 'Retired',
 }
 
 /* ── Sub-components ── */
@@ -362,7 +363,6 @@ export function BrowsePage() {
   const [contentFilter, setContentFilter] = useState<ContentFilter | ''>(
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
-  const [showRetired, setShowRetired] = useState(false)
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   // Data state
@@ -421,8 +421,8 @@ export function BrowsePage() {
       if (cloudProvider) params.cloud_provider = cloudProvider
       if (agdConfig) params.agd_config = agdConfig
       if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
-      if (contentFilter) params.content_filter = contentFilter
-      if (showRetired) (params as Record<string, unknown>).include_retired = true
+      if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
+      if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = true
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
       setItems(data.items as CatalogItem[])
@@ -431,7 +431,7 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter])
 
   // Sync URL params
   useEffect(() => {
@@ -442,11 +442,11 @@ export function BrowsePage() {
     if (cloudProvider) params.cloud_provider = cloudProvider
     if (agdConfig) params.agd_config = agdConfig
     if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
-    if (contentFilter) params.content_filter = contentFilter
-    if (showRetired) params.include_retired = 'true'
+    if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
+    if (contentFilter === 'retired') params.include_retired = 'true'
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, page, setSearchParams])
 
   // Fetch on filter change
   useEffect(() => {
@@ -675,7 +675,7 @@ export function BrowsePage() {
             <div className="browse-filter-group">
               <div className="browse-filter-group-label">Curator Tools</div>
               <div className="browse-curator-pills">
-                {(['unanalyzed', 'scan_failures', 'stale', 'needs_review'] as ContentFilter[]).map(cf => (
+                {(['unanalyzed', 'scan_failures', 'stale', 'needs_review', 'retired'] as ContentFilter[]).map(cf => (
                   <button
                     key={cf}
                     className={`browse-curator-pill${contentFilter === cf ? ' active' : ''}`}
@@ -685,7 +685,6 @@ export function BrowsePage() {
                   </button>
                 ))}
               </div>
-              <StageToggle label="Show retired" active={showRetired} onToggle={() => setShowRetired(!showRetired)} />
             </div>
           )}
         </div>
