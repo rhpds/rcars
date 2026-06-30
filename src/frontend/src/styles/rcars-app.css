@@ -210,8 +210,9 @@ body {
 
 .rcars-main {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--sp-lg);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Card hover effect ── */
