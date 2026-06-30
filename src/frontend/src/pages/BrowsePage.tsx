@@ -422,7 +422,7 @@ export function BrowsePage() {
       if (agdConfig) params.agd_config = agdConfig
       if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
-      if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = true
+      if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
       setItems(data.items as CatalogItem[])
