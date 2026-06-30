@@ -604,7 +604,7 @@ export function BrowsePage() {
 
   return (
     <div className="browse-layout">
-      {/* ── Unified Toolbar ── */}
+      {/* ── Top Bar: search + stage toggles + count ── */}
       <div className="browse-toolbar">
         <input
           type="text"
@@ -616,53 +616,6 @@ export function BrowsePage() {
         <div className="browse-toolbar-divider" />
         <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
         <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
-        <div className="browse-toolbar-divider" />
-
-        {/* Filter dropdowns */}
-        <select
-          className="browse-filter-select"
-          value={cloudProvider}
-          onChange={(e) => setCloudProvider(e.target.value)}
-        >
-          <option value="">Cloud provider</option>
-          {facets?.cloud_providers.map(cp => (
-            <option key={cp.cloud_provider} value={cp.cloud_provider}>{cp.cloud_provider}</option>
-          ))}
-        </select>
-
-        <WorkloadMultiSelect
-          options={facets?.workloads || []}
-          selected={selectedWorkloads}
-          onChange={setSelectedWorkloads}
-        />
-
-        <select
-          className="browse-filter-select"
-          value={agdConfig}
-          onChange={(e) => setAgdConfig(e.target.value)}
-        >
-          <option value="">Config</option>
-          {facets?.configs.map(c => (
-            <option key={c.agd_config} value={c.agd_config}>{c.agd_config}</option>
-          ))}
-        </select>
-
-        {/* Curator filter pills inline */}
-        {auth.isCurator && (
-          <>
-            <div className="browse-toolbar-divider" />
-            {(['unanalyzed', 'scan_failures', 'stale', 'needs_review'] as ContentFilter[]).map(cf => (
-              <button
-                key={cf}
-                className={`browse-curator-pill${contentFilter === cf ? ' active' : ''}`}
-                onClick={() => setContentFilter(contentFilter === cf ? '' : cf)}
-              >
-                {CONTENT_FILTER_LABELS[cf]}
-              </button>
-            ))}
-            <StageToggle label="retired" active={showRetired} onToggle={() => setShowRetired(!showRetired)} />
-          </>
-        )}
 
         {/* Active filter chips */}
         {activeFilters.length > 0 && (
@@ -682,8 +635,63 @@ export function BrowsePage() {
         <span className="browse-item-count">{total} items</span>
       </div>
 
-      {/* ── Item List ── */}
-      <div className="browse-list">
+      {/* ── Content area: filter sidebar + item list ── */}
+      <div className="browse-content">
+        {/* Filter sidebar */}
+        <div className="browse-filter-sidebar">
+          {/* Infrastructure filters — AgnosticD v2 only */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Infrastructure</div>
+            <div className="browse-filter-group-note">AgnosticD v2 items only</div>
+            <select
+              className="browse-filter-select"
+              value={cloudProvider}
+              onChange={(e) => setCloudProvider(e.target.value)}
+            >
+              <option value="">All cloud providers</option>
+              {facets?.cloud_providers.map(cp => (
+                <option key={cp.cloud_provider} value={cp.cloud_provider}>{cp.cloud_provider}</option>
+              ))}
+            </select>
+            <WorkloadMultiSelect
+              options={facets?.workloads || []}
+              selected={selectedWorkloads}
+              onChange={setSelectedWorkloads}
+            />
+            <select
+              className="browse-filter-select"
+              value={agdConfig}
+              onChange={(e) => setAgdConfig(e.target.value)}
+            >
+              <option value="">All configs</option>
+              {facets?.configs.map(c => (
+                <option key={c.agd_config} value={c.agd_config}>{c.agd_config}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Curator filters — curator/admin only */}
+          {auth.isCurator && (
+            <div className="browse-filter-group">
+              <div className="browse-filter-group-label">Curator Tools</div>
+              <div className="browse-curator-pills">
+                {(['unanalyzed', 'scan_failures', 'stale', 'needs_review'] as ContentFilter[]).map(cf => (
+                  <button
+                    key={cf}
+                    className={`browse-curator-pill${contentFilter === cf ? ' active' : ''}`}
+                    onClick={() => setContentFilter(contentFilter === cf ? '' : cf)}
+                  >
+                    {CONTENT_FILTER_LABELS[cf]}
+                  </button>
+                ))}
+              </div>
+              <StageToggle label="Show retired" active={showRetired} onToggle={() => setShowRetired(!showRetired)} />
+            </div>
+          )}
+        </div>
+
+        {/* Item list */}
+        <div className="browse-list">
         {loading ? (
           <div className="browse-loading">Loading...</div>
         ) : (
@@ -963,6 +971,7 @@ export function BrowsePage() {
           </>
         )}
       </div>
+      </div>{/* end browse-content */}
 
       {/* ── Curator Drawer ── */}
       {drawerItem && drawerDetail && (

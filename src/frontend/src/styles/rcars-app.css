@@ -738,6 +738,57 @@ body {
   flex-direction: column;
   gap: 0;
   height: 100%;
+  overflow: hidden;
+}
+
+/* Browse content area: sidebar + item list side by side */
+.browse-content {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Filter Sidebar ── */
+.browse-filter-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border-default);
+  padding: var(--sp-md);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  background: var(--bg-sidebar);
+}
+
+.browse-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+}
+
+.browse-filter-group-label {
+  font-family: var(--ff-display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-link);
+}
+
+.browse-filter-group-note {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-top: -4px;
+  margin-bottom: 2px;
+}
+
+.browse-curator-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 /* ── Toolbar ── */
@@ -747,11 +798,9 @@ body {
   gap: 10px;
   padding: 10px var(--sp-md);
   background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  border-bottom: 1px solid var(--border-default);
   flex-wrap: wrap;
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 10;
 }
 
@@ -800,7 +849,7 @@ body {
   padding: 6px 10px;
   font-size: 12px;
   font-family: var(--ff-body);
-  max-width: 160px;
+  width: 100%;
   outline: none;
   cursor: pointer;
 }
@@ -917,11 +966,9 @@ body {
 
 /* ── Item list ── */
 .browse-list {
-  border: 1px solid var(--border-default);
-  border-top: none;
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
   flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .browse-item {
