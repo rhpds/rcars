@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import { Masthead, MastheadMain, MastheadContent } from '@patternfly/react-core'
 import { useAuth } from '../hooks/useAuth'
@@ -19,6 +19,47 @@ function formatAge(dateStr: string): string {
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
   return `${days}d ago`
+}
+
+const DOCS_BASE = 'https://rhpds.github.io/rcars'
+
+function HelpMenu() {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative' }}>
+      <button
+        className="rcars-help-toggle"
+        onClick={() => setOpen(!open)}
+        title="Help & Links"
+      >
+        ?
+      </button>
+      {open && (
+        <div className="rcars-help-menu">
+          <a href={`${DOCS_BASE}/overview/`} target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
+            Overview
+          </a>
+          <a href={`${DOCS_BASE}/user/guide-web/`} target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
+            Web UI Guide
+          </a>
+          <div style={{ borderTop: '1px solid var(--border-default)', margin: '4px 0' }} />
+          <a href="https://demo.redhat.com" target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
+            RHDP Catalog
+          </a>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function getInitials(email: string): string {
@@ -85,6 +126,7 @@ export function RcarsMasthead() {
 
       <MastheadContent>
         <div className="rcars-masthead-right">
+          <HelpMenu />
           <button
             className="rcars-theme-toggle"
             onClick={toggle}

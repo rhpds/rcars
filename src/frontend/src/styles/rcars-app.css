@@ -90,6 +90,59 @@ body {
   background: var(--score-amber-bg);
 }
 
+/* ── Help menu ── */
+.rcars-help-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--border-default);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 700;
+  font-family: var(--ff-display);
+  transition: all var(--transition-fast);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rcars-help-toggle:hover {
+  color: var(--text-link);
+  border-color: var(--text-link);
+}
+
+.rcars-help-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  margin-top: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  min-width: 200px;
+  z-index: 100;
+  box-shadow: var(--shadow-elevated);
+  padding: 4px 0;
+}
+
+.rcars-help-menu-item {
+  display: block;
+  padding: 10px 16px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-family: var(--ff-body);
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.rcars-help-menu-item:hover {
+  background: var(--nav-hover-bg);
+  color: var(--text-primary);
+}
+
 .rcars-user-avatar {
   width: 32px;
   height: 32px;
