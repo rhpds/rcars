@@ -5,6 +5,12 @@ import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
 
+function safeHref(url: string | null): string {
+  if (!url) return '#'
+  try { return ['http:', 'https:'].includes(new URL(url).protocol) ? url : '#' }
+  catch { return '#' }
+}
+
 /* ── Types ── */
 
 interface CatalogItem {
@@ -954,7 +960,7 @@ export function BrowsePage() {
                           RHDP Catalog
                         </a>
                         {item.showroom_url && (
-                          <a href={item.showroom_url} target="_blank" rel="noopener noreferrer">
+                          <a href={safeHref(item.showroom_url)} target="_blank" rel="noopener noreferrer">
                             Showroom Repo
                           </a>
                         )}

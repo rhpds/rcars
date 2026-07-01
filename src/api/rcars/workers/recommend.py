@@ -99,6 +99,7 @@ async def run_recommendation(
 
     except Exception as e:
         log.error("job_failed", action="job_failed", error=str(e))
+        safe_error = "An internal error occurred while processing your query."
         wctx.db.fail_job(job_id, error=str(e))
-        await wctx.relay.publish(job_id, {"phase": "failed", "error": str(e)})
+        await wctx.relay.publish(job_id, {"phase": "failed", "error": safe_error})
         raise

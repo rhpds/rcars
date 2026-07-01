@@ -28,6 +28,7 @@ def _make_request(headers: dict | None = None, dev_user: str = "", sa_allowlist_
     settings = MagicMock()
     settings.dev_user = dev_user
     settings.sa_allowlist_str = sa_allowlist_str
+    settings.proxy_verification_secret = ""
     request.app.state.settings = settings
     return request
 

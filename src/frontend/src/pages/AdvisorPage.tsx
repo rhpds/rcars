@@ -308,15 +308,25 @@ export function AdvisorPage() {
           >
             ⚙
           </button>
-          <textarea
-            className="chat-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe what you're looking for..."
-            rows={2}
-            disabled={sending}
-          />
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea
+              className="chat-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value.slice(0, 2000))}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe what you're looking for..."
+              rows={2}
+              maxLength={2000}
+              disabled={sending}
+            />
+            <span style={{
+              position: 'absolute', bottom: '4px', right: '8px',
+              fontSize: '11px', fontFamily: 'var(--ff-mono)',
+              color: input.length > 1800 ? 'var(--score-amber)' : 'var(--text-muted)',
+              opacity: input.length > 0 ? 0.7 : 0,
+              transition: 'opacity var(--transition-fast)',
+            }}>{input.length}/2000</span>
+          </div>
           <button className={`btn-send${sending ? ' sending' : ''}`} onClick={handleSend} disabled={sending}>
             Send
           </button>

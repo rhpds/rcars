@@ -1298,8 +1298,10 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
-        provider: str = "anthropic",
+        provider: str = "anthropic", opted_out: bool = False,
     ) -> None:
+        if opted_out:
+            query_text = None
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)

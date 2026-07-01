@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
 
+function safeHref(url: string | null): string {
+  if (!url) return '#'
+  try { return ['http:', 'https:'].includes(new URL(url).protocol) ? url : '#' }
+  catch { return '#' }
+}
+
 type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
@@ -261,7 +267,7 @@ export function RetirementPage() {
                                         </a>
                                       ))}
                                       {!item.has_content && item.catalog_url && (
-                                        <a href={item.catalog_url} target="_blank" rel="noreferrer"
+                                        <a href={safeHref(item.catalog_url)} target="_blank" rel="noreferrer"
                                           className="ca-env-tag ca-env-test"
                                           onClick={e => e.stopPropagation()}>
                                           catalog

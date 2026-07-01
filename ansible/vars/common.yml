@@ -10,9 +10,9 @@ mgmt_service_account:
   name: rcars-mgmt-sa
 
 # Container images
-pg_image: pgvector/pgvector:pg16
-redis_image: "registry.redhat.io/rhel9/redis-7"
-oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:latest"
+pg_image: "pgvector/pgvector:0.8.0-pg16"
+redis_image: "registry.redhat.io/rhel9/redis-7:1"
+oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:v4.17"
 
 # PostgreSQL
 pg_port: 5432

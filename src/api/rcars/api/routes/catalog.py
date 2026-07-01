@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 
 router = APIRouter(prefix="/catalog")
@@ -104,10 +104,10 @@ async def list_unmapped_workloads(request: Request, user: str = Depends(require_
 
 
 class WorkloadMappingRequest(BaseModel):
-    workload_role: str
-    product_name: str
-    description: str | None = None
-    category: str | None = None
+    workload_role: str = Field(max_length=200)
+    product_name: str = Field(max_length=200)
+    description: str | None = Field(default=None, max_length=500)
+    category: str | None = Field(default=None, max_length=100)
 
 
 @router.post("/workload-mappings")
@@ -193,8 +193,8 @@ async def refresh_catalog(request: Request, user: str = Depends(require_admin)):
 
 
 class TagRequest(BaseModel):
-    tag_type: str
-    tag_value: str
+    tag_type: str = Field(max_length=100)
+    tag_value: str = Field(max_length=100)
 
 
 @router.post("/{ci_name}/tags")
@@ -212,7 +212,7 @@ async def remove_tag(ci_name: str, tag_id: int, request: Request, user: str = De
 
 
 class NoteRequest(BaseModel):
-    note: str
+    note: str = Field(max_length=2000)
 
 
 @router.put("/{ci_name}/note")
@@ -230,7 +230,7 @@ async def flag_item(ci_name: str, request: Request, user: str = Depends(require_
 
 
 class OverrideUrlRequest(BaseModel):
-    url: str
+    url: str = Field(max_length=500, pattern=r'^https?://')
 
 
 @router.post("/{ci_name}/override-url")
@@ -252,7 +252,7 @@ async def set_duration(ci_name: str, body: DurationRequest, request: Request, us
 
 
 class ContentPathRequest(BaseModel):
-    path: str | None
+    path: str | None = Field(default=None, max_length=500, pattern=r'^[a-zA-Z0-9_./-]*$')
 
 
 @router.post("/{ci_name}/content-path")
