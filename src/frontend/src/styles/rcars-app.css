@@ -2008,7 +2008,8 @@ body {
 }
 
 .chat-input {
-  flex: 1;
+  width: 100%;
+  box-sizing: border-box;
   background: var(--bg-input);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
