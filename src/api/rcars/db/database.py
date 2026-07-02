@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
@@ -271,6 +272,32 @@ CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
     ON reporting_metrics (retirement_score DESC);
 CREATE INDEX IF NOT EXISTS ix_reporting_metrics_display_name
     ON reporting_metrics (display_name);
+
+CREATE TABLE IF NOT EXISTS retirement_workflow (
+    catalog_base_name    TEXT PRIMARY KEY,
+    status               TEXT NOT NULL DEFAULT 'reviewed',
+    step_reviewed_at     TIMESTAMPTZ,
+    step_reviewed_by     TEXT,
+    step_approved_at     TIMESTAMPTZ,
+    step_approved_by     TEXT,
+    approval_reason      TEXT,
+    approval_snapshot    JSONB,
+    step_notified_at     TIMESTAMPTZ,
+    step_notified_by     TEXT,
+    step_started_at      TIMESTAMPTZ,
+    step_started_by      TEXT,
+    retirement_target_date DATE,
+    step_retired_at      TIMESTAMPTZ,
+    replacement_ci       TEXT,
+    replacement_name     TEXT,
+    curator_notes        TEXT,
+    jira_key             TEXT,
+    jira_project         TEXT NOT NULL DEFAULT 'RHDPCD',
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_retirement_workflow_status
+    ON retirement_workflow (status);
 """
 
 
@@ -313,6 +340,7 @@ class Database:
             )
 
         tables = [
+            "retirement_workflow",
             "content_similarity", "reporting_metrics",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
@@ -1969,3 +1997,132 @@ class Database:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
                 return {row["base"] for row in cur.fetchall()}
+
+    # ── Retirement Workflow ──
+
+    def get_retirement_workflow(self, base_name: str) -> dict | None:
+        """Get retirement workflow record for a catalog base name."""
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM retirement_workflow WHERE catalog_base_name = %s",
+                    (base_name,),
+                )
+                return cur.fetchone()
+
+    def upsert_retirement_workflow(self, base_name: str, fields: dict) -> dict:
+        """Insert or update a retirement workflow record.
+
+        Handles special values:
+        - String "NOW()" is replaced with SQL NOW()
+        - Dict values for approval_snapshot are serialised to JSON
+        - updated_at is always set to NOW()
+        """
+        # Build column lists dynamically from the provided fields
+        all_fields = dict(fields)
+        all_fields["catalog_base_name"] = base_name
+
+        # Derive status from step timestamps if not explicitly provided
+        if "status" not in all_fields:
+            from rcars.services.retirement import derive_status
+            all_fields["status"] = derive_status(all_fields)
+
+        columns = []
+        placeholders = []
+        params = []
+        update_parts = []
+
+        for col, val in all_fields.items():
+            columns.append(col)
+            if val == "NOW()":
+                placeholders.append("NOW()")
+                update_parts.append(f"{col} = NOW()")
+            elif col == "approval_snapshot" and isinstance(val, dict):
+                placeholders.append("%s::jsonb")
+                params.append(json.dumps(val))
+                update_parts.append(f"{col} = %s::jsonb")
+            else:
+                placeholders.append("%s")
+                params.append(val)
+                update_parts.append(f"{col} = %s")
+
+        # Always set updated_at on upsert
+        if "updated_at" not in all_fields:
+            columns.append("updated_at")
+            placeholders.append("NOW()")
+            update_parts.append("updated_at = NOW()")
+
+        # Build update params (duplicate non-NOW values for the SET clause)
+        update_params = []
+        for col, val in all_fields.items():
+            if col == "catalog_base_name":
+                continue  # PK is not updated
+            if val == "NOW()":
+                continue  # No param needed for NOW()
+            elif col == "approval_snapshot" and isinstance(val, dict):
+                update_params.append(json.dumps(val))
+            else:
+                update_params.append(val)
+
+        sql = (
+            f"INSERT INTO retirement_workflow ({', '.join(columns)}) "
+            f"VALUES ({', '.join(placeholders)}) "
+            f"ON CONFLICT (catalog_base_name) DO UPDATE SET "
+            f"{', '.join(p for p in update_parts if not p.startswith('catalog_base_name'))} "
+            f"RETURNING *"
+        )
+
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params + update_params)
+                row = cur.fetchone()
+            conn.commit()
+        return row
+
+    def delete_retirement_workflow(self, base_name: str) -> bool:
+        """Delete a retirement workflow record. Returns True if a row was deleted."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM retirement_workflow WHERE catalog_base_name = %s",
+                    (base_name,),
+                )
+                deleted = cur.rowcount > 0
+            conn.commit()
+        return deleted
+
+    def list_retirement_workflows(self, status: str | None = None) -> list[dict]:
+        """List retirement workflow records, optionally filtered by status."""
+        if status:
+            sql = "SELECT * FROM retirement_workflow WHERE status = %s ORDER BY updated_at DESC"
+            params = (status,)
+        else:
+            sql = "SELECT * FROM retirement_workflow ORDER BY updated_at DESC"
+            params = ()
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    def auto_close_retired_workflows(self, retired_base_names: set[str]) -> int:
+        """Mark workflows as retired for base names that are fully retired in the catalog.
+
+        Sets step_retired_at = NOW() and status = 'retired' for matching rows
+        that have not already been marked retired.
+        Returns the number of rows updated.
+        """
+        if not retired_base_names:
+            return 0
+        placeholders = ",".join(["%s"] * len(retired_base_names))
+        sql = (
+            f"UPDATE retirement_workflow "
+            f"SET step_retired_at = NOW(), status = 'retired', updated_at = NOW() "
+            f"WHERE catalog_base_name IN ({placeholders}) "
+            f"AND step_retired_at IS NULL"
+        )
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, list(retired_base_names))
+                count = cur.rowcount
+            conn.commit()
+        return count

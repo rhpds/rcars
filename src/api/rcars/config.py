@@ -88,6 +88,12 @@ class Settings(BaseSettings):
     reporting_provisions_days: int = 90
     reporting_sales_days: int = 365
 
+    # Jira integration (retirement tickets)
+    jira_base_url: str = "https://redhat.atlassian.net"
+    jira_api_email: str = ""
+    jira_api_token: str = ""
+    jira_retirement_template: str = "GPTEINFRA-14367"
+
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True
     pipeline_hour: int = 4
