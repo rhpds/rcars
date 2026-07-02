@@ -3,11 +3,14 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from redis.asyncio import Redis
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 from rcars.config import Settings
 from rcars.db import Database
 from rcars.logging import setup_logging
 from rcars.api.middleware.request_logging import RequestLoggingMiddleware
+from rcars.api.middleware.rate_limit import limiter
 from arq.connections import ArqRedis
 from rcars.api.routes import health, auth, advisor, catalog, analysis, admin
 
@@ -43,6 +46,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = settings
 
     app.add_middleware(RequestLoggingMiddleware)
+
+    limiter._storage_uri = settings.redis_url
+    limiter._swallow_errors = True
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     app.include_router(health.router, prefix="/api/v1")
     app.include_router(auth.router, prefix="/api/v1")

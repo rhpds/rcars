@@ -21,7 +21,7 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
                               └─────────────┘
 ```
 
-- **Frontend** — React 19 SPA with LCARS theme. Pages: Advisor (chat + recommendations), Browse (catalog + curation), Content Analysis (overlap detection), Admin (4 sub-pages: catalog ops, workers, tokens, queries). Vite dev server proxies `/api` to backend.
+- **Frontend** — React 19 SPA with PatternFly 6 and custom theme (light/dark mode). Pages: Advisor (chat + recommendations), History (past sessions), Browse (catalog + filter sidebar + curation), Workloads (curator infrastructure mappings), Content Analysis (Overlap + Retirement), System (Status, Sync & Analysis, Recent Jobs, Token Usage, Query History). Vite dev server proxies `/api` to backend.
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
 - **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline. Max 5 concurrent jobs, 600s timeout.
 - **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`). Scale via `recommend_worker_replicas` in Ansible vars.
@@ -40,8 +40,8 @@ rcars-advisory/
 │   │   └── scripts/          # One-off migration scripts
 │   └── frontend/             # React SPA (Vite + TypeScript)
 │       ├── src/
-│       │   ├── pages/        # AdvisorPage, BrowsePage, ContentAnalysisPage, AdminPage
-│       │   ├── components/   # lcars/ (design system), advisor/, admin/
+│       │   ├── pages/        # AdvisorPage, HistoryPage, BrowsePage, WorkloadsPage, ContentAnalysisPage, RetirementPage, StatusPage, SyncPage, RecentJobsPage, AdminPage
+│       │   ├── components/   # RcarsMasthead, RcarsSidebar, advisor/, admin/
 │       │   ├── services/     # api.ts (API client)
 │       │   └── hooks/        # useAuth, useJobStream, usePrivateMode
 │       └── package.json

@@ -1,0 +1,100 @@
+[data-theme="light"] {
+  --bg-page: #f4f1ec;
+  --bg-sidebar: #ffffff;
+  --bg-masthead: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #f9f7f4;
+  --bg-input: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-table-header: #f4f1ec;
+  --bg-table-stripe: rgba(0, 0, 0, 0.02);
+
+  --border-default: #d2d1cc;
+  --border-subtle: #e8e6e0;
+  --border-focus: #0066cc;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #6a6a6a;
+  --text-inverse: #ffffff;
+  --text-link: #0066cc;
+
+  --score-green: #2e7d32;
+  --score-green-bg: rgba(46, 125, 50, 0.08);
+  --score-green-border: rgba(46, 125, 50, 0.3);
+  --score-amber: #b8860b;
+  --score-amber-bg: rgba(184, 134, 11, 0.08);
+  --score-amber-border: rgba(184, 134, 11, 0.3);
+  --score-red: #c62828;
+  --score-red-bg: rgba(198, 40, 40, 0.06);
+  --score-red-border: rgba(198, 40, 40, 0.3);
+
+  --nav-active-bg: rgba(0, 102, 204, 0.06);
+  --nav-active-border: #0066cc;
+  --nav-hover-bg: rgba(0, 0, 0, 0.04);
+
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --shadow-elevated: 0 4px 16px rgba(0, 0, 0, 0.1);
+
+  --pill-product-bg: #f0e6f6;
+  --pill-product-border: rgba(106, 61, 154, 0.2);
+  --pill-product-text: #6a3d9a;
+  --pill-topic-bg: #e7f1ff;
+  --pill-topic-border: rgba(0, 76, 153, 0.2);
+  --pill-topic-text: #004c99;
+  --pill-workload-bg: #e6f4e6;
+  --pill-workload-border: rgba(27, 94, 32, 0.2);
+  --pill-workload-text: #1b5e20;
+  --pill-module-bg: #fef3d5;
+  --pill-module-border: rgba(140, 104, 0, 0.2);
+  --pill-module-text: #8c6800;
+  --pill-curator-bg: #fde8e8;
+  --pill-curator-border: rgba(160, 48, 48, 0.2);
+  --pill-curator-text: #a03030;
+
+  --badge-blue-bg: #e7f1ff;
+  --badge-blue-text: #004c99;
+  --badge-amber-bg: #fef3d5;
+  --badge-amber-text: #8c6800;
+
+  --badge-v2-bg: #e7f1ff;
+  --badge-v2-text: #004c99;
+  --badge-stage-dev-bg: #e7f1ff;
+  --badge-stage-dev-text: #004c99;
+  --badge-stage-event-bg: #fef3d5;
+  --badge-stage-event-text: #8c6800;
+  --badge-zt-bg: #e6f4e6;
+  --badge-zt-text: #1b5e20;
+  --badge-failed-bg: #fde8e8;
+  --badge-failed-text: #c62828;
+  --badge-retired-bg: #fef3d5;
+  --badge-retired-text: #8c6800;
+  --badge-review-bg: #fef3d5;
+  --badge-review-text: #8c6800;
+
+  --error-bg: #fde8e8;
+  --error-border: rgba(198, 40, 40, 0.3);
+  --error-title: #c62828;
+  --error-text: #7b1a1a;
+
+  --similar-high: #c62828;
+  --similar-medium: #b8860b;
+
+  --bg-section: #f9f7f4;
+  --border-section: #e8e6e0;
+
+  --chat-user-bg: #e8f5e9;
+  --chat-user-border: rgba(46, 125, 50, 0.2);
+
+  --logo-arc: #c77c00;
+  --logo-arc-stroke: #a06600;
+  --logo-bar1: #c77c00;
+  --logo-bar2: #d4a84a;
+  --logo-bar3: #7a5aaa;
+  --logo-bar-b1: #7a5aaa;
+  --logo-bar-b2: #c77c00;
+  --logo-bar-b3: #d4a84a;
+  --logo-mid: #e0ddd6;
+  --logo-title-fill: #fff;
+  --logo-subtitle: #8a6200;
+}

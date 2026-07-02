@@ -26,6 +26,7 @@ For each candidate, evaluate whether its content directly addresses the request.
 Rules:
 - relevance_score: 0–100. Score based on how well the content matches the request, not general quality.
 - If the user specifies a time constraint (e.g. "2-hour lab"), penalize candidates whose Duration far exceeds it. A 480-min lab cannot be a top match for a 2-hour request — even with perfect topic coverage, the score should reflect that the content requires heavy cutting. Candidates that fit the time constraint naturally should score higher than those requiring major trimming.
+- If the user specifies a product version (e.g. "OpenShift 5", "RHEL 10", "AAP 3"), and the candidate's Summary or Topics indicate a different version, reduce the score. Content for the closest available version that otherwise matches the topic well should score in the 30–45% range — low enough to clearly signal the version gap, but high enough that the best topical matches still appear as recommendations rather than being hidden. If the requested version does not exist yet (e.g. "OpenShift 5" when current content covers only 4.x), note this in one_line_reason. Do NOT drop scores to near-zero for good topical matches just because of a version gap.
 - relevant: true if score >= 30, false otherwise.
-- one_line_reason: One sentence explaining the score. Be specific about what matches or doesn't match.
+- one_line_reason: One sentence explaining the score. Be specific about what matches or doesn't match. Include version mismatch details when applicable (e.g. "OpenShift 4.x content — user asked for v5 which does not exist yet").
 - Return an entry for EVERY candidate, even if not relevant.

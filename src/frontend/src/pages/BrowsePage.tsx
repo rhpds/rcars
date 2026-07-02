@@ -2,9 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
-import { LcarsButton } from '../components/lcars'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
+
+function safeHref(url: string | null): string {
+  if (!url) return '#'
+  try { return ['http:', 'https:'].includes(new URL(url).protocol) ? url : '#' }
+  catch { return '#' }
+}
+
+/* ── Types ── */
 
 interface CatalogItem {
   ci_name: string
@@ -80,33 +87,277 @@ interface Facets {
   cloud_providers: Array<{ cloud_provider: string; ci_count: number }>
 }
 
-type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review'
+type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
 
 const PAGE_SIZE = 50
+const OBJECTIVES_PREVIEW_COUNT = 5
+
+/* ── Helpers ── */
 
 function isZtItem(item: CatalogItem): boolean {
   return item.catalog_namespace?.startsWith('zt-') || item.ci_name.startsWith('zt-')
-}
-
-function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
-  return (
-    <div className={`lcars-toggle${active ? ' active' : ''}`} onClick={onToggle}>
-      <div className="lcars-toggle-track">
-        <div className="lcars-toggle-knob" />
-      </div>
-      <span>{label}</span>
-    </div>
-  )
 }
 
 function catalogUrl(ciName: string, namespace: string): string {
   return `https://catalog.demo.redhat.com/catalog?item=${namespace}/${ciName}`
 }
 
+const CONTENT_FILTER_LABELS: Record<ContentFilter, string> = {
+  unanalyzed: 'Unanalyzed',
+  scan_failures: 'Failures',
+  stale: 'Stale',
+  needs_review: 'Needs Review',
+  retired: 'Retired',
+}
+
+/* ── Sub-components ── */
+
+function StageToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+  return (
+    <div
+      className={`browse-toggle${active ? ' active' : ''}`}
+      onClick={onToggle}
+      role="switch"
+      aria-checked={active}
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+    >
+      <div className="browse-toggle-track">
+        <div className="browse-toggle-knob" />
+      </div>
+      <span>{label}</span>
+    </div>
+  )
+}
+
+function Badge({ className, children }: { className: string; children: React.ReactNode }) {
+  return <span className={`browse-badge ${className}`}>{children}</span>
+}
+
+function Pill({ variant, children }: { variant: string; children: React.ReactNode }) {
+  return <span className={`browse-pill browse-pill--${variant}`}>{children}</span>
+}
+
+function SectionLabel({ color, children }: { color: string; children: React.ReactNode }) {
+  return <div className={`browse-section-label browse-section-label--${color}`}>{children}</div>
+}
+
+function CollapsibleSection({
+  label,
+  color,
+  count,
+  children,
+}: {
+  label: string
+  color: string
+  count?: number
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="browse-card-section">
+      <div
+        className="browse-section-toggle"
+        onClick={() => setOpen(!open)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(!open) } }}
+      >
+        <SectionLabel color={color}>
+          <span className="browse-toggle-caret" style={open ? { transform: 'rotate(90deg)' } : undefined}>&#9654;</span>
+          {label}
+          {count != null && <span className="browse-section-count">{count}</span>}
+        </SectionLabel>
+      </div>
+      {open && <div className="browse-section-body">{children}</div>}
+    </div>
+  )
+}
+
+/* ── Curator Drawer ── */
+
+function CuratorDrawer({
+  ciName,
+  detail,
+  newTag,
+  onNewTagChange,
+  onAddTag,
+  onRemoveTag,
+  noteText,
+  onNoteChange,
+  onNoteSave,
+  curatedDuration,
+  onDurationChange,
+  onDurationSave,
+  overrideUrl,
+  onOverrideUrlChange,
+  onOverrideUrlSave,
+  contentPath,
+  onContentPathChange,
+  onContentPathSave,
+  scanning,
+  flagged,
+  onFlag,
+  analyzing,
+  onAnalyze,
+  onClose,
+}: {
+  ciName: string
+  detail: ItemDetail
+  newTag: string
+  onNewTagChange: (val: string) => void
+  onAddTag: () => void
+  onRemoveTag: (tagId: number) => void
+  noteText: string
+  onNoteChange: (val: string) => void
+  onNoteSave: () => void
+  curatedDuration: string
+  onDurationChange: (val: string) => void
+  onDurationSave: () => void
+  overrideUrl: string
+  onOverrideUrlChange: (val: string) => void
+  onOverrideUrlSave: () => void
+  contentPath: string
+  onContentPathChange: (val: string) => void
+  onContentPathSave: () => void
+  scanning: boolean
+  flagged: boolean
+  onFlag: () => void
+  analyzing: boolean
+  onAnalyze: () => void
+  onClose: () => void
+}) {
+  return (
+    <>
+      <div className="browse-drawer-overlay" onClick={onClose} />
+      <div className="browse-drawer">
+        <div className="browse-drawer-header">
+          <div className="browse-drawer-title">Edit: {detail.display_name || ciName}</div>
+          <button className="browse-drawer-close" onClick={onClose} aria-label="Close drawer">&times;</button>
+        </div>
+        <div className="browse-drawer-body">
+          {/* Tags */}
+          <div className="browse-drawer-field">
+            <label className="browse-drawer-label">Tags</label>
+            <div className="browse-drawer-tags">
+              {detail.tags.map(tag => (
+                <span
+                  key={tag.id}
+                  className="browse-pill browse-pill--curator browse-pill--removable"
+                  onClick={() => onRemoveTag(tag.id)}
+                  title="Click to remove"
+                >
+                  {tag.tag_value} &times;
+                </span>
+              ))}
+            </div>
+            <div className="browse-drawer-tag-input-row">
+              <input
+                type="text"
+                className="browse-drawer-input"
+                value={newTag}
+                onChange={(e) => onNewTagChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') onAddTag() }}
+                placeholder="Add tag..."
+              />
+              <button className="browse-btn-action" onClick={onAddTag}>Add</button>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div className="browse-drawer-field">
+            <label className="browse-drawer-label">Notes</label>
+            <textarea
+              className="browse-drawer-textarea"
+              value={noteText}
+              onChange={(e) => onNoteChange(e.target.value)}
+              onBlur={onNoteSave}
+              placeholder="Add a note..."
+              rows={3}
+            />
+          </div>
+
+          {/* Curated Duration */}
+          <div className="browse-drawer-field">
+            <label className="browse-drawer-label">Curated Duration (min)</label>
+            <input
+              type="number"
+              className="browse-drawer-input"
+              value={curatedDuration}
+              onChange={(e) => onDurationChange(e.target.value)}
+              onBlur={onDurationSave}
+              onKeyDown={(e) => { if (e.key === 'Enter') onDurationSave() }}
+              placeholder={detail.analysis?.estimated_duration_min ? `${detail.analysis.estimated_duration_min} (AI)` : 'Duration (min)'}
+            />
+          </div>
+
+          {/* URL Override */}
+          <div className="browse-drawer-field">
+            <label className="browse-drawer-label">URL Override</label>
+            <div className="browse-drawer-input-row">
+              <input
+                type="text"
+                className="browse-drawer-input"
+                value={overrideUrl}
+                onChange={(e) => onOverrideUrlChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave() }}
+                placeholder="Override Showroom URL..."
+              />
+              <button className="browse-btn-action" onClick={onOverrideUrlSave}>Set URL</button>
+            </div>
+          </div>
+
+          {/* Content Path */}
+          <div className="browse-drawer-field">
+            <label className="browse-drawer-label">Content Path</label>
+            <div className="browse-drawer-input-row">
+              <input
+                type="text"
+                className="browse-drawer-input"
+                value={contentPath}
+                onChange={(e) => onContentPathChange(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
+                placeholder="Content path (e.g. docs/labs/)"
+              />
+              <button className="browse-btn-action" onClick={onContentPathSave} disabled={scanning}>
+                {scanning ? 'Scanning...' : 'Set & Scan'}
+              </button>
+            </div>
+            {scanning && (
+              <div className="browse-drawer-scanning">Content path updated — scanning with new path...</div>
+            )}
+          </div>
+
+          {/* Actions */}
+          <div className="browse-drawer-actions">
+            <button
+              className="browse-btn-action"
+              onClick={onFlag}
+              disabled={flagged}
+            >
+              {flagged ? 'Flagged for review' : 'Flag for review'}
+            </button>
+            <button
+              className="browse-btn-action browse-btn-action--primary"
+              onClick={onAnalyze}
+              disabled={analyzing}
+            >
+              {analyzing ? 'Analyzing...' : 'Re-analyze'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ── Main component ── */
+
 export function BrowsePage() {
   const auth = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // Filter state
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [showDev, setShowDev] = useState(searchParams.get('stage')?.includes('dev') || false)
   const [showEvent, setShowEvent] = useState(searchParams.get('stage')?.includes('event') || false)
@@ -118,18 +369,26 @@ export function BrowsePage() {
   const [contentFilter, setContentFilter] = useState<ContentFilter | ''>(
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
-  const [showRetired, setShowRetired] = useState(false)
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
+  // Data state
   const [items, setItems] = useState<CatalogItem[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [facets, setFacets] = useState<Facets | null>(null)
-  const [filtersOpen, setFiltersOpen] = useState(false)
-  const [curatorFiltersOpen, setCuratorFiltersOpen] = useState(false)
 
+  // Expanded card state
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
+  const [objectivesExpanded, setObjectivesExpanded] = useState<Set<string>>(new Set())
+  const [similarItems, setSimilarItems] = useState<Record<string, Array<{
+    ci_name: string; display_name: string; category: string; stage: string
+    summary: string | null; similarity_score: number
+  }>>>({})
+  const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
+
+  // Curator editing state
+  const [drawerItem, setDrawerItem] = useState<string | null>(null)
   const [newTags, setNewTags] = useState<Record<string, string>>({})
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
@@ -138,16 +397,12 @@ export function BrowsePage() {
   const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
-  const [similarItems, setSimilarItems] = useState<Record<string, Array<{
-    ci_name: string; display_name: string; category: string; stage: string
-    summary: string | null; similarity_score: number
-  }>>>({})
-  const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRef = useRef(search)
   searchRef.current = search
 
+  // Load facets
   useEffect(() => {
     api.getCatalogFacets().then(data => setFacets(data as Facets)).catch(() => {})
   }, [])
@@ -172,8 +427,8 @@ export function BrowsePage() {
       if (cloudProvider) params.cloud_provider = cloudProvider
       if (agdConfig) params.agd_config = agdConfig
       if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
-      if (contentFilter) params.content_filter = contentFilter
-      if (showRetired) (params as Record<string, unknown>).include_retired = true
+      if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
+      if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
       setItems(data.items as CatalogItem[])
@@ -182,8 +437,9 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter])
 
+  // Sync URL params
   useEffect(() => {
     const params: Record<string, string> = {}
     if (search) params.search = search
@@ -193,19 +449,20 @@ export function BrowsePage() {
     if (agdConfig) params.agd_config = agdConfig
     if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
     if (contentFilter) params.content_filter = contentFilter
-    if (showRetired) params.include_retired = 'true'
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, showRetired, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, page, setSearchParams])
 
+  // Fetch on filter change
   useEffect(() => {
     setPage(1)
     fetchItems(1)
   }, [fetchItems])
 
+  // Fetch on page change
   useEffect(() => {
     fetchItems(page)
-  }, [page])
+  }, [page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSearchChange = (value: string) => {
     setSearch(value)
@@ -218,19 +475,25 @@ export function BrowsePage() {
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
+  // Active filter chips
   const activeFilters: Array<{ label: string; onRemove: () => void }> = []
   if (cloudProvider) activeFilters.push({ label: cloudProvider, onRemove: () => setCloudProvider('') })
   if (agdConfig) activeFilters.push({ label: agdConfig, onRemove: () => setAgdConfig('') })
   selectedWorkloads.forEach(wl => {
     activeFilters.push({ label: wl, onRemove: () => setSelectedWorkloads(prev => prev.filter(w => w !== wl)) })
   })
-  const hasActiveFilters = activeFilters.length > 0
+  if (contentFilter) {
+    activeFilters.push({ label: CONTENT_FILTER_LABELS[contentFilter], onRemove: () => setContentFilter('') })
+  }
 
   const clearAllFilters = () => {
     setCloudProvider('')
     setAgdConfig('')
     setSelectedWorkloads([])
+    setContentFilter('')
   }
+
+  /* ── Expand / collapse ── */
 
   const handleExpand = async (ciName: string) => {
     const next = new Set(expandedItems)
@@ -259,13 +522,15 @@ export function BrowsePage() {
       setSimilarLoading(prev => new Set(prev).add(ciName))
       api.getSimilarItems(ciName).then(data => {
         setSimilarItems(prev => ({ ...prev, [ciName]: data.similar }))
-        setSimilarLoading(prev => { const next = new Set(prev); next.delete(ciName); return next })
+        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
       }).catch(() => {
         setSimilarItems(prev => ({ ...prev, [ciName]: [] }))
-        setSimilarLoading(prev => { const next = new Set(prev); next.delete(ciName); return next })
+        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
       })
     }
   }
+
+  /* ── Curator actions ── */
 
   const handleAnalyze = async (ciName: string) => {
     setAnalyzing(ciName)
@@ -338,354 +603,408 @@ export function BrowsePage() {
     fetchItems(page)
   }
 
+  /* ── Render ── */
+
+  const drawerDetail = drawerItem ? itemDetails[drawerItem] : null
+
   return (
-    <div className="curate-layout">
-      {/* Primary bar */}
-      <div className="filter-bar">
+    <div className="browse-layout">
+      {/* ── Top Bar: search + stage toggles + count ── */}
+      <div className="browse-toolbar">
         <input
-          className="filter-input"
+          type="text"
+          className="browse-search"
           placeholder="Search by name or CI..."
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
         />
-        <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
-        <LcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
-        <span style={{ color: '#666', fontSize: '14px', alignSelf: 'center' }}>
-          {total} items
-        </span>
+        <div className="browse-toolbar-divider" />
+        <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
+        <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+
+        {/* Active filter chips */}
+        {activeFilters.length > 0 && (
+          <>
+            <div className="browse-toolbar-divider" />
+            {activeFilters.map(f => (
+              <span key={f.label} className="browse-chip" onClick={f.onRemove}>
+                {f.label} <span className="browse-chip-x">&times;</span>
+              </span>
+            ))}
+            <button className="browse-chip browse-chip--clear" onClick={clearAllFilters}>
+              Clear all
+            </button>
+          </>
+        )}
+
+        <span className="browse-item-count">{total} items</span>
       </div>
 
-      {/* Filter panel */}
-      <div className="filter-panel">
-        <div className="filter-panel-header" onClick={() => setFiltersOpen(!filtersOpen)}>
-          {filtersOpen ? (
-            <>
-              <span className="filter-panel-label">▾ Filters</span>
-              {hasActiveFilters && (
-                <button className="filter-panel-clear" onClick={(e) => { e.stopPropagation(); clearAllFilters() }}>
-                  Clear all
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <span className="filter-panel-label">▸ Filters</span>
-              <div className="filter-panel-collapsed">
-                {hasActiveFilters ? (
-                  <div className="filter-chips">
-                    {activeFilters.map(f => (
-                      <span key={f.label} className="filter-chip" onClick={(e) => { e.stopPropagation(); f.onRemove() }}>
-                        {f.label} ✕
-                      </span>
-                    ))}
-                  </div>
-                ) : (
-                  <span className="filter-panel-muted">no filters active</span>
-                )}
-                {hasActiveFilters && (
-                  <button className="filter-panel-clear" onClick={(e) => { e.stopPropagation(); clearAllFilters() }}>
-                    Clear all
+      {/* ── Content area: filter sidebar + item list ── */}
+      <div className="browse-content">
+        {/* Filter sidebar */}
+        <div className="browse-filter-sidebar">
+          {/* Infrastructure filters — AgnosticD v2 only */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Infrastructure</div>
+            <div className="browse-filter-group-note">AgnosticD v2 items only</div>
+            <select
+              className="browse-filter-select"
+              value={cloudProvider}
+              onChange={(e) => setCloudProvider(e.target.value)}
+            >
+              <option value="">All cloud providers</option>
+              {facets?.cloud_providers.map(cp => (
+                <option key={cp.cloud_provider} value={cp.cloud_provider}>{cp.cloud_provider}</option>
+              ))}
+            </select>
+            <WorkloadMultiSelect
+              options={facets?.workloads || []}
+              selected={selectedWorkloads}
+              onChange={setSelectedWorkloads}
+            />
+            <select
+              className="browse-filter-select"
+              value={agdConfig}
+              onChange={(e) => setAgdConfig(e.target.value)}
+            >
+              <option value="">All configs</option>
+              {facets?.configs.map(c => (
+                <option key={c.agd_config} value={c.agd_config}>{c.agd_config}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Curator filters — curator/admin only */}
+          {auth.isCurator && (
+            <div className="browse-filter-group">
+              <div className="browse-filter-group-label">Curator Tools</div>
+              <div className="browse-curator-pills">
+                {(['unanalyzed', 'scan_failures', 'stale', 'needs_review', 'retired'] as ContentFilter[]).map(cf => (
+                  <button
+                    key={cf}
+                    className={`browse-curator-pill${contentFilter === cf ? ' active' : ''}`}
+                    onClick={() => setContentFilter(contentFilter === cf ? '' : cf)}
+                  >
+                    {CONTENT_FILTER_LABELS[cf]}
                   </button>
-                )}
-              </div>
-            </>
-          )}
-        </div>
-        {filtersOpen && (
-          <div className="filter-panel-body">
-            <div className="filter-panel-dropdowns">
-              <div className="filter-panel-dropdown">
-                <div className="filter-panel-dropdown-label">Cloud Provider</div>
-                <select
-                  className="filter-select"
-                  value={cloudProvider}
-                  onChange={(e) => setCloudProvider(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">All providers</option>
-                  {facets?.cloud_providers.map(cp => (
-                    <option key={cp.cloud_provider} value={cp.cloud_provider}>{cp.cloud_provider}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="filter-panel-dropdown">
-                <div className="filter-panel-dropdown-label">Workloads</div>
-                <WorkloadMultiSelect
-                  options={facets?.workloads || []}
-                  selected={selectedWorkloads}
-                  onChange={setSelectedWorkloads}
-                />
-              </div>
-              <div className="filter-panel-dropdown">
-                <div className="filter-panel-dropdown-label">AgnosticD Config</div>
-                <select
-                  className="filter-select"
-                  value={agdConfig}
-                  onChange={(e) => setAgdConfig(e.target.value)}
-                  style={{ width: '100%' }}
-                >
-                  <option value="">All configs</option>
-                  {facets?.configs.map(c => (
-                    <option key={c.agd_config} value={c.agd_config}>{c.agd_config}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            {hasActiveFilters && (
-              <div className="filter-chips">
-                {activeFilters.map(f => (
-                  <span key={f.label} className="filter-chip" onClick={() => f.onRemove()}>
-                    {f.label} ✕
-                  </span>
                 ))}
               </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Curator filter panel */}
-      {auth.isCurator && (
-        <div className="curator-panel">
-          <div className="filter-panel-header" onClick={() => setCuratorFiltersOpen(!curatorFiltersOpen)}>
-            <span className="filter-panel-label">
-              {curatorFiltersOpen ? '▾' : '▸'} Curator Filters
-            </span>
-            {contentFilter && (
-              <button className="filter-panel-clear" onClick={(e) => { e.stopPropagation(); setContentFilter('') }}>
-                Clear
-              </button>
-            )}
-          </div>
-          {curatorFiltersOpen && (
-            <div className="curator-filter-pills">
-              {(['unanalyzed', 'scan_failures', 'stale', 'needs_review'] as ContentFilter[]).map(cf => (
-                <span
-                  key={cf}
-                  className={`curator-filter-pill${contentFilter === cf ? ' active' : ''}`}
-                  onClick={() => setContentFilter(contentFilter === cf ? '' : cf)}
-                >
-                  {cf === 'scan_failures' ? 'Failures' : cf === 'needs_review' ? 'Needs Review' :
-                   cf.charAt(0).toUpperCase() + cf.slice(1)}
-                </span>
-              ))}
-              <span style={{ marginLeft: '12px', borderLeft: '1px solid #555', paddingLeft: '12px' }}>
-                <LcarsToggle label="Show Retired" active={showRetired} onToggle={() => setShowRetired(!showRetired)} />
-              </span>
             </div>
           )}
         </div>
-      )}
 
-      {/* Results */}
-      {loading ? (
-        <div style={{ color: '#666', padding: '20px' }}>Loading...</div>
-      ) : (
-        <>
-          {items.map(item => {
-            const isExpanded = expandedItems.has(item.ci_name)
-            const detail = itemDetails[item.ci_name]
-            const isZt = isZtItem(item)
+        {/* Item list */}
+        <div className="browse-list">
+        {loading ? (
+          <div className="browse-loading">Loading...</div>
+        ) : (
+          <>
+            {items.map(item => {
+              const isExpanded = expandedItems.has(item.ci_name)
+              const detail = itemDetails[item.ci_name]
+              const isZt = isZtItem(item)
 
-            return (
-              <div key={item.ci_name} className="curate-item" style={item.retired_at ? { opacity: 0.6 } : undefined}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div className="curate-item-title" style={{ cursor: 'pointer' }} onClick={() => handleExpand(item.ci_name)}>
-                      {isExpanded ? '▾' : '▸'}{' '}
-                      {item.display_name || item.ci_name}
-                      {item.stage !== 'prod' && (
-                        <span style={{ display: 'inline-block', background: item.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: item.stage === 'dev' ? '#99ccff' : '#ffcc66', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>{item.stage.toUpperCase()}</span>
-                      )}
-                      {isZt && <span style={{ display: 'inline-block', background: '#1a3a2a', color: '#66cc99', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>ZT</span>}
-                      {item.is_agd_v2 && <span style={{ display: 'inline-block', background: '#1a2a3a', color: '#73bcf7', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>v2</span>}
-                      {item.scan_status === 'failed' && <span style={{ display: 'inline-block', background: '#5a2020', color: '#ff9999', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>FAILED</span>}
-                      {item.enrichment_review_needed && <span className="review-badge">needs review</span>}
-                      {item.retired_at && <span style={{ display: 'inline-block', background: '#3a2a1a', color: '#cc9966', borderRadius: '10px', padding: '2px 8px', fontSize: '10px', fontWeight: 600, marginLeft: '6px' }}>RETIRED {new Date(item.retired_at).toLocaleDateString()}</span>}
+              return (
+                <div
+                  key={item.ci_name}
+                  className={`browse-item${isExpanded ? ' expanded' : ''}`}
+                  style={item.retired_at ? { opacity: 0.6 } : undefined}
+                >
+                  {/* ── Row header ── */}
+                  <div className="browse-item-header">
+                    <div className="browse-item-header-left">
+                      <div
+                        className="browse-item-title"
+                        onClick={() => handleExpand(item.ci_name)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(item.ci_name) } }}
+                      >
+                        <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                        {item.display_name || item.ci_name}
+                        {item.stage !== 'prod' && (
+                          <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
+                            {item.stage.toUpperCase()}
+                          </Badge>
+                        )}
+                        {isZt && <Badge className="badge-zt">ZT</Badge>}
+                        {item.is_agd_v2 && <Badge className="badge-v2">v2</Badge>}
+                        {item.scan_status === 'failed' && <Badge className="badge-failed">FAILED</Badge>}
+                        {item.enrichment_review_needed && <Badge className="badge-review">needs review</Badge>}
+                        {item.retired_at && (
+                          <Badge className="badge-retired">RETIRED {new Date(item.retired_at).toLocaleDateString()}</Badge>
+                        )}
+                      </div>
+                      <div className="browse-item-ci">{item.ci_name} &middot; {item.category}</div>
                     </div>
-                    <div className="curate-item-ci">{item.ci_name} · {item.category}</div>
+                    {auth.isCurator && isExpanded && detail && (
+                      <button className="browse-btn-action" onClick={() => setDrawerItem(item.ci_name)}>
+                        Edit
+                      </button>
+                    )}
                   </div>
-                  {auth.isCurator && (
-                    analyzing === item.ci_name ? (
-                      <span style={{ color: '#e8a838', fontSize: '13px', padding: '5px 12px', animation: 'pulse-bg 1.5s ease-in-out infinite' }}>Analyzing...</span>
-                    ) : (
-                      <LcarsButton variant="curator-secondary" onClick={() => handleAnalyze(item.ci_name)}>Re-analyze</LcarsButton>
-                    )
+
+                  {/* ── Expanded card body ── */}
+                  {isExpanded && detail && (
+                    <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
+                      {/* Scan Error */}
+                      {detail.scan_status === 'failed' && (
+                        <div className="browse-scan-error">
+                          <div className="browse-scan-error-title">
+                            Scan Error{detail.scan_error_class ? `: ${detail.scan_error_class}` : ''}
+                          </div>
+                          <div className="browse-scan-error-text">
+                            {detail.scan_error || 'No error details available'}
+                          </div>
+                          {detail.scan_failed_at && (
+                            <div className="browse-scan-error-time">
+                              Failed: {new Date(detail.scan_failed_at).toLocaleString()}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 1. Description */}
+                      <div>
+                        {detail.analysis?.content_type && (
+                          <div className="browse-type-line">
+                            <span className="browse-type-val">{detail.analysis.content_type}</span>
+                            {detail.analysis.difficulty && (
+                              <><span className="browse-type-sep">&middot;</span><span>{detail.analysis.difficulty}</span></>
+                            )}
+                            {(detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min) && (
+                              <><span className="browse-type-sep">&middot;</span><span>
+                                ~{detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min} min
+                                {detail.analysis.curated_duration_min ? ' (curated)' : ' (AI estimate)'}
+                              </span></>
+                            )}
+                          </div>
+                        )}
+                        {detail.analysis?.summary && (
+                          <p className="browse-description">{detail.analysis.summary}</p>
+                        )}
+                      </div>
+
+                      {/* 2. Learning Objectives */}
+                      {detail.analysis?.learning_objectives_json && (() => {
+                        const lo = detail.analysis.learning_objectives_json
+                        const allObjectives = [...(lo.stated || []), ...(lo.inferred || [])]
+                        if (allObjectives.length === 0) return null
+                        const showAll = objectivesExpanded.has(item.ci_name)
+                        const visible = showAll ? allObjectives : allObjectives.slice(0, OBJECTIVES_PREVIEW_COUNT)
+                        const remaining = allObjectives.length - OBJECTIVES_PREVIEW_COUNT
+                        return (
+                          <div>
+                            <SectionLabel color="blue">Learning Objectives</SectionLabel>
+                            <ul className="browse-objectives">
+                              {visible.map((obj, i) => <li key={i}>{obj}</li>)}
+                            </ul>
+                            {remaining > 0 && !showAll && (
+                              <button
+                                className="browse-objectives-more"
+                                onClick={() => setObjectivesExpanded(prev => new Set(prev).add(item.ci_name))}
+                              >
+                                Show {remaining} more...
+                              </button>
+                            )}
+                            {showAll && allObjectives.length > OBJECTIVES_PREVIEW_COUNT && (
+                              <button
+                                className="browse-objectives-more"
+                                onClick={() => setObjectivesExpanded(prev => { const s = new Set(prev); s.delete(item.ci_name); return s })}
+                              >
+                                Show less
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })()}
+
+                      {/* 3. Content Analysis */}
+                      {detail.analysis && (detail.analysis.products_json?.length || detail.analysis.topics_json?.length) ? (
+                        <div className="browse-card-section">
+                          <SectionLabel color="purple">Content Analysis</SectionLabel>
+                          {detail.analysis.products_json && detail.analysis.products_json.length > 0 && (
+                            <div className="browse-pill-group">
+                              <div className="browse-pill-sublabel">Products</div>
+                              <div className="browse-pill-row">
+                                {detail.analysis.products_json.map((prod, i) => (
+                                  <Pill key={i} variant="product">{prod}</Pill>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {detail.analysis.topics_json && detail.analysis.topics_json.length > 0 && (
+                            <div className="browse-pill-group">
+                              <div className="browse-pill-sublabel">Topics</div>
+                              <div className="browse-pill-row">
+                                {detail.analysis.topics_json.map((topic, i) => (
+                                  <Pill key={i} variant="topic">{topic}</Pill>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+
+                      {/* 4. Modules (collapsible) */}
+                      {detail.analysis?.modules_json && detail.analysis.modules_json.length > 0 && (
+                        <CollapsibleSection
+                          label="Modules"
+                          color="amber"
+                          count={detail.analysis.modules_json.length}
+                        >
+                          {detail.analysis.modules_json.map((mod, i) => (
+                            <div key={i} className="browse-module-item">
+                              <div className="browse-module-title">{mod.title}</div>
+                              {mod.topics && mod.topics.length > 0 && (
+                                <div className="browse-pill-row">
+                                  {mod.topics.map((t, ti) => (
+                                    <Pill key={ti} variant="module">{t}</Pill>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </CollapsibleSection>
+                      )}
+
+                      {/* 5. Infrastructure (collapsible) */}
+                      {detail.is_agd_v2 && (
+                        <CollapsibleSection label="Infrastructure" color="green">
+                          <div className="browse-infra-grid">
+                            <span className="browse-infra-kv">Config: <strong>{detail.agd_config || '—'}</strong></span>
+                            {detail.cloud_provider && detail.cloud_provider !== 'none' && (
+                              <span className="browse-infra-kv">Cloud: <strong>{detail.cloud_provider}</strong></span>
+                            )}
+                            {detail.ocp_version && (
+                              <span className="browse-infra-kv">OCP: <strong>{detail.ocp_version}</strong></span>
+                            )}
+                            {detail.os_image && (
+                              <span className="browse-infra-kv">OS: <strong>{detail.os_image}</strong></span>
+                            )}
+                            {detail.worker_instance_count && (
+                              <span className="browse-infra-kv">Workers: <strong>{detail.worker_instance_count}</strong></span>
+                            )}
+                            {detail.control_plane_instance_count && (
+                              <span className="browse-infra-kv">Control plane: <strong>{detail.control_plane_instance_count}</strong></span>
+                            )}
+                          </div>
+                          {detail.workloads && detail.workloads.length > 0 && (
+                            <div className="browse-pill-group">
+                              <div className="browse-pill-sublabel">Mapped Workloads ({detail.workloads.length})</div>
+                              <div className="browse-pill-row">
+                                {detail.workloads.map((w, i) => (
+                                  <Pill key={i} variant="workload">{w.workload_role}</Pill>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {detail.acl_groups && detail.acl_groups.length > 0 && (
+                            <div className="browse-infra-access">Access: {detail.acl_groups.join(', ')}</div>
+                          )}
+                        </CollapsibleSection>
+                      )}
+
+                      {/* 6. Similar Content (collapsible) */}
+                      {similarItems[item.ci_name] && similarItems[item.ci_name].length > 0 && (
+                        <CollapsibleSection
+                          label="Similar Content"
+                          color="amber"
+                          count={similarItems[item.ci_name].length}
+                        >
+                          {similarItems[item.ci_name].map(sim => (
+                            <div key={sim.ci_name} className="browse-similar-row">
+                              <span className={`browse-similar-score ${sim.similarity_score >= 0.85 ? 'high' : 'medium'}`}>
+                                {Math.round(sim.similarity_score * 100)}%
+                              </span>
+                              <span
+                                className="browse-similar-name"
+                                onClick={() => { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) }}
+                              >
+                                {sim.display_name || sim.ci_name}
+                              </span>
+                              <span className="browse-similar-cat">{sim.category}</span>
+                              {sim.stage !== 'prod' && (
+                                <Badge className={sim.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
+                                  {sim.stage}
+                                </Badge>
+                              )}
+                            </div>
+                          ))}
+                        </CollapsibleSection>
+                      )}
+                      {similarLoading.has(item.ci_name) && (
+                        <div className="browse-loading-inline">Loading similar content...</div>
+                      )}
+
+                      {/* 7. Curator Tags */}
+                      {detail.tags.length > 0 && (
+                        <div>
+                          <div className="browse-pill-sublabel">Curator Tags</div>
+                          <div className="browse-pill-row">
+                            {detail.tags.map(tag => (
+                              <Pill key={tag.id} variant="curator">{tag.tag_value}</Pill>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 8. Links */}
+                      <div className="browse-links">
+                        <a
+                          href={catalogUrl(item.ci_name, item.catalog_namespace || 'babylon-catalog-prod')}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          RHDP Catalog
+                        </a>
+                        {item.showroom_url && (
+                          <a href={safeHref(item.showroom_url)} target="_blank" rel="noopener noreferrer">
+                            Showroom Repo
+                          </a>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
+              )
+            })}
 
-                {isExpanded && detail && (
-                  <div style={{ marginTop: '12px' }}>
-                    {detail.scan_status === 'failed' && (
-                      <div style={{ background: '#2a1515', border: '1px solid #5a2020', borderRadius: '6px', padding: '10px 14px', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '12px', color: '#ff9999', fontWeight: 600, marginBottom: '4px' }}>Scan Error{detail.scan_error_class ? `: ${detail.scan_error_class}` : ''}</div>
-                        <div style={{ fontSize: '12px', color: '#cc8888', whiteSpace: 'pre-wrap', fontFamily: 'monospace' }}>{detail.scan_error || 'No error details available'}</div>
-                        {detail.scan_failed_at && <div style={{ fontSize: '11px', color: '#666', marginTop: '6px' }}>Failed: {new Date(detail.scan_failed_at).toLocaleString()}</div>}
-                      </div>
-                    )}
-                    {detail.is_agd_v2 && (
-                      <div style={{ background: '#111a2a', border: '1px solid #1a3050', borderRadius: '6px', padding: '10px 14px', marginBottom: '12px' }}>
-                        <div style={{ fontSize: '11px', color: '#73bcf7', fontWeight: 600, marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Infrastructure</div>
-                        <div style={{ fontSize: '12px', color: '#ccc', display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '8px' }}>
-                          <span>Config: <strong>{detail.agd_config || '—'}</strong></span>
-                          {detail.cloud_provider && detail.cloud_provider !== 'none' && <span>Cloud: <strong>{detail.cloud_provider}</strong></span>}
-                          {detail.ocp_version && <span>OCP: <strong>{detail.ocp_version}</strong></span>}
-                          {detail.os_image && <span>OS: <strong>{detail.os_image}</strong></span>}
-                          {detail.worker_instance_count && <span>Workers: <strong>{detail.worker_instance_count}</strong></span>}
-                          {detail.control_plane_instance_count && <span>Control plane: <strong>{detail.control_plane_instance_count}</strong></span>}
-                        </div>
-                        {detail.workloads && detail.workloads.length > 0 && (
-                          <div style={{ marginBottom: '6px' }}>
-                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px' }}>Workloads ({detail.workloads.length})</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                              {detail.workloads.map((w, i) => (
-                                <span key={i} style={{ display: 'inline-block', background: '#1a2a1a', color: '#88bb88', border: '1px solid #2a4a2a', borderRadius: '10px', padding: '2px 8px', fontSize: '11px' }}>{w.workload_role}</span>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                        {detail.acl_groups && detail.acl_groups.length > 0 && <div style={{ fontSize: '11px', color: '#888' }}>ACL: {detail.acl_groups.join(', ')}</div>}
-                      </div>
-                    )}
-                    {detail.analysis && (
-                      <>
-                        {detail.analysis.content_type && (
-                          <div style={{ fontSize: '12px', color: '#73bcf7', marginBottom: '6px', display: 'flex', gap: '8px' }}>
-                            <span>{detail.analysis.content_type}</span>
-                            {detail.analysis.difficulty && <span style={{ color: '#888' }}>{detail.analysis.difficulty}</span>}
-                            {(detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min) && (
-                              <span style={{ color: '#888' }}>
-                                ~{detail.analysis.curated_duration_min || detail.analysis.estimated_duration_min} min
-                                {detail.analysis.curated_duration_min ? ' (estimated)' : ' (AI estimate)'}
-                              </span>
-                            )}
-                          </div>
-                        )}
-                        {detail.analysis.summary && <p style={{ fontSize: '12px', color: '#aaa', marginBottom: '10px', lineHeight: '1.5' }}>{detail.analysis.summary}</p>}
-                        {detail.analysis.products_json && detail.analysis.products_json.length > 0 && (
-                          <div style={{ marginBottom: '6px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                            {detail.analysis.products_json.map((prod, i) => (
-                              <span key={i} style={{ display: 'inline-block', background: '#2a1a3a', color: '#9966CC', border: '1px solid #4a2a6a', borderRadius: '10px', padding: '2px 8px', fontSize: '11px' }}>{prod}</span>
-                            ))}
-                          </div>
-                        )}
-                        {detail.analysis.topics_json && detail.analysis.topics_json.length > 0 && (
-                          <div style={{ marginBottom: '8px', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                            {detail.analysis.topics_json.map((topic, i) => (
-                              <span key={i} style={{ display: 'inline-block', background: '#1a2a3a', color: '#73bcf7', border: '1px solid #2a4a6a', borderRadius: '10px', padding: '2px 8px', fontSize: '11px' }}>{topic}</span>
-                            ))}
-                          </div>
-                        )}
-                        {detail.analysis.learning_objectives_json && (() => {
-                          const lo = detail.analysis.learning_objectives_json
-                          const allObjectives = [...(lo.stated || []), ...(lo.inferred || [])]
-                          if (allObjectives.length === 0) return null
-                          return (
-                            <div style={{ marginBottom: '10px' }}>
-                              <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Learning Objectives</div>
-                              <ul style={{ margin: 0, paddingLeft: '16px', fontSize: '12px', color: '#aaa', lineHeight: '1.6' }}>
-                                {allObjectives.map((obj, i) => <li key={i}>{obj}</li>)}
-                              </ul>
-                            </div>
-                          )
-                        })()}
-                        {detail.analysis.modules_json && detail.analysis.modules_json.length > 0 && (
-                          <div style={{ marginBottom: '10px' }}>
-                            <div style={{ fontSize: '11px', color: '#666', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Modules ({detail.analysis.modules_json.length})</div>
-                            {detail.analysis.modules_json.map((mod, i) => (
-                              <div key={i} style={{ marginBottom: '6px', paddingLeft: '8px', borderLeft: '2px solid #2a2a3a' }}>
-                                <div style={{ fontSize: '12px', color: '#ccc', fontWeight: 500 }}>{mod.title}</div>
-                                {mod.topics && mod.topics.length > 0 && (
-                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', marginTop: '3px' }}>
-                                    {mod.topics.map((t, ti) => (
-                                      <span key={ti} style={{ display: 'inline-block', background: '#0d1520', color: '#5a9fd4', border: '1px solid #1e3350', borderRadius: '8px', padding: '1px 6px', fontSize: '10px' }}>{t}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </>
-                    )}
+            <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
+          </>
+        )}
+      </div>
+      </div>{/* end browse-content */}
 
-                    {/* Similar Content */}
-                    {similarItems[item.ci_name] && similarItems[item.ci_name].length > 0 && (
-                      <div style={{ marginBottom: '10px', background: '#111520', border: '1px solid #1e2030', borderRadius: '6px', padding: '10px 14px' }}>
-                        <div style={{ fontSize: '11px', color: '#e8a838', fontWeight: 600, marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          Similar Content ({similarItems[item.ci_name].length})
-                        </div>
-                        {similarItems[item.ci_name].map(sim => (
-                          <div key={sim.ci_name} style={{ display: 'flex', gap: '8px', alignItems: 'baseline', marginBottom: '4px', fontSize: '12px' }}>
-                            <span style={{ color: sim.similarity_score >= 0.85 ? '#c9190b' : '#e8a838', fontWeight: 600, width: '36px', textAlign: 'right', flexShrink: 0 }}>
-                              {Math.round(sim.similarity_score * 100)}%
-                            </span>
-                            <span
-                              style={{ color: '#73bcf7', cursor: 'pointer' }}
-                              onClick={() => { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) }}
-                            >
-                              {sim.display_name || sim.ci_name}
-                            </span>
-                            <span style={{ color: '#555' }}>{sim.category}</span>
-                            {sim.stage !== 'prod' && (
-                              <span style={{ background: sim.stage === 'dev' ? '#2a4a6a' : '#5a4a1a', color: sim.stage === 'dev' ? '#99ccff' : '#ffcc66', borderRadius: '10px', padding: '1px 6px', fontSize: '10px' }}>{sim.stage}</span>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="tag-list" style={{ marginBottom: '8px' }}>
-                      {detail.tags.map(tag => (
-                        <span key={tag.id} className="tag-pill-removable" onClick={auth.isCurator ? () => handleRemoveTag(item.ci_name, tag.id) : undefined} title={auth.isCurator ? 'Click to remove' : `Added by ${tag.added_by || 'unknown'}`} style={{ cursor: auth.isCurator ? 'pointer' : 'default' }}>
-                          {tag.tag_value} {auth.isCurator && '×'}
-                        </span>
-                      ))}
-                      {auth.isCurator && (
-                        <input type="text" value={newTags[item.ci_name] || ''} onChange={(e) => setNewTags(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') handleAddTag(item.ci_name) }} placeholder="+ add tag" style={{ background: 'transparent', border: '1px dashed #3a5a3a', color: '#5cb85c', padding: '3px 10px', borderRadius: '10px', fontSize: '12px', width: '110px', outline: 'none' }} />
-                      )}
-                    </div>
-
-                    {auth.isCurator && (
-                      <>
-                        <input type="text" value={noteTexts[item.ci_name] || ''} onChange={(e) => setNoteTexts(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onBlur={() => handleSaveNote(item.ci_name)} onKeyDown={(e) => { if (e.key === 'Enter') handleSaveNote(item.ci_name) }} placeholder="Add a note..." style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', width: '100%', fontStyle: 'italic', marginBottom: '8px', outline: 'none' }} />
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                          <input
-                            type="number"
-                            value={curatedDurations[item.ci_name] ?? ''}
-                            onChange={(e) => setCuratedDurations(prev => ({ ...prev, [item.ci_name]: e.target.value }))}
-                            onBlur={() => handleSetDuration(item.ci_name)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleSetDuration(item.ci_name) }}
-                            placeholder={detail.analysis?.estimated_duration_min ? `${detail.analysis.estimated_duration_min} (AI)` : 'Duration (min)'}
-                            style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', width: '160px', outline: 'none' }}
-                          />
-                          <span style={{ fontSize: '12px', color: '#666' }}>Duration (min)</span>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                          <input type="text" value={overrideUrls[item.ci_name] ?? ''} onChange={(e) => setOverrideUrls(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') handleOverrideUrl(item.ci_name) }} placeholder="Override Showroom URL (full git repo URL)" style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', flex: 1, outline: 'none' }} />
-                          <LcarsButton variant="curator-secondary" onClick={() => handleOverrideUrl(item.ci_name)}>Set URL</LcarsButton>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', alignItems: 'center' }}>
-                          <input type="text" value={contentPaths[item.ci_name] ?? ''} onChange={(e) => setContentPaths(prev => ({ ...prev, [item.ci_name]: e.target.value }))} onKeyDown={(e) => { if (e.key === 'Enter') handleSetContentPath(item.ci_name) }} placeholder="Content path (e.g. docs/labs/)" style={{ background: 'var(--bg-card)', border: '1px solid #333', color: '#aaa', padding: '6px 10px', borderRadius: '4px', fontSize: '13px', flex: 1, outline: 'none' }} />
-                          <LcarsButton variant="curator-secondary" onClick={() => handleSetContentPath(item.ci_name)} disabled={scanningPath[item.ci_name]}>{scanningPath[item.ci_name] ? 'Scanning...' : 'Set & Scan'}</LcarsButton>
-                        </div>
-                        {scanningPath[item.ci_name] && <div style={{ fontSize: '12px', color: '#e8a838', marginBottom: '8px', animation: 'pulse-bg 1.5s ease-in-out infinite' }}>Content path updated — scanning with new path...</div>}
-                        <LcarsButton variant="curator-secondary" onClick={() => handleFlag(item.ci_name)} disabled={flaggedItems.has(item.ci_name)}>{flaggedItems.has(item.ci_name) ? '✓ Flagged for review' : 'Flag for review'}</LcarsButton>
-                      </>
-                    )}
-
-                    <div style={{ marginTop: '10px', fontSize: '13px', display: 'flex', gap: '16px' }}>
-                      <a href={catalogUrl(item.ci_name, item.catalog_namespace || 'babylon-catalog-prod')} target="_blank" rel="noopener noreferrer" style={{ color: '#73bcf7' }}>RHDP Catalog</a>
-                      {item.showroom_url && <a href={item.showroom_url} target="_blank" rel="noopener noreferrer" style={{ color: '#73bcf7' }}>Showroom Repo</a>}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
-
-          <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-        </>
+      {/* ── Curator Drawer ── */}
+      {drawerItem && drawerDetail && (
+        <CuratorDrawer
+          ciName={drawerItem}
+          detail={drawerDetail}
+          newTag={newTags[drawerItem] || ''}
+          onNewTagChange={(val) => setNewTags(prev => ({ ...prev, [drawerItem]: val }))}
+          onAddTag={() => handleAddTag(drawerItem)}
+          onRemoveTag={(tagId) => handleRemoveTag(drawerItem, tagId)}
+          noteText={noteTexts[drawerItem] || ''}
+          onNoteChange={(val) => setNoteTexts(prev => ({ ...prev, [drawerItem]: val }))}
+          onNoteSave={() => handleSaveNote(drawerItem)}
+          curatedDuration={curatedDurations[drawerItem] ?? ''}
+          onDurationChange={(val) => setCuratedDurations(prev => ({ ...prev, [drawerItem]: val }))}
+          onDurationSave={() => handleSetDuration(drawerItem)}
+          overrideUrl={overrideUrls[drawerItem] ?? ''}
+          onOverrideUrlChange={(val) => setOverrideUrls(prev => ({ ...prev, [drawerItem]: val }))}
+          onOverrideUrlSave={() => handleOverrideUrl(drawerItem)}
+          contentPath={contentPaths[drawerItem] ?? ''}
+          onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
+          onContentPathSave={() => handleSetContentPath(drawerItem)}
+          scanning={scanningPath[drawerItem] || false}
+          flagged={flaggedItems.has(drawerItem)}
+          onFlag={() => handleFlag(drawerItem)}
+          analyzing={analyzing === drawerItem}
+          onAnalyze={() => handleAnalyze(drawerItem)}
+          onClose={() => setDrawerItem(null)}
+        />
       )}
     </div>
   )

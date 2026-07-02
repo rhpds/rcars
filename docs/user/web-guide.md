@@ -15,19 +15,21 @@ The main page is the Advisor — a two-pane layout that is always split. The lef
 
 ```
 ┌──────────────┬────────────────────────────────────────────┐
-│  Navigation  │  CONVERSATION          RECOMMENDATIONS      │
+│  ADVISOR     │  CHAT                  RECOMMENDATIONS      │
+│  New Session │                                            │
+│  History     │  [welcome message]     [rec card 1]        │
+│  ──────────  │                        [rec card 2]        │
+│  BROWSE      │  [your message]        [rec card 3]        │
+│  Catalog     │  [progress stream]                         │
+│  Workloads   │  [response ↩]                              │
 │  ──────────  │                                            │
-│  Advisor     │  [welcome message]     [rec card 1]        │
-│  + New       │                        [rec card 2]        │
-│  ──────────  │                        [rec card 3]        │
-│  Recent      │  [your message]                            │
-│   session 1  │  [progress stream]                         │
-│   session 2  │  [response ↩]                              │
+│  ANALYSIS    │  [input box]  [Send]   41/2000             │
+│  Overlap     │                                            │
+│  Retirement  │                                            │
 │  ──────────  │                                            │
-│  Browse      │  [input box]  [Send]                       │
-│  Content     │                                            │
-│   Analysis   │                                            │
-│  Admin ▸     │                                            │
+│  SYSTEM      │                                            │
+│  Status      │                                            │
+│  Sync & ...  │                                            │
 └──────────────┴────────────────────────────────────────────┘
 ```
 
@@ -40,12 +42,16 @@ Results are still useful when stale but may not reflect recent catalog additions
 
 ### Sidebar Navigation
 
-The sidebar has four main sections:
+The sidebar is organized into four labeled sections:
 
-- **Advisor** — the recommendation chat interface. Shows "+ New Session" and recent sessions when active.
-- **Browse** — the catalog browser with filtering and curation tools.
-- **Content Analysis** (admin only) — expands to show two sub-pages: **Overlap** and **Retirement**.
-- **Admin** (admin only) — expands to show three sub-pages: **Catalog**, **Token Usage**, and **Query History**.
+- **ADVISOR** — **New Session** starts a fresh advisor conversation. **History** shows your past sessions with saved recommendations.
+- **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads** (curator only) shows infrastructure workload mappings.
+- **ANALYSIS** (admin only) — **Overlap** detects duplicate content. **Retirement** provides data-driven retirement scoring.
+- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions.
+
+### Theme Toggle
+
+A light/dark mode toggle is in the top-right corner of the masthead (☽/☀ icon). Your preference is saved to local storage and persists across sessions. RCARS defaults to dark mode.
 
 ## Writing a Good Query
 
@@ -135,11 +141,11 @@ Examples of useful follow-ups:
 
 **Navigating turns.** When you have multiple recommendation sets from follow-up queries, numbered buttons ("Rec 1", "Rec 2", "Current") appear above the recommendation pane. Click any button to switch between recommendation sets — no new AI call is made, so switching is instant.
 
-## Conversation History
+## Session History
 
-The left sidebar shows your recent sessions (up to 8). Each session shows the first query text as a label. Sessions are stored server-side in PostgreSQL, tied to your SSO email — they persist across server restarts and are accessible from any device you log into.
+Click **History** in the sidebar to view your past advisor sessions. The History page shows a scrollable list of sessions on the left with the first query as a label, and the full recommendation results on the right when you select one. Sessions are stored server-side in PostgreSQL, tied to your SSO email — they persist across server restarts and are accessible from any device you log into.
 
-To start a fresh session, click **+ New Session** in the sidebar under the Advisor link. You can also click any previous session to reload it with its full conversation history and recommendation results.
+To start a fresh session, click **New Session** in the sidebar. This clears the current conversation and recommendation panes.
 
 ## Curator Mode
 
@@ -348,15 +354,11 @@ Each item receives a score from 0 to 100. Higher scores indicate stronger retire
 | Review | 35–54 | Weak but non-zero activity — worth investigating |
 | Keepers | < 35 | Meaningful activity — retain |
 
-## The Admin Pages
+## The System Pages
 
-The Admin section (`/admin`) is visible to admins only (not curators). It has three sub-pages accessible via the sidebar: **Catalog**, **Token Usage**, and **Query History**.
+The System section is visible to admins only (not curators). It has five pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, and **Query History**.
 
-### Catalog (`/admin/catalog`)
-
-The Catalog admin page has three tabs: **Status**, **Sync & Analysis**, and **Workloads**.
-
-#### Status Tab
+### Status (`/system/status`)
 
 The Status tab shows five summary cards plus the scheduled maintenance panel.
 
@@ -374,7 +376,7 @@ The Status tab shows five summary cards plus the scheduled maintenance panel.
 
 A **Refresh** button at the top reloads all status cards.
 
-#### Sync & Analysis Tab
+### Sync & Analysis (`/system/sync`)
 
 - **Catalog Sync** — triggers catalog refresh from Babylon CRDs. Retired items that reappear are automatically un-retired.
 - **Content Analysis** — two buttons: "Analyze" (scan unanalyzed items) and "Check Stale" (detect changed Showrooms). Shows a live scrolling log with real-time progress.
@@ -383,12 +385,7 @@ A **Refresh** button at the top reloads all status cards.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.
 
-#### Workloads Tab
-
-- **Workload Repos** — scan AgnosticD v2 workload repositories for role changes. Reads Ansible code and uses Haiku to determine what each role installs. Updates the workload mapping table with verified product names.
-- **Workload Mappings** — collapsible table showing all mapped workload roles with their product names and verification status. Includes an "Unmapped Workloads" section listing roles that need manual mapping.
-
-### Token Usage (`/admin/tokens`)
+### Token Usage (`/system/tokens`)
 
 Shows Claude API token consumption broken down by model and operation type.
 
@@ -405,7 +402,7 @@ Shows Claude API token consumption broken down by model and operation type.
 
 **Recent Queries table** — shows per-query triage and rationale token breakdown with timestamps. For a deeper explanation, see the [Token Usage Tracking](../admin/token-usage.md) doc.
 
-### Query History (`/admin/queries`)
+### Query History (`/system/queries`)
 
 Shows recent advisor sessions (last 50). Each session is expandable:
 

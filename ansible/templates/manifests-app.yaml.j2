@@ -57,7 +57,7 @@ spec:
         app: {{ app_name }}
         component: api
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -121,6 +121,13 @@ spec:
               value: "{{ stale_days }}"
             - name: RCARS_SA_ALLOWLIST_STR
               value: "{{ sa_allowlist | default([]) | join(',') }}"
+{% if rcars_proxy_verification_secret is defined %}
+            - name: RCARS_PROXY_VERIFICATION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-secrets
+                  key: proxy-verification-secret
+{% endif %}
 {% if rcars_reporting_mcp_url is defined %}
             - name: RCARS_REPORTING_MCP_URL
               value: "{{ rcars_reporting_mcp_url }}"
@@ -217,7 +224,7 @@ spec:
         app: {{ app_name }}
         component: scan-worker
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -368,7 +375,7 @@ spec:
         app: {{ app_name }}
         component: recommend-worker
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true

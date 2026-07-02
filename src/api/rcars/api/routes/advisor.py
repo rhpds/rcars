@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, HTTPException
-from pydantic import BaseModel
-from rcars.api.middleware.auth import require_auth
+from pydantic import BaseModel, Field
+from rcars.api.middleware.auth import require_auth, require_admin
+from rcars.api.middleware.rate_limit import limiter
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.config import Settings
 
@@ -12,7 +13,7 @@ router = APIRouter(prefix="/advisor")
 
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(max_length=2000)
     event_url: str | None = None
     stages: list[str] = ["prod"]
     include_zt: bool = True
@@ -24,7 +25,13 @@ class SelectRequest(BaseModel):
     ci_name: str
 
 
+def _advisor_limit() -> str:
+    import os
+    return f"{os.environ.get('RCARS_ADVISOR_RATE_LIMIT_PER_USER_PER_HOUR', '50')}/hour"
+
+
 @router.post("/query")
+@limiter.limit(_advisor_limit)
 async def submit_query(body: QueryRequest, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -54,6 +61,11 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
 
 @router.get("/query/{job_id}/stream")
 async def stream_query(job_id: str, request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    settings: Settings = request.app.state.settings
+    job = db.get_job(job_id)
+    if not job or (job["created_by"] != user and not settings.is_admin(user)):
+        raise HTTPException(status_code=404, detail="Job not found")
     relay = JobProgressRelay(request.app.state.redis)
     return create_sse_response(relay, job_id)
 
@@ -61,8 +73,9 @@ async def stream_query(job_id: str, request: Request, user: str = Depends(requir
 @router.get("/query/{job_id}/result")
 async def get_query_result(job_id: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
+    settings: Settings = request.app.state.settings
     job = db.get_job(job_id)
-    if not job:
+    if not job or (job["created_by"] != user and not settings.is_admin(user)):
         raise HTTPException(status_code=404, detail="Job not found")
     return {
         "status": job["status"],

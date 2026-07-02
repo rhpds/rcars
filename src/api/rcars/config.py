@@ -70,6 +70,8 @@ class Settings(BaseSettings):
     admin_emails_str: str = ""
     dev_user: str = ""
     sa_allowlist_str: str = ""
+    proxy_verification_secret: str = ""
+    advisor_rate_limit_per_user_per_hour: int = 50
 
     # Content overlap
     similarity_threshold: float = 0.75

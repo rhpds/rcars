@@ -63,7 +63,7 @@ export function WorkloadMultiSelect({ options, selected, onChange }: WorkloadMul
             </label>
           ))}
           {sorted.length === 0 && (
-            <div style={{ padding: '8px 12px', color: '#555', fontSize: '12px' }}>
+            <div style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '12px' }}>
               No workload mappings available
             </div>
           )}

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
 import { api } from '../services/api'
-import { LcarsButton } from '../components/lcars'
 
 // ── Content Overlap Page ──
 
@@ -65,8 +64,8 @@ export function ContentOverlapPage() {
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-  const scoreColor = (score: number) => score >= thresholds.high_overlap ? '#e94560' : '#e98a3a'
-  const scoreBg = (score: number) => score >= thresholds.high_overlap ? 'rgba(233,69,96,0.2)' : 'rgba(233,138,58,0.2)'
+  const scoreColor = (score: number) => score >= thresholds.high_overlap ? 'var(--score-red)' : 'var(--score-amber)'
+  const scoreBg = (score: number) => score >= thresholds.high_overlap ? 'var(--score-red-bg)' : 'var(--score-amber-bg)'
   const scorePct = (score: number) => `${Math.round(score * 100)}%`
 
   return (
@@ -103,9 +102,9 @@ export function ContentOverlapPage() {
           <option value="event">Event</option>
           <option value="dev">Dev</option>
         </select>
-        <LcarsButton onClick={handleCompute} disabled={computing}>
+        <button className="ca-compute-btn" onClick={handleCompute} disabled={computing}>
           {computing ? 'Computing...' : 'Compute Similarity'}
-        </LcarsButton>
+        </button>
         <select className="ca-select" value={filterLevel}
           onChange={(e) => setFilterLevel(e.target.value as 'all' | 'high')}>
           <option value="all">All pairs ({pairs.length})</option>
@@ -134,10 +133,11 @@ export function ContentOverlapPage() {
               {filteredPairs.map(pair => {
                 const key = pairKey(pair)
                 const isExpanded = expandedPairs.has(key)
+                const isHigh = pair.similarity_score >= thresholds.high_overlap
                 return (
-                  <div key={key} style={{ background: '#0d1117', borderRadius: '6px', border: `1px solid ${pair.similarity_score >= thresholds.high_overlap ? 'rgba(233,69,96,0.3)' : '#0f3460'}` }}>
+                  <div key={key} className={`ca-pair-card${isHigh ? ' ca-pair-card--high' : ''}`}>
                     <div
-                      style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'center' }}
+                      className="ca-pair-header"
                       onClick={() => setExpandedPairs(prev => {
                         const next = new Set(prev)
                         if (next.has(key)) next.delete(key); else next.add(key)
@@ -147,37 +147,36 @@ export function ContentOverlapPage() {
                       <span className="ca-score-badge" style={{ background: scoreBg(pair.similarity_score), color: scoreColor(pair.similarity_score), flexShrink: 0 }}>
                         {scorePct(pair.similarity_score)}
                       </span>
-                      <span style={{ color: '#e0e0e0', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: 'var(--text-primary)', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {pair.display_name_a || pair.ci_name_a}
                       </span>
-                      <span style={{ color: '#8a8a9a', fontSize: '0.75rem', flexShrink: 0 }}>{'↔'}</span>
-                      <span style={{ color: '#e0e0e0', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0 }}>{'↔'}</span>
+                      <span style={{ color: 'var(--text-primary)', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {pair.display_name_b || pair.ci_name_b}
                       </span>
-                      <span style={{ color: '#8a8a9a', fontSize: '0.7rem', flexShrink: 0 }}>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', flexShrink: 0 }}>
                         {isExpanded ? '▾' : '▸'}
                       </span>
                     </div>
                     {isExpanded && (
-                      <div style={{ padding: '0 14px 14px', borderTop: '1px solid #0f3460', display: 'flex', gap: '16px' }}>
+                      <div className="ca-pair-detail">
                         {[
                           { name: pair.ci_name_a, display: pair.display_name_a, category: pair.category_a, stage: pair.stage_a, summary: pair.summary_a },
                           { name: pair.ci_name_b, display: pair.display_name_b, category: pair.category_b, stage: pair.stage_b, summary: pair.summary_b },
                         ].map((item, i) => (
-                          <div key={i} style={{ flex: 1, paddingTop: '12px' }}>
+                          <div key={i} className="ca-pair-detail-item">
                             <a href={`/browse?search=${encodeURIComponent(item.name)}`} target="_blank" rel="noreferrer"
-                               style={{ fontSize: '0.8rem', color: '#4a9eff', marginBottom: '4px', display: 'block', textDecoration: 'none' }}
                                onClick={e => e.stopPropagation()}>
                               {item.display || item.name}
                             </a>
-                            <div style={{ fontSize: '0.7rem', color: '#8a8a9a', marginBottom: '6px' }}>
+                            <div className="ca-pair-detail-meta">
                               {item.name} · {item.category}
                               {item.stage !== 'prod' && (
                                 <span className={`ca-env-tag ${item.stage === 'dev' ? 'ca-env-dev' : 'ca-env-event'}`} style={{ marginLeft: '6px' }}>{item.stage}</span>
                               )}
                             </div>
                             {item.summary && (
-                              <div style={{ fontSize: '0.75rem', color: '#8a8a9a', lineHeight: '1.5', whiteSpace: 'normal' }}>
+                              <div className="ca-pair-detail-summary">
                                 {item.summary}
                               </div>
                             )}

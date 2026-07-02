@@ -87,7 +87,14 @@ async def get_current_user(request: Request) -> str | None:
             if sa_identity:
                 return sa_identity
 
-    # Fallback to OAuth proxy headers
+    # Fallback to OAuth proxy headers — verify proxy secret if configured
+    expected_secret = settings.proxy_verification_secret
+    if expected_secret:
+        actual_secret = request.headers.get("X-Proxy-Secret", "")
+        if actual_secret != expected_secret:
+            logger.warning("proxy secret mismatch — rejecting forwarded headers")
+            return None
+
     email = request.headers.get("X-Forwarded-Email", "")
     if not email:
         email = request.headers.get("X-Forwarded-User", "")
