@@ -15,6 +15,7 @@ export function RcarsSidebar() {
             to="/advisor"
             end
             className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+            onClick={() => window.dispatchEvent(new Event('rcars:new-session'))}
           >
             New Session
           </NavLink>
