@@ -116,14 +116,14 @@ async def retirement_dashboard(
     }
 
 
-@router.get("/workflow/{base_name}")
+@router.get("/retirement/workflow/{base_name}")
 async def get_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     wf = db.get_retirement_workflow(base_name)
     return {"workflow": wf}
 
 
-@router.put("/workflow/{base_name}/review")
+@router.put("/retirement/workflow/{base_name}/review")
 async def review_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {
@@ -136,7 +136,7 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/workflow/{base_name}/approve")
+@router.put("/retirement/workflow/{base_name}/approve")
 async def approve_item(base_name: str, body: ApproveRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     from datetime import datetime
@@ -172,7 +172,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/workflow/{base_name}/notify")
+@router.put("/retirement/workflow/{base_name}/notify")
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {
@@ -185,7 +185,7 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/workflow/{base_name}/start")
+@router.put("/retirement/workflow/{base_name}/start")
 async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     settings = request.app.state.settings
@@ -217,7 +217,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     return {"status": "ok", "workflow": result, "jira_key": jira_key}
 
 
-@router.put("/workflow/{base_name}/notes")
+@router.put("/retirement/workflow/{base_name}/notes")
 async def update_notes(base_name: str, body: NotesRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {"curator_notes": body.notes}
@@ -225,7 +225,7 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     return {"status": "ok", "workflow": result}
 
 
-@router.delete("/workflow/{base_name}")
+@router.delete("/retirement/workflow/{base_name}")
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     deleted = db.delete_retirement_workflow(base_name)
