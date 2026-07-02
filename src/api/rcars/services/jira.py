@@ -198,7 +198,7 @@ def create_retirement_ticket(
         }
     }
 
-    result = _jira_request(settings, "/rest/api/3/issue", body=create_body)
+    result = _jira_request(settings, "/rest/api/2/issue", body=create_body)
     issue_key = result["key"]
 
     logger.info("retirement_ticket_created", issue_key=issue_key)
@@ -210,7 +210,7 @@ def create_retirement_ticket(
         "outwardIssue": {"key": issue_key},
     }
 
-    _jira_request(settings, "/rest/api/3/issueLink", body=link_body)
+    _jira_request(settings, "/rest/api/2/issueLink", body=link_body)
 
     logger.info(
         "retirement_ticket_linked",

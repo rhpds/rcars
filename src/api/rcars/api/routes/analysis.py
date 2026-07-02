@@ -12,6 +12,9 @@ from rcars.api.schemas import (
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.workers.ops import sha_dedup_scan_items
+import structlog
+
+logger = structlog.get_logger(component="api")
 
 router = APIRouter(prefix="/analysis")
 
@@ -256,7 +259,12 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date}
 
     from rcars.services.jira import create_retirement_ticket
-    jira_key = create_retirement_ticket(settings, wf_for_jira, metrics)
+    try:
+        jira_key = create_retirement_ticket(settings, wf_for_jira, metrics)
+    except Exception as exc:
+        logger.error("retirement_jira_failed", base_name=base_name, error=str(exc))
+        from fastapi import HTTPException
+        raise HTTPException(status_code=502, detail=f"Failed to create Jira ticket: {exc}")
 
     fields = {
         "step_started_at": "NOW()",

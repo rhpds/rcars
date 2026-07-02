@@ -142,6 +142,7 @@ export function RetirementPage() {
   const [targetDays, setTargetDays] = useState(30)
   const [jiraProject, setJiraProject] = useState('RHDPCD')
   const [actionLoading, setActionLoading] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
@@ -204,6 +205,7 @@ export function RetirementPage() {
     setDrawerItem(item)
     setDrawerLoading(true)
     setEmailTemplate(null)
+    setActionError(null)
     try {
       const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
       setDrawerWorkflow(workflow)
@@ -220,6 +222,7 @@ export function RetirementPage() {
   const handleApprove = async () => {
     if (!drawerItem || !approvalReason.trim()) return
     setActionLoading(true)
+    setActionError(null)
     try {
       const { workflow } = await api.approveRetirementItem(
         drawerItem.catalog_base_name, approvalReason,
@@ -227,41 +230,52 @@ export function RetirementPage() {
       )
       setDrawerWorkflow(workflow)
       loadData()
-    } catch (e) { console.error(e) }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Approval failed')
+    }
     setActionLoading(false)
   }
 
   const handleNotify = async () => {
     if (!drawerItem) return
     setActionLoading(true)
+    setActionError(null)
     try {
       const { workflow } = await api.notifyRetirementOwner(drawerItem.catalog_base_name)
       setDrawerWorkflow(workflow)
       loadData()
-    } catch (e) { console.error(e) }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Notification failed')
+    }
     setActionLoading(false)
   }
 
   const handleStart = async () => {
     if (!drawerItem) return
     setActionLoading(true)
+    setActionError(null)
     try {
       const { workflow } = await api.startRetirement(drawerItem.catalog_base_name, targetDays, jiraProject)
       setDrawerWorkflow(workflow)
       loadData()
-    } catch (e) { console.error(e) }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to start retirement')
+    }
     setActionLoading(false)
   }
 
   const handleCancel = async () => {
     if (!drawerItem) return
     setActionLoading(true)
+    setActionError(null)
     try {
       await api.cancelRetirementWorkflow(drawerItem.catalog_base_name)
       setDrawerWorkflow(null)
       setDrawerItem(null)
       loadData()
-    } catch (e) { console.error(e) }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Cancel failed')
+    }
     setActionLoading(false)
   }
 
@@ -1000,6 +1014,17 @@ RHDP Content Team`
                       </StepperStep>
                     </div>
                   </div>
+
+                  {/* ── Action Error ── */}
+                  {actionError && (
+                    <div style={{
+                      background: 'var(--error-bg)', border: '1px solid var(--error-border)',
+                      borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '12px',
+                      color: 'var(--error-title)', marginTop: '8px',
+                    }}>
+                      {actionError}
+                    </div>
+                  )}
 
                   {/* ── Approval Snapshot Comparison ── */}
                   {wf?.approval_snapshot && (
