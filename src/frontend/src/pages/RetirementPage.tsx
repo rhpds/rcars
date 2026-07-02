@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
 import type { RetirementWorkflow } from '../services/api'
+import { useAuth } from '../hooks/useAuth'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -117,6 +118,7 @@ function StepperStep({
 }
 
 export function RetirementPage() {
+  const { isAdmin } = useAuth()
   const [tab, setTab] = useState<RetirementTab>('prod')
   const [items, setItems] = useState<ReportingMetricsItem[]>([])
   const [allItems, setAllItems] = useState<ReportingMetricsItem[]>([])
@@ -868,7 +870,6 @@ RHDP Content Team`
                                   <div key={i} style={{ color: 'var(--text-secondary)', marginBottom: '2px' }}>
                                     {o.name || o.email}
                                     {o.name && o.email && <span style={{ color: 'var(--text-muted)' }}> ({o.email})</span>}
-                                    {o.role === 'sme' && <span style={{ color: 'var(--text-muted)', fontSize: '10px', marginLeft: '4px' }}>SME</span>}
                                   </div>
                                 ))}
                               </div>
@@ -948,20 +949,28 @@ RHDP Content Team`
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
                               Creates a Jira ticket in the selected project with retirement details, metrics snapshot, and adoc template. The retirement clock starts from this point.
                             </div>
-                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
-                              <input type="number" className="browse-drawer-input"
-                                value={targetDays} onChange={e => setTargetDays(Number(e.target.value) || 30)}
-                                style={{ width: '60px', fontSize: '12px' }} />
-                              <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Jira:</label>
-                              <input type="text" className="browse-drawer-input"
-                                value={jiraProject} onChange={e => setJiraProject(e.target.value)}
-                                style={{ width: '80px', fontSize: '12px' }} />
-                            </div>
-                            <button className="ret-action-btn ret-action-btn--start" onClick={handleStart}
-                              disabled={actionLoading}>
-                              {actionLoading ? 'Creating Jira...' : 'Start Retirement'}
-                            </button>
+                            {isAdmin ? (
+                              <>
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
+                                  <input type="number" className="browse-drawer-input"
+                                    value={targetDays} onChange={e => setTargetDays(Number(e.target.value) || 30)}
+                                    style={{ width: '60px', fontSize: '12px' }} />
+                                  <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Jira:</label>
+                                  <input type="text" className="browse-drawer-input"
+                                    value={jiraProject} onChange={e => setJiraProject(e.target.value)}
+                                    style={{ width: '80px', fontSize: '12px' }} />
+                                </div>
+                                <button className="ret-action-btn ret-action-btn--start" onClick={handleStart}
+                                  disabled={actionLoading}>
+                                  {actionLoading ? 'Creating Jira...' : 'Start Retirement'}
+                                </button>
+                              </>
+                            ) : (
+                              <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                                Admin approval required to start retirement
+                              </div>
+                            )}
                           </div>
                         ) : (
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>

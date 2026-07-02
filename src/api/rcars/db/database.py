@@ -1971,10 +1971,10 @@ class Database:
         return result
 
     def get_owners_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
-        """Get owner/maintainer info for items, keyed by base name.
+        """Get maintainer info for items, keyed by base name.
 
-        Pulls owners_json from the prod stage CI preferentially, falling back to any stage.
-        Returns {base_name: [{name, email}, ...]} for items that have owner data.
+        Pulls owners_json.maintainer from the prod stage CI preferentially.
+        Returns {base_name: [{name, email}, ...]} for items that have maintainer data.
         """
         if not base_names:
             return {}
@@ -1999,14 +1999,10 @@ class Database:
                     oj = row["owners_json"]
                     if isinstance(oj, dict):
                         maintainers = oj.get("maintainer", [])
-                        smes = oj.get("sme", [])
                         owners = []
                         for m in (maintainers if isinstance(maintainers, list) else []):
                             if isinstance(m, dict) and m.get("email"):
-                                owners.append({"name": m.get("name", ""), "email": m["email"], "role": "maintainer"})
-                        for s in (smes if isinstance(smes, list) else []):
-                            if isinstance(s, dict) and s.get("email"):
-                                owners.append({"name": s.get("name", ""), "email": s["email"], "role": "sme"})
+                                owners.append({"name": m.get("name", ""), "email": m["email"]})
                         if owners:
                             result[base] = owners
         return result

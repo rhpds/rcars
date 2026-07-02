@@ -240,7 +240,7 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
     response_model=StartRetirementResponse,
     responses={400: {"description": "Item must be approved before starting retirement"}},
 )
-async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_curator)):
+async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     settings = request.app.state.settings
     from datetime import datetime, timedelta

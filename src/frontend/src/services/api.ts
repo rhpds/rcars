@@ -305,7 +305,7 @@ export interface ReportingMetricsItem {
   product_family: string | null
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
-  owners: Array<{ name: string; email: string; role: string }>
+  owners: Array<{ name: string; email: string }>
   has_content: boolean
   catalog_url?: string
   workflow_status?: string | null
