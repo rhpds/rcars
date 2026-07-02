@@ -28,7 +28,8 @@ These docs are always in sync with the deployed code — they're generated from 
 | **Auth** | `/api/v1/auth` | User | Current user identity and roles |
 | **Advisor** | `/api/v1/advisor` | User | Recommendation queries, sessions, and selections |
 | **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, workload mappings |
-| **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, retirement workflow, stale checks |
+| **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, stale checks, single-item analysis |
+| **Retirement** | `/api/v1/analysis/retirement` | Curator+ | Retirement scoring, workflow (review → approve → notify → start) |
 | **Administration** | `/api/v1/admin` | Admin | Jobs, workers, maintenance, token usage, overlap |
 
 ## Authentication

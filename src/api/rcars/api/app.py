@@ -47,7 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "**Async jobs:** Long-running operations return a `job_id` immediately. "
             "Poll results via the result endpoint or stream progress via SSE."
         ),
-        version="2.0.0",
+        version="1.0.0",
         docs_url="/api/v1/docs",
         redoc_url="/api/v1/redoc",
         openapi_url="/api/v1/openapi.json",
@@ -66,7 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
     app.include_router(advisor.router, prefix="/api/v1", tags=["Advisor"])
     app.include_router(catalog.router, prefix="/api/v1", tags=["Catalog"])
-    app.include_router(analysis.router, prefix="/api/v1", tags=["Content Analysis"])
+    app.include_router(analysis.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1", tags=["Administration"])
 
     return app

@@ -18,6 +18,68 @@ Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-pr
 
 ---
 
+## Local Development
+
+The `dev-services.sh` script starts the full RCARS stack locally for development and testing. It runs the complete backend — not just the frontend.
+
+### What it starts
+
+| Service | How | Port |
+|---|---|---|
+| PostgreSQL 16 (pgvector) | Podman container | `localhost:5432` |
+| Redis 7 | Podman container | `localhost:6379` |
+| FastAPI API | uvicorn with `--reload` | `localhost:8080` |
+| Scan worker | arq background process | — |
+| Recommend worker | arq background process | — |
+| React frontend | Vite dev server (proxies `/api` to API) | `localhost:3000` |
+
+### Usage
+
+```bash
+./dev-services.sh start    # Start all services
+./dev-services.sh stop     # Stop all services
+./dev-services.sh restart  # Restart all services
+./dev-services.sh status   # Check what's running
+```
+
+Dev mode sets `RCARS_DEV_USER=dev@redhat.com` with full admin access — no OAuth or K8s auth needed.
+
+### Accessing locally
+
+| Interface | URL |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Swagger UI | `http://localhost:8080/api/v1/docs` |
+| ReDoc | `http://localhost:8080/api/v1/redoc` |
+| API directly | `http://localhost:8080/api/v1/...` |
+
+### Data
+
+The local stack starts with an empty database. To populate it with real catalog data, you need:
+
+- A **kubeconfig** with read access to the Babylon cluster — set `RCARS_KUBECONFIG_PATH` before starting, then run `rcars refresh` to pull catalog items from Babylon CRDs
+- **LLM credentials** (Vertex AI or LiteMaaS) — required for `rcars scan` to run content analysis
+- **Reporting MCP credentials** — required for `rcars reporting-db sync` to pull usage/cost/sales metrics
+
+Without these, the stack is still fully functional for frontend development, API testing, and Swagger UI exploration — responses will just be empty.
+
+### Requirements
+
+- Podman (for PostgreSQL and Redis containers)
+- Python virtualenv at `~/.virtualenvs/rcars-v2` with the `rcars` package installed (`pip install -e ".[dev]"`)
+- Node.js and npm (for the frontend dev server)
+
+### Logs
+
+All service logs go to `/tmp/`:
+
+- `/tmp/rcars-api.log`
+- `/tmp/rcars-scan-worker.log`
+- `/tmp/rcars-recommend-worker.log`
+- `/tmp/rcars-frontend.log`
+
+---
+
 ## Prerequisites
 
 - `oc` CLI with cluster-admin access (one-time bootstrap only)

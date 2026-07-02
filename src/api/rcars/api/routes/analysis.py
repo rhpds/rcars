@@ -34,6 +34,7 @@ class NotesRequest(BaseModel):
 
 @router.get(
     "/retirement",
+    tags=["Retirement"],
     summary="Retirement dashboard",
     description=(
         "Returns catalog items scored for retirement potential based on usage, cost, and sales impact. "
@@ -132,6 +133,7 @@ async def retirement_dashboard(
 
 @router.get(
     "/retirement/workflow/{base_name}",
+    tags=["Retirement"],
     summary="Get retirement workflow",
     description="Returns the current retirement workflow state for a catalog item. Curator-only.",
     response_model=WorkflowGetResponse,
@@ -144,6 +146,7 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 
 @router.put(
     "/retirement/workflow/{base_name}/review",
+    tags=["Retirement"],
     summary="Mark item as reviewed",
     description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
     response_model=WorkflowResponse,
@@ -162,6 +165,7 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
 
 @router.put(
     "/retirement/workflow/{base_name}/approve",
+    tags=["Retirement"],
     summary="Approve item for retirement",
     description=(
         "Approves a catalog item for retirement with a reason and optional replacement. "
@@ -206,6 +210,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
 @router.put(
     "/retirement/workflow/{base_name}/notify",
+    tags=["Retirement"],
     summary="Mark owner as notified",
     description="Records that the content owner has been notified about the retirement. Curator-only.",
     response_model=WorkflowResponse,
@@ -224,6 +229,7 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
 
 @router.put(
     "/retirement/workflow/{base_name}/start",
+    tags=["Retirement"],
     summary="Start retirement process",
     description=(
         "Starts the retirement process: creates a Jira ticket and sets a target retirement date. "
@@ -265,6 +271,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 
 @router.put(
     "/retirement/workflow/{base_name}/notes",
+    tags=["Retirement"],
     summary="Update curator notes",
     description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
     response_model=WorkflowResponse,
@@ -278,6 +285,7 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 
 @router.delete(
     "/retirement/workflow/{base_name}",
+    tags=["Retirement"],
     summary="Cancel retirement workflow",
     description="Cancels and removes the retirement workflow for a catalog item. Curator-only.",
     response_model=CancelWorkflowResponse,
@@ -292,6 +300,7 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
 
 @router.post(
     "/scan",
+    tags=["Content Analysis"],
     summary="Scan items needing analysis",
     description=(
         "Enqueues analysis jobs for all catalog items that need (re-)analysis. "
@@ -325,6 +334,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
 
 @router.post(
     "/check-stale",
+    tags=["Content Analysis"],
     summary="Check for stale content",
     description="Checks all catalog items for content changes since last analysis. Admin-only.",
     response_model=JobResponse,
@@ -339,6 +349,7 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
 
 @router.post(
     "/rescan-all",
+    tags=["Content Analysis"],
     summary="Force rescan of entire catalog",
     description="Marks all items as stale and enqueues re-analysis for the entire catalog. Admin-only.",
     response_model=RescanResponse,
@@ -370,6 +381,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
 
 @router.post(
     "/{ci_name}",
+    tags=["Content Analysis"],
     summary="Analyze single item",
     description="Triggers content analysis for a single catalog item. Curator-only.",
     response_model=JobResponse,
@@ -384,6 +396,7 @@ async def analyze_single(ci_name: str, request: Request, user: str = Depends(req
 
 @router.get(
     "/jobs/{job_id}/stream",
+    tags=["Content Analysis"],
     summary="Stream analysis job progress (SSE)",
     description="Server-Sent Events stream for real-time analysis job progress updates.",
 )
