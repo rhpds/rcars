@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
+import type { RetirementWorkflow } from '../services/api'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -12,6 +13,7 @@ type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
 type TimeWindow = '1q' | '2q' | '3q' | '1y'
+type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started' | 'retired'
 
 const fmt = (n: number) => {
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
@@ -57,6 +59,17 @@ export function RetirementPage() {
   const [search, setSearch] = useState('')
   const [window, setWindow] = useState<TimeWindow>('1y')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [workflowFilter, setWorkflowFilter] = useState<WorkflowFilter>('all')
+  const [drawerItem, setDrawerItem] = useState<ReportingMetricsItem | null>(null)
+  const [drawerWorkflow, setDrawerWorkflow] = useState<RetirementWorkflow | null>(null)
+  const [drawerLoading, setDrawerLoading] = useState(false)
+  const [approvalReason, setApprovalReason] = useState('')
+  const [replacementCi, setReplacementCi] = useState('')
+  const [replacementName, setReplacementName] = useState('')
+  const [notesText, setNotesText] = useState('')
+  const [targetDays, setTargetDays] = useState(30)
+  const [jiraProject, setJiraProject] = useState('RHDPCD')
+  const [actionLoading, setActionLoading] = useState(false)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -70,6 +83,7 @@ export function RetirementPage() {
         has_prod: tab === 'prod' ? true : false,
         search: search || undefined,
         window: tab === 'prod' ? window : undefined,
+        workflow_status: workflowFilter !== 'all' ? workflowFilter : undefined,
       })
       let filtered = data.items
       if (tab === 'prod' && maxForKeepers) {
@@ -83,7 +97,7 @@ export function RetirementPage() {
     } finally {
       setLoading(false)
     }
-  }, [tab, sortBy, sortDir, scoreFilter, search, window])
+  }, [tab, sortBy, sortDir, scoreFilter, search, window, workflowFilter])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -111,6 +125,89 @@ export function RetirementPage() {
       next.has(name) ? next.delete(name) : next.add(name)
       return next
     })
+  }
+
+  const openDrawer = async (item: ReportingMetricsItem) => {
+    setDrawerItem(item)
+    setDrawerLoading(true)
+    try {
+      const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
+      setDrawerWorkflow(workflow)
+      setApprovalReason(workflow?.approval_reason || '')
+      setReplacementCi(workflow?.replacement_ci || '')
+      setReplacementName(workflow?.replacement_name || '')
+      setNotesText(workflow?.curator_notes || '')
+      setTargetDays(30)
+      setJiraProject(workflow?.jira_project || 'RHDPCD')
+    } catch { setDrawerWorkflow(null) }
+    setDrawerLoading(false)
+  }
+
+  const handleReview = async () => {
+    if (!drawerItem) return
+    setActionLoading(true)
+    try {
+      const { workflow } = await api.reviewRetirementItem(drawerItem.catalog_base_name)
+      setDrawerWorkflow(workflow)
+      loadData()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const handleApprove = async () => {
+    if (!drawerItem || !approvalReason.trim()) return
+    setActionLoading(true)
+    try {
+      const { workflow } = await api.approveRetirementItem(
+        drawerItem.catalog_base_name, approvalReason,
+        replacementCi || undefined, replacementName || undefined
+      )
+      setDrawerWorkflow(workflow)
+      loadData()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const handleNotify = async () => {
+    if (!drawerItem) return
+    setActionLoading(true)
+    try {
+      const { workflow } = await api.notifyRetirementOwner(drawerItem.catalog_base_name)
+      setDrawerWorkflow(workflow)
+      loadData()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const handleStart = async () => {
+    if (!drawerItem) return
+    setActionLoading(true)
+    try {
+      const { workflow } = await api.startRetirement(drawerItem.catalog_base_name, targetDays, jiraProject)
+      setDrawerWorkflow(workflow)
+      loadData()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const handleCancel = async () => {
+    if (!drawerItem) return
+    setActionLoading(true)
+    try {
+      await api.cancelRetirementWorkflow(drawerItem.catalog_base_name)
+      setDrawerWorkflow(null)
+      setDrawerItem(null)
+      loadData()
+    } catch (e) { console.error(e) }
+    setActionLoading(false)
+  }
+
+  const handleSaveNotes = async () => {
+    if (!drawerItem) return
+    try {
+      const { workflow } = await api.updateRetirementNotes(drawerItem.catalog_base_name, notesText)
+      setDrawerWorkflow(workflow)
+    } catch (e) { console.error(e) }
   }
 
   const sortIndicator = (field: SortField) => {
@@ -213,6 +310,15 @@ export function RetirementPage() {
               className="ca-search"
             />
           </div>
+          <div className="ca-controls" style={{ margin: 0, padding: 0 }}>
+            {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['retired', 'Retired']] as [WorkflowFilter, string][]).map(([f, label]) => (
+              <button key={f} onClick={() => setWorkflowFilter(f)}
+                className={`ca-filter-btn${workflowFilter === f ? ' active' : ''}`}
+                style={{ fontSize: '11px', padding: '3px 8px' }}>
+                {label}
+              </button>
+            ))}
+          </div>
 
           {loading ? (
             <p className="ca-color-muted">Loading...</p>
@@ -239,7 +345,18 @@ export function RetirementPage() {
                       return (
                         <Fragment key={item.catalog_base_name}>
                           <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
-                            <td className="name" title={item.display_name}>{item.display_name}</td>
+                            <td className="name" title={item.display_name}>
+                              <span style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openDrawer(item) }}>
+                                {item.display_name}
+                              </span>
+                              {item.workflow_status && item.workflow_status !== 'retired' && (
+                                <span style={{
+                                  fontSize: '9px', padding: '1px 6px', marginLeft: '8px',
+                                  background: 'var(--pf-t--global--color--status--info--default, #0066cc)',
+                                  color: '#fff', borderRadius: '3px', whiteSpace: 'nowrap', verticalAlign: 'middle',
+                                }}>Retirement In Process</span>
+                              )}
+                            </td>
                             <td className="num">
                               <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score) }}>
                                 {item.retirement_score}
@@ -455,6 +572,312 @@ export function RetirementPage() {
             </>
             )
           })()}
+        </>
+      )}
+
+      {drawerItem && (
+        <>
+          <div className="browse-drawer-overlay" onClick={() => setDrawerItem(null)} />
+          <div className="browse-drawer" style={{ width: '480px' }}>
+            <div className="browse-drawer-header">
+              <div className="browse-drawer-title">{drawerItem.display_name}</div>
+              <button className="browse-drawer-close" onClick={() => setDrawerItem(null)} aria-label="Close drawer">&times;</button>
+            </div>
+            <div className="browse-drawer-body">
+              {drawerLoading ? (
+                <p className="ca-color-muted">Loading workflow...</p>
+              ) : (
+                <>
+                  {/* Top: item info */}
+                  <div className="browse-drawer-field">
+                    <label className="browse-drawer-label">Base Name</label>
+                    <div>{drawerItem.catalog_base_name}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <label className="browse-drawer-label">Score</label>
+                      <span className="ca-score-badge" style={{ background: scoreBg(drawerItem.retirement_score), color: scoreColor(drawerItem.retirement_score) }}>
+                        {drawerItem.retirement_score}
+                      </span>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label className="browse-drawer-label">Category</label>
+                      <div>{drawerItem.category || '—'}</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                    <div style={{ flex: '1 1 45%' }}>
+                      <label className="browse-drawer-label">Provisions</label>
+                      <div>{drawerItem.provisions.toLocaleString()}</div>
+                    </div>
+                    <div style={{ flex: '1 1 45%' }}>
+                      <label className="browse-drawer-label">Cost</label>
+                      <div>{fmt(drawerItem.total_cost)}</div>
+                    </div>
+                    <div style={{ flex: '1 1 45%' }}>
+                      <label className="browse-drawer-label">Touched</label>
+                      <div>{fmt(drawerItem.touched_amount)}</div>
+                    </div>
+                    <div style={{ flex: '1 1 45%' }}>
+                      <label className="browse-drawer-label">Closed</label>
+                      <div>{fmt(drawerItem.closed_amount)}</div>
+                    </div>
+                  </div>
+                  <div className="browse-drawer-field">
+                    <label className="browse-drawer-label">Stages</label>
+                    <div>
+                      {drawerItem.stages.map(s => (
+                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                          className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
+                          style={{ marginRight: 4 }}>
+                          {s.stage}
+                        </a>
+                      ))}
+                      {drawerItem.stages.length === 0 && <span className="ca-color-muted">none</span>}
+                    </div>
+                  </div>
+
+                  {/* Workflow checklist */}
+                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
+                    <label className="browse-drawer-label" style={{ marginBottom: '8px', display: 'block' }}>Retirement Workflow</label>
+
+                    {/* Step 1: Reviewed */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                      <input type="checkbox" checked={!!drawerWorkflow?.step_reviewed_at} readOnly style={{ marginTop: '3px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Reviewed</div>
+                        {drawerWorkflow?.step_reviewed_at ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {new Date(drawerWorkflow.step_reviewed_at).toLocaleDateString()} by {drawerWorkflow.step_reviewed_by || '—'}
+                          </div>
+                        ) : (
+                          <button className="browse-btn-action" onClick={handleReview} disabled={actionLoading}
+                            style={{ marginTop: '4px', fontSize: '11px', padding: '2px 8px' }}>
+                            {actionLoading ? 'Working...' : 'Mark Reviewed'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 2: Approved */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                      <input type="checkbox" checked={!!drawerWorkflow?.step_approved_at} readOnly style={{ marginTop: '3px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Approved</div>
+                        {drawerWorkflow?.step_approved_at ? (
+                          <>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {new Date(drawerWorkflow.step_approved_at).toLocaleDateString()} by {drawerWorkflow.step_approved_by || '—'}
+                            </div>
+                            {drawerWorkflow.approval_reason && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                                Reason: {drawerWorkflow.approval_reason}
+                              </div>
+                            )}
+                            {drawerWorkflow.replacement_ci && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                Replacement: {drawerWorkflow.replacement_name || drawerWorkflow.replacement_ci}
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div style={{ marginTop: '4px' }}>
+                            <textarea
+                              className="browse-drawer-textarea"
+                              value={approvalReason}
+                              onChange={e => setApprovalReason(e.target.value)}
+                              placeholder="Reason for retirement (required)..."
+                              rows={2}
+                              style={{ fontSize: '11px', marginBottom: '4px' }}
+                            />
+                            <input
+                              type="text"
+                              className="browse-drawer-input"
+                              value={replacementCi}
+                              onChange={e => setReplacementCi(e.target.value)}
+                              placeholder="Replacement CI (optional)"
+                              style={{ fontSize: '11px', marginBottom: '4px' }}
+                            />
+                            <input
+                              type="text"
+                              className="browse-drawer-input"
+                              value={replacementName}
+                              onChange={e => setReplacementName(e.target.value)}
+                              placeholder="Replacement display name (optional)"
+                              style={{ fontSize: '11px', marginBottom: '4px' }}
+                            />
+                            <button className="browse-btn-action browse-btn-action--primary" onClick={handleApprove}
+                              disabled={actionLoading || !approvalReason.trim()}
+                              style={{ fontSize: '11px', padding: '2px 8px' }}>
+                              {actionLoading ? 'Working...' : 'Approve Retirement'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 3: Owner Notified */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                      <input type="checkbox" checked={!!drawerWorkflow?.step_notified_at} readOnly style={{ marginTop: '3px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Owner Notified</div>
+                        {drawerWorkflow?.step_notified_at ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {new Date(drawerWorkflow.step_notified_at).toLocaleDateString()} by {drawerWorkflow.step_notified_by || '—'}
+                          </div>
+                        ) : (
+                          <button className="browse-btn-action" onClick={handleNotify} disabled={actionLoading}
+                            style={{ marginTop: '4px', fontSize: '11px', padding: '2px 8px' }}>
+                            {actionLoading ? 'Working...' : 'Mark Notified'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 4: Start Retirement */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                      <input type="checkbox" checked={!!drawerWorkflow?.step_started_at} readOnly style={{ marginTop: '3px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Retirement Started</div>
+                        {drawerWorkflow?.step_started_at ? (
+                          <>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                              {new Date(drawerWorkflow.step_started_at).toLocaleDateString()} by {drawerWorkflow.step_started_by || '—'}
+                            </div>
+                            {drawerWorkflow.retirement_target_date && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                                Target: {new Date(drawerWorkflow.retirement_target_date).toLocaleDateString()}
+                              </div>
+                            )}
+                            {drawerWorkflow.jira_key && (
+                              <div style={{ fontSize: '11px' }}>
+                                <a href={`https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}`} target="_blank" rel="noreferrer"
+                                  style={{ color: 'var(--pf-t--global--color--status--info--default, #0066cc)' }}>
+                                  {drawerWorkflow.jira_key}
+                                </a>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div style={{ marginTop: '4px' }}>
+                            {!drawerWorkflow?.step_approved_at && (
+                              <div style={{ fontSize: '11px', color: 'var(--score-amber)', marginBottom: '4px' }}>
+                                Approval required before starting retirement
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                              <label style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>Target days:</label>
+                              <input type="number" className="browse-drawer-input"
+                                value={targetDays} onChange={e => setTargetDays(Number(e.target.value) || 30)}
+                                style={{ width: '60px', fontSize: '11px' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
+                              <label style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>Jira project:</label>
+                              <input type="text" className="browse-drawer-input"
+                                value={jiraProject} onChange={e => setJiraProject(e.target.value)}
+                                style={{ width: '80px', fontSize: '11px' }} />
+                            </div>
+                            <button className="browse-btn-action browse-btn-action--primary" onClick={handleStart}
+                              disabled={actionLoading || !drawerWorkflow?.step_approved_at}
+                              style={{ fontSize: '11px', padding: '2px 8px' }}>
+                              {actionLoading ? 'Working...' : 'Start Retirement'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Step 5: Retired (auto-status) */}
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
+                      <input type="checkbox" checked={!!drawerWorkflow?.step_retired_at} readOnly style={{ marginTop: '3px' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontWeight: 500 }}>Retired</div>
+                        {drawerWorkflow?.step_retired_at ? (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            {new Date(drawerWorkflow.step_retired_at).toLocaleDateString()}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Auto-completes when retirement is finalized
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Approval snapshot comparison */}
+                  {drawerWorkflow?.approval_snapshot && (
+                    <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
+                      <label className="browse-drawer-label" style={{ marginBottom: '6px', display: 'block' }}>Metrics: At Approval vs Current</label>
+                      <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ textAlign: 'left', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>Metric</th>
+                            <th style={{ textAlign: 'right', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>At Approval</th>
+                            <th style={{ textAlign: 'right', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>Current</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(drawerWorkflow.approval_snapshot).map(([key, val]) => {
+                            const currentMap: Record<string, number | string> = {
+                              provisions: drawerItem.provisions,
+                              total_cost: drawerItem.total_cost,
+                              touched_amount: drawerItem.touched_amount,
+                              closed_amount: drawerItem.closed_amount,
+                              retirement_score: drawerItem.retirement_score,
+                            }
+                            const current = currentMap[key]
+                            return (
+                              <tr key={key}>
+                                <td style={{ padding: '2px 4px' }}>{key.replace(/_/g, ' ')}</td>
+                                <td style={{ textAlign: 'right', padding: '2px 4px' }}>{typeof val === 'number' ? val.toLocaleString() : val}</td>
+                                <td style={{ textAlign: 'right', padding: '2px 4px' }}>{current !== undefined ? (typeof current === 'number' ? current.toLocaleString() : current) : '—'}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Curator notes */}
+                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
+                    <div className="browse-drawer-field">
+                      <label className="browse-drawer-label">Curator Notes</label>
+                      <textarea
+                        className="browse-drawer-textarea"
+                        value={notesText}
+                        onChange={e => setNotesText(e.target.value)}
+                        onBlur={handleSaveNotes}
+                        placeholder="Add notes about this retirement..."
+                        rows={3}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Jira link */}
+                  {drawerWorkflow?.jira_key && (
+                    <div className="browse-drawer-field">
+                      <label className="browse-drawer-label">Jira Ticket</label>
+                      <a href={`https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}`} target="_blank" rel="noreferrer"
+                        style={{ color: 'var(--pf-t--global--color--status--info--default, #0066cc)' }}>
+                        {drawerWorkflow.jira_key}
+                      </a>
+                    </div>
+                  )}
+
+                  {/* Cancel workflow */}
+                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '12px' }}>
+                    <button className="browse-btn-action browse-btn-action--danger" onClick={handleCancel}
+                      disabled={actionLoading}
+                      style={{ fontSize: '11px', padding: '3px 10px' }}>
+                      {actionLoading ? 'Canceling...' : 'Cancel Workflow'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
