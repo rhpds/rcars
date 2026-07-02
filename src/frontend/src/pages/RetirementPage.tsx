@@ -901,14 +901,18 @@ RHDP Content Team`
                                   className="browse-drawer-textarea"
                                   value={emailTemplate}
                                   readOnly
-                                  rows={12}
-                                  style={{ fontSize: '11px', fontFamily: 'var(--ff-mono)', lineHeight: '1.5' }}
+                                  rows={8}
+                                  style={{ fontSize: '11px', fontFamily: 'var(--ff-mono)', lineHeight: '1.5', maxHeight: '180px', resize: 'vertical' }}
                                 />
                                 <button
                                   className="ret-action-btn ret-action-btn--start"
                                   onClick={() => { navigator.clipboard.writeText(emailTemplate); }}
-                                  style={{ fontSize: '10px', padding: '3px 10px', position: 'absolute', top: '6px', right: '6px' }}>
-                                  Copy
+                                  style={{ padding: '4px 6px', position: 'absolute', top: '6px', right: '6px', lineHeight: 1 }}
+                                  title="Copy to clipboard">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                  </svg>
                                 </button>
                               </div>
                             )}
