@@ -239,7 +239,7 @@ Three models are used: Sonnet for content analysis and rationale generation, Hai
 
 ## Frontend (`src/frontend/`)
 
-The frontend is a React SPA built with Vite and TypeScript, styled with the LCARS theme. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
+The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 components with a custom theme supporting light and dark modes. It is served by nginx and communicates with the FastAPI backend via JSON API calls under `/api/v1/`.
 
 ### Pages
 

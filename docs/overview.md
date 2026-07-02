@@ -73,7 +73,7 @@ A nightly pipeline runs at 04:00 UTC and chains five steps: catalog refresh, sta
 
 ## What It Runs On
 
-RCARS runs on OpenShift as four deployments: a React frontend (LCARS-themed), a FastAPI API, and two arq background workers (scan and recommend, split to prevent bulk operations from blocking user queries). It is backed by PostgreSQL with pgvector for semantic search and Redis for job queuing and SSE streaming.
+RCARS runs on OpenShift as four deployments: a React frontend (PatternFly 6), a FastAPI API, and two arq background workers (scan and recommend, split to prevent bulk operations from blocking user queries). It is backed by PostgreSQL with pgvector for semantic search and Redis for job queuing and SSE streaming.
 
 LLM calls use LiteMaaS (Red Hat's internal AI service) as the primary provider with Vertex AI as an automatic fallback. Three models: Sonnet for content analysis and rationale, Haiku for triage and workload scanning.
 
@@ -83,6 +83,4 @@ Access is controlled through OpenShift's OAuth proxy with Red Hat SSO, with thre
 
 ## A Note on the Name
 
-RCARS is a nod to LCARS — the Library Computer Access and Retrieval System, the fictional computer interface from Star Trek. LCARS is the amber-and-dark panel design that defined what a futuristic computer looked like for a generation of engineers and designers. RCARS borrows the acronym structure, the dark background, and the amber color palette. The LCARS aesthetic felt appropriate for a system that is, at its core, a library computer: you ask it what you need, it tells you where to find it.
-
-It is also just a fun name for an internal tool.
+RCARS is a nod to LCARS — the Library Computer Access and Retrieval System, the fictional computer interface from Star Trek. The name borrows the acronym structure from a system that is, at its core, a library computer: you ask it what you need, it tells you where to find it. The frontend was redesigned with PatternFly 6 for modern accessibility and Red Hat design standards, but the name stuck.
