@@ -2540,3 +2540,490 @@ body {
   letter-spacing: 1px;
   margin: 8px 0 4px;
 }
+
+/* ══════════════════════════════════════════════════════════════════
+   Retirement Page — Redesigned Components
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Segmented Filter Groups ── */
+.ret-filter-group {
+  display: inline-flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ret-filter-group__btn {
+  padding: 6px 14px;
+  font-size: 12px;
+  font-family: var(--ff-body);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+  border-right: 1px solid var(--border-default);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ret-filter-group__btn:last-child {
+  border-right: none;
+}
+
+.ret-filter-group__btn:hover {
+  color: var(--text-secondary);
+  background: var(--nav-hover-bg);
+}
+
+.ret-filter-group__btn.active {
+  color: var(--text-primary);
+  background: var(--nav-active-bg);
+}
+
+.ret-filter-group__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ret-filter-group__dot--red { background: var(--score-red); }
+.ret-filter-group__dot--amber { background: var(--score-amber); }
+.ret-filter-group__dot--green { background: var(--score-green); }
+
+/* ── Stats Cards with Accent Borders ── */
+.ret-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-card);
+  position: relative;
+  overflow: hidden;
+}
+
+.ret-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.ret-stat-card--red::before { background: var(--score-red); }
+.ret-stat-card--amber::before { background: var(--score-amber); }
+.ret-stat-card--green::before { background: var(--score-green); }
+.ret-stat-card--blue::before { background: var(--text-link); }
+.ret-stat-card--neutral::before { background: var(--border-default); }
+
+.ret-stat-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-family: var(--ff-display);
+  font-weight: 600;
+}
+
+.ret-stat-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-top: 4px;
+  font-family: var(--ff-mono);
+  line-height: 1;
+}
+
+.ret-stat-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--ff-mono);
+  margin-top: 4px;
+}
+
+/* ── Workflow Stepper (Drawer) ── */
+.ret-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  position: relative;
+  padding-left: 20px;
+}
+
+.ret-step {
+  position: relative;
+  padding: 0 0 20px 16px;
+  min-height: 48px;
+}
+
+.ret-step:last-child {
+  padding-bottom: 0;
+}
+
+.ret-step::before {
+  content: '';
+  position: absolute;
+  left: -14px;
+  top: 16px;
+  bottom: -4px;
+  width: 1px;
+  background: var(--border-default);
+}
+
+.ret-step:last-child::before {
+  display: none;
+}
+
+.ret-step--complete::before {
+  background: var(--score-green);
+  opacity: 0.4;
+}
+
+.ret-step__dot {
+  position: absolute;
+  left: -20px;
+  top: 6px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 2px solid var(--border-default);
+  background: var(--bg-card);
+  z-index: 1;
+  transition: all var(--transition-normal);
+}
+
+.ret-step--complete .ret-step__dot {
+  background: var(--score-green);
+  border-color: var(--score-green);
+  box-shadow: 0 0 6px rgba(92, 184, 92, 0.4);
+}
+
+.ret-step--active .ret-step__dot {
+  border-color: var(--rcars-amber-vivid);
+  box-shadow: 0 0 8px rgba(255, 153, 0, 0.35);
+  animation: ret-dot-pulse 2s ease-in-out infinite;
+}
+
+.ret-step--auto .ret-step__dot {
+  border-color: var(--text-muted);
+  border-style: dashed;
+}
+
+@keyframes ret-dot-pulse {
+  0%, 100% { box-shadow: 0 0 6px rgba(255, 153, 0, 0.25); }
+  50% { box-shadow: 0 0 12px rgba(255, 153, 0, 0.5); }
+}
+
+.ret-step__title {
+  font-family: var(--ff-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.ret-step--complete .ret-step__title {
+  color: var(--score-green);
+}
+
+.ret-step--pending .ret-step__title {
+  color: var(--text-muted);
+}
+
+.ret-step__meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--ff-mono);
+  margin-top: 2px;
+}
+
+.ret-step__content {
+  margin-top: 8px;
+}
+
+.ret-step__badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 8px;
+  border-radius: 10px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.ret-step__badge--optional {
+  background: rgba(107, 112, 128, 0.15);
+  color: var(--text-muted);
+}
+
+.ret-step__badge--auto {
+  background: rgba(115, 188, 247, 0.1);
+  color: var(--text-link);
+}
+
+/* ── Drawer Data Grid ── */
+.ret-data-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border-default);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.ret-data-cell {
+  background: var(--bg-card);
+  padding: 10px 12px;
+}
+
+.ret-data-cell--wide {
+  grid-column: 1 / -1;
+}
+
+.ret-data-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--ff-display);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.ret-data-value {
+  font-size: 14px;
+  font-family: var(--ff-mono);
+  color: var(--text-primary);
+}
+
+.ret-data-value--small {
+  font-size: 12px;
+}
+
+.ret-data-value--red { color: var(--score-red); }
+.ret-data-value--green { color: var(--score-green); }
+.ret-data-value--amber { color: var(--score-amber); }
+
+/* ── Drawer Section Divider ── */
+.ret-drawer-section {
+  padding-top: 16px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border-default);
+}
+
+.ret-drawer-section__title {
+  font-family: var(--ff-display);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-link);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ret-drawer-section__title::before {
+  content: '';
+  width: 3px;
+  height: 12px;
+  background: var(--text-link);
+  border-radius: 1px;
+}
+
+/* ── Snapshot Comparison Table ── */
+.ret-snapshot-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.ret-snapshot-table th {
+  text-align: left;
+  padding: 6px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  font-family: var(--ff-display);
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.ret-snapshot-table th:not(:first-child) {
+  text-align: right;
+}
+
+.ret-snapshot-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.ret-snapshot-table td:not(:first-child) {
+  text-align: right;
+  font-family: var(--ff-mono);
+}
+
+.ret-snapshot-table td:first-child {
+  color: var(--text-muted);
+  text-transform: capitalize;
+}
+
+.ret-snapshot-delta {
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.ret-snapshot-delta--up { color: var(--score-red); }
+.ret-snapshot-delta--down { color: var(--score-green); }
+
+/* ── Inline Workflow Badge ── */
+.ret-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  margin-left: 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  vertical-align: middle;
+  background: rgba(232, 168, 56, 0.1);
+  color: var(--score-amber);
+  border: 1px solid rgba(232, 168, 56, 0.25);
+}
+
+.ret-inline-badge__dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--score-amber);
+  animation: ret-dot-pulse 2s ease-in-out infinite;
+}
+
+.ret-inline-badge--started {
+  background: rgba(115, 188, 247, 0.1);
+  color: var(--text-link);
+  border-color: rgba(115, 188, 247, 0.25);
+}
+
+.ret-inline-badge--started .ret-inline-badge__dot {
+  background: var(--text-link);
+}
+
+.ret-inline-badge--retired {
+  background: rgba(107, 112, 128, 0.1);
+  color: var(--text-muted);
+  border-color: rgba(107, 112, 128, 0.2);
+  animation: none;
+}
+
+.ret-inline-badge--retired .ret-inline-badge__dot {
+  animation: none;
+  background: var(--text-muted);
+}
+
+/* ── Workflow Action Button (Drawer) ── */
+.ret-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--ff-body);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  border: 1px solid;
+}
+
+.ret-action-btn--primary {
+  background: var(--score-amber-bg);
+  border-color: var(--score-amber-border);
+  color: var(--score-amber);
+}
+.ret-action-btn--primary:hover { background: var(--score-amber-border); }
+
+.ret-action-btn--start {
+  background: rgba(115, 188, 247, 0.1);
+  border-color: rgba(115, 188, 247, 0.3);
+  color: var(--text-link);
+}
+.ret-action-btn--start:hover { background: rgba(115, 188, 247, 0.2); }
+
+.ret-action-btn--danger {
+  background: var(--score-red-bg);
+  border-color: var(--score-red-border);
+  color: var(--score-red);
+}
+.ret-action-btn--danger:hover { background: var(--score-red-border); }
+
+.ret-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Controls Row ── */
+.ret-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.ret-controls-row__divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-default);
+  flex-shrink: 0;
+}
+
+/* ── Jira Link ── */
+.ret-jira-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(115, 188, 247, 0.08);
+  border: 1px solid rgba(115, 188, 247, 0.2);
+  border-radius: var(--radius-sm);
+  color: var(--text-link);
+  font-size: 12px;
+  font-family: var(--ff-mono);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+.ret-jira-link:hover {
+  background: rgba(115, 188, 247, 0.15);
+  border-color: rgba(115, 188, 247, 0.35);
+}
+
+/* ── Target Date Display ── */
+.ret-target-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-family: var(--ff-mono);
+  color: var(--text-secondary);
+  padding: 3px 10px;
+  background: var(--bg-section);
+  border: 1px solid var(--border-section);
+  border-radius: var(--radius-sm);
+}
+
+/* ── Drawer wider for retirement ── */
+.ret-drawer {
+  width: 520px !important;
+}

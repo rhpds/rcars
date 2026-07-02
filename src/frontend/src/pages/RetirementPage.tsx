@@ -46,6 +46,72 @@ const ageColor = (days: number | null) => {
   return 'var(--text-muted)'
 }
 
+function WorkflowInlineBadge({ status }: { status: string }) {
+  if (status === 'retired') {
+    return (
+      <span className="ret-inline-badge ret-inline-badge--retired">
+        <span className="ret-inline-badge__dot" />
+        Retired
+      </span>
+    )
+  }
+  if (status === 'started') {
+    return (
+      <span className="ret-inline-badge ret-inline-badge--started">
+        <span className="ret-inline-badge__dot" />
+        Retirement Started
+      </span>
+    )
+  }
+  return (
+    <span className="ret-inline-badge">
+      <span className="ret-inline-badge__dot" />
+      In Process
+    </span>
+  )
+}
+
+function StepperStep({
+  title,
+  complete,
+  active,
+  pending: _pending,
+  auto,
+  optional,
+  completedAt,
+  completedBy,
+  children,
+}: {
+  title: string
+  complete: boolean
+  active: boolean
+  pending: boolean
+  auto?: boolean
+  optional?: boolean
+  completedAt?: string | null
+  completedBy?: string | null
+  children?: React.ReactNode
+}) {
+  const cls = complete ? 'ret-step--complete' : active ? 'ret-step--active' : auto ? 'ret-step--auto' : 'ret-step--pending'
+  return (
+    <div className={`ret-step ${cls}`}>
+      <div className="ret-step__dot" />
+      <div className="ret-step__title">
+        {title}
+        {optional && <span className="ret-step__badge ret-step__badge--optional">optional</span>}
+        {auto && <span className="ret-step__badge ret-step__badge--auto">auto</span>}
+      </div>
+      {complete && completedAt && (
+        <div className="ret-step__meta">
+          {new Date(completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          {completedBy ? ` · ${completedBy}` : ''}
+        </div>
+      )}
+      {children && <div className="ret-step__content">{children}</div>}
+    </div>
+  )
+}
+
 export function RetirementPage() {
   const [tab, setTab] = useState<RetirementTab>('prod')
   const [items, setItems] = useState<ReportingMetricsItem[]>([])
@@ -143,17 +209,6 @@ export function RetirementPage() {
     setDrawerLoading(false)
   }
 
-  const handleReview = async () => {
-    if (!drawerItem) return
-    setActionLoading(true)
-    try {
-      const { workflow } = await api.reviewRetirementItem(drawerItem.catalog_base_name)
-      setDrawerWorkflow(workflow)
-      loadData()
-    } catch (e) { console.error(e) }
-    setActionLoading(false)
-  }
-
   const handleApprove = async () => {
     if (!drawerItem || !approvalReason.trim()) return
     setActionLoading(true)
@@ -236,88 +291,118 @@ export function RetirementPage() {
   }).length
   const noProdNew = allItems.length - noProdOld - noProdMed
 
+  const wf = drawerWorkflow
+  const isApproved = !!wf?.step_approved_at
+  const isNotified = !!wf?.step_notified_at
+  const isStarted = !!wf?.step_started_at
+  const isRetired = !!wf?.step_retired_at
+
+  const approveIsNext = !isApproved
+  const notifyIsNext = isApproved && !isNotified && !isStarted
+  const startIsNext = isApproved && !isStarted
+
   return (
     <div className="ca-page">
       <div className="ca-header">
         <h3>Retirement Analysis</h3>
-        <span className="ca-subtitle" style={{ marginBottom: 0 }}>Last synced: {syncAge}</span>
+        <span className="ca-subtitle" style={{ marginBottom: 0 }}>Synced {syncAge}</span>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '8px' }}>
-        <p className="ca-subtitle" style={{ margin: 0 }}>Retirement scoring based on provisions, sales, cost, and catalog presence.</p>
+
+      {/* Tab bar + time window */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '12px' }}>
+        <div className="ca-tab-bar" style={{ marginBottom: 0, flex: 'none' }}>
+          <button className={`ca-tab-btn${tab === 'prod' ? ' active' : ''}`} onClick={() => setTab('prod')}>Prod Retirements</button>
+          <button className={`ca-tab-btn${tab === 'no-prod' ? ' active' : ''}`} onClick={() => setTab('no-prod')}>Without Prod</button>
+        </div>
         {tab === 'prod' && (
-          <div className="ca-controls" style={{ margin: 0, padding: 0 }}>
-            {([['1q', 'Last 3 Months'], ['2q', 'Last 6 Months'], ['3q', 'Last 9 Months'], ['1y', '1 Year']] as [TimeWindow, string][]).map(([w, label]) => (
+          <div className="ret-filter-group">
+            {([['1q', '3 Mo'], ['2q', '6 Mo'], ['3q', '9 Mo'], ['1y', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
               <button key={w} onClick={() => setWindow(w)}
-                className={`ca-filter-btn${window === w ? ' active' : ''}`}
-                style={{ fontSize: '11px', padding: '3px 8px' }}>
+                className={`ret-filter-group__btn${window === w ? ' active' : ''}`}>
                 {label}
               </button>
             ))}
           </div>
         )}
-      </div>
-
-      <div className="ca-tab-bar" style={{ marginBottom: '12px' }}>
-        <button className={`ca-tab-btn${tab === 'prod' ? ' active' : ''}`} onClick={() => setTab('prod')}>Prod Retirements</button>
-        <button className={`ca-tab-btn${tab === 'no-prod' ? ' active' : ''}`} onClick={() => setTab('no-prod')}>Without Prod</button>
+        <span className="ca-subtitle" style={{ margin: 0, marginLeft: 'auto' }}>
+          Scoring based on provisions, sales, cost, and catalog presence
+        </span>
       </div>
 
       {tab === 'prod' ? (
         <>
+          {/* Stats grid */}
           {allItems.length > 0 && (
             <div className="ca-stats-grid">
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Total Assets</div>
-                <div className="ca-stat-value ca-color-blue">{allItems.length}</div>
+              <div className="ret-stat-card ret-stat-card--blue">
+                <div className="ret-stat-label">Total Assets</div>
+                <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">High Retirement</div>
-                <div className="ca-stat-value ca-color-red">{prodHigh}</div>
+              <div className="ret-stat-card ret-stat-card--red">
+                <div className="ret-stat-label">High Retirement</div>
+                <div className="ret-stat-value ca-color-red">{prodHigh}</div>
+                <div className="ret-stat-sub">score ≥ 55</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Review</div>
-                <div className="ca-stat-value ca-color-orange">{prodReview}</div>
+              <div className="ret-stat-card ret-stat-card--amber">
+                <div className="ret-stat-label">Review</div>
+                <div className="ret-stat-value ca-color-orange">{prodReview}</div>
+                <div className="ret-stat-sub">score 35–54</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Keepers</div>
-                <div className="ca-stat-value ca-color-green">{prodKeepers}</div>
+              <div className="ret-stat-card ret-stat-card--green">
+                <div className="ret-stat-label">Keepers</div>
+                <div className="ret-stat-value ca-color-green">{prodKeepers}</div>
+                <div className="ret-stat-sub">score &lt; 35</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Total Cost</div>
-                <div className="ca-stat-value">{fmt(totalCost)}</div>
+              <div className="ret-stat-card ret-stat-card--neutral">
+                <div className="ret-stat-label">Total Cost</div>
+                <div className="ret-stat-value">{fmt(totalCost)}</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Total Closed</div>
-                <div className="ca-stat-value ca-color-green">{fmt(totalClosed)}</div>
+              <div className="ret-stat-card ret-stat-card--green">
+                <div className="ret-stat-label">Total Closed</div>
+                <div className="ret-stat-value ca-color-green">{fmt(totalClosed)}</div>
               </div>
-              <div className="ca-stat-card">
-                <div className="ca-stat-label">Total Touched</div>
-                <div className="ca-stat-value">{fmt(totalTouched)}</div>
+              <div className="ret-stat-card ret-stat-card--neutral">
+                <div className="ret-stat-label">Total Touched</div>
+                <div className="ret-stat-value">{fmt(totalTouched)}</div>
               </div>
             </div>
           )}
 
-          <div className="ca-controls">
-            {(['all', 'high', 'review', 'keepers'] as ScoreFilter[]).map(f => (
-              <button key={f} onClick={() => setScoreFilter(f)}
-                className={`ca-filter-btn${scoreFilter === f ? ' active' : ''}`}>
-                {f === 'all' ? 'All' : f === 'high' ? 'High ≥55' : f === 'review' ? 'Review 35-54' : 'Keepers <35'}
+          {/* Controls row: score filter + workflow filter + search */}
+          <div className="ret-controls-row">
+            <div className="ret-filter-group">
+              <button onClick={() => setScoreFilter('all')}
+                className={`ret-filter-group__btn${scoreFilter === 'all' ? ' active' : ''}`}>All</button>
+              <button onClick={() => setScoreFilter('high')}
+                className={`ret-filter-group__btn${scoreFilter === 'high' ? ' active' : ''}`}>
+                <span className="ret-filter-group__dot ret-filter-group__dot--red" />High ≥55
               </button>
-            ))}
+              <button onClick={() => setScoreFilter('review')}
+                className={`ret-filter-group__btn${scoreFilter === 'review' ? ' active' : ''}`}>
+                <span className="ret-filter-group__dot ret-filter-group__dot--amber" />Review
+              </button>
+              <button onClick={() => setScoreFilter('keepers')}
+                className={`ret-filter-group__btn${scoreFilter === 'keepers' ? ' active' : ''}`}>
+                <span className="ret-filter-group__dot ret-filter-group__dot--green" />Keepers
+              </button>
+            </div>
+
+            <div className="ret-controls-row__divider" />
+
+            <div className="ret-filter-group">
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['retired', 'Retired']] as [WorkflowFilter, string][]).map(([f, label]) => (
+                <button key={f} onClick={() => setWorkflowFilter(f)}
+                  className={`ret-filter-group__btn${workflowFilter === f ? ' active' : ''}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <input
               type="text" placeholder="Search by name..."
               value={search} onChange={e => setSearch(e.target.value)}
               className="ca-search"
             />
-          </div>
-          <div className="ca-controls" style={{ margin: 0, padding: 0 }}>
-            {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['retired', 'Retired']] as [WorkflowFilter, string][]).map(([f, label]) => (
-              <button key={f} onClick={() => setWorkflowFilter(f)}
-                className={`ca-filter-btn${workflowFilter === f ? ' active' : ''}`}
-                style={{ fontSize: '11px', padding: '3px 8px' }}>
-                {label}
-              </button>
-            ))}
           </div>
 
           {loading ? (
@@ -347,13 +432,7 @@ export function RetirementPage() {
                           <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
                             <td className="name" title={item.display_name}>
                               {item.display_name}
-                              {item.workflow_status && item.workflow_status !== 'retired' && (
-                                <span style={{
-                                  fontSize: '9px', padding: '1px 6px', marginLeft: '8px',
-                                  background: 'var(--pf-t--global--color--status--info--default, #0066cc)',
-                                  color: '#fff', borderRadius: '3px', whiteSpace: 'nowrap', verticalAlign: 'middle',
-                                }}>Retirement In Process</span>
-                              )}
+                              {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
                             </td>
                             <td className="num">
                               <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score) }}>
@@ -424,8 +503,7 @@ export function RetirementPage() {
                                     <span className="ca-detail-value">{item.category || '—'}</span>
                                   </div>
                                   <div className="ca-detail-item" style={{ marginLeft: 'auto' }}>
-                                    <button className="browse-btn-action" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}
-                                      style={{ fontSize: '11px', padding: '4px 12px' }}>
+                                    <button className="ret-action-btn ret-action-btn--primary" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}>
                                       Retirement Workflow
                                     </button>
                                   </div>
@@ -445,31 +523,33 @@ export function RetirementPage() {
       ) : (
         <>
           <div className="ca-stats-grid">
-            <div className="ca-stat-card">
-              <div className="ca-stat-label">Without Prod</div>
-              <div className="ca-stat-value ca-color-blue">{allItems.length}</div>
+            <div className="ret-stat-card ret-stat-card--blue">
+              <div className="ret-stat-label">Without Prod</div>
+              <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
             </div>
-            <div className="ca-stat-card">
-              <div className="ca-stat-label">&gt; 1 Year</div>
-              <div className="ca-stat-value ca-color-red">{noProdOld}</div>
+            <div className="ret-stat-card ret-stat-card--red">
+              <div className="ret-stat-label">&gt; 1 Year</div>
+              <div className="ret-stat-value ca-color-red">{noProdOld}</div>
             </div>
-            <div className="ca-stat-card">
-              <div className="ca-stat-label">6-12 Months</div>
-              <div className="ca-stat-value ca-color-orange">{noProdMed}</div>
+            <div className="ret-stat-card ret-stat-card--amber">
+              <div className="ret-stat-label">6–12 Months</div>
+              <div className="ret-stat-value ca-color-orange">{noProdMed}</div>
             </div>
-            <div className="ca-stat-card">
-              <div className="ca-stat-label">&lt; 6 Months</div>
-              <div className="ca-stat-value ca-color-green">{noProdNew}</div>
+            <div className="ret-stat-card ret-stat-card--green">
+              <div className="ret-stat-label">&lt; 6 Months</div>
+              <div className="ret-stat-value ca-color-green">{noProdNew}</div>
             </div>
           </div>
 
-          <div className="ca-controls">
-            {([['all', 'All'], ['old', '> 1 Year'], ['med', '6-12 Mo'], ['new', '< 6 Mo']] as [AgeFilter, string][]).map(([f, label]) => (
-              <button key={f} onClick={() => setAgeFilter(f)}
-                className={`ca-filter-btn${ageFilter === f ? ' active' : ''}`}>
-                {label}
-              </button>
-            ))}
+          <div className="ret-controls-row">
+            <div className="ret-filter-group">
+              {([['all', 'All'], ['old', '> 1 Year'], ['med', '6–12 Mo'], ['new', '< 6 Mo']] as [AgeFilter, string][]).map(([f, label]) => (
+                <button key={f} onClick={() => setAgeFilter(f)}
+                  className={`ret-filter-group__btn${ageFilter === f ? ' active' : ''}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <input
               type="text" placeholder="Search by name..."
               value={search} onChange={e => setSearch(e.target.value)}
@@ -564,8 +644,7 @@ export function RetirementPage() {
                                     <span className="ca-detail-value">{item.category || '—'}</span>
                                   </div>
                                   <div className="ca-detail-item" style={{ marginLeft: 'auto' }}>
-                                    <button className="browse-btn-action" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}
-                                      style={{ fontSize: '11px', padding: '4px 12px' }}>
+                                    <button className="ret-action-btn ret-action-btn--primary" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}>
                                       Retirement Workflow
                                     </button>
                                   </div>
@@ -585,10 +664,11 @@ export function RetirementPage() {
         </>
       )}
 
+      {/* ══════════════ Retirement Workflow Drawer ══════════════ */}
       {drawerItem && (
         <>
           <div className="browse-drawer-overlay" onClick={() => setDrawerItem(null)} />
-          <div className="browse-drawer" style={{ width: '480px' }}>
+          <div className="browse-drawer ret-drawer">
             <div className="browse-drawer-header">
               <div className="browse-drawer-title">{drawerItem.display_name}</div>
               <button className="browse-drawer-close" onClick={() => setDrawerItem(null)} aria-label="Close drawer">&times;</button>
@@ -598,250 +678,266 @@ export function RetirementPage() {
                 <p className="ca-color-muted">Loading workflow...</p>
               ) : (
                 <>
-                  {/* Top: item info */}
-                  <div className="browse-drawer-field">
-                    <label className="browse-drawer-label">Base Name</label>
-                    <div>{drawerItem.catalog_base_name}</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ flex: 1 }}>
-                      <label className="browse-drawer-label">Score</label>
-                      <span className="ca-score-badge" style={{ background: scoreBg(drawerItem.retirement_score), color: scoreColor(drawerItem.retirement_score) }}>
+                  {/* ── Usage Data Grid ── */}
+                  <div className="ret-data-grid">
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Score</div>
+                      <div className="ret-data-value" style={{ color: scoreColor(drawerItem.retirement_score) }}>
                         {drawerItem.retirement_score}
-                      </span>
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <label className="browse-drawer-label">Category</label>
-                      <div>{drawerItem.category || '—'}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '12px' }}>
-                    <div style={{ flex: '1 1 45%' }}>
-                      <label className="browse-drawer-label">Provisions</label>
-                      <div>{drawerItem.provisions.toLocaleString()}</div>
-                    </div>
-                    <div style={{ flex: '1 1 45%' }}>
-                      <label className="browse-drawer-label">Cost</label>
-                      <div>{fmt(drawerItem.total_cost)}</div>
-                    </div>
-                    <div style={{ flex: '1 1 45%' }}>
-                      <label className="browse-drawer-label">Touched</label>
-                      <div>{fmt(drawerItem.touched_amount)}</div>
-                    </div>
-                    <div style={{ flex: '1 1 45%' }}>
-                      <label className="browse-drawer-label">Closed</label>
-                      <div>{fmt(drawerItem.closed_amount)}</div>
-                    </div>
-                  </div>
-                  <div className="browse-drawer-field">
-                    <label className="browse-drawer-label">Stages</label>
-                    <div>
-                      {drawerItem.stages.map(s => (
-                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
-                          className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
-                          style={{ marginRight: 4 }}>
-                          {s.stage}
-                        </a>
-                      ))}
-                      {drawerItem.stages.length === 0 && <span className="ca-color-muted">none</span>}
-                    </div>
-                  </div>
-
-                  {/* Workflow checklist */}
-                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
-                    <label className="browse-drawer-label" style={{ marginBottom: '8px', display: 'block' }}>Retirement Workflow</label>
-
-                    {/* Step 1: Reviewed */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
-                      <input type="checkbox" checked={!!drawerWorkflow?.step_reviewed_at} readOnly style={{ marginTop: '3px' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>Reviewed</div>
-                        {drawerWorkflow?.step_reviewed_at ? (
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {new Date(drawerWorkflow.step_reviewed_at).toLocaleDateString()} by {drawerWorkflow.step_reviewed_by || '—'}
-                          </div>
-                        ) : (
-                          <button className="browse-btn-action" onClick={handleReview} disabled={actionLoading}
-                            style={{ marginTop: '4px', fontSize: '11px', padding: '2px 8px' }}>
-                            {actionLoading ? 'Working...' : 'Mark Reviewed'}
-                          </button>
-                        )}
                       </div>
                     </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Provisions</div>
+                      <div className="ret-data-value">{drawerItem.provisions.toLocaleString()}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Unique Users</div>
+                      <div className="ret-data-value">{drawerItem.unique_users.toLocaleString()}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Experiences</div>
+                      <div className="ret-data-value">{drawerItem.experiences.toLocaleString()}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Touched</div>
+                      <div className="ret-data-value">{fmt(drawerItem.touched_amount)}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Closed</div>
+                      <div className="ret-data-value ret-data-value--green">{fmt(drawerItem.closed_amount)}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Total Cost</div>
+                      <div className="ret-data-value">{fmt(drawerItem.total_cost)}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Cost / Provision</div>
+                      <div className="ret-data-value ret-data-value--small">${drawerItem.avg_cost_per_provision.toFixed(2)}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Success Rate</div>
+                      <div className="ret-data-value ret-data-value--green ret-data-value--small">{(drawerItem.success_ratio * 100).toFixed(1)}%</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Failure Rate</div>
+                      <div className="ret-data-value ret-data-value--small" style={{ color: drawerItem.failure_ratio > 0.1 ? 'var(--score-red)' : 'var(--text-primary)' }}>
+                        {(drawerItem.failure_ratio * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">First Provision</div>
+                      <div className="ret-data-value ret-data-value--small">{drawerItem.first_provision || 'N/A'}</div>
+                    </div>
+                    <div className="ret-data-cell">
+                      <div className="ret-data-label">Last Provision</div>
+                      <div className="ret-data-value ret-data-value--small">{drawerItem.last_provision || 'N/A'}</div>
+                    </div>
+                    <div className="ret-data-cell ret-data-cell--wide">
+                      <div className="ret-data-label">Environments</div>
+                      <div style={{ marginTop: '4px' }}>
+                        {drawerItem.stages.map(s => (
+                          <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                            className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
+                            style={{ marginRight: 4 }}>
+                            {s.stage}
+                          </a>
+                        ))}
+                        {drawerItem.stages.length === 0 && <span className="ca-color-muted">none</span>}
+                      </div>
+                    </div>
+                  </div>
 
-                    {/* Step 2: Approved */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
-                      <input type="checkbox" checked={!!drawerWorkflow?.step_approved_at} readOnly style={{ marginTop: '3px' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>Approved</div>
-                        {drawerWorkflow?.step_approved_at ? (
-                          <>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              {new Date(drawerWorkflow.step_approved_at).toLocaleDateString()} by {drawerWorkflow.step_approved_by || '—'}
-                            </div>
-                            {drawerWorkflow.approval_reason && (
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                                Reason: {drawerWorkflow.approval_reason}
+                  {/* ── Workflow Stepper ── */}
+                  <div className="ret-drawer-section">
+                    <div className="ret-drawer-section__title">Retirement Workflow</div>
+
+                    <div className="ret-stepper">
+                      {/* Step 1: Approve for Retirement */}
+                      <StepperStep
+                        title="Approve for Retirement"
+                        complete={isApproved}
+                        active={approveIsNext}
+                        pending={false}
+                        completedAt={wf?.step_approved_at}
+                        completedBy={wf?.step_approved_by}
+                      >
+                        {isApproved ? (
+                          <div style={{ fontSize: '12px' }}>
+                            {wf?.approval_reason && (
+                              <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                                {wf.approval_reason}
                               </div>
                             )}
-                            {drawerWorkflow.replacement_ci && (
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                Replacement: {drawerWorkflow.replacement_name || drawerWorkflow.replacement_ci}
+                            {wf?.replacement_ci && (
+                              <div style={{ color: 'var(--text-muted)' }}>
+                                Replacement: {wf.replacement_name || wf.replacement_ci}
                               </div>
                             )}
-                          </>
+                          </div>
                         ) : (
-                          <div style={{ marginTop: '4px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                             <textarea
                               className="browse-drawer-textarea"
                               value={approvalReason}
                               onChange={e => setApprovalReason(e.target.value)}
                               placeholder="Reason for retirement (required)..."
                               rows={2}
-                              style={{ fontSize: '11px', marginBottom: '4px' }}
+                              style={{ fontSize: '12px' }}
                             />
-                            <input
-                              type="text"
-                              className="browse-drawer-input"
-                              value={replacementCi}
-                              onChange={e => setReplacementCi(e.target.value)}
-                              placeholder="Replacement CI (optional)"
-                              style={{ fontSize: '11px', marginBottom: '4px' }}
-                            />
-                            <input
-                              type="text"
-                              className="browse-drawer-input"
-                              value={replacementName}
-                              onChange={e => setReplacementName(e.target.value)}
-                              placeholder="Replacement display name (optional)"
-                              style={{ fontSize: '11px', marginBottom: '4px' }}
-                            />
-                            <button className="browse-btn-action browse-btn-action--primary" onClick={handleApprove}
-                              disabled={actionLoading || !approvalReason.trim()}
-                              style={{ fontSize: '11px', padding: '2px 8px' }}>
-                              {actionLoading ? 'Working...' : 'Approve Retirement'}
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <input
+                                type="text"
+                                className="browse-drawer-input"
+                                value={replacementCi}
+                                onChange={e => setReplacementCi(e.target.value)}
+                                placeholder="Replacement CI (optional)"
+                                style={{ fontSize: '12px', flex: 1 }}
+                              />
+                              <input
+                                type="text"
+                                className="browse-drawer-input"
+                                value={replacementName}
+                                onChange={e => setReplacementName(e.target.value)}
+                                placeholder="Display name (optional)"
+                                style={{ fontSize: '12px', flex: 1 }}
+                              />
+                            </div>
+                            <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
+                              disabled={actionLoading || !approvalReason.trim()}>
+                              {actionLoading ? 'Approving...' : 'Approve Retirement'}
                             </button>
                           </div>
                         )}
-                      </div>
-                    </div>
+                      </StepperStep>
 
-                    {/* Step 3: Owner Notified */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
-                      <input type="checkbox" checked={!!drawerWorkflow?.step_notified_at} readOnly style={{ marginTop: '3px' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>Owner Notified</div>
-                        {drawerWorkflow?.step_notified_at ? (
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {new Date(drawerWorkflow.step_notified_at).toLocaleDateString()} by {drawerWorkflow.step_notified_by || '—'}
-                          </div>
-                        ) : (
-                          <button className="browse-btn-action" onClick={handleNotify} disabled={actionLoading}
-                            style={{ marginTop: '4px', fontSize: '11px', padding: '2px 8px' }}>
-                            {actionLoading ? 'Working...' : 'Mark Notified'}
+                      {/* Step 2: Owner Notified (optional) */}
+                      <StepperStep
+                        title="Owner Notified"
+                        complete={isNotified}
+                        active={notifyIsNext}
+                        pending={!isApproved}
+                        optional
+                        completedAt={wf?.step_notified_at}
+                        completedBy={wf?.step_notified_by}
+                      >
+                        {!isNotified && isApproved && !isStarted && (
+                          <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
+                            disabled={actionLoading} style={{ fontSize: '11px' }}>
+                            {actionLoading ? 'Notifying...' : 'Mark as Notified'}
                           </button>
                         )}
-                      </div>
-                    </div>
+                      </StepperStep>
 
-                    {/* Step 4: Start Retirement */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
-                      <input type="checkbox" checked={!!drawerWorkflow?.step_started_at} readOnly style={{ marginTop: '3px' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>Retirement Started</div>
-                        {drawerWorkflow?.step_started_at ? (
-                          <>
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                              {new Date(drawerWorkflow.step_started_at).toLocaleDateString()} by {drawerWorkflow.step_started_by || '—'}
-                            </div>
-                            {drawerWorkflow.retirement_target_date && (
-                              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                Target: {new Date(drawerWorkflow.retirement_target_date).toLocaleDateString()}
+                      {/* Step 3: Start Retirement */}
+                      <StepperStep
+                        title="Retirement Started"
+                        complete={isStarted}
+                        active={startIsNext}
+                        pending={!isApproved}
+                        completedAt={wf?.step_started_at}
+                        completedBy={wf?.step_started_by}
+                      >
+                        {isStarted ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {wf?.retirement_target_date && (
+                              <div className="ret-target-date">
+                                Target: {new Date(wf.retirement_target_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                               </div>
                             )}
-                            {drawerWorkflow.jira_key && (
-                              <div style={{ fontSize: '11px' }}>
-                                <a href={`https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}`} target="_blank" rel="noreferrer"
-                                  style={{ color: 'var(--pf-t--global--color--status--info--default, #0066cc)' }}>
-                                  {drawerWorkflow.jira_key}
-                                </a>
-                              </div>
+                            {wf?.jira_key && (
+                              <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
+                                target="_blank" rel="noreferrer" className="ret-jira-link">
+                                {wf.jira_key}
+                              </a>
                             )}
-                          </>
-                        ) : (
-                          <div style={{ marginTop: '4px' }}>
-                            {!drawerWorkflow?.step_approved_at && (
-                              <div style={{ fontSize: '11px', color: 'var(--score-amber)', marginBottom: '4px' }}>
-                                Approval required before starting retirement
-                              </div>
-                            )}
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
-                              <label style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>Target days:</label>
+                          </div>
+                        ) : isApproved ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
                               <input type="number" className="browse-drawer-input"
                                 value={targetDays} onChange={e => setTargetDays(Number(e.target.value) || 30)}
-                                style={{ width: '60px', fontSize: '11px' }} />
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px' }}>
-                              <label style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>Jira project:</label>
+                                style={{ width: '60px', fontSize: '12px' }} />
+                              <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Jira:</label>
                               <input type="text" className="browse-drawer-input"
                                 value={jiraProject} onChange={e => setJiraProject(e.target.value)}
-                                style={{ width: '80px', fontSize: '11px' }} />
+                                style={{ width: '80px', fontSize: '12px' }} />
                             </div>
-                            <button className="browse-btn-action browse-btn-action--primary" onClick={handleStart}
-                              disabled={actionLoading || !drawerWorkflow?.step_approved_at}
-                              style={{ fontSize: '11px', padding: '2px 8px' }}>
-                              {actionLoading ? 'Working...' : 'Start Retirement'}
+                            <button className="ret-action-btn ret-action-btn--start" onClick={handleStart}
+                              disabled={actionLoading}>
+                              {actionLoading ? 'Creating Jira...' : 'Start Retirement'}
                             </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Step 5: Retired (auto-status) */}
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '10px' }}>
-                      <input type="checkbox" checked={!!drawerWorkflow?.step_retired_at} readOnly style={{ marginTop: '3px' }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontWeight: 500 }}>Retired</div>
-                        {drawerWorkflow?.step_retired_at ? (
-                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            {new Date(drawerWorkflow.step_retired_at).toLocaleDateString()}
                           </div>
                         ) : (
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Auto-completes when retirement is finalized
+                            Requires approval first
                           </div>
                         )}
-                      </div>
+                      </StepperStep>
+
+                      {/* Step 4: Retired (auto) */}
+                      <StepperStep
+                        title="Retired"
+                        complete={isRetired}
+                        active={false}
+                        pending={!isStarted}
+                        auto
+                        completedAt={wf?.step_retired_at}
+                      >
+                        {!isRetired && (
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                            Auto-completes when item disappears from Babylon
+                          </div>
+                        )}
+                      </StepperStep>
                     </div>
                   </div>
 
-                  {/* Approval snapshot comparison */}
-                  {drawerWorkflow?.approval_snapshot && (
-                    <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
-                      <label className="browse-drawer-label" style={{ marginBottom: '6px', display: 'block' }}>Metrics: At Approval vs Current</label>
-                      <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
+                  {/* ── Approval Snapshot Comparison ── */}
+                  {wf?.approval_snapshot && (
+                    <div className="ret-drawer-section">
+                      <div className="ret-drawer-section__title">Metrics at Approval vs Current</div>
+                      <table className="ret-snapshot-table">
                         <thead>
                           <tr>
-                            <th style={{ textAlign: 'left', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>Metric</th>
-                            <th style={{ textAlign: 'right', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>At Approval</th>
-                            <th style={{ textAlign: 'right', padding: '2px 4px', borderBottom: '1px solid var(--border-color, #333)' }}>Current</th>
+                            <th>Metric</th>
+                            <th>At Approval</th>
+                            <th>Current</th>
+                            <th>Δ</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {Object.entries(drawerWorkflow.approval_snapshot).map(([key, val]) => {
-                            const currentMap: Record<string, number | string> = {
-                              provisions: drawerItem.provisions,
-                              total_cost: drawerItem.total_cost,
-                              touched_amount: drawerItem.touched_amount,
-                              closed_amount: drawerItem.closed_amount,
-                              retirement_score: drawerItem.retirement_score,
-                            }
-                            const current = currentMap[key]
+                          {([
+                            ['retirement_score', 'Score', drawerItem.retirement_score],
+                            ['provisions', 'Provisions', drawerItem.provisions],
+                            ['unique_users', 'Users', drawerItem.unique_users],
+                            ['experiences', 'Experiences', drawerItem.experiences],
+                            ['total_cost', 'Cost', drawerItem.total_cost],
+                            ['touched_amount', 'Touched', drawerItem.touched_amount],
+                            ['closed_amount', 'Closed', drawerItem.closed_amount],
+                          ] as [string, string, number][]).map(([key, label, current]) => {
+                            const snapped = wf.approval_snapshot![key]
+                            if (snapped === undefined) return null
+                            const snapVal = typeof snapped === 'number' ? snapped : 0
+                            const delta = current - snapVal
+                            const isMoney = ['total_cost', 'touched_amount', 'closed_amount'].includes(key)
+                            const fmtVal = (v: number) => isMoney ? fmt(v) : v.toLocaleString()
                             return (
                               <tr key={key}>
-                                <td style={{ padding: '2px 4px' }}>{key.replace(/_/g, ' ')}</td>
-                                <td style={{ textAlign: 'right', padding: '2px 4px' }}>{typeof val === 'number' ? val.toLocaleString() : val}</td>
-                                <td style={{ textAlign: 'right', padding: '2px 4px' }}>{current !== undefined ? (typeof current === 'number' ? current.toLocaleString() : current) : '—'}</td>
+                                <td>{label}</td>
+                                <td>{fmtVal(snapVal)}</td>
+                                <td>{fmtVal(current)}</td>
+                                <td>
+                                  {delta !== 0 && (
+                                    <span className={`ret-snapshot-delta ${
+                                      key === 'retirement_score'
+                                        ? (delta > 0 ? 'ret-snapshot-delta--up' : 'ret-snapshot-delta--down')
+                                        : (delta > 0 ? 'ret-snapshot-delta--down' : 'ret-snapshot-delta--up')
+                                    }`}>
+                                      {delta > 0 ? '+' : ''}{isMoney ? fmt(delta) : delta.toLocaleString()}
+                                    </span>
+                                  )}
+                                </td>
                               </tr>
                             )
                           })}
@@ -850,40 +946,29 @@ export function RetirementPage() {
                     </div>
                   )}
 
-                  {/* Curator notes */}
-                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '8px' }}>
-                    <div className="browse-drawer-field">
-                      <label className="browse-drawer-label">Curator Notes</label>
-                      <textarea
-                        className="browse-drawer-textarea"
-                        value={notesText}
-                        onChange={e => setNotesText(e.target.value)}
-                        onBlur={handleSaveNotes}
-                        placeholder="Add notes about this retirement..."
-                        rows={3}
-                      />
-                    </div>
+                  {/* ── Curator Notes ── */}
+                  <div className="ret-drawer-section">
+                    <div className="ret-drawer-section__title">Curator Notes</div>
+                    <textarea
+                      className="browse-drawer-textarea"
+                      value={notesText}
+                      onChange={e => setNotesText(e.target.value)}
+                      onBlur={handleSaveNotes}
+                      placeholder="Add notes about this retirement..."
+                      rows={3}
+                      style={{ fontSize: '12px' }}
+                    />
                   </div>
 
-                  {/* Jira link */}
-                  {drawerWorkflow?.jira_key && (
-                    <div className="browse-drawer-field">
-                      <label className="browse-drawer-label">Jira Ticket</label>
-                      <a href={`https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}`} target="_blank" rel="noreferrer"
-                        style={{ color: 'var(--pf-t--global--color--status--info--default, #0066cc)' }}>
-                        {drawerWorkflow.jira_key}
-                      </a>
+                  {/* ── Cancel Workflow ── */}
+                  {wf && (
+                    <div style={{ paddingTop: '8px' }}>
+                      <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
+                        disabled={actionLoading}>
+                        {actionLoading ? 'Canceling...' : 'Cancel Workflow'}
+                      </button>
                     </div>
                   )}
-
-                  {/* Cancel workflow */}
-                  <div style={{ borderTop: '1px solid var(--border-color, #333)', paddingTop: '12px', marginTop: '12px' }}>
-                    <button className="browse-btn-action browse-btn-action--danger" onClick={handleCancel}
-                      disabled={actionLoading}
-                      style={{ fontSize: '11px', padding: '3px 10px' }}>
-                      {actionLoading ? 'Canceling...' : 'Cancel Workflow'}
-                    </button>
-                  </div>
                 </>
               )}
             </div>
