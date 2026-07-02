@@ -100,6 +100,7 @@ async def retirement_dashboard(
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
+    owners_map = db.get_owners_for_base_names(base_names)
 
     from rcars.services.reporting_sync import compute_sales_impact
     for item in items:
@@ -109,6 +110,7 @@ async def retirement_dashboard(
         item["has_content"] = has_showroom
         if not has_showroom:
             item["catalog_url"] = f"https://demo.redhat.com/catalog?search={item['catalog_base_name']}"
+        item["owners"] = owners_map.get(item["catalog_base_name"], [])
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 

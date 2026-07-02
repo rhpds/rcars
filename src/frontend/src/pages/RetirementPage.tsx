@@ -140,6 +140,7 @@ export function RetirementPage() {
   const [targetDays, setTargetDays] = useState(30)
   const [jiraProject, setJiraProject] = useState('RHDPCD')
   const [actionLoading, setActionLoading] = useState(false)
+  const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -200,6 +201,7 @@ export function RetirementPage() {
   const openDrawer = async (item: ReportingMetricsItem) => {
     setDrawerItem(item)
     setDrawerLoading(true)
+    setEmailTemplate(null)
     try {
       const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
       setDrawerWorkflow(workflow)
@@ -267,6 +269,38 @@ export function RetirementPage() {
       const { workflow } = await api.updateRetirementNotes(drawerItem.catalog_base_name, notesText)
       setDrawerWorkflow(workflow)
     } catch (e) { console.error(e) }
+  }
+
+  const generateEmailTemplate = () => {
+    if (!drawerItem) return
+    const owners = drawerItem.owners || []
+    const ownerNames = owners.map(o => o.name || o.email).join(', ') || 'Content Owner'
+    const reason = drawerWorkflow?.approval_reason || approvalReason || 'See RCARS retirement analysis'
+    const replacement = drawerWorkflow?.replacement_name || replacementName
+    const score = drawerItem.retirement_score
+    const provs = num(drawerItem.provisions).toLocaleString()
+    const cost = fmt(drawerItem.total_cost)
+    const touched = fmt(drawerItem.touched_amount)
+
+    const template = `Hi ${ownerNames},
+
+This is a notification that "${drawerItem.display_name}" has been approved for retirement from the Red Hat Demo Platform.
+
+Reason: ${reason}
+
+Key metrics (last 12 months):
+- Retirement Score: ${score}
+- Provisions: ${provs}
+- Total Cost: ${cost}
+- Pipeline Touched: ${touched}
+${replacement ? `\nReplacement: ${replacement}` : ''}
+${drawerWorkflow?.jira_key ? `\nJira: https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}` : ''}
+If you have questions or concerns about this retirement, please reach out to Nate Stephany (nstephan@redhat.com).
+
+Thank you,
+RHDP Content Team`
+
+    setEmailTemplate(template)
   }
 
   const sortIndicator = (field: SortField) => {
@@ -824,17 +858,66 @@ export function RetirementPage() {
                         completedAt={wf?.step_notified_at}
                         completedBy={wf?.step_notified_by}
                       >
-                        {!isNotified && isApproved && !isStarted && (
-                          <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
-                            disabled={actionLoading} style={{ fontSize: '11px' }}>
-                            {actionLoading ? 'Notifying...' : 'Mark as Notified'}
-                          </button>
+                        {isApproved && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {/* Show detected owners */}
+                            {drawerItem.owners && drawerItem.owners.length > 0 && (
+                              <div style={{ fontSize: '12px' }}>
+                                <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Detected owners:</div>
+                                {drawerItem.owners.map((o, i) => (
+                                  <div key={i} style={{ color: 'var(--text-secondary)', marginBottom: '2px' }}>
+                                    {o.name || o.email}
+                                    {o.name && o.email && <span style={{ color: 'var(--text-muted)' }}> ({o.email})</span>}
+                                    {o.role === 'sme' && <span style={{ color: 'var(--text-muted)', fontSize: '10px', marginLeft: '4px' }}>SME</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {drawerItem.owners && drawerItem.owners.length === 0 && (
+                              <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                                No owner info in AgnosticV metadata
+                              </div>
+                            )}
+
+                            {/* Email template generator */}
+                            {!isNotified && !isStarted && (
+                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
+                                  style={{ fontSize: '11px' }}>
+                                  Generate Email Template
+                                </button>
+                                <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
+                                  disabled={actionLoading} style={{ fontSize: '11px' }}>
+                                  {actionLoading ? 'Saving...' : 'Mark as Notified'}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Show generated email template */}
+                            {emailTemplate && (
+                              <div style={{ position: 'relative' }}>
+                                <textarea
+                                  className="browse-drawer-textarea"
+                                  value={emailTemplate}
+                                  readOnly
+                                  rows={12}
+                                  style={{ fontSize: '11px', fontFamily: 'var(--ff-mono)', lineHeight: '1.5' }}
+                                />
+                                <button
+                                  className="ret-action-btn ret-action-btn--start"
+                                  onClick={() => { navigator.clipboard.writeText(emailTemplate); }}
+                                  style={{ fontSize: '10px', padding: '3px 10px', position: 'absolute', top: '6px', right: '6px' }}>
+                                  Copy
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         )}
                       </StepperStep>
 
                       {/* Step 3: Start Retirement */}
                       <StepperStep
-                        title="Retirement Started"
+                        title="Start Retirement"
                         complete={isStarted}
                         active={startIsNext}
                         pending={!isApproved}
@@ -854,9 +937,17 @@ export function RetirementPage() {
                                 {wf.jira_key}
                               </a>
                             )}
+                            <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
+                              disabled={actionLoading}
+                              style={{ fontSize: '11px', marginTop: '4px' }}>
+                              {actionLoading ? 'Stopping...' : 'Stop Retirement'}
+                            </button>
                           </div>
                         ) : isApproved ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                              Creates a Jira ticket in the selected project with retirement details, metrics snapshot, and adoc template. The retirement clock starts from this point.
+                            </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
                               <input type="number" className="browse-drawer-input"
@@ -964,8 +1055,8 @@ export function RetirementPage() {
                     />
                   </div>
 
-                  {/* ── Cancel Workflow ── */}
-                  {wf && (
+                  {/* ── Cancel Workflow (before start only — after start, use Stop in the step) ── */}
+                  {wf && !isStarted && (
                     <div style={{ paddingTop: '8px' }}>
                       <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
                         disabled={actionLoading}>

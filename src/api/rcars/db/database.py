@@ -1970,6 +1970,47 @@ class Database:
                     result.setdefault(base, []).append(stage_info)
         return result
 
+    def get_owners_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
+        """Get owner/maintainer info for items, keyed by base name.
+
+        Pulls owners_json from the prod stage CI preferentially, falling back to any stage.
+        Returns {base_name: [{name, email}, ...]} for items that have owner data.
+        """
+        if not base_names:
+            return {}
+        from rcars.services.reporting_sync import extract_base_name
+        placeholders = ",".join(["%s"] * len(base_names))
+        sql = f"""
+            SELECT ci_name, owners_json
+            FROM catalog_items
+            WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+              AND owners_json IS NOT NULL
+              AND retired_at IS NULL
+            ORDER BY CASE WHEN stage = 'prod' THEN 0 ELSE 1 END
+        """
+        result: dict[str, list[dict]] = {}
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, base_names)
+                for row in cur.fetchall():
+                    base = extract_base_name(row["ci_name"])
+                    if base in result:
+                        continue
+                    oj = row["owners_json"]
+                    if isinstance(oj, dict):
+                        maintainers = oj.get("maintainer", [])
+                        smes = oj.get("sme", [])
+                        owners = []
+                        for m in (maintainers if isinstance(maintainers, list) else []):
+                            if isinstance(m, dict) and m.get("email"):
+                                owners.append({"name": m.get("name", ""), "email": m["email"], "role": "maintainer"})
+                        for s in (smes if isinstance(smes, list) else []):
+                            if isinstance(s, dict) and s.get("email"):
+                                owners.append({"name": s.get("name", ""), "email": s["email"], "role": "sme"})
+                        if owners:
+                            result[base] = owners
+        return result
+
     def get_reporting_sync_status(self) -> dict:
         """Get sync health: last synced, row counts, data coverage, score distribution."""
         sql = """
