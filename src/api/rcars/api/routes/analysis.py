@@ -125,7 +125,7 @@ async def retirement_dashboard(
     return {
         "items": items,
         "total": len(items),
-        "synced_at": sync_status.get("last_synced") if sync_status else None,
+        "synced_at": str(sync_status["last_synced"]) if sync_status and sync_status.get("last_synced") else None,
         "summary": sync_status,
         "window": window,
     }

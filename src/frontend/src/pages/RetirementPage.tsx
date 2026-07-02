@@ -15,16 +15,20 @@ type RetirementTab = 'prod' | 'no-prod'
 type TimeWindow = '1q' | '2q' | '3q' | '1y'
 type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started' | 'retired'
 
-const fmt = (n: number) => {
+const fmt = (v: number | string) => {
+  const n = typeof v === 'string' ? parseFloat(v) || 0 : v
   if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`
   return `$${n.toFixed(0)}`
 }
 
-const fmtRoi = (amount: number, cost: number) => {
-  if (cost <= 0 || amount <= 0) return '—'
-  return `${(amount / cost).toFixed(1)}x`
+const num = (v: unknown): number => typeof v === 'number' ? v : parseFloat(String(v)) || 0
+
+const fmtRoi = (amount: number | string, cost: number | string) => {
+  const a = num(amount), c = num(cost)
+  if (c <= 0 || a <= 0) return '—'
+  return `${(a / c).toFixed(1)}x`
 }
 
 const scoreColor = (score: number) => score >= 55 ? 'var(--score-red)' : score >= 35 ? 'var(--score-amber)' : 'var(--score-green)'
@@ -480,15 +484,15 @@ export function RetirementPage() {
                                   </div>
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">Cost / Provision</span>
-                                    <span className="ca-detail-value">${item.avg_cost_per_provision.toFixed(2)}</span>
+                                    <span className="ca-detail-value">${num(item.avg_cost_per_provision).toFixed(2)}</span>
                                   </div>
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">Success</span>
-                                    <span className="ca-detail-value">{(item.success_ratio * 100).toFixed(1)}%</span>
+                                    <span className="ca-detail-value">{(num(item.success_ratio) * 100).toFixed(1)}%</span>
                                   </div>
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">Failure</span>
-                                    <span className="ca-detail-value">{(item.failure_ratio * 100).toFixed(1)}%</span>
+                                    <span className="ca-detail-value">{(num(item.failure_ratio) * 100).toFixed(1)}%</span>
                                   </div>
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">First Provision</span>
@@ -712,16 +716,16 @@ export function RetirementPage() {
                     </div>
                     <div className="ret-data-cell">
                       <div className="ret-data-label">Cost / Provision</div>
-                      <div className="ret-data-value ret-data-value--small">${drawerItem.avg_cost_per_provision.toFixed(2)}</div>
+                      <div className="ret-data-value ret-data-value--small">${num(drawerItem.avg_cost_per_provision).toFixed(2)}</div>
                     </div>
                     <div className="ret-data-cell">
                       <div className="ret-data-label">Success Rate</div>
-                      <div className="ret-data-value ret-data-value--green ret-data-value--small">{(drawerItem.success_ratio * 100).toFixed(1)}%</div>
+                      <div className="ret-data-value ret-data-value--green ret-data-value--small">{(num(drawerItem.success_ratio) * 100).toFixed(1)}%</div>
                     </div>
                     <div className="ret-data-cell">
                       <div className="ret-data-label">Failure Rate</div>
-                      <div className="ret-data-value ret-data-value--small" style={{ color: drawerItem.failure_ratio > 0.1 ? 'var(--score-red)' : 'var(--text-primary)' }}>
-                        {(drawerItem.failure_ratio * 100).toFixed(1)}%
+                      <div className="ret-data-value ret-data-value--small" style={{ color: num(drawerItem.failure_ratio) > 0.1 ? 'var(--score-red)' : 'var(--text-primary)' }}>
+                        {(num(drawerItem.failure_ratio) * 100).toFixed(1)}%
                       </div>
                     </div>
                     <div className="ret-data-cell">
