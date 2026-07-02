@@ -5,11 +5,25 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
+from rcars.api.schemas import (
+    StatusResponse, JobResponse, CatalogItemResponse, CatalogStatsResponse,
+    SimilarItemsResponse, InfraSearchResponse, FacetsResponse,
+    WorkloadMappingsResponse, UnmappedWorkloadsResponse,
+    InfraStatsResponse, ContentPathResponse,
+)
 
 router = APIRouter(prefix="/catalog")
 
 
-@router.get("")
+@router.get(
+    "",
+    summary="List catalog items",
+    description=(
+        "Paginated catalog listing with filtering by stage, cloud provider, workloads, "
+        "AgnosticD config type, and curator content filters. "
+        "Text search matches on CI name and display name (case-insensitive)."
+    ),
+)
 async def list_catalog(
     request: Request,
     user: str = Depends(require_auth),
@@ -42,13 +56,27 @@ async def list_catalog(
     )
 
 
-@router.get("/stats")
+@router.get(
+    "/stats",
+    summary="Catalog statistics",
+    description="Returns catalog-wide statistics: total items, analyzed count, Showroom coverage, staleness.",
+    response_model=CatalogStatsResponse,
+)
 async def catalog_stats(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return db.get_db_currency()
 
 
-@router.get("/search/infrastructure")
+@router.get(
+    "/search/infrastructure",
+    summary="Search by infrastructure metadata",
+    description=(
+        "Searches catalog items by infrastructure attributes: workload products, "
+        "AgnosticD config type, cloud provider, OCP version, and OS image. "
+        "Returns items with their resolved workload mappings."
+    ),
+    response_model=InfraSearchResponse,
+)
 async def search_infrastructure(
     request: Request,
     user: str = Depends(require_auth),
@@ -85,19 +113,34 @@ async def search_infrastructure(
     return {"items": items, "total": len(items)}
 
 
-@router.get("/facets")
+@router.get(
+    "/facets",
+    summary="Get filter facets",
+    description="Returns distinct values for filter dropdowns: workloads, AgnosticD configs, cloud providers, OS images.",
+    response_model=FacetsResponse,
+)
 async def catalog_facets(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return db.get_catalog_facets()
 
 
-@router.get("/workload-mappings")
+@router.get(
+    "/workload-mappings",
+    summary="List workload mappings",
+    description="Returns all workload role-to-product mappings and aliases used for infrastructure search.",
+    response_model=WorkloadMappingsResponse,
+)
 async def list_workload_mappings(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return {"mappings": db.list_workload_mappings(), "aliases": db.list_workload_aliases()}
 
 
-@router.get("/workload-mappings/unmapped")
+@router.get(
+    "/workload-mappings/unmapped",
+    summary="List unmapped workload roles",
+    description="Returns workload roles discovered in catalog items that have no product mapping yet. Curator-only.",
+    response_model=UnmappedWorkloadsResponse,
+)
 async def list_unmapped_workloads(request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     return {"unmapped": db.get_unmapped_workloads()}
@@ -110,7 +153,12 @@ class WorkloadMappingRequest(BaseModel):
     category: str | None = Field(default=None, max_length=100)
 
 
-@router.post("/workload-mappings")
+@router.post(
+    "/workload-mappings",
+    summary="Add or update workload mapping",
+    description="Creates or updates a workload role-to-product mapping. Curator-only.",
+    response_model=StatusResponse,
+)
 async def add_workload_mapping(
     body: WorkloadMappingRequest, request: Request, user: str = Depends(require_curator),
 ):
@@ -125,20 +173,36 @@ async def add_workload_mapping(
     return {"status": "ok"}
 
 
-@router.delete("/workload-mappings/{role}")
+@router.delete(
+    "/workload-mappings/{role}",
+    summary="Delete workload mapping",
+    description="Removes a workload role-to-product mapping. Admin-only.",
+    response_model=StatusResponse,
+)
 async def delete_workload_mapping(role: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     db.delete_workload_mapping(role)
     return {"status": "ok"}
 
 
-@router.get("/infra-stats")
+@router.get(
+    "/infra-stats",
+    summary="Infrastructure metadata coverage",
+    description="Returns statistics on infrastructure metadata coverage across the catalog.",
+    response_model=InfraStatsResponse,
+)
 async def infra_stats(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return db.get_infra_stats()
 
 
-@router.get("/{ci_name}/similar")
+@router.get(
+    "/{ci_name}/similar",
+    summary="Find similar catalog items",
+    description="Returns catalog items with similar content based on vector embedding similarity.",
+    response_model=SimilarItemsResponse,
+    responses={404: {"description": "Catalog item not found"}},
+)
 async def get_similar_items(
     ci_name: str,
     request: Request,
@@ -153,7 +217,16 @@ async def get_similar_items(
     return {"ci_name": ci_name, "similar": similar, "count": len(similar)}
 
 
-@router.get("/{ci_name}")
+@router.get(
+    "/{ci_name}",
+    summary="Get catalog item details",
+    description=(
+        "Returns full catalog item with LLM analysis, enrichment tags, "
+        "workload mappings, ACL groups, and reporting metrics (provisions, cost, sales impact)."
+    ),
+    response_model=CatalogItemResponse,
+    responses={404: {"description": "Catalog item not found"}},
+)
 async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     item = db.get_catalog_item(ci_name)
@@ -174,7 +247,12 @@ async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(r
             "reporting": reporting}
 
 
-@router.get("/{ci_name}/analysis")
+@router.get(
+    "/{ci_name}/analysis",
+    summary="Get content analysis",
+    description="Returns the LLM-generated content analysis for a catalog item (summary, audience, topics, duration estimate).",
+    responses={404: {"description": "No analysis found for this item"}},
+)
 async def get_analysis(ci_name: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     analysis = db.get_showroom_analysis(ci_name)
@@ -183,7 +261,12 @@ async def get_analysis(ci_name: str, request: Request, user: str = Depends(requi
     return analysis
 
 
-@router.post("/refresh")
+@router.post(
+    "/refresh",
+    summary="Refresh catalog from Babylon",
+    description="Triggers a full catalog refresh from the Babylon cluster CRDs. Admin-only. Returns a job_id for tracking.",
+    response_model=JobResponse,
+)
 async def refresh_catalog(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -197,14 +280,24 @@ class TagRequest(BaseModel):
     tag_value: str = Field(max_length=100)
 
 
-@router.post("/{ci_name}/tags")
+@router.post(
+    "/{ci_name}/tags",
+    summary="Add enrichment tag",
+    description="Adds a curation tag to a catalog item (e.g., audience, use-case). Curator-only.",
+    response_model=StatusResponse,
+)
 async def add_tag(ci_name: str, body: TagRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.add_enrichment_tag(ci_name, body.tag_type, body.tag_value, added_by=user)
     return {"status": "ok"}
 
 
-@router.delete("/{ci_name}/tags/{tag_id}")
+@router.delete(
+    "/{ci_name}/tags/{tag_id}",
+    summary="Remove enrichment tag",
+    description="Removes a curation tag from a catalog item by tag ID. Curator-only.",
+    response_model=StatusResponse,
+)
 async def remove_tag(ci_name: str, tag_id: int, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.remove_enrichment_tag_by_id(tag_id, ci_name=ci_name)
@@ -215,14 +308,24 @@ class NoteRequest(BaseModel):
     note: str = Field(max_length=2000)
 
 
-@router.put("/{ci_name}/note")
+@router.put(
+    "/{ci_name}/note",
+    summary="Set curator note",
+    description="Sets or updates the curator's free-text note on a catalog item. Curator-only.",
+    response_model=StatusResponse,
+)
 async def set_note(ci_name: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.set_enrichment_note(ci_name, body.note)
     return {"status": "ok"}
 
 
-@router.post("/{ci_name}/flag")
+@router.post(
+    "/{ci_name}/flag",
+    summary="Flag item for review",
+    description="Flags a catalog item for curator review. Curator-only.",
+    response_model=StatusResponse,
+)
 async def flag_item(ci_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.set_enrichment_review_flag(ci_name, True)
@@ -233,7 +336,12 @@ class OverrideUrlRequest(BaseModel):
     url: str = Field(max_length=500, pattern=r'^https?://')
 
 
-@router.post("/{ci_name}/override-url")
+@router.post(
+    "/{ci_name}/override-url",
+    summary="Override Showroom URL",
+    description="Sets a custom Showroom URL override for a catalog item (e.g., when auto-detection fails). Curator-only.",
+    response_model=StatusResponse,
+)
 async def override_url(ci_name: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.set_showroom_url_override(ci_name, body.url)
@@ -244,7 +352,12 @@ class DurationRequest(BaseModel):
     duration_min: int | None = None
 
 
-@router.put("/{ci_name}/duration")
+@router.put(
+    "/{ci_name}/duration",
+    summary="Set curated duration",
+    description="Sets a curator-curated duration estimate (in minutes) for a catalog item. Curator-only.",
+    response_model=StatusResponse,
+)
 async def set_duration(ci_name: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     db.set_curated_duration(ci_name, body.duration_min, updated_by=user)
@@ -262,7 +375,15 @@ class ContentPathRequest(BaseModel):
         return v
 
 
-@router.post("/{ci_name}/content-path")
+@router.post(
+    "/{ci_name}/content-path",
+    summary="Set content path",
+    description=(
+        "Sets a custom content path within the Showroom repo for analysis. "
+        "Triggers a re-analysis job automatically. Curator-only."
+    ),
+    response_model=ContentPathResponse,
+)
 async def set_content_path(ci_name: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis

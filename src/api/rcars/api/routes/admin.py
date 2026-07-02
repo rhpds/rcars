@@ -5,6 +5,12 @@ from __future__ import annotations
 import structlog
 from fastapi import APIRouter, Depends, Request, Query
 from rcars.api.middleware.auth import require_admin
+from rcars.api.schemas import (
+    JobResponse, JobListResponse, TokenUsageResponse,
+    WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
+    OverlapResponse, ScheduleResponse, LlmProviderResponse,
+    ReportingStatusResponse,
+)
 from rcars.config import Settings
 
 logger = structlog.get_logger()
@@ -12,7 +18,12 @@ logger = structlog.get_logger()
 router = APIRouter(prefix="/admin")
 
 
-@router.get("/token-usage")
+@router.get(
+    "/token-usage",
+    summary="LLM token consumption stats",
+    description="Returns token usage statistics and recent query costs over the specified number of days. Admin-only.",
+    response_model=TokenUsageResponse,
+)
 async def token_usage(
     request: Request,
     user: str = Depends(require_admin),
@@ -24,7 +35,12 @@ async def token_usage(
     return {"stats": stats, "recent_queries": queries, "days": days}
 
 
-@router.get("/jobs/{job_id}")
+@router.get(
+    "/jobs/{job_id}",
+    summary="Get job details",
+    description="Returns full details for a specific async job including status, result, and error. Admin-only.",
+    responses={404: {"description": "Job not found"}},
+)
 async def get_job(job_id: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     job = db.get_job(job_id)
@@ -33,7 +49,12 @@ async def get_job(job_id: str, request: Request, user: str = Depends(require_adm
     return job
 
 
-@router.get("/jobs")
+@router.get(
+    "/jobs",
+    summary="List recent jobs",
+    description="Returns recent async jobs with optional type filter. Admin-only.",
+    response_model=JobListResponse,
+)
 async def list_jobs(
     request: Request,
     user: str = Depends(require_admin),
@@ -45,7 +66,12 @@ async def list_jobs(
     return {"items": jobs, "total": len(jobs)}
 
 
-@router.get("/workers")
+@router.get(
+    "/workers",
+    summary="Worker health and queue depths",
+    description="Returns arq queue depths, active job count, and currently running job details. Admin-only.",
+    response_model=WorkerHealthResponse,
+)
 async def worker_health(request: Request, user: str = Depends(require_admin)):
     redis = request.app.state.redis
     db = request.app.state.db
@@ -77,11 +103,15 @@ async def worker_health(request: Request, user: str = Depends(require_admin)):
     }
 
 
-@router.get("/scan-progress")
+@router.get(
+    "/scan-progress",
+    summary="Current scan batch progress",
+    description="Returns progress of the most recent scan or rescan-all batch. Admin-only.",
+    response_model=ScanProgressResponse,
+)
 async def scan_progress(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
 
-    # Scope to the most recent scan/rescan batch by finding the latest parent job
     parent_jobs = db.list_jobs(limit=5, job_type="scan") + db.list_jobs(limit=5, job_type="rescan_all")
     since = None
     if parent_jobs:
@@ -127,7 +157,12 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
     }
 
 
-@router.get("/queries")
+@router.get(
+    "/queries",
+    summary="Query history",
+    description="Returns all advisor query sessions with full turn details for analytics. Admin-only.",
+    response_model=QueryHistoryResponse,
+)
 async def query_history(
     request: Request,
     user: str = Depends(require_admin),
@@ -147,9 +182,13 @@ async def query_history(
     return {"items": results, "total": len(results)}
 
 
-@router.post("/run-maintenance")
+@router.post(
+    "/run-maintenance",
+    summary="Trigger maintenance pipeline",
+    description="Manually triggers the nightly maintenance pipeline (refresh → stale check → re-analyze). Admin-only.",
+    response_model=JobResponse,
+)
 async def run_maintenance(request: Request, user: str = Depends(require_admin)):
-    """Manually trigger the nightly maintenance pipeline (refresh → stale check → re-analyze)."""
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="maintenance", queue="ops", created_by=user)
@@ -159,7 +198,12 @@ async def run_maintenance(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
-@router.post("/sync-reporting")
+@router.post(
+    "/sync-reporting",
+    summary="Sync reporting metrics",
+    description="Syncs provision, cost, and sales metrics from the RHDP Reporting MCP server. Admin-only.",
+    response_model=JobResponse,
+)
 async def sync_reporting(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -172,9 +216,13 @@ async def sync_reporting(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
-@router.post("/scan-workloads")
+@router.post(
+    "/scan-workloads",
+    summary="Scan workload repositories",
+    description="Triggers a workload repo scan: clones AgnosticD v2 repos, analyzes Ansible roles, and updates workload mappings. Admin-only.",
+    response_model=JobResponse,
+)
 async def scan_workloads(request: Request, user: str = Depends(require_admin)):
-    """Trigger workload repo scan (clone agDv2 repos, analyze roles, update mappings)."""
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="workload_scan", queue="ops", created_by=user)
@@ -190,7 +238,15 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
-@router.get("/overlap")
+@router.get(
+    "/overlap",
+    summary="Content overlap report",
+    description=(
+        "Returns pairs of catalog items with high content similarity based on embedding cosine distance. "
+        "Useful for identifying duplicate or near-duplicate content. Admin-only."
+    ),
+    response_model=OverlapResponse,
+)
 async def overlap_report(
     request: Request,
     user: str = Depends(require_admin),
@@ -212,7 +268,11 @@ async def overlap_report(
     }
 
 
-@router.post("/compute-similarity")
+@router.post(
+    "/compute-similarity",
+    summary="Compute content similarity",
+    description="Computes pairwise content embedding similarity for all items in a stage. Admin-only.",
+)
 async def compute_similarity(
     request: Request,
     user: str = Depends(require_admin),
@@ -226,9 +286,13 @@ async def compute_similarity(
     return result
 
 
-@router.get("/schedule")
+@router.get(
+    "/schedule",
+    summary="Maintenance schedule status",
+    description="Returns the scheduled maintenance pipeline configuration and last run status. Admin-only.",
+    response_model=ScheduleResponse,
+)
 async def schedule_status(request: Request, user: str = Depends(require_admin)):
-    """Return scheduled maintenance pipeline status and last run info."""
     db = request.app.state.db
     settings = Settings()
 
@@ -252,9 +316,13 @@ async def schedule_status(request: Request, user: str = Depends(require_admin)):
     }
 
 
-@router.get("/llm-provider")
+@router.get(
+    "/llm-provider",
+    summary="LLM provider configuration",
+    description="Returns active LLM provider configuration (LiteMaaS/Vertex AI) and available models. Admin-only.",
+    response_model=LlmProviderResponse,
+)
 async def llm_provider_status(request: Request, user: str = Depends(require_admin)):
-    """Return active LLM provider configuration and available models."""
     settings = Settings()
     from rcars.config import fetch_litemaas_models
     litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
@@ -273,9 +341,13 @@ async def llm_provider_status(request: Request, user: str = Depends(require_admi
     }
 
 
-@router.get("/reporting-status")
+@router.get(
+    "/reporting-status",
+    summary="Reporting sync status",
+    description="Returns the status of the reporting metrics sync from the RHDP MCP server. Admin-only.",
+    response_model=ReportingStatusResponse,
+)
 async def reporting_status(request: Request, user: str = Depends(require_admin)):
-    """Return reporting sync status and last sync result."""
     db = request.app.state.db
     settings = Settings()
     status = db.get_reporting_sync_status()

@@ -5,6 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth
+from rcars.api.schemas import (
+    JobResponse, RetirementDashboardResponse, WorkflowResponse,
+    WorkflowGetResponse, StartRetirementResponse, CancelWorkflowResponse,
+    ScanResponse, RescanResponse,
+)
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.workers.ops import sha_dedup_scan_items
 
@@ -27,7 +32,16 @@ class NotesRequest(BaseModel):
     notes: str = Field(max_length=5000)
 
 
-@router.get("/retirement")
+@router.get(
+    "/retirement",
+    summary="Retirement dashboard",
+    description=(
+        "Returns catalog items scored for retirement potential based on usage, cost, and sales impact. "
+        "Supports filtering by score threshold, category, production status, and time window (1q/2q/3q/1y). "
+        "Curator-only."
+    ),
+    response_model=RetirementDashboardResponse,
+)
 async def retirement_dashboard(
     request: Request,
     user: str = Depends(require_curator),
@@ -116,14 +130,24 @@ async def retirement_dashboard(
     }
 
 
-@router.get("/retirement/workflow/{base_name}")
+@router.get(
+    "/retirement/workflow/{base_name}",
+    summary="Get retirement workflow",
+    description="Returns the current retirement workflow state for a catalog item. Curator-only.",
+    response_model=WorkflowGetResponse,
+)
 async def get_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     wf = db.get_retirement_workflow(base_name)
     return {"workflow": wf}
 
 
-@router.put("/retirement/workflow/{base_name}/review")
+@router.put(
+    "/retirement/workflow/{base_name}/review",
+    summary="Mark item as reviewed",
+    description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
+    response_model=WorkflowResponse,
+)
 async def review_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {
@@ -136,7 +160,15 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/retirement/workflow/{base_name}/approve")
+@router.put(
+    "/retirement/workflow/{base_name}/approve",
+    summary="Approve item for retirement",
+    description=(
+        "Approves a catalog item for retirement with a reason and optional replacement. "
+        "Captures a snapshot of current metrics at approval time. Curator-only."
+    ),
+    response_model=WorkflowResponse,
+)
 async def approve_item(base_name: str, body: ApproveRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     from datetime import datetime
@@ -172,7 +204,12 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/retirement/workflow/{base_name}/notify")
+@router.put(
+    "/retirement/workflow/{base_name}/notify",
+    summary="Mark owner as notified",
+    description="Records that the content owner has been notified about the retirement. Curator-only.",
+    response_model=WorkflowResponse,
+)
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {
@@ -185,7 +222,16 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
     return {"status": "ok", "workflow": result}
 
 
-@router.put("/retirement/workflow/{base_name}/start")
+@router.put(
+    "/retirement/workflow/{base_name}/start",
+    summary="Start retirement process",
+    description=(
+        "Starts the retirement process: creates a Jira ticket and sets a target retirement date. "
+        "Requires prior approval. Curator-only."
+    ),
+    response_model=StartRetirementResponse,
+    responses={400: {"description": "Item must be approved before starting retirement"}},
+)
 async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     settings = request.app.state.settings
@@ -217,7 +263,12 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     return {"status": "ok", "workflow": result, "jira_key": jira_key}
 
 
-@router.put("/retirement/workflow/{base_name}/notes")
+@router.put(
+    "/retirement/workflow/{base_name}/notes",
+    summary="Update curator notes",
+    description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
+    response_model=WorkflowResponse,
+)
 async def update_notes(base_name: str, body: NotesRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     fields = {"curator_notes": body.notes}
@@ -225,7 +276,12 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     return {"status": "ok", "workflow": result}
 
 
-@router.delete("/retirement/workflow/{base_name}")
+@router.delete(
+    "/retirement/workflow/{base_name}",
+    summary="Cancel retirement workflow",
+    description="Cancels and removes the retirement workflow for a catalog item. Curator-only.",
+    response_model=CancelWorkflowResponse,
+)
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     deleted = db.delete_retirement_workflow(base_name)
@@ -234,7 +290,15 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
     return {"status": "ok", "deleted": deleted}
 
 
-@router.post("/scan")
+@router.post(
+    "/scan",
+    summary="Scan items needing analysis",
+    description=(
+        "Enqueues analysis jobs for all catalog items that need (re-)analysis. "
+        "Uses SHA-based deduplication to avoid scanning identical content twice. Admin-only."
+    ),
+    response_model=ScanResponse,
+)
 async def start_scan(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -259,7 +323,12 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     return {"job_id": parent_job_id, **result}
 
 
-@router.post("/check-stale")
+@router.post(
+    "/check-stale",
+    summary="Check for stale content",
+    description="Checks all catalog items for content changes since last analysis. Admin-only.",
+    response_model=JobResponse,
+)
 async def check_stale(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -268,7 +337,12 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
     return {"job_id": job_id}
 
 
-@router.post("/rescan-all")
+@router.post(
+    "/rescan-all",
+    summary="Force rescan of entire catalog",
+    description="Marks all items as stale and enqueues re-analysis for the entire catalog. Admin-only.",
+    response_model=RescanResponse,
+)
 async def rescan_all(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -294,7 +368,12 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     return {"job_id": parent_job_id, **result}
 
 
-@router.post("/{ci_name}")
+@router.post(
+    "/{ci_name}",
+    summary="Analyze single item",
+    description="Triggers content analysis for a single catalog item. Curator-only.",
+    response_model=JobResponse,
+)
 async def analyze_single(ci_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
@@ -303,7 +382,11 @@ async def analyze_single(ci_name: str, request: Request, user: str = Depends(req
     return {"job_id": job_id}
 
 
-@router.get("/jobs/{job_id}/stream")
+@router.get(
+    "/jobs/{job_id}/stream",
+    summary="Stream analysis job progress (SSE)",
+    description="Server-Sent Events stream for real-time analysis job progress updates.",
+)
 async def stream_job(job_id: str, request: Request, user: str = Depends(require_auth)):
     relay = JobProgressRelay(request.app.state.redis)
     return create_sse_response(relay, job_id)
