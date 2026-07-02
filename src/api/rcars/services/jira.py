@@ -140,7 +140,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         "[IMPORTANT]\n"
         ".RETIREMENT NOTICE\n"
         "****\n"
-        f"This item will be retired on **{target_date_str}**.{adoc_replacement_line}\n"
+        f"This item will be retired on **[DATE TBD]**.{adoc_replacement_line}\n"
         "\n"
         "For any questions regarding this retirement, please contact "
         "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
@@ -175,7 +175,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
 
 ---
 
-**Suggested adoc template** _(replace date if needed before pasting into the CI)_**:**
+**Suggested adoc template** _(replace_ `[DATE TBD]` _with the actual retirement date before pasting into the CI)_**:**
 
 ```
 {adoc_template}
@@ -194,7 +194,7 @@ def create_retirement_ticket(
     Returns the new Jira issue key (e.g. "RHDPCD-999").
     """
     display_name = metrics.get("display_name", workflow.get("catalog_base_name", "unknown"))
-    project_key = workflow.get("jira_project", "GPTEINFRA")
+    project_key = workflow.get("jira_project", "GPTEINFRA").upper()
     description = build_retirement_description(workflow, metrics)
 
     logger.info(

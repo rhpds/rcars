@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
 import type { RetirementWorkflow } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
@@ -73,6 +73,110 @@ function WorkflowInlineBadge({ status }: { status: string }) {
       <span className="ret-inline-badge__dot" />
       In Process
     </span>
+  )
+}
+
+function ReplacementPicker({
+  value,
+  displayName,
+  onSelect,
+}: {
+  value: string
+  displayName: string
+  onSelect: (ci: string, name: string) => void
+}) {
+  const [query, setQuery] = useState(displayName || value)
+  const [results, setResults] = useState<Array<{ ci_name: string; display_name: string }>>([])
+  const [open, setOpen] = useState(false)
+  const [manualMode, setManualMode] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  const doSearch = (q: string) => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      if (q.length < 2) { setResults([]); return }
+      try {
+        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string }> }
+        const seen = new Set<string>()
+        const unique = data.items.filter(i => {
+          const key = i.base_ci_name || i.ci_name
+          if (seen.has(key)) return false
+          seen.add(key)
+          return true
+        })
+        setResults(unique.map(i => ({ ci_name: i.base_ci_name || i.ci_name, display_name: i.display_name })))
+        setOpen(true)
+      } catch { setResults([]) }
+    }, 250)
+  }
+
+  if (manualMode) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          <input type="text" className="browse-drawer-input" value={value}
+            onChange={e => onSelect(e.target.value, displayName)}
+            placeholder="CI base name" style={{ fontSize: '12px', flex: 1 }} />
+          <input type="text" className="browse-drawer-input" value={displayName}
+            onChange={e => onSelect(value, e.target.value)}
+            placeholder="Display name" style={{ fontSize: '12px', flex: 1 }} />
+        </div>
+        <button onClick={() => setManualMode(false)}
+          style={{ background: 'none', border: 'none', color: 'var(--text-link)', fontSize: '11px', cursor: 'pointer', padding: 0, textAlign: 'left' }}>
+          Search RCARS catalog instead
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={containerRef} style={{ position: 'relative' }}>
+      <input
+        type="text"
+        className="browse-drawer-input"
+        value={query}
+        onChange={e => { setQuery(e.target.value); doSearch(e.target.value) }}
+        onFocus={() => { if (results.length > 0) setOpen(true) }}
+        placeholder="Search for replacement CI..."
+        style={{ fontSize: '12px' }}
+      />
+      {open && results.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, marginTop: '2px',
+          background: 'var(--bg-card)', border: '1px solid var(--border-default)',
+          borderRadius: 'var(--radius-sm)', boxShadow: 'var(--shadow-elevated)',
+          maxHeight: '180px', overflowY: 'auto',
+        }}>
+          {results.map(r => (
+            <div key={r.ci_name}
+              onClick={() => { onSelect(r.ci_name, r.display_name); setQuery(r.display_name); setOpen(false) }}
+              style={{
+                padding: '6px 10px', cursor: 'pointer', fontSize: '12px',
+                borderBottom: '1px solid var(--border-subtle)',
+                transition: 'background 150ms',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--nav-hover-bg)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <div style={{ color: 'var(--text-primary)' }}>{r.display_name}</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: '10px', fontFamily: 'var(--ff-mono)' }}>{r.ci_name}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <button onClick={() => setManualMode(true)}
+        style={{ background: 'none', border: 'none', color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer', padding: '2px 0 0', textAlign: 'left' }}>
+        Not in RCARS? Enter manually
+      </button>
+    </div>
   )
 }
 
@@ -300,7 +404,7 @@ export function RetirementPage() {
 
     const template = `Hi ${ownerNames},
 
-This is a notification that "${drawerItem.display_name}" has been approved for retirement from the Red Hat Demo Platform.
+This is a notification that "${drawerItem.display_name}" has been flagged for retirement from the Red Hat Demo Platform.
 
 Reason: ${reason}
 
@@ -816,15 +920,20 @@ RHDP Content Team`
                         completedBy={wf?.step_approved_by}
                       >
                         {isApproved ? (
-                          <div style={{ fontSize: '12px' }}>
+                          <div style={{ fontSize: '12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
                             {wf?.approval_reason && (
-                              <div style={{ color: 'var(--text-secondary)', marginBottom: '4px' }}>
-                                {wf.approval_reason}
+                              <div>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Reason: </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{wf.approval_reason}</span>
                               </div>
                             )}
                             {wf?.replacement_ci && (
-                              <div style={{ color: 'var(--text-muted)' }}>
-                                Replacement: {wf.replacement_name || wf.replacement_ci}
+                              <div>
+                                <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Replacement: </span>
+                                <a href={`/browse?search=${encodeURIComponent(wf.replacement_ci)}`} target="_blank" rel="noreferrer"
+                                  style={{ color: 'var(--text-link)', fontSize: '12px' }}>
+                                  {wf.replacement_name || wf.replacement_ci}
+                                </a>
                               </div>
                             )}
                           </div>
@@ -838,22 +947,12 @@ RHDP Content Team`
                               rows={2}
                               style={{ fontSize: '12px' }}
                             />
-                            <div style={{ display: 'flex', gap: '6px' }}>
-                              <input
-                                type="text"
-                                className="browse-drawer-input"
+                            <div>
+                              <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Replacement CI (optional)</label>
+                              <ReplacementPicker
                                 value={replacementCi}
-                                onChange={e => setReplacementCi(e.target.value)}
-                                placeholder="Replacement CI (optional)"
-                                style={{ fontSize: '12px', flex: 1 }}
-                              />
-                              <input
-                                type="text"
-                                className="browse-drawer-input"
-                                value={replacementName}
-                                onChange={e => setReplacementName(e.target.value)}
-                                placeholder="Display name (optional)"
-                                style={{ fontSize: '12px', flex: 1 }}
+                                displayName={replacementName}
+                                onSelect={(ci, name) => { setReplacementCi(ci); setReplacementName(name) }}
                               />
                             </div>
                             <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
