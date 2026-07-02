@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
+from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.workers.ops import sha_dedup_scan_items
@@ -12,6 +13,18 @@ router = APIRouter(prefix="/analysis")
 
 WINDOW_KEYS = {"1q": "3m", "2q": "6m", "3q": "9m", "1y": "12m"}
 
+
+class ApproveRequest(BaseModel):
+    reason: str = Field(min_length=1)
+    replacement_ci: str | None = None
+    replacement_name: str | None = None
+
+class StartRequest(BaseModel):
+    target_days: int = 30
+    jira_project: str = "RHDPCD"
+
+class NotesRequest(BaseModel):
+    notes: str = Field(max_length=5000)
 
 
 @router.get("/retirement")
@@ -25,12 +38,14 @@ async def retirement_dashboard(
     has_prod: bool | None = Query(None),
     search: str | None = Query(None),
     window: str = Query("1y"),
+    workflow_status: str | None = Query(None),
 ):
     db = request.app.state.db
     window_key = WINDOW_KEYS.get(window, "12m")
 
     items = db.list_reporting_metrics(
         sort_by="retirement_score", sort_dir="desc",
+        workflow_status=workflow_status,
     )
 
     import json as _json
@@ -99,6 +114,124 @@ async def retirement_dashboard(
         "summary": sync_status,
         "window": window,
     }
+
+
+@router.get("/workflow/{base_name}")
+async def get_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    wf = db.get_retirement_workflow(base_name)
+    return {"workflow": wf}
+
+
+@router.put("/workflow/{base_name}/review")
+async def review_item(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    fields = {
+        "step_reviewed_at": "NOW()",
+        "step_reviewed_by": user,
+        "status": "reviewed",
+    }
+    result = db.upsert_retirement_workflow(base_name, fields)
+    db.log_action(base_name, "retirement_reviewed", user, "Marked as reviewed")
+    return {"status": "ok", "workflow": result}
+
+
+@router.put("/workflow/{base_name}/approve")
+async def approve_item(base_name: str, body: ApproveRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    from datetime import datetime
+
+    metrics = db.get_reporting_metrics(base_name)
+    snapshot = {
+        "provisions": metrics.get("provisions", 0) if metrics else 0,
+        "experiences": metrics.get("experiences", 0) if metrics else 0,
+        "unique_users": metrics.get("unique_users", 0) if metrics else 0,
+        "touched_amount": float(metrics.get("touched_amount", 0) or 0) if metrics else 0,
+        "closed_amount": float(metrics.get("closed_amount", 0) or 0) if metrics else 0,
+        "total_cost": float(metrics.get("total_cost", 0) or 0) if metrics else 0,
+        "retirement_score": metrics.get("retirement_score", 0) if metrics else 0,
+        "window": "12m",
+        "snapshot_date": datetime.now().strftime("%Y-%m-%d"),
+    }
+
+    fields = {
+        "step_reviewed_at": "NOW()",
+        "step_reviewed_by": user,
+        "step_approved_at": "NOW()",
+        "step_approved_by": user,
+        "approval_reason": body.reason,
+        "approval_snapshot": snapshot,
+        "status": "approved",
+    }
+    if body.replacement_ci:
+        fields["replacement_ci"] = body.replacement_ci
+        fields["replacement_name"] = body.replacement_name
+
+    result = db.upsert_retirement_workflow(base_name, fields)
+    db.log_action(base_name, "retirement_approved", user, f"Reason: {body.reason}")
+    return {"status": "ok", "workflow": result}
+
+
+@router.put("/workflow/{base_name}/notify")
+async def notify_owner(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    fields = {
+        "step_notified_at": "NOW()",
+        "step_notified_by": user,
+        "status": "notified",
+    }
+    result = db.upsert_retirement_workflow(base_name, fields)
+    db.log_action(base_name, "retirement_notified", user, "Owner notified")
+    return {"status": "ok", "workflow": result}
+
+
+@router.put("/workflow/{base_name}/start")
+async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    settings = request.app.state.settings
+    from datetime import datetime, timedelta
+
+    wf = db.get_retirement_workflow(base_name)
+    if not wf or not wf.get("step_approved_at"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Item must be approved before starting retirement")
+
+    target_date = (datetime.now() + timedelta(days=body.target_days)).date()
+    metrics = db.get_reporting_metrics(base_name) or {}
+
+    wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date}
+
+    from rcars.services.jira import create_retirement_ticket
+    jira_key = create_retirement_ticket(settings, wf_for_jira, metrics)
+
+    fields = {
+        "step_started_at": "NOW()",
+        "step_started_by": user,
+        "retirement_target_date": target_date.isoformat(),
+        "jira_key": jira_key,
+        "jira_project": body.jira_project,
+        "status": "started",
+    }
+    result = db.upsert_retirement_workflow(base_name, fields)
+    db.log_action(base_name, "retirement_started", user, f"Jira: {jira_key}, target: {target_date}")
+    return {"status": "ok", "workflow": result, "jira_key": jira_key}
+
+
+@router.put("/workflow/{base_name}/notes")
+async def update_notes(base_name: str, body: NotesRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    fields = {"curator_notes": body.notes}
+    result = db.upsert_retirement_workflow(base_name, fields)
+    return {"status": "ok", "workflow": result}
+
+
+@router.delete("/workflow/{base_name}")
+async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    deleted = db.delete_retirement_workflow(base_name)
+    if deleted:
+        db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
+    return {"status": "ok", "deleted": deleted}
 
 
 @router.post("/scan")

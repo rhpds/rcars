@@ -644,6 +644,22 @@ class Database:
 
             if newly_retired or unretired:
                 conn.commit()
+
+            if newly_retired:
+                retired_base_names = set()
+                for item in newly_retired:
+                    ci = item["ci_name"]
+                    for suffix in (".prod", ".dev", ".event", ".test"):
+                        if ci.endswith(suffix):
+                            retired_base_names.add(ci[:-len(suffix)])
+                            break
+                if retired_base_names:
+                    closed = self.auto_close_retired_workflows(retired_base_names)
+                    if closed:
+                        logger.info("auto_closed_retirement_workflows",
+                                    component="rcars", action="auto_close",
+                                    count=closed)
+
             if unretired:
                 logger.info("unretired_items",
                             component="rcars", action="unretire",
@@ -1837,6 +1853,7 @@ class Database:
         category: str | None = None,
         has_prod: bool | None = None,
         search: str | None = None,
+        workflow_status: str | None = None,
     ) -> list[dict]:
         """List reporting metrics joined with catalog metadata for the retirement dashboard."""
         allowed_sorts = {
@@ -1891,11 +1908,20 @@ class Database:
                 )
             """)
 
+        if workflow_status == "none":
+            conditions.append("rw.catalog_base_name IS NULL")
+        elif workflow_status == "in_process":
+            conditions.append("rw.status IN ('reviewed', 'approved', 'notified')")
+        elif workflow_status:
+            conditions.append("rw.status = %(workflow_status)s")
+            params["workflow_status"] = workflow_status
+
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         sql = f"""
             SELECT rm.*,
-                   ci.category, ci.product, ci.product_family
+                   ci.category, ci.product, ci.product_family,
+                   rw.status AS workflow_status, rw.jira_key, rw.retirement_target_date
             FROM reporting_metrics rm
             LEFT JOIN LATERAL (
                 SELECT category, product, product_family
@@ -1905,6 +1931,7 @@ class Database:
                          CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
                 LIMIT 1
             ) ci ON true
+            LEFT JOIN retirement_workflow rw ON rw.catalog_base_name = rm.catalog_base_name
             {where}
             ORDER BY rm.{sort_by} {direction}
         """
