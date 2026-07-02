@@ -50,7 +50,10 @@ def _jira_request(
         with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
             if resp.status == 204:
                 return None
-            return json.loads(resp.read().decode("utf-8"))
+            body = resp.read().decode("utf-8")
+            if not body.strip():
+                return None
+            return json.loads(body)
     except urllib.error.HTTPError as exc:
         error_body = ""
         try:
@@ -191,7 +194,7 @@ def create_retirement_ticket(
     create_body = {
         "fields": {
             "project": {"key": project_key},
-            "issuetype": {"id": "10014"},
+            "issuetype": {"name": "Task"},
             "summary": f'Retire "{display_name}"',
             "description": description,
             "labels": ["RHDP_RETIREMENT"],

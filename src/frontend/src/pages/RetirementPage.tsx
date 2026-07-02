@@ -910,24 +910,33 @@ RHDP Content Team`
 
                             {/* Show generated email template */}
                             {emailTemplate && (
-                              <div style={{ position: 'relative' }}>
+                              <div style={{ position: 'relative', background: 'var(--bg-section)', border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', padding: '6px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '4px', marginBottom: '4px' }}>
+                                  <button
+                                    className="ret-action-btn ret-action-btn--start"
+                                    onClick={() => { navigator.clipboard.writeText(emailTemplate); }}
+                                    style={{ padding: '3px 8px', fontSize: '11px', lineHeight: 1 }}
+                                    title="Copy to clipboard">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle' }}>
+                                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    className="ret-action-btn ret-action-btn--danger"
+                                    onClick={() => setEmailTemplate(null)}
+                                    style={{ padding: '3px 8px', fontSize: '11px', lineHeight: 1 }}
+                                    title="Dismiss">
+                                    &times;
+                                  </button>
+                                </div>
                                 <textarea
                                   className="browse-drawer-textarea"
                                   value={emailTemplate}
                                   readOnly
-                                  rows={8}
-                                  style={{ fontSize: '11px', fontFamily: 'var(--ff-mono)', lineHeight: '1.5', maxHeight: '180px', resize: 'vertical' }}
+                                  rows={6}
+                                  style={{ fontSize: '11px', fontFamily: 'var(--ff-mono)', lineHeight: '1.5', maxHeight: '150px', resize: 'vertical' }}
                                 />
-                                <button
-                                  className="ret-action-btn ret-action-btn--start"
-                                  onClick={() => { navigator.clipboard.writeText(emailTemplate); }}
-                                  style={{ padding: '4px 6px', position: 'absolute', top: '6px', right: '6px', lineHeight: 1 }}
-                                  title="Copy to clipboard">
-                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                  </svg>
-                                </button>
                               </div>
                             )}
                           </div>
