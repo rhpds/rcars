@@ -79,10 +79,12 @@ function WorkflowInlineBadge({ status }: { status: string }) {
 function ReplacementPicker({
   value,
   displayName,
+  excludeBaseName,
   onSelect,
 }: {
   value: string
   displayName: string
+  excludeBaseName: string
   onSelect: (ci: string, name: string) => void
 }) {
   const [query, setQuery] = useState(displayName || value)
@@ -109,7 +111,7 @@ function ReplacementPicker({
         const seen = new Set<string>()
         const unique = data.items.filter(i => {
           const key = i.base_ci_name || i.ci_name
-          if (seen.has(key)) return false
+          if (seen.has(key) || key === excludeBaseName) return false
           seen.add(key)
           return true
         })
@@ -831,12 +833,13 @@ RHDP Content Team`
               <div className="browse-drawer-title">{drawerItem.display_name}</div>
               <button className="browse-drawer-close" onClick={() => setDrawerItem(null)} aria-label="Close drawer">&times;</button>
             </div>
-            <div className="browse-drawer-body">
+            <div className="browse-drawer-body" style={{ padding: 0, gap: 0 }}>
               {drawerLoading ? (
-                <p className="ca-color-muted">Loading workflow...</p>
+                <p className="ca-color-muted" style={{ padding: 'var(--sp-md)' }}>Loading workflow...</p>
               ) : (
                 <>
-                  {/* ── Usage Data Grid ── */}
+                  {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
+                  <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
                   <div className="ret-data-grid">
                     <div className="ret-data-cell">
                       <div className="ret-data-label">Score</div>
@@ -904,6 +907,10 @@ RHDP Content Team`
                       </div>
                     </div>
                   </div>
+                  </div>
+
+                  {/* ── Scrollable workflow section ── */}
+                  <div style={{ flex: 1, overflowY: 'auto', padding: 'var(--sp-md)', paddingTop: 0 }}>
 
                   {/* ── Workflow Stepper ── */}
                   <div className="ret-drawer-section">
@@ -952,6 +959,7 @@ RHDP Content Team`
                               <ReplacementPicker
                                 value={replacementCi}
                                 displayName={replacementName}
+                                excludeBaseName={drawerItem.catalog_base_name}
                                 onSelect={(ci, name) => { setReplacementCi(ci); setReplacementName(name) }}
                               />
                             </div>
@@ -1210,6 +1218,7 @@ RHDP Content Team`
                       </button>
                     </div>
                   )}
+                  </div>
                 </>
               )}
             </div>

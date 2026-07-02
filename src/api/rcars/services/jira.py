@@ -88,14 +88,18 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     else:
         target_date_str = str(target_date) if target_date else "TBD"
 
-    # AgV path: dots become slashes
-    agv_path = base_name.replace(".", "/")
+    # AgV path: component stays as-is, item name uppercased with underscores
+    parts = base_name.split(".", 1)
+    if len(parts) == 2:
+        agv_path = f"{parts[0]}/{parts[1].upper().replace('-', '_')}"
+    else:
+        agv_path = base_name.upper().replace("-", "_")
 
-    # Replacement line
+    # Replacement line with catalog link
     if replacement_ci and replacement_name:
-        replacement_line = f"{replacement_name} ({replacement_ci})"
+        replacement_line = f"[{replacement_name}](https://catalog.demo.redhat.com/catalog?search={replacement_ci})"
     elif replacement_ci:
-        replacement_line = replacement_ci
+        replacement_line = f"[{replacement_ci}](https://catalog.demo.redhat.com/catalog?search={replacement_ci})"
     else:
         replacement_line = "N/A"
 
@@ -127,12 +131,12 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     adoc_replacement_line = ""
     if replacement_ci and replacement_name:
         adoc_replacement_line = (
-            f' Please use this as an alternative: link:https://demo.redhat.com/catalog?search={replacement_ci}'
+            f' Please use this as an alternative: link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
             f'[{replacement_name}, window="_blank"]'
         )
     elif replacement_ci:
         adoc_replacement_line = (
-            f' Please use this as an alternative: link:https://demo.redhat.com/catalog?search={replacement_ci}'
+            f' Please use this as an alternative: link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
             f'[replacement item, window="_blank"]'
         )
 
@@ -149,9 +153,9 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
 
     description = f"""**CI Name:** {display_name}
 
-**RHDP URL:** https://demo.redhat.com/catalog?search={base_name}
+**RHDP URL:** https://catalog.demo.redhat.com/catalog?search={base_name}
 
-**AgV:** https://github.com/rhpds/agnosticv/tree/master/{agv_path}
+**AgV:** https://github.com/rhpds/agnosticv/blob/master/{agv_path}
 
 **Retirement Notice:** {target_date_str}
 
