@@ -255,9 +255,6 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     requests           INTEGER NOT NULL DEFAULT 0,
     experiences        INTEGER NOT NULL DEFAULT 0,
     unique_users       INTEGER NOT NULL DEFAULT 0,
-    unique_users_1q    INTEGER NOT NULL DEFAULT 0,
-    unique_users_2q    INTEGER NOT NULL DEFAULT 0,
-    unique_users_3q    INTEGER NOT NULL DEFAULT 0,
     success_ratio      NUMERIC NOT NULL DEFAULT 0,
     failure_ratio      NUMERIC NOT NULL DEFAULT 0,
     touched_amount     NUMERIC NOT NULL DEFAULT 0,
@@ -268,7 +265,7 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     last_provision     DATE,
     retirement_score   INTEGER NOT NULL DEFAULT 0,
     synced_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    quarterly_data     JSONB DEFAULT '{}'::jsonb
+    windowed_metrics   JSONB DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
     ON reporting_metrics (retirement_score DESC);
@@ -1693,18 +1690,17 @@ class Database:
             INSERT INTO reporting_metrics (
                 catalog_base_name, display_name, provisions, provisions_quarter,
                 requests, experiences, unique_users,
-                unique_users_1q, unique_users_2q, unique_users_3q,
                 success_ratio, failure_ratio,
                 touched_amount, closed_amount, total_cost, avg_cost_per_provision,
-                first_provision, last_provision, retirement_score, quarterly_data, synced_at
+                first_provision, last_provision, retirement_score,
+                windowed_metrics, synced_at
             ) VALUES (
                 %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
                 %(requests)s, %(experiences)s, %(unique_users)s,
-                %(unique_users_1q)s, %(unique_users_2q)s, %(unique_users_3q)s,
                 %(success_ratio)s, %(failure_ratio)s,
                 %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
                 %(first_provision)s, %(last_provision)s, %(retirement_score)s,
-                %(quarterly_data)s::jsonb, NOW()
+                %(windowed_metrics)s::jsonb, NOW()
             )
             ON CONFLICT (catalog_base_name) DO UPDATE SET
                 display_name = EXCLUDED.display_name,
@@ -1713,9 +1709,6 @@ class Database:
                 requests = EXCLUDED.requests,
                 experiences = EXCLUDED.experiences,
                 unique_users = EXCLUDED.unique_users,
-                unique_users_1q = EXCLUDED.unique_users_1q,
-                unique_users_2q = EXCLUDED.unique_users_2q,
-                unique_users_3q = EXCLUDED.unique_users_3q,
                 success_ratio = EXCLUDED.success_ratio,
                 failure_ratio = EXCLUDED.failure_ratio,
                 touched_amount = EXCLUDED.touched_amount,
@@ -1725,7 +1718,7 @@ class Database:
                 first_provision = EXCLUDED.first_provision,
                 last_provision = EXCLUDED.last_provision,
                 retirement_score = EXCLUDED.retirement_score,
-                quarterly_data = EXCLUDED.quarterly_data,
+                windowed_metrics = EXCLUDED.windowed_metrics,
                 synced_at = NOW()
         """
         with self._pool.connection() as conn:

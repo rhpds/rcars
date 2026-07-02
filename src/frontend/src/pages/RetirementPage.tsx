@@ -149,7 +149,7 @@ export function RetirementPage() {
         <p className="ca-subtitle" style={{ margin: 0 }}>Retirement scoring based on provisions, sales, cost, and catalog presence.</p>
         {tab === 'prod' && (
           <div className="ca-controls" style={{ margin: 0, padding: 0 }}>
-            {([['1q', '1 Quarter'], ['2q', '2 Quarters'], ['3q', '3 Quarters'], ['1y', '1 Year']] as [TimeWindow, string][]).map(([w, label]) => (
+            {([['1q', 'Last 3 Months'], ['2q', 'Last 6 Months'], ['3q', 'Last 9 Months'], ['1y', '1 Year']] as [TimeWindow, string][]).map(([w, label]) => (
               <button key={w} onClick={() => setWindow(w)}
                 className={`ca-filter-btn${window === w ? ' active' : ''}`}
                 style={{ fontSize: '11px', padding: '3px 8px' }}>
