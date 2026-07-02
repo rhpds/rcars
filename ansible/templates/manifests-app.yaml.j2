@@ -57,7 +57,7 @@ spec:
         app: {{ app_name }}
         component: api
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -224,7 +224,7 @@ spec:
         app: {{ app_name }}
         component: scan-worker
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -375,7 +375,7 @@ spec:
         app: {{ app_name }}
         component: recommend-worker
       annotations:
-        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('')) | hash('sha256') }}"
+        checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true

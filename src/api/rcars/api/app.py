@@ -47,6 +47,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.add_middleware(RequestLoggingMiddleware)
 
+    limiter._storage_uri = settings.redis_url
+    limiter._swallow_errors = True
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

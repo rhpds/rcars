@@ -25,8 +25,13 @@ class SelectRequest(BaseModel):
     ci_name: str
 
 
+def _advisor_limit() -> str:
+    import os
+    return f"{os.environ.get('RCARS_ADVISOR_RATE_LIMIT_PER_USER_PER_HOUR', '50')}/hour"
+
+
 @router.post("/query")
-@limiter.limit("50/hour")
+@limiter.limit(_advisor_limit)
 async def submit_query(body: QueryRequest, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis

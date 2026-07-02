@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 
 router = APIRouter(prefix="/catalog")
@@ -252,7 +252,14 @@ async def set_duration(ci_name: str, body: DurationRequest, request: Request, us
 
 
 class ContentPathRequest(BaseModel):
-    path: str | None = Field(default=None, max_length=500, pattern=r'^[a-zA-Z0-9_./-]*$')
+    path: str | None = Field(default=None, max_length=500)
+
+    @field_validator("path")
+    @classmethod
+    def reject_traversal(cls, v: str | None) -> str | None:
+        if v and (".." in v or v.startswith("/")):
+            raise ValueError("Path must not contain '..' or start with '/'")
+        return v
 
 
 @router.post("/{ci_name}/content-path")
