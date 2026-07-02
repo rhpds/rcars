@@ -124,17 +124,28 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         return str(val)
 
     # Build the AsciiDoc retirement notice template
-    adoc_replacement = ""
+    adoc_replacement_line = ""
     if replacement_ci and replacement_name:
-        adoc_replacement = f"\nlink:https://demo.redhat.com/catalog?search={replacement_ci}[Try {replacement_name} instead]."
+        adoc_replacement_line = (
+            f' Please use this as an alternative: link:https://demo.redhat.com/catalog?search={replacement_ci}'
+            f'[{replacement_name}, window="_blank"]'
+        )
     elif replacement_ci:
-        adoc_replacement = f"\nlink:https://demo.redhat.com/catalog?search={replacement_ci}[Try the replacement instead]."
+        adoc_replacement_line = (
+            f' Please use this as an alternative: link:https://demo.redhat.com/catalog?search={replacement_ci}'
+            f'[replacement item, window="_blank"]'
+        )
 
-    adoc_template = f"""[IMPORTANT]
-.This catalog item is scheduled for retirement on {target_date_str}.
-====
-This experience will be removed from the RHDP catalog on {target_date_str}.{adoc_replacement}
-===="""
+    adoc_template = (
+        "[IMPORTANT]\n"
+        ".RETIREMENT NOTICE\n"
+        "****\n"
+        f"This item will be retired on **{target_date_str}**.{adoc_replacement_line}\n"
+        "\n"
+        "For any questions regarding this retirement, please contact "
+        "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
+        "****"
+    )
 
     description = f"""**CI Name:** {display_name}
 
@@ -142,7 +153,7 @@ This experience will be removed from the RHDP catalog on {target_date_str}.{adoc
 
 **AgV:** https://github.com/rhpds/agnosticv/tree/master/{agv_path}
 
-**Retirement Notice:** Target date: {target_date_str}
+**Retirement Notice:** {target_date_str}
 
 **Replacement CI:** {replacement_line}
 
@@ -164,9 +175,11 @@ This experience will be removed from the RHDP catalog on {target_date_str}.{adoc
 
 ---
 
-**Suggested adoc template:**
+**Suggested adoc template** _(replace date if needed before pasting into the CI)_**:**
 
-{adoc_template}"""
+```
+{adoc_template}
+```"""
 
     return description
 
