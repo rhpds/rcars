@@ -10,7 +10,7 @@ from rcars.workers.ops import sha_dedup_scan_items
 router = APIRouter(prefix="/analysis")
 
 
-WINDOW_QUARTERS = {"1q": 1, "2q": 2, "3q": 3, "1y": 4}
+WINDOW_KEYS = {"1q": "3m", "2q": "6m", "3q": "9m", "1y": "12m"}
 
 
 
@@ -27,51 +27,46 @@ async def retirement_dashboard(
     window: str = Query("1y"),
 ):
     db = request.app.state.db
-    num_q = WINDOW_QUARTERS.get(window, 4)
+    window_key = WINDOW_KEYS.get(window, "12m")
 
-    if num_q < 4:
-        all_items = db.list_reporting_metrics(
-            sort_by="retirement_score", sort_dir="desc",
-        )
+    items = db.list_reporting_metrics(
+        sort_by="retirement_score", sort_dir="desc",
+    )
 
-        import json as _json
-        for item in all_items:
-            qd = item.get("quarterly_data")
-            if isinstance(qd, str):
-                item["quarterly_data"] = _json.loads(qd)
-            elif qd is None:
-                item["quarterly_data"] = {}
+    import json as _json
+    for item in items:
+        wm = item.get("windowed_metrics") or {}
+        if isinstance(wm, str):
+            wm = _json.loads(wm)
+        w = wm.get(window_key, {})
+        if w:
+            item["provisions"] = w.get("provisions", 0)
+            item["experiences"] = w.get("experiences", 0)
+            item["requests"] = w.get("requests", 0)
+            item["unique_users"] = w.get("unique_users", 0)
+            item["success_ratio"] = w.get("success_ratio", 0)
+            item["failure_ratio"] = w.get("failure_ratio", 0)
+            item["touched_amount"] = w.get("touched_amount", 0)
+            item["closed_amount"] = w.get("closed_amount", 0)
+            item["total_cost"] = w.get("total_cost", 0)
+            item["avg_cost_per_provision"] = w.get("avg_cost_per_provision", 0)
+            item["retirement_score"] = w.get("retirement_score", 0)
+            item["sales_impact"] = w.get("sales_impact", "low")
 
-        from rcars.services.reporting_sync import compute_windowed_scores
-        all_items = compute_windowed_scores(all_items, num_q)
-
-        items = all_items
-        if has_prod is True:
-            prod_names = db.get_all_base_names_with_prod()
-            items = [i for i in items if i["catalog_base_name"] in prod_names]
-        elif has_prod is False:
-            prod_names = db.get_all_base_names_with_prod()
-            items = [i for i in items if i["catalog_base_name"] not in prod_names]
-        if search:
-            search_lower = search.lower()
-            items = [i for i in items if search_lower in (i.get("display_name") or "").lower()]
-        if min_score is not None:
-            items = [i for i in items if (i.get("retirement_score") or 0) >= min_score]
-        if category:
-            cat_lower = category.lower()
-            items = [i for i in items if (i.get("category") or "").lower() == cat_lower]
-    else:
-        items = db.list_reporting_metrics(
-            sort_by=sort_by, sort_dir=sort_dir, min_score=min_score,
-            category=category, has_prod=has_prod, search=search,
-        )
-        import json as _json
-        for item in items:
-            qd = item.get("quarterly_data")
-            if isinstance(qd, str):
-                item["quarterly_data"] = _json.loads(qd)
-            elif qd is None:
-                item["quarterly_data"] = {}
+    if has_prod is True:
+        prod_names = db.get_all_base_names_with_prod()
+        items = [i for i in items if i["catalog_base_name"] in prod_names]
+    elif has_prod is False:
+        prod_names = db.get_all_base_names_with_prod()
+        items = [i for i in items if i["catalog_base_name"] not in prod_names]
+    if search:
+        search_lower = search.lower()
+        items = [i for i in items if search_lower in (i.get("display_name") or "").lower()]
+    if min_score is not None:
+        items = [i for i in items if (i.get("retirement_score") or 0) >= min_score]
+    if category:
+        cat_lower = category.lower()
+        items = [i for i in items if (i.get("category") or "").lower() == cat_lower]
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
@@ -94,7 +89,7 @@ async def retirement_dashboard(
         items.sort(key=lambda i: (i.get(sort_by) or default), reverse=reverse)
 
     for item in items:
-        item.pop("quarterly_data", None)
+        item.pop("windowed_metrics", None)
 
     sync_status = db.get_reporting_sync_status()
     return {

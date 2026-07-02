@@ -3,7 +3,10 @@
 import json
 from unittest.mock import patch, MagicMock
 
-from rcars.services.reporting_sync import extract_base_name, compute_retirement_score, mcp_query
+from rcars.services.reporting_sync import (
+    extract_base_name, compute_retirement_score, mcp_query,
+    _window_start, _build_windowed_metrics, WINDOW_DAYS,
+)
 
 
 class TestExtractBaseName:
@@ -116,6 +119,98 @@ class TestRetirementScore:
     def test_sales_impact_low(self):
         from rcars.services.reporting_sync import compute_sales_impact
         assert compute_sales_impact(50_000) == "low"
+
+
+class TestWindowStart:
+    def test_3m_returns_91_days_back(self):
+        from datetime import datetime, timedelta
+        result = _window_start("3m")
+        expected = (datetime.now() - timedelta(days=91)).strftime("%Y-%m-%d")
+        assert result == expected
+
+    def test_6m_returns_182_days_back(self):
+        from datetime import datetime, timedelta
+        result = _window_start("6m")
+        expected = (datetime.now() - timedelta(days=182)).strftime("%Y-%m-%d")
+        assert result == expected
+
+    def test_12m_returns_365_days_back(self):
+        from datetime import datetime, timedelta
+        result = _window_start("12m")
+        expected = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+        assert result == expected
+
+    def test_all_window_keys_covered(self):
+        assert set(WINDOW_DAYS.keys()) == {"3m", "6m", "9m", "12m"}
+
+
+class TestBuildWindowedMetrics:
+    def test_basic_structure(self):
+        """Windowed metrics should have entries for all four windows."""
+        names = {"item-a", "item-b"}
+        w_provisions = {
+            wk: {"item-a": {"provisions": 10, "experiences": 5, "requests": 3,
+                            "unique_users": 4, "success_ratio": 0.9, "failure_ratio": 0.1}}
+            for wk in WINDOW_DAYS
+        }
+        w_touched = {wk: {"item-a": 50000.0} for wk in WINDOW_DAYS}
+        w_closed = {wk: {"item-a": 20000.0} for wk in WINDOW_DAYS}
+        w_cost = {wk: {"item-a": 5000.0} for wk in WINDOW_DAYS}
+        w_uu = {wk: {"item-a": 7} for wk in WINDOW_DAYS}
+        first_prov = {"item-a": "2024-01-01", "item-b": None}
+
+        result = _build_windowed_metrics(
+            names, w_provisions, w_touched, w_closed, w_cost, w_uu, first_prov,
+        )
+
+        assert "item-a" in result
+        assert "item-b" in result
+        for wk in WINDOW_DAYS:
+            assert wk in result["item-a"]
+            entry = result["item-a"][wk]
+            assert entry["provisions"] == 10
+            assert entry["unique_users"] == 7
+            assert entry["touched_amount"] == 50000.0
+            assert entry["closed_amount"] == 20000.0
+            assert entry["total_cost"] == 5000.0
+            assert "retirement_score" in entry
+            assert "sales_impact" in entry
+            assert entry["avg_cost_per_provision"] == 500.0
+
+    def test_zero_item_gets_max_retirement_score(self):
+        """An item with zero provisions/sales in a window should score high."""
+        names = {"zero-item"}
+        empty = {wk: {} for wk in WINDOW_DAYS}
+        result = _build_windowed_metrics(
+            names, empty, empty, empty, empty, empty, {"zero-item": None},
+        )
+        for wk in WINDOW_DAYS:
+            assert result["zero-item"][wk]["provisions"] == 0
+            assert result["zero-item"][wk]["retirement_score"] >= 50
+
+    def test_percentile_ranking_varies_across_items(self):
+        """Items with different provision counts should get different scores."""
+        names = {"high", "low"}
+        w_provisions = {
+            wk: {
+                "high": {"provisions": 100, "experiences": 0, "requests": 0,
+                         "success_ratio": 1.0, "failure_ratio": 0.0},
+                "low": {"provisions": 1, "experiences": 0, "requests": 0,
+                         "success_ratio": 1.0, "failure_ratio": 0.0},
+            }
+            for wk in WINDOW_DAYS
+        }
+        w_touched = {wk: {"high": 500000.0, "low": 1000.0} for wk in WINDOW_DAYS}
+        w_closed = {wk: {"high": 200000.0, "low": 500.0} for wk in WINDOW_DAYS}
+        w_cost = {wk: {"high": 10000.0, "low": 100.0} for wk in WINDOW_DAYS}
+        w_uu = {wk: {} for wk in WINDOW_DAYS}
+        first_prov = {"high": "2023-01-01", "low": "2023-01-01"}
+
+        result = _build_windowed_metrics(
+            names, w_provisions, w_touched, w_closed, w_cost, w_uu, first_prov,
+        )
+        for wk in WINDOW_DAYS:
+            assert result["low"][wk]["retirement_score"] > result["high"][wk]["retirement_score"]
 
 
 class TestMcpPagination:
