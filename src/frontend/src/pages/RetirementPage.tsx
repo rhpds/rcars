@@ -346,9 +346,7 @@ export function RetirementPage() {
                         <Fragment key={item.catalog_base_name}>
                           <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
                             <td className="name" title={item.display_name}>
-                              <span style={{ cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); openDrawer(item) }}>
-                                {item.display_name}
-                              </span>
+                              {item.display_name}
                               {item.workflow_status && item.workflow_status !== 'retired' && (
                                 <span style={{
                                   fontSize: '9px', padding: '1px 6px', marginLeft: '8px',
@@ -424,6 +422,12 @@ export function RetirementPage() {
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">Category</span>
                                     <span className="ca-detail-value">{item.category || '—'}</span>
+                                  </div>
+                                  <div className="ca-detail-item" style={{ marginLeft: 'auto' }}>
+                                    <button className="browse-btn-action" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}
+                                      style={{ fontSize: '11px', padding: '4px 12px' }}>
+                                      Retirement Workflow
+                                    </button>
                                   </div>
                                 </div>
                               </td>
@@ -558,6 +562,12 @@ export function RetirementPage() {
                                   <div className="ca-detail-item">
                                     <span className="ca-detail-label">Category</span>
                                     <span className="ca-detail-value">{item.category || '—'}</span>
+                                  </div>
+                                  <div className="ca-detail-item" style={{ marginLeft: 'auto' }}>
+                                    <button className="browse-btn-action" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}
+                                      style={{ fontSize: '11px', padding: '4px 12px' }}>
+                                      Retirement Workflow
+                                    </button>
                                   </div>
                                 </div>
                               </td>
