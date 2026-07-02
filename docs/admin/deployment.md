@@ -55,13 +55,30 @@ Dev mode sets `RCARS_DEV_USER=dev@redhat.com` with full admin access — no OAut
 
 ### Data
 
-The local stack starts with an empty database. To populate it with real catalog data, you need:
+The local stack starts with an empty database. To populate it with real catalog data, you need additional environment variables set **before** running `./dev-services.sh start`:
 
-- A **kubeconfig** with read access to the Babylon cluster — set `RCARS_KUBECONFIG_PATH` before starting, then run `rcars refresh` to pull catalog items from Babylon CRDs
-- **LLM credentials** (Vertex AI or LiteMaaS) — required for `rcars scan` to run content analysis
-- **Reporting MCP credentials** — required for `rcars reporting-db sync` to pull usage/cost/sales metrics
+**Catalog data (required for `rcars refresh`):**
 
-Without these, the stack is still fully functional for frontend development, API testing, and Swagger UI exploration — responses will just be empty.
+```bash
+export RCARS_KUBECONFIG_PATH=~/.kube/my-babylon-kubeconfig
+```
+
+A kubeconfig with read access to the Babylon cluster. This lets `rcars refresh` pull catalog items from Babylon CRDs.
+
+**LLM access (required for `rcars scan`):**
+
+```bash
+export RCARS_LITEMAAS_URL=https://litemaas.example.com/v1
+export RCARS_LITEMAAS_API_KEY=your-api-key
+```
+
+LiteMaaS is the preferred LLM provider for local development. It provides an OpenAI-compatible API backed by Claude models. Without LLM credentials, content analysis (`rcars scan`) will fail — the catalog will be populated but items won't have analysis results.
+
+**Reporting metrics (required for `rcars reporting-db sync`):**
+
+These are only needed for the retirement dashboard and sales impact data. Not required for basic development.
+
+Without any of these, the stack is still fully functional for frontend development, API testing, and Swagger UI exploration — responses will just be empty.
 
 ### Requirements
 
