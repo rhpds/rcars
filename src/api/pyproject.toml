@@ -21,6 +21,7 @@ dependencies = [
     "anthropic[vertex]>=0.40.0",
     "openai>=1.30.0",
     "sentence-transformers>=3.0",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]

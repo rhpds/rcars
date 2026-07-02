@@ -29,7 +29,7 @@ export function LogWindow({ lines, isOpen, onToggle }: LogWindowProps) {
       <button
         onClick={onToggle}
         style={{
-          background: 'transparent', border: 'none', color: '#666',
+          background: 'transparent', border: 'none', color: 'var(--text-muted)',
           cursor: 'pointer', fontSize: '14px', padding: '4px 0',
         }}
       >
@@ -40,15 +40,15 @@ export function LogWindow({ lines, isOpen, onToggle }: LogWindowProps) {
           ref={containerRef}
           onScroll={handleScroll}
           style={{
-            background: '#0a0d12',
-            border: '1px solid #1e2030',
+            background: 'var(--bg-input)',
+            border: '1px solid var(--border-default)',
             borderRadius: '6px',
             padding: '12px',
             maxHeight: '200px',
             overflowY: 'auto',
             fontSize: '13px',
-            fontFamily: 'monospace',
-            color: '#999',
+            fontFamily: 'var(--ff-mono)',
+            color: 'var(--text-muted)',
             marginTop: '6px',
           }}
         >

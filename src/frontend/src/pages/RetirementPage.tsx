@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
 
+function safeHref(url: string | null): string {
+  if (!url) return '#'
+  try { return ['http:', 'https:'].includes(new URL(url).protocol) ? url : '#' }
+  catch { return '#' }
+}
+
 type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
@@ -19,8 +25,8 @@ const fmtRoi = (amount: number, cost: number) => {
   return `${(amount / cost).toFixed(1)}x`
 }
 
-const scoreColor = (score: number) => score >= 55 ? '#e94560' : score >= 35 ? '#e98a3a' : '#4ecca3'
-const scoreBg = (score: number) => score >= 55 ? 'rgba(233,69,96,0.2)' : score >= 35 ? 'rgba(233,138,58,0.2)' : 'rgba(78,204,163,0.2)'
+const scoreColor = (score: number) => score >= 55 ? 'var(--score-red)' : score >= 35 ? 'var(--score-amber)' : 'var(--score-green)'
+const scoreBg = (score: number) => score >= 55 ? 'var(--score-red-bg)' : score >= 35 ? 'var(--score-amber-bg)' : 'var(--score-green-bg)'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -32,10 +38,10 @@ const ageDays = (dateStr: string | null): number | null => {
 }
 
 const ageColor = (days: number | null) => {
-  if (days === null) return '#666'
-  if (days > 365) return '#e94560'
-  if (days > 180) return '#e98a3a'
-  return '#888'
+  if (days === null) return 'var(--text-muted)'
+  if (days > 365) return 'var(--score-red)'
+  if (days > 180) return 'var(--score-amber)'
+  return 'var(--text-muted)'
 }
 
 export function RetirementPage() {
@@ -261,8 +267,8 @@ export function RetirementPage() {
                                         </a>
                                       ))}
                                       {!item.has_content && item.catalog_url && (
-                                        <a href={item.catalog_url} target="_blank" rel="noreferrer"
-                                          className="ca-env-tag" style={{ background: 'rgba(150,150,150,0.2)', color: '#999', border: '1px solid #555' }}
+                                        <a href={safeHref(item.catalog_url)} target="_blank" rel="noreferrer"
+                                          className="ca-env-tag ca-env-test"
                                           onClick={e => e.stopPropagation()}>
                                           catalog
                                         </a>

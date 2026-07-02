@@ -27,7 +27,7 @@ function renderMarkdown(text: string) {
   const flushList = () => {
     if (listItems.length === 0) return
     elements.push(
-      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px' }}>
+      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px', listStyle: 'disc' }}>
         {listItems.map((li, i) => <li key={i} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}
       </ul>
     )
@@ -44,7 +44,7 @@ function renderMarkdown(text: string) {
   const inlineMd = (s: string) =>
     escapeHtml(s)
      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-     .replace(/`([^`]+)`/g, '<code style="background:#1a2030;padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
+     .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
@@ -70,11 +70,18 @@ function cleanAssessment(text: string): string {
   return cleaned
 }
 
-function LcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
+function RcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
   return (
-    <div className={`lcars-toggle${active ? ' active' : ''}`} onClick={onToggle}>
-      <div className="lcars-toggle-track">
-        <div className="lcars-toggle-knob" />
+    <div
+      className={`rcars-toggle-switch${active ? ' active' : ''}`}
+      onClick={onToggle}
+      role="switch"
+      aria-checked={active}
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
+    >
+      <div className="rcars-toggle-switch-track">
+        <div className="rcars-toggle-switch-knob" />
       </div>
       <span>{label}</span>
     </div>
@@ -94,6 +101,7 @@ export function AdvisorPage() {
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const stream = useJobStream(activeJobId)
@@ -231,18 +239,18 @@ export function AdvisorPage() {
                 RCARS searches across the entire RHDP catalog to find what fits your needs. It uses AI to match your request against analyzed content, scoring relevance and generating detailed recommendations. This goes far deeper than keyword matching against a description.
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
-                <strong style={{ color: '#d2d2d2' }}>How to get the best results:</strong><br/>
+                <strong style={{ color: 'var(--text-primary)' }}>How to get the best results:</strong><br/>
                 Be specific about your audience, activity, the topic or product area, the format you need (hands-on lab, presentation, demonstration, etc.), and how much time you have. The more detail you provide, the better the match.
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
-                <strong style={{ color: '#d2d2d2' }}>Refine as you go:</strong><br/>
+                <strong style={{ color: 'var(--text-primary)' }}>Refine as you go:</strong><br/>
                 Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare.
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: '#d2d2d2' }}>Event matching:</strong><br/>
+                <strong style={{ color: 'var(--text-primary)' }}>Event matching:</strong><br/>
                 Paste an event URL (conference site, call for papers, etc.) and RCARS will analyze the event themes and suggest content that fits the tracks and audience.
               </p>
-              <p className="hint" style={{ color: '#555', fontStyle: 'italic', fontSize: '13px' }}>
+              <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Try: "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization and migration from VMware"
               </p>
             </div>
@@ -268,21 +276,57 @@ export function AdvisorPage() {
           )}
           <div ref={chatEndRef} />
         </div>
-        <div style={{ display: 'flex', gap: '12px', padding: '0 0 6px 0', alignItems: 'center' }}>
-          <span style={{ fontSize: '12px', color: '#555' }}>Include:</span>
-          {auth.isCurator && <LcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
-          <LcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
-        </div>
+        {showSettings && (
+          <div style={{
+            display: 'flex', gap: '12px', padding: '8px 12px', alignItems: 'center',
+            background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border-subtle)', marginBottom: '8px',
+          }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Include:</span>
+            {auth.isCurator && <RcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
+            <RcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+          </div>
+        )}
         <div className="chat-input-row">
-          <textarea
-            className="chat-input"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Describe what you're looking for..."
-            rows={2}
-            disabled={sending}
-          />
+          <button
+            className="btn-settings-toggle"
+            onClick={() => setShowSettings(!showSettings)}
+            title="Query settings"
+            aria-label="Toggle query settings"
+            style={{
+              background: showSettings ? 'var(--bg-card)' : 'transparent',
+              border: '1px solid var(--border-default)',
+              color: showSettings ? 'var(--text-link)' : 'var(--text-muted)',
+              padding: '8px 10px',
+              borderRadius: 'var(--radius-sm)',
+              cursor: 'pointer',
+              fontSize: '16px',
+              lineHeight: 1,
+              flexShrink: 0,
+              transition: 'color var(--transition-fast), background var(--transition-fast)',
+            }}
+          >
+            ⚙
+          </button>
+          <div style={{ flex: 1, position: 'relative' }}>
+            <textarea
+              className="chat-input"
+              value={input}
+              onChange={(e) => setInput(e.target.value.slice(0, 2000))}
+              onKeyDown={handleKeyDown}
+              placeholder="Describe what you're looking for..."
+              rows={2}
+              maxLength={2000}
+              disabled={sending}
+            />
+            <span style={{
+              position: 'absolute', bottom: '4px', right: '8px',
+              fontSize: '11px', fontFamily: 'var(--ff-mono)',
+              color: input.length > 1800 ? 'var(--score-amber)' : 'var(--text-muted)',
+              opacity: input.length > 0 ? 0.7 : 0,
+              transition: 'opacity var(--transition-fast)',
+            }}>{input.length}/2000</span>
+          </div>
           <button className={`btn-send${sending ? ' sending' : ''}`} onClick={handleSend} disabled={sending}>
             Send
           </button>
@@ -300,9 +344,9 @@ export function AdvisorPage() {
                   key={i}
                   onClick={() => setActiveTurn(i)}
                   style={{
-                    background: i === activeTurn ? '#1a3a5a' : 'transparent',
-                    border: '1px solid #333',
-                    color: i === activeTurn ? '#73bcf7' : '#666',
+                    background: i === activeTurn ? 'var(--badge-blue-bg)' : 'transparent',
+                    border: '1px solid var(--border-default)',
+                    color: i === activeTurn ? 'var(--text-link)' : 'var(--text-muted)',
                     padding: '3px 10px',
                     borderRadius: '4px',
                     cursor: 'pointer',
@@ -323,7 +367,7 @@ export function AdvisorPage() {
         ) : sending ? (
           <div className="rec-pane-loading">Waiting for results...</div>
         ) : (
-          <div style={{ color: '#444', fontSize: '15px', padding: '20px 0' }}>
+          <div style={{ color: 'var(--text-muted)', fontSize: '15px', padding: '20px 0' }}>
             Submit a query to see recommendations.
           </div>
         )}
@@ -346,7 +390,7 @@ function RecCardList({ candidates, isComplete, streamPhase, sessionId }: {
   if (streamPhase === 'vector_search') {
     return (
       <>
-        <div style={{ fontSize: '11px', color: '#666', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
           Candidates ({candidates.length})
         </div>
         {candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
@@ -358,7 +402,7 @@ function RecCardList({ candidates, isComplete, streamPhase, sessionId }: {
   if (!isComplete && green.length === 0 && yellow.length > 0) {
     return (
       <>
-        <div style={{ fontSize: '11px', color: '#e8a838', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
+        <div style={{ fontSize: '11px', color: 'var(--score-amber)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
           Evaluating top {Math.min(yellow.length, 5)} matches...
         </div>
         {yellow.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
@@ -372,7 +416,7 @@ function RecCardList({ candidates, isComplete, streamPhase, sessionId }: {
   return (
     <>
       {green.length > 0 && (
-        <div style={{ fontSize: '12px', color: '#5cb85c', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
+        <div style={{ fontSize: '12px', color: 'var(--score-green)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
       )}
       {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={0} />)}
 
@@ -399,7 +443,7 @@ function CollapsibleTier({ label, candidates, isComplete, sessionId }: {
       <button
         onClick={() => setOpen(!open)}
         style={{
-          background: 'transparent', border: 'none', color: '#666',
+          background: 'transparent', border: 'none', color: 'var(--text-muted)',
           cursor: 'pointer', fontSize: '14px', padding: '8px 0',
         }}
       >

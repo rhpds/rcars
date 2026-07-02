@@ -14,7 +14,7 @@ export function ProgressStream({ messages }: ProgressStreamProps) {
   return (
     <div style={{ fontSize: '14px', lineHeight: '1.8' }}>
       {messages.map((msg, i) => (
-        <div key={i} style={{ color: msg.done ? '#5cb85c' : '#e8a838' }}>
+        <div key={i} style={{ color: msg.done ? 'var(--score-green)' : 'var(--score-amber)' }}>
           {msg.done ? '✓' : '●'} {msg.message}
         </div>
       ))}

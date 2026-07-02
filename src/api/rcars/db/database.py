@@ -483,13 +483,16 @@ class Database:
         category: str | None = None,
         limit: int = 50,
         offset: int = 0,
-        include_retired: bool = False,
+        include_retired: str | bool = False,
     ) -> dict[str, Any]:
         conditions = []
         params: dict[str, Any] = {}
         joins = []
 
-        if not include_retired:
+        retired_str = str(include_retired).lower()
+        if retired_str == "only":
+            conditions.append("ci.retired_at IS NOT NULL")
+        elif retired_str not in ("true", "1"):
             conditions.append("ci.retired_at IS NULL")
 
         if category:
@@ -1295,8 +1298,10 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
-        provider: str = "anthropic",
+        provider: str = "anthropic", opted_out: bool = False,
     ) -> None:
+        if opted_out:
+            query_text = None
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
