@@ -123,6 +123,9 @@ async def get_query_result(job_id: str, request: Request, user: str = Depends(re
 async def list_sessions(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     sessions = db.list_advisor_sessions(user_email=user)
+    for s in sessions:
+        if s.get("started_at") and not isinstance(s["started_at"], str):
+            s["started_at"] = str(s["started_at"])
     return {"items": sessions, "total": len(sessions)}
 
 
@@ -138,6 +141,9 @@ async def get_session(session_id: str, request: Request, user: str = Depends(req
     turns = db.get_advisor_session(session_id, user_email=user)
     if not turns:
         raise HTTPException(status_code=404, detail="Session not found")
+    for t in turns:
+        if t.get("created_at") and not isinstance(t["created_at"], str):
+            t["created_at"] = str(t["created_at"])
     return {"session_id": session_id, "turns": turns}
 
 
