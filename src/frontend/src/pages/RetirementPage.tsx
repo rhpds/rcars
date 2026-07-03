@@ -415,7 +415,8 @@ export function RetirementPage() {
 
 This is a notification that "${drawerItem.display_name}" has been flagged for retirement from the Red Hat Demo Platform.
 
-Reason: ${reason}
+Reason:
+${reason.split('\n').filter(l => l.trim()).map(l => `- ${l.trim()}`).join('\n')}
 
 Key metrics (last 12 months):
 - Retirement Score: ${score}
