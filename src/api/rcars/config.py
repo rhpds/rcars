@@ -92,7 +92,6 @@ class Settings(BaseSettings):
     jira_base_url: str = "https://redhat.atlassian.net"
     jira_api_email: str = ""
     jira_api_token: str = ""
-    jira_retirement_template: str = "GPTEINFRA-14367"
 
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True

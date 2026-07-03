@@ -188,19 +188,4 @@ def create_retirement_ticket(
 
     logger.info("retirement_ticket_created", issue_key=issue_key)
 
-    # Step 2: Link to the template issue
-    link_body = {
-        "type": {"name": "Cloners"},
-        "inwardIssue": {"key": settings.jira_retirement_template},
-        "outwardIssue": {"key": issue_key},
-    }
-
-    _jira_request(settings, "/rest/api/2/issueLink", body=link_body)
-
-    logger.info(
-        "retirement_ticket_linked",
-        issue_key=issue_key,
-        template=settings.jira_retirement_template,
-    )
-
     return issue_key
