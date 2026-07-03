@@ -91,10 +91,12 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     else:
         replacement_line = "N/A"
 
-    # Reason & Notes
-    notes_lines = [f"* {reason}"]
+    # Reason & Notes — split multi-line reasons into individual bullets
+    notes_lines = [f"* {line.strip()}" for line in reason.splitlines() if line.strip()]
     if notes:
-        notes_lines.append(f"* {notes}")
+        for line in notes.splitlines():
+            if line.strip():
+                notes_lines.append(f"* {line.strip()}")
 
     # Metrics snapshot
     snapshot = workflow.get("approval_snapshot", {})
