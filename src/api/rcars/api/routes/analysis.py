@@ -223,7 +223,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
     description="Records that the content owner has been notified about the retirement. Curator-only.",
     response_model=WorkflowResponse,
 )
-async def notify_owner(base_name: str, request: Request, user: str = Depends(require_curator)):
+async def notify_owner(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     fields = {
         "step_notified_at": "NOW()",

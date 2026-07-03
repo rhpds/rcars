@@ -107,16 +107,18 @@ function ReplacementPicker({
     debounceRef.current = setTimeout(async () => {
       if (q.length < 2) { setResults([]); return }
       try {
-        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string }> }
-        const seen = new Set<string>()
+        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string; is_published?: boolean }> }
         const stripStage = (name: string) => name.replace(/\.(prod|dev|event|test)$/, '')
-        const unique = data.items.filter(i => {
-          const key = i.base_ci_name || stripStage(i.ci_name)
-          if (seen.has(key) || key === excludeBaseName) return false
-          seen.add(key)
-          return true
-        })
-        setResults(unique.map(i => ({ ci_name: i.base_ci_name || stripStage(i.ci_name), display_name: i.display_name })))
+        const byKey = new Map<string, { ci_name: string; display_name: string; isPublished: boolean }>()
+        for (const i of data.items) {
+          const key = stripStage(i.base_ci_name || i.ci_name)
+          if (key === excludeBaseName) continue
+          const existing = byKey.get(key)
+          if (!existing || (i.is_published && !existing.isPublished)) {
+            byKey.set(key, { ci_name: i.is_published ? stripStage(i.ci_name) : key, display_name: i.display_name, isPublished: !!i.is_published })
+          }
+        }
+        setResults(Array.from(byKey.values()).map(v => ({ ci_name: v.ci_name, display_name: v.display_name })))
         setOpen(true)
       } catch { setResults([]) }
     }, 250)
@@ -415,7 +417,8 @@ export function RetirementPage() {
 
 This is a notification that "${drawerItem.display_name}" has been flagged for retirement from the Red Hat Demo Platform.
 
-Reason: ${reason}
+Reason:
+${reason.split('\n').filter(l => l.trim()).map(l => `- ${l.trim()}`).join('\n')}
 
 Key metrics (last 12 months):
 - Retirement Score: ${score}
@@ -929,9 +932,9 @@ RHDP Content Team`
                     <div className="ret-drawer-section__title">Retirement Workflow</div>
 
                     <div className="ret-stepper">
-                      {/* Step 1: Approve for Retirement */}
+                      {/* Step 1: Recommend for Retirement */}
                       <StepperStep
-                        title="Approve for Retirement"
+                        title="Recommend for Retirement"
                         complete={isApproved}
                         active={approveIsNext}
                         pending={false}
@@ -977,7 +980,7 @@ RHDP Content Team`
                             </div>
                             <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
                               disabled={actionLoading || !approvalReason.trim()}>
-                              {actionLoading ? 'Approving...' : 'Approve Retirement'}
+                              {actionLoading ? 'Submitting...' : 'Recommend Retirement'}
                             </button>
                           </div>
                         )}
@@ -1013,18 +1016,24 @@ RHDP Content Team`
                               </div>
                             )}
 
-                            {/* Email template generator */}
+                            {/* Email template generator + notify (admin only) */}
                             {!isNotified && !isStarted && (
-                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
-                                  style={{ fontSize: '11px' }}>
-                                  Generate Email Template
-                                </button>
-                                <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
-                                  disabled={actionLoading} style={{ fontSize: '11px' }}>
-                                  {actionLoading ? 'Saving...' : 'Mark as Notified'}
-                                </button>
-                              </div>
+                              isAdmin ? (
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
+                                    style={{ fontSize: '11px' }}>
+                                    Generate Email Template
+                                  </button>
+                                  <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
+                                    disabled={actionLoading} style={{ fontSize: '11px' }}>
+                                    {actionLoading ? 'Saving...' : 'Mark as Notified'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                                  Admin access required to notify owner
+                                </div>
+                              )
                             )}
 
                             {/* Show generated email template */}
@@ -1114,13 +1123,13 @@ RHDP Content Team`
                               </>
                             ) : (
                               <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                                Admin approval required to start retirement
+                                Admin access required to start retirement
                               </div>
                             )}
                           </div>
                         ) : (
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Requires approval first
+                            Requires recommendation first
                           </div>
                         )}
                       </StepperStep>
