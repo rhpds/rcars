@@ -82,12 +82,8 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     replacement_name = workflow.get("replacement_name")
     target_days = workflow.get("target_days", 30)
 
-    # AgV path: component stays as-is, item name uppercased with underscores
-    parts = base_name.split(".", 1)
-    if len(parts) == 2:
-        agv_path = f"{parts[0]}/{parts[1].upper().replace('-', '_')}"
-    else:
-        agv_path = base_name.upper().replace("-", "_")
+    # AgV component/item from CI base name (e.g. enterprise.event-driven-ansible → enterprise/event-driven-ansible)
+    agv_ref = base_name.replace(".", "/", 1) if "." in base_name else base_name
 
     # Replacement: raw catalog URL
     if replacement_ci:
@@ -142,7 +138,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     description = (
         f"*CI Name:* {display_name}\n\n"
         f"*RHDP URL:* https://catalog.demo.redhat.com/catalog?search={base_name}\n\n"
-        f"*AgV:* https://github.com/rhpds/agnosticv/blob/master/{agv_path}\n\n"
+        f"*AgV:* {agv_ref}\n\n"
         f"*Retirement Notice:* {target_days} days\n\n"
         f"*Replacement CI:* {replacement_line}\n\n"
         f"*Reason & Notes:*\n\n"
