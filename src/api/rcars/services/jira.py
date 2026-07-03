@@ -73,20 +73,14 @@ def _jira_request(
 
 
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
-    """Build the Jira ticket description markdown for a retirement ticket."""
+    """Build the Jira ticket description in Jira wiki markup."""
     base_name = workflow.get("catalog_base_name", "unknown")
     display_name = metrics.get("display_name", base_name)
     reason = workflow.get("approval_reason", "No reason provided")
     notes = workflow.get("curator_notes")
     replacement_ci = workflow.get("replacement_ci")
     replacement_name = workflow.get("replacement_name")
-    target_date = workflow.get("retirement_target_date")
-
-    # Format target date
-    if isinstance(target_date, date):
-        target_date_str = target_date.isoformat()
-    else:
-        target_date_str = str(target_date) if target_date else "TBD"
+    target_days = workflow.get("target_days", 30)
 
     # AgV path: component stays as-is, item name uppercased with underscores
     parts = base_name.split(".", 1)
@@ -95,15 +89,13 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     else:
         agv_path = base_name.upper().replace("-", "_")
 
-    # Replacement line with catalog link
-    if replacement_ci and replacement_name:
-        replacement_line = f"[{replacement_name}](https://catalog.demo.redhat.com/catalog?search={replacement_ci})"
-    elif replacement_ci:
-        replacement_line = f"[{replacement_ci}](https://catalog.demo.redhat.com/catalog?search={replacement_ci})"
+    # Replacement: raw catalog URL
+    if replacement_ci:
+        replacement_line = f"https://catalog.demo.redhat.com/catalog?search={replacement_ci}"
     else:
         replacement_line = "N/A"
 
-    # Reason & Notes section
+    # Reason & Notes
     notes_lines = [f"* {reason}"]
     if notes:
         notes_lines.append(f"* {notes}")
@@ -119,7 +111,6 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     cost = snapshot.get("total_cost", "N/A")
     snapshot_date = snapshot.get("snapshot_date", "N/A")
 
-    # Format dollar amounts
     def fmt_dollar(val):
         if isinstance(val, (int, float)):
             return f"${val:,.0f}"
@@ -127,63 +118,41 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
             return f"${val}"
         return str(val)
 
-    # Build the AsciiDoc retirement notice template
+    # AsciiDoc retirement notice template
     adoc_replacement_line = ""
-    if replacement_ci and replacement_name:
+    if replacement_ci:
+        repl_name = replacement_name or replacement_ci
         adoc_replacement_line = (
-            f' Please use this as an alternative: link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
-            f'[{replacement_name}, window="_blank"]'
-        )
-    elif replacement_ci:
-        adoc_replacement_line = (
-            f' Please use this as an alternative: link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
-            f'[replacement item, window="_blank"]'
+            f' Please use this as an alternative: '
+            f'link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
+            f'[{repl_name}, window="_blank"]'
         )
 
     adoc_template = (
         "[IMPORTANT]\n"
         ".RETIREMENT NOTICE\n"
         "****\n"
-        f"This item will be retired on **[DATE TBD]**.{adoc_replacement_line}\n"
+        f"This item will be retired on *[DATE TBD]*.{adoc_replacement_line}\n"
         "\n"
         "For any questions regarding this retirement, please contact "
         "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
         "****"
     )
 
-    description = f"""**CI Name:** {display_name}
-
-**RHDP URL:** https://catalog.demo.redhat.com/catalog?search={base_name}
-
-**AgV:** https://github.com/rhpds/agnosticv/blob/master/{agv_path}
-
-**Retirement Notice:** {target_date_str}
-
-**Replacement CI:** {replacement_line}
-
-**Reason & Notes:**
-
-{chr(10).join(notes_lines)}
-
-**Metrics at approval (snapshot {snapshot_date}):**
-
-| Metric | Value |
-|--------|-------|
-| Retirement Score | {score} |
-| Provisions | {provisions} |
-| Experiences | {experiences} |
-| Unique Users | {unique_users} |
-| Touched Amount | {fmt_dollar(touched)} |
-| Closed Amount | {fmt_dollar(closed)} |
-| Total Cost | {fmt_dollar(cost)} |
-
----
-
-**Suggested adoc template** _(replace_ `[DATE TBD]` _with the actual retirement date before pasting into the CI)_**:**
-
-```
-{adoc_template}
-```"""
+    description = (
+        f"*CI Name:* {display_name}\n\n"
+        f"*RHDP URL:* https://catalog.demo.redhat.com/catalog?search={base_name}\n\n"
+        f"*AgV:* https://github.com/rhpds/agnosticv/blob/master/{agv_path}\n\n"
+        f"*Retirement Notice:* {target_days} days\n\n"
+        f"*Replacement CI:* {replacement_line}\n\n"
+        f"*Reason & Notes:*\n\n"
+        f"{chr(10).join(notes_lines)}\n\n"
+        f"----\n\n"
+        f"*Suggested adoc template* _(replace_ {{[DATE TBD]}} _with the actual retirement date before pasting into the CI)_*:*\n\n"
+        f"{{code}}\n"
+        f"{adoc_template}\n"
+        f"{{code}}"
+    )
 
     return description
 

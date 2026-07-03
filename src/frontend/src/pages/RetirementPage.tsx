@@ -14,7 +14,7 @@ type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
 type TimeWindow = '1q' | '2q' | '3q' | '1y'
-type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started' | 'retired'
+type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started'
 
 const fmt = (v: number | string) => {
   const n = typeof v === 'string' ? parseFloat(v) || 0 : v
@@ -530,6 +530,7 @@ RHDP Content Team`
 
           {/* Controls row: score filter + workflow filter + search */}
           <div className="ret-controls-row">
+            <span className="ret-filter-label">Score</span>
             <div className="ret-filter-group">
               <button onClick={() => setScoreFilter('all')}
                 className={`ret-filter-group__btn${scoreFilter === 'all' ? ' active' : ''}`}>All</button>
@@ -549,8 +550,9 @@ RHDP Content Team`
 
             <div className="ret-controls-row__divider" />
 
+            <span className="ret-filter-label">Status</span>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['retired', 'Retired']] as [WorkflowFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started']] as [WorkflowFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setWorkflowFilter(f)}
                   className={`ret-filter-group__btn${workflowFilter === f ? ' active' : ''}`}>
                   {label}

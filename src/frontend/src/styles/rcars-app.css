@@ -2596,6 +2596,16 @@ body {
 .ret-filter-group__dot--amber { background: var(--score-amber); }
 .ret-filter-group__dot--green { background: var(--score-green); }
 
+.ret-filter-label {
+  font-family: var(--ff-display);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 /* ── Stats Cards with Accent Borders ── */
 .ret-stat-card {
   background: var(--bg-card);

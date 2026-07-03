@@ -531,10 +531,19 @@ class Database:
             conditions.append("ci.stage = 'prod'")
 
         if search:
-            conditions.append(
-                "(ci.display_name ILIKE %(search)s OR ci.ci_name ILIKE %(search)s)"
-            )
-            params["search"] = f"%{search}%"
+            words = search.strip().split()
+            if len(words) == 1:
+                conditions.append(
+                    "(ci.display_name ILIKE %(search)s OR ci.ci_name ILIKE %(search)s)"
+                )
+                params["search"] = f"%{search}%"
+            else:
+                word_conds = []
+                for i, word in enumerate(words[:6]):
+                    key = f"sw{i}"
+                    word_conds.append(f"(ci.display_name ILIKE %({key})s OR ci.ci_name ILIKE %({key})s)")
+                    params[key] = f"%{word}%"
+                conditions.append(f"({' AND '.join(word_conds)})")
 
         if cloud_provider:
             conditions.append("ci.cloud_provider = %(cloud_provider)s")

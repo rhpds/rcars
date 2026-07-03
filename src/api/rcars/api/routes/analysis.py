@@ -256,7 +256,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     target_date = (datetime.now() + timedelta(days=body.target_days)).date()
     metrics = db.get_reporting_metrics(base_name) or {}
 
-    wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date}
+    wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days}
 
     from rcars.services.jira import create_retirement_ticket
     try:
