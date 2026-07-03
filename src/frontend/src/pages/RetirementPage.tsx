@@ -111,12 +111,12 @@ function ReplacementPicker({
         const seen = new Set<string>()
         const stripStage = (name: string) => name.replace(/\.(prod|dev|event|test)$/, '')
         const unique = data.items.filter(i => {
-          const key = i.base_ci_name || stripStage(i.ci_name)
+          const key = stripStage(i.base_ci_name || i.ci_name)
           if (seen.has(key) || key === excludeBaseName) return false
           seen.add(key)
           return true
         })
-        setResults(unique.map(i => ({ ci_name: i.base_ci_name || stripStage(i.ci_name), display_name: i.display_name })))
+        setResults(unique.map(i => ({ ci_name: stripStage(i.base_ci_name || i.ci_name), display_name: i.display_name })))
         setOpen(true)
       } catch { setResults([]) }
     }, 250)
