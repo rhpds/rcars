@@ -2106,8 +2106,9 @@ class Database:
         all_fields = dict(fields)
         all_fields["catalog_base_name"] = base_name
 
-        # Derive status from step timestamps if not explicitly provided
-        if "status" not in all_fields:
+        # Derive status from step timestamps only when step fields are being set
+        step_fields = {"step_approved_at", "step_notified_at", "step_started_at", "step_retired_at"}
+        if "status" not in all_fields and step_fields & all_fields.keys():
             from rcars.services.retirement import derive_status
             all_fields["status"] = derive_status(all_fields)
 

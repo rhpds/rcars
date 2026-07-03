@@ -286,6 +286,7 @@ export function RetirementPage() {
     setExpanded(new Set())
     setScoreFilter('all')
     setAgeFilter('all')
+    setWorkflowFilter('all')
     setSearch('')
     setSortBy(tab === 'prod' ? 'retirement_score' : 'provisions')
     setSortDir(tab === 'prod' ? 'asc' : 'desc')
@@ -373,6 +374,11 @@ export function RetirementPage() {
 
   const handleCancel = async () => {
     if (!drawerItem) return
+    const hasJira = drawerWorkflow?.jira_key
+    const msg = hasJira
+      ? `This will cancel the retirement workflow and unlink ${drawerWorkflow.jira_key}. The Jira ticket will remain open. Continue?`
+      : 'This will cancel the retirement workflow and remove all progress. Continue?'
+    if (!confirm(msg)) return
     setActionLoading(true)
     setActionError(null)
     try {
@@ -1173,7 +1179,7 @@ RHDP Content Team`
                           ] as [string, string, number][]).map(([key, label, current]) => {
                             const snapped = wf.approval_snapshot![key]
                             if (snapped === undefined) return null
-                            const snapVal = typeof snapped === 'number' ? snapped : 0
+                            const snapVal = num(snapped)
                             const delta = current - snapVal
                             const isMoney = ['total_cost', 'touched_amount', 'closed_amount'].includes(key)
                             const fmtVal = (v: number) => isMoney ? fmt(v) : v.toLocaleString()

@@ -326,7 +326,7 @@ def _merge_published_base_pairs(
             if wk in base_wm:
                 pub_w = pub_wm.setdefault(wk, {})
                 for metric, value in base_wm[wk].items():
-                    if metric in ("retirement_score", "sales_impact", "avg_cost_per_provision"):
+                    if metric in ("retirement_score", "sales_impact", "avg_cost_per_provision", "success_ratio", "failure_ratio"):
                         continue
                     pub_w[metric] = pub_w.get(metric, 0) + value
         pub_row["windowed_metrics"] = json.dumps(pub_wm)

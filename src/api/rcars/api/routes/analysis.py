@@ -255,6 +255,9 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     if not wf or not wf.get("step_approved_at"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Item must be approved before starting retirement")
+    if wf.get("step_started_at"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
 
     target_date = (datetime.now() + timedelta(days=body.target_days)).date()
     metrics = db.get_reporting_metrics(base_name) or {}
