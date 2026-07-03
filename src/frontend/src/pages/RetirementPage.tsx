@@ -929,9 +929,9 @@ RHDP Content Team`
                     <div className="ret-drawer-section__title">Retirement Workflow</div>
 
                     <div className="ret-stepper">
-                      {/* Step 1: Approve for Retirement */}
+                      {/* Step 1: Recommend for Retirement */}
                       <StepperStep
-                        title="Approve for Retirement"
+                        title="Recommend for Retirement"
                         complete={isApproved}
                         active={approveIsNext}
                         pending={false}
@@ -977,7 +977,7 @@ RHDP Content Team`
                             </div>
                             <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
                               disabled={actionLoading || !approvalReason.trim()}>
-                              {actionLoading ? 'Approving...' : 'Approve Retirement'}
+                              {actionLoading ? 'Submitting...' : 'Recommend Retirement'}
                             </button>
                           </div>
                         )}
@@ -1013,8 +1013,8 @@ RHDP Content Team`
                               </div>
                             )}
 
-                            {/* Email template generator */}
-                            {!isNotified && !isStarted && (
+                            {/* Email template generator + notify (admin only) */}
+                            {!isNotified && !isStarted && isAdmin && (
                               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
                                 <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
                                   style={{ fontSize: '11px' }}>
@@ -1114,13 +1114,13 @@ RHDP Content Team`
                               </>
                             ) : (
                               <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                                Admin approval required to start retirement
+                                Admin access required to start retirement
                               </div>
                             )}
                           </div>
                         ) : (
                           <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                            Requires approval first
+                            Requires recommendation first
                           </div>
                         )}
                       </StepperStep>
