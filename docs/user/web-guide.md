@@ -287,7 +287,9 @@ Shows scored items that have a production deployment. This is the primary triage
 
 **Stat cards** — total assets, high retirement (score ≥55), review (35-54), keepers (<35), total cost, total closed, total touched.
 
-**Filter pills** — All, High ≥55, Review 35-54, Keepers <35.
+**Score filter** (labeled "Score") — All, High ≥55, Review 35-54, Keepers <35.
+
+**Status filter** (labeled "Status") — All, No Action, In Process, Started. Filters items by retirement workflow state.
 
 **Search** — filter by display name.
 
@@ -333,6 +335,30 @@ Shows items that only exist in dev and/or event stages — never promoted to pro
 **Expanded rows** — click to see: environments (with Browse links), catalog name, unique users, experiences, total cost, and category.
 
 Items more than a year old without a prod deployment are strong candidates for either promotion or retirement.
+
+#### Retirement Workflow Drawer
+
+Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a four-step workflow.
+
+**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, experiences, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
+
+**Workflow Steps:**
+
+1. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
+
+2. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
+
+3. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
+
+4. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
+
+**Additional sections in the drawer:**
+
+- **Metrics at Approval vs Current** — comparison table showing how metrics changed since approval, with delta indicators
+- **Curator Notes** — free-form text that auto-saves when you click away
+- **Cancel Workflow** — resets all workflow state (available before start; after start, use "Stop Retirement")
+
+Items with an active workflow show an inline badge in the table row: amber "In Process" or blue "Retirement Started".
 
 #### Understanding Retirement Scores
 

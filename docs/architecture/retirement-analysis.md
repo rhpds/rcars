@@ -295,8 +295,79 @@ rcars reporting-db status     # Show sync status and score distribution
 rcars reporting-db show NAME  # Show metrics for a specific catalog base name
 ```
 
+## Retirement Workflow
+
+Once a curator identifies an item for retirement via the scoring dashboard, they can drive the process through a four-step workflow directly in RCARS. The workflow is tracked in the `retirement_workflow` table and culminates in a Jira ticket.
+
+### Workflow Steps
+
+1. **Approve for Retirement** (curator) — The curator enters a reason for retirement and optionally selects a replacement CI via a searchable catalog dropdown. Clicking "Approve Retirement" freezes the item's current metrics into an `approval_snapshot` JSONB field for later comparison. The search supports multi-word queries (e.g., "ansible event" matches items containing both words).
+
+2. **Owner Notified** (curator, optional) — RCARS displays the item's detected maintainers from the Babylon CRD `owners_json.maintainer` field. A "Generate Email Template" button creates a copyable notification message pre-filled with the item name, reason, and key metrics. The curator copies this into Slack or email manually. This step can be skipped.
+
+3. **Start Retirement** (admin only) — Creates a Jira ticket in the selected project (default RHDPCD, auto-uppercased) with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. The Jira description uses wiki markup and includes the target retirement period in days (e.g., "30 days"), the AgnosticV component/item reference, and a catalog search link. Only admins can execute this step — curators see a message indicating admin approval is required.
+
+4. **Retired** (automatic) — Auto-completes when the item disappears from the Babylon CRDs during the nightly catalog refresh. The `retire_removed_items()` function checks for workflow records matching newly-retired base names and sets `step_retired_at`.
+
+### Access Control
+
+- **Curators** can approve items, notify owners, generate email templates, and view all workflow state
+- **Admins** can do everything curators can, plus execute "Start Retirement" (Jira creation)
+- The "Stop Retirement" button appears in the started step for admins to cancel an in-progress retirement
+
+### Jira Integration
+
+Jira tickets are created via direct REST API v2 calls from the Python backend (`src/api/rcars/services/jira.py`). No MCP tools or LLM involvement — pure HTTP with Basic auth.
+
+The ticket includes:
+- **CI Name** — display name from the catalog
+- **RHDP URL** — catalog search link on `catalog.demo.redhat.com`
+- **AgV** — component/item reference (e.g., `enterprise/event-driven-ansible`). Since Babylon CRDs merge configs from multiple AgnosticV repos, RCARS cannot determine the source repo — only the component/item path is shown.
+- **Retirement Notice** — target days (e.g., "30 days")
+- **Replacement CI** — catalog search URL if a replacement was selected
+- **Metrics snapshot** — frozen values from approval time
+- **Suggested adoc template** — AsciiDoc retirement notice block with `[DATE TBD]` placeholder, in a `{code}` block for easy copy
+
+After ticket creation, a clone link is created to the retirement template issue (configurable via `RCARS_JIRA_RETIREMENT_TEMPLATE`).
+
+### Data Model
+
+The `retirement_workflow` table tracks one row per catalog base name:
+
+| Column | Type | Purpose |
+|---|---|---|
+| `catalog_base_name` | TEXT PK | Links to `reporting_metrics` |
+| `status` | TEXT | Derived: `approved`, `notified`, `started`, `retired` |
+| `step_approved_at/by` | TIMESTAMPTZ, TEXT | When and who approved |
+| `approval_reason` | TEXT | Required reason for retirement |
+| `approval_snapshot` | JSONB | Frozen metrics at approval time |
+| `step_notified_at/by` | TIMESTAMPTZ, TEXT | Optional owner notification |
+| `step_started_at/by` | TIMESTAMPTZ, TEXT | When Jira was created |
+| `retirement_target_date` | DATE | Target retirement date |
+| `step_retired_at` | TIMESTAMPTZ | Auto-set when item disappears |
+| `replacement_ci` | TEXT | Base name of replacement item |
+| `replacement_name` | TEXT | Display name of replacement |
+| `curator_notes` | TEXT | Free-form notes (auto-saves on blur) |
+| `jira_key` | TEXT | Created Jira ticket key |
+| `jira_project` | TEXT | Jira project (default RHDPCD) |
+
+### Audit Trail
+
+All workflow actions are logged in the `analysis_log` table: `retirement_approved`, `retirement_notified`, `retirement_started` (with Jira key), `retirement_auto_closed`, `retirement_cancelled`.
+
 ## API
 
-- `GET /analysis/retirement` — retirement dashboard with filtering, sorting, search
+### Dashboard
+- `GET /analysis/retirement` — retirement dashboard with filtering, sorting, search, owner data
+
+### Workflow
+- `GET /analysis/retirement/workflow/{base_name}` — get workflow state
+- `PUT /analysis/retirement/workflow/{base_name}/approve` — approve with reason + optional replacement (curator)
+- `PUT /analysis/retirement/workflow/{base_name}/notify` — mark owner notified (curator)
+- `PUT /analysis/retirement/workflow/{base_name}/start` — create Jira ticket, start clock (admin only)
+- `PUT /analysis/retirement/workflow/{base_name}/notes` — update curator notes
+- `DELETE /analysis/retirement/workflow/{base_name}` — cancel/reset workflow
+
+### Admin
 - `POST /admin/sync-reporting` — trigger a reporting sync job
 - `GET /admin/reporting-status` — sync status and score distribution

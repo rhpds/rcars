@@ -263,6 +263,34 @@ Background async job tracking.
 
 ---
 
+## `retirement_workflow`
+
+Tracks the retirement lifecycle for catalog items. One row per catalog base name. Created by Alembic migration 012.
+
+| Column | Type | Description |
+|---|---|---|
+| `catalog_base_name` | TEXT (PK) | Matches `reporting_metrics.catalog_base_name` |
+| `status` | TEXT | Derived from highest step: `approved`, `notified`, `started`, `retired` |
+| `step_approved_at` | TIMESTAMPTZ | When retirement was approved |
+| `step_approved_by` | TEXT | Email of approving curator |
+| `approval_reason` | TEXT | Required reason for retirement |
+| `approval_snapshot` | JSONB | Frozen metrics at approval time (provisions, cost, touched, closed, score, etc.) |
+| `step_notified_at` | TIMESTAMPTZ | When owner was notified (optional step) |
+| `step_notified_by` | TEXT | Email of notifying curator |
+| `step_started_at` | TIMESTAMPTZ | When Jira ticket was created |
+| `step_started_by` | TEXT | Email of admin who started |
+| `retirement_target_date` | DATE | Computed target date (approval date + target days) |
+| `step_retired_at` | TIMESTAMPTZ | Auto-set when item disappears from Babylon CRDs |
+| `replacement_ci` | TEXT | Base name of replacement catalog item (optional) |
+| `replacement_name` | TEXT | Display name of replacement (optional) |
+| `curator_notes` | TEXT | Free-form curator notes |
+| `jira_key` | TEXT | Created Jira ticket key (e.g., GPTEINFRA-17135) |
+| `jira_project` | TEXT | Jira project key (default RHDPCD) |
+| `created_at` | TIMESTAMPTZ | Row creation time |
+| `updated_at` | TIMESTAMPTZ | Last modification time |
+
+---
+
 ## `api_keys` (future)
 
 API key management for programmatic access. Schema defined but not yet active.
