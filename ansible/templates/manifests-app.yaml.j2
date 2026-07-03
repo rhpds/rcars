@@ -147,8 +147,6 @@ spec:
                 secretKeyRef:
                   name: {{ app_name }}-jira
                   key: token
-            - name: RCARS_JIRA_RETIREMENT_TEMPLATE
-              value: "{{ rcars_jira_retirement_template | default('GPTEINFRA-14367') }}"
 {% endif %}
             - name: RCARS_DEV_USER
               value: ""

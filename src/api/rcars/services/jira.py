@@ -1,7 +1,7 @@
 """Jira REST API client for retirement ticket creation.
 
 Uses urllib (consistent with RCARS HTTP patterns in reporting_sync.py)
-to create retirement tickets and link them to the template issue.
+to create retirement tickets.
 """
 from __future__ import annotations
 
@@ -158,7 +158,7 @@ def create_retirement_ticket(
     workflow: dict,
     metrics: dict,
 ) -> str:
-    """Create a Jira retirement ticket and link it to the template issue.
+    """Create a Jira retirement ticket.
 
     Returns the new Jira issue key (e.g. "RHDPCD-999").
     """
