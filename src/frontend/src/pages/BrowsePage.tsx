@@ -195,7 +195,6 @@ function CuratorDrawer({
   contentPath,
   onContentPathChange,
   onContentPathSave,
-  scanning,
   flagged,
   onFlag,
   analyzing,
@@ -220,7 +219,6 @@ function CuratorDrawer({
   contentPath: string
   onContentPathChange: (val: string) => void
   onContentPathSave: () => void
-  scanning: boolean
   flagged: boolean
   onFlag: () => void
   analyzing: boolean
@@ -319,13 +317,10 @@ function CuratorDrawer({
                 onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
                 placeholder="Content path (e.g. docs/labs/)"
               />
-              <button className="browse-btn-action" onClick={onContentPathSave} disabled={scanning}>
-                {scanning ? 'Scanning...' : 'Set & Scan'}
+              <button className="browse-btn-action" onClick={onContentPathSave}>
+                Set Path
               </button>
             </div>
-            {scanning && (
-              <div className="browse-drawer-scanning">Content path updated — scanning with new path...</div>
-            )}
           </div>
 
           {/* Actions */}
@@ -408,7 +403,6 @@ export function BrowsePage() {
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
   const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
-  const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
 
@@ -586,14 +580,9 @@ export function BrowsePage() {
 
   const handleSetContentPath = async (ciName: string) => {
     const path = contentPaths[ciName]?.trim() || null
-    setScanningPath(prev => ({ ...prev, [ciName]: true }))
     await api.setContentPath(ciName, path)
-    setTimeout(async () => {
-      const detail = await api.getCatalogItem(ciName) as ItemDetail
-      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
-      setScanningPath(prev => ({ ...prev, [ciName]: false }))
-      fetchItems(page)
-    }, 5000)
+    const detail = await api.getCatalogItem(ciName) as ItemDetail
+    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
   }
 
   const handleOverrideUrl = async (ciName: string) => {
@@ -1012,7 +1001,6 @@ export function BrowsePage() {
           contentPath={contentPaths[drawerItem] ?? ''}
           onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
           onContentPathSave={() => handleSetContentPath(drawerItem)}
-          scanning={scanningPath[drawerItem] || false}
           flagged={flaggedItems.has(drawerItem)}
           onFlag={() => handleFlag(drawerItem)}
           analyzing={analyzing === drawerItem}

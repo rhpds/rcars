@@ -380,15 +380,12 @@ class ContentPathRequest(BaseModel):
     summary="Set content path",
     description=(
         "Sets a custom content path within the Showroom repo for analysis. "
-        "Triggers a re-analysis job automatically. Curator-only."
+        "Use Re-analyze to scan with the new path. Curator-only."
     ),
     response_model=ContentPathResponse,
 )
 async def set_content_path(ci_name: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    arq_redis = request.app.state.arq_redis
     path = body.path.strip().rstrip("/") if body.path else None
     db.set_content_path(ci_name, path)
-    job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
-    await arq_redis.enqueue_job("run_analysis", job_id=job_id, ci_name=ci_name, _queue_name="arq:queue:scan")
-    return {"status": "ok", "content_path": path, "job_id": job_id}
+    return {"status": "ok", "content_path": path, "job_id": ""}
