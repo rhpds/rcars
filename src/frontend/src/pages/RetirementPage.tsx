@@ -1017,17 +1017,23 @@ RHDP Content Team`
                             )}
 
                             {/* Email template generator + notify (admin only) */}
-                            {!isNotified && !isStarted && isAdmin && (
-                              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                                <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
-                                  style={{ fontSize: '11px' }}>
-                                  Generate Email Template
-                                </button>
-                                <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
-                                  disabled={actionLoading} style={{ fontSize: '11px' }}>
-                                  {actionLoading ? 'Saving...' : 'Mark as Notified'}
-                                </button>
-                              </div>
+                            {!isNotified && !isStarted && (
+                              isAdmin ? (
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  <button className="ret-action-btn ret-action-btn--primary" onClick={generateEmailTemplate}
+                                    style={{ fontSize: '11px' }}>
+                                    Generate Email Template
+                                  </button>
+                                  <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
+                                    disabled={actionLoading} style={{ fontSize: '11px' }}>
+                                    {actionLoading ? 'Saving...' : 'Mark as Notified'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                                  Admin access required to notify owner
+                                </div>
+                              )
                             )}
 
                             {/* Show generated email template */}
