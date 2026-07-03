@@ -623,7 +623,7 @@ RHDP Content Team`
                                     <span className="ca-detail-label">Environments</span>
                                     <span className="ca-detail-value">
                                       {item.stages.map(s => (
-                                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(item.display_name)}`} target="_blank" rel="noreferrer"
                                           className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                                           onClick={e => e.stopPropagation()}>
                                           {s.stage}
@@ -763,7 +763,7 @@ RHDP Content Team`
                             </td>
                             <td>
                               {item.stages.map(s => (
-                                <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                                <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(item.display_name)}`} target="_blank" rel="noreferrer"
                                   className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                                   style={{ marginRight: 4 }} onClick={e => e.stopPropagation()}>
                                   {s.stage}
@@ -786,7 +786,7 @@ RHDP Content Team`
                                     <span className="ca-detail-label">Environments</span>
                                     <span className="ca-detail-value">
                                       {item.stages.map(s => (
-                                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                                        <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(item.display_name)}`} target="_blank" rel="noreferrer"
                                           className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                                           onClick={e => e.stopPropagation()}>
                                           {s.stage}
@@ -909,7 +909,7 @@ RHDP Content Team`
                       <div className="ret-data-label">Environments</div>
                       <div style={{ marginTop: '4px' }}>
                         {drawerItem.stages.map(s => (
-                          <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"
+                          <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(drawerItem.display_name)}`} target="_blank" rel="noreferrer"
                             className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                             style={{ marginRight: 4 }}>
                             {s.stage}
