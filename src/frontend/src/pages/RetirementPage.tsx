@@ -109,13 +109,14 @@ function ReplacementPicker({
       try {
         const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string }> }
         const seen = new Set<string>()
+        const stripStage = (name: string) => name.replace(/\.(prod|dev|event|test)$/, '')
         const unique = data.items.filter(i => {
-          const key = i.base_ci_name || i.ci_name
+          const key = i.base_ci_name || stripStage(i.ci_name)
           if (seen.has(key) || key === excludeBaseName) return false
           seen.add(key)
           return true
         })
-        setResults(unique.map(i => ({ ci_name: i.base_ci_name || i.ci_name, display_name: i.display_name })))
+        setResults(unique.map(i => ({ ci_name: i.base_ci_name || stripStage(i.ci_name), display_name: i.display_name })))
         setOpen(true)
       } catch { setResults([]) }
     }, 250)
@@ -593,8 +594,8 @@ RHDP Content Team`
                         <Fragment key={item.catalog_base_name}>
                           <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
                             <td className="name" title={item.display_name}>
-                              {item.display_name}
-                              {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
+                              <div>{item.display_name}{item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}</div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>{item.catalog_base_name}</div>
                             </td>
                             <td className="num">
                               <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score) }}>
@@ -750,7 +751,10 @@ RHDP Content Team`
                       return (
                         <Fragment key={item.catalog_base_name}>
                           <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
-                            <td className="name" title={item.display_name}>{item.display_name}</td>
+                            <td className="name" title={item.display_name}>
+                              <div>{item.display_name}</div>
+                              <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>{item.catalog_base_name}</div>
+                            </td>
                             <td>
                               {item.stages.map(s => (
                                 <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(s.ci_name)}`} target="_blank" rel="noreferrer"

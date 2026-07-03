@@ -1887,8 +1887,19 @@ class Database:
             params["min_score"] = min_score
 
         if search:
-            conditions.append("rm.display_name ILIKE %(search)s")
-            params["search"] = f"%{search}%"
+            words = search.strip().split()
+            if len(words) == 1:
+                conditions.append(
+                    "(rm.display_name ILIKE %(search)s OR rm.catalog_base_name ILIKE %(search)s)"
+                )
+                params["search"] = f"%{search}%"
+            else:
+                word_conds = []
+                for i, word in enumerate(words[:6]):
+                    key = f"rsw{i}"
+                    word_conds.append(f"(rm.display_name ILIKE %({key})s OR rm.catalog_base_name ILIKE %({key})s)")
+                    params[key] = f"%{word}%"
+                conditions.append(f"({' AND '.join(word_conds)})")
 
         if category:
             conditions.append("""

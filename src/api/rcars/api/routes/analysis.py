@@ -93,8 +93,11 @@ async def retirement_dashboard(
         prod_names = db.get_all_base_names_with_prod()
         items = [i for i in items if i["catalog_base_name"] not in prod_names]
     if search:
-        search_lower = search.lower()
-        items = [i for i in items if search_lower in (i.get("display_name") or "").lower()]
+        words = search.lower().split()
+        def _matches(item: dict) -> bool:
+            text = f"{item.get('display_name', '')} {item.get('catalog_base_name', '')}".lower()
+            return all(w in text for w in words)
+        items = [i for i in items if _matches(i)]
     if min_score is not None:
         items = [i for i in items if (i.get("retirement_score") or 0) >= min_score]
     if category:
