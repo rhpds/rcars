@@ -107,16 +107,18 @@ function ReplacementPicker({
     debounceRef.current = setTimeout(async () => {
       if (q.length < 2) { setResults([]); return }
       try {
-        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string }> }
-        const seen = new Set<string>()
+        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string; is_published?: boolean }> }
         const stripStage = (name: string) => name.replace(/\.(prod|dev|event|test)$/, '')
-        const unique = data.items.filter(i => {
+        const byKey = new Map<string, { ci_name: string; display_name: string; isPublished: boolean }>()
+        for (const i of data.items) {
           const key = stripStage(i.base_ci_name || i.ci_name)
-          if (seen.has(key) || key === excludeBaseName) return false
-          seen.add(key)
-          return true
-        })
-        setResults(unique.map(i => ({ ci_name: stripStage(i.base_ci_name || i.ci_name), display_name: i.display_name })))
+          if (key === excludeBaseName) continue
+          const existing = byKey.get(key)
+          if (!existing || (i.is_published && !existing.isPublished)) {
+            byKey.set(key, { ci_name: i.is_published ? stripStage(i.ci_name) : key, display_name: i.display_name, isPublished: !!i.is_published })
+          }
+        }
+        setResults(Array.from(byKey.values()).map(v => ({ ci_name: v.ci_name, display_name: v.display_name })))
         setOpen(true)
       } catch { setResults([]) }
     }, 250)
