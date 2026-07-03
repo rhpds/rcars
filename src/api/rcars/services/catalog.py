@@ -82,6 +82,8 @@ def extract_catalog_item(crd: dict[str, Any]) -> dict[str, Any]:
         "last_crd_update": last_crd_update,
         "is_prod": stage == "prod",
         "is_published": metadata.get("name", "").startswith("published."),
+        "published_ci_name": None,
+        "base_ci_name": None,
     }
 
 
