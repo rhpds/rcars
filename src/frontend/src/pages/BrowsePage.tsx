@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useLocation } from 'react-router-dom'
 import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
@@ -356,6 +356,7 @@ function CuratorDrawer({
 export function BrowsePage() {
   const auth = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
 
   // Filter state
   const [search, setSearch] = useState(searchParams.get('search') || '')
@@ -370,6 +371,19 @@ export function BrowsePage() {
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
+
+  useEffect(() => {
+    if ((location.state as { reset?: number } | null)?.reset && !searchParams.toString()) {
+      setSearch('')
+      setShowDev(false)
+      setShowEvent(false)
+      setCloudProvider('')
+      setAgdConfig('')
+      setSelectedWorkloads([])
+      setContentFilter('')
+      setPage(1)
+    }
+  }, [location.state, searchParams])
 
   // Data state
   const [items, setItems] = useState<CatalogItem[]>([])

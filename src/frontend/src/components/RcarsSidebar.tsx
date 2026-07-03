@@ -1,9 +1,11 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { PageSidebar, PageSidebarBody } from '@patternfly/react-core'
 import { useAuth } from '../hooks/useAuth'
 
 export function RcarsSidebar() {
   const auth = useAuth()
+  const navigate = useNavigate()
+  const location = useLocation()
 
   return (
     <PageSidebar className="rcars-sidebar">
@@ -32,6 +34,12 @@ export function RcarsSidebar() {
           <NavLink
             to="/browse"
             className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+            onClick={(e) => {
+              if (location.pathname === '/browse' && location.search) {
+                e.preventDefault()
+                navigate('/browse', { replace: true, state: { reset: Date.now() } })
+              }
+            }}
           >
             Catalog
           </NavLink>

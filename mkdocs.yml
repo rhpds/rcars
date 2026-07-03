@@ -33,6 +33,7 @@ nav:
   - Overview: overview.md
   - Architecture:
       - System Design: architecture/system-design.md
+      - API Reference: architecture/api-reference.md
       - Scan Pipeline: architecture/scan-pipeline.md
       - Recommendation Engine: architecture/recommendation-engine.md
       - Content Overlap: architecture/content-overlap.md

@@ -102,6 +102,19 @@ type: Opaque
 stringData:
   token: "{{ rcars_reporting_mcp_token }}"
 {% endif %}
+{% if rcars_jira_api_token is defined and rcars_jira_api_token != '' %}
+---
+# Jira API credentials (for retirement ticket creation)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-jira
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  token: "{{ rcars_jira_api_token }}"
+{% endif %}
 ---
 # PostgreSQL PVC
 apiVersion: v1

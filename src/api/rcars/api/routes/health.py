@@ -2,15 +2,22 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
+from rcars.api.schemas import HealthResponse, ReadinessResponse
+
 router = APIRouter()
 
 
-@router.get("/health")
+@router.get("/health", summary="Health check", response_model=HealthResponse)
 async def health():
     return {"status": "ok"}
 
 
-@router.get("/health/ready")
+@router.get(
+    "/health/ready",
+    summary="Readiness probe",
+    description="Checks database and Redis connectivity. Returns 'degraded' if either is unreachable.",
+    response_model=ReadinessResponse,
+)
 async def readiness(request: Request):
     db = request.app.state.db
     redis = request.app.state.redis

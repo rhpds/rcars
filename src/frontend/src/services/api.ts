@@ -211,7 +211,7 @@ export const api = {
   getRetirementDashboard: (params?: {
     sort_by?: string; sort_dir?: string; min_score?: number;
     category?: string; has_prod?: boolean; search?: string;
-    window?: string;
+    window?: string; workflow_status?: string;
   }) => {
     const qs = new URLSearchParams()
     if (params) {
@@ -223,9 +223,64 @@ export const api = {
     return request<RetirementDashboardResponse>(`/analysis/retirement${query ? '?' + query : ''}`)
   },
 
+  // Retirement workflows
+  getRetirementWorkflow: (baseName: string) =>
+    request<{ workflow: RetirementWorkflow | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
+
+  reviewRetirementItem: (baseName: string) =>
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
+
+  approveRetirementItem: (baseName: string, reason: string, replacementCi?: string, replacementName?: string) =>
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/approve`, {
+      method: 'PUT',
+      body: JSON.stringify({ reason, replacement_ci: replacementCi || null, replacement_name: replacementName || null }),
+    }),
+
+  notifyRetirementOwner: (baseName: string) =>
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notify`, { method: 'PUT' }),
+
+  startRetirement: (baseName: string, targetDays?: number, jiraProject?: string) =>
+    request<{ status: string; workflow: RetirementWorkflow; jira_key: string }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/start`, {
+      method: 'PUT',
+      body: JSON.stringify({ target_days: targetDays ?? 30, jira_project: jiraProject ?? 'RHDPCD' }),
+    }),
+
+  updateRetirementNotes: (baseName: string, notes: string) =>
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notes`, {
+      method: 'PUT',
+      body: JSON.stringify({ notes }),
+    }),
+
+  cancelRetirementWorkflow: (baseName: string) =>
+    request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
 };
+
+export interface RetirementWorkflow {
+  catalog_base_name: string
+  status: string
+  step_reviewed_at: string | null
+  step_reviewed_by: string | null
+  step_approved_at: string | null
+  step_approved_by: string | null
+  approval_reason: string | null
+  approval_snapshot: Record<string, number | string> | null
+  step_notified_at: string | null
+  step_notified_by: string | null
+  step_started_at: string | null
+  step_started_by: string | null
+  retirement_target_date: string | null
+  step_retired_at: string | null
+  replacement_ci: string | null
+  replacement_name: string | null
+  curator_notes: string | null
+  jira_key: string | null
+  jira_project: string
+  created_at: string
+  updated_at: string
+}
 
 export interface ReportingMetricsItem {
   catalog_base_name: string
@@ -250,8 +305,12 @@ export interface ReportingMetricsItem {
   product_family: string | null
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
+  owners: Array<{ name: string; email: string }>
   has_content: boolean
   catalog_url?: string
+  workflow_status?: string | null
+  jira_key?: string | null
+  retirement_target_date?: string | null
 }
 
 export interface RetirementDashboardResponse {

@@ -37,7 +37,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="RCARS API",
-        version="2.0.0",
+        description=(
+            "RHDP Content Advisory & Recommendation System. "
+            "Matches catalog items to events, opportunities, and user queries "
+            "using vector search, LLM triage, and LLM-generated rationale.\n\n"
+            "**Authentication:** OAuth proxy headers (`X-Forwarded-Email`) or "
+            "Kubernetes ServiceAccount bearer tokens. "
+            "Roles: `user` (read-only), `curator` (curation + analysis), `admin` (full access).\n\n"
+            "**Async jobs:** Long-running operations return a `job_id` immediately. "
+            "Poll results via the result endpoint or stream progress via SSE."
+        ),
+        version="1.0.0",
         docs_url="/api/v1/docs",
         redoc_url="/api/v1/redoc",
         openapi_url="/api/v1/openapi.json",
@@ -52,11 +62,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    app.include_router(health.router, prefix="/api/v1")
-    app.include_router(auth.router, prefix="/api/v1")
-    app.include_router(advisor.router, prefix="/api/v1")
-    app.include_router(catalog.router, prefix="/api/v1")
+    app.include_router(health.router, prefix="/api/v1", tags=["Health"])
+    app.include_router(auth.router, prefix="/api/v1", tags=["Auth"])
+    app.include_router(advisor.router, prefix="/api/v1", tags=["Advisor"])
+    app.include_router(catalog.router, prefix="/api/v1", tags=["Catalog"])
     app.include_router(analysis.router, prefix="/api/v1")
-    app.include_router(admin.router, prefix="/api/v1")
+    app.include_router(admin.router, prefix="/api/v1", tags=["Administration"])
 
     return app

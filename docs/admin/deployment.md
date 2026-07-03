@@ -18,6 +18,85 @@ Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-pr
 
 ---
 
+## Local Development
+
+The `dev-services.sh` script starts the full RCARS stack locally for development and testing. It runs the complete backend — not just the frontend.
+
+### What it starts
+
+| Service | How | Port |
+|---|---|---|
+| PostgreSQL 16 (pgvector) | Podman container | `localhost:5432` |
+| Redis 7 | Podman container | `localhost:6379` |
+| FastAPI API | uvicorn with `--reload` | `localhost:8080` |
+| Scan worker | arq background process | — |
+| Recommend worker | arq background process | — |
+| React frontend | Vite dev server (proxies `/api` to API) | `localhost:3000` |
+
+### Usage
+
+```bash
+./dev-services.sh start    # Start all services
+./dev-services.sh stop     # Stop all services
+./dev-services.sh restart  # Restart all services
+./dev-services.sh status   # Check what's running
+```
+
+Dev mode sets `RCARS_DEV_USER=dev@redhat.com` with full admin access — no OAuth or K8s auth needed.
+
+### Accessing locally
+
+| Interface | URL |
+|---|---|
+| Frontend | `http://localhost:3000` |
+| Swagger UI | `http://localhost:8080/api/v1/docs` |
+| ReDoc | `http://localhost:8080/api/v1/redoc` |
+| API directly | `http://localhost:8080/api/v1/...` |
+
+### Data
+
+The local stack starts with an empty database. To populate it with real catalog data, you need additional environment variables set **before** running `./dev-services.sh start`:
+
+**Catalog data (required for `rcars refresh`):**
+
+```bash
+export RCARS_KUBECONFIG_PATH=~/.kube/my-babylon-kubeconfig
+```
+
+A kubeconfig with read access to the Babylon cluster. This lets `rcars refresh` pull catalog items from Babylon CRDs.
+
+**LLM access (required for `rcars scan`):**
+
+```bash
+export RCARS_LITEMAAS_URL=https://litemaas.example.com/v1
+export RCARS_LITEMAAS_API_KEY=your-api-key
+```
+
+LiteMaaS is the preferred LLM provider for local development. It provides an OpenAI-compatible API backed by Claude models. Without LLM credentials, content analysis (`rcars scan`) will fail — the catalog will be populated but items won't have analysis results.
+
+**Reporting metrics (required for `rcars reporting-db sync`):**
+
+These are only needed for the retirement dashboard and sales impact data. Not required for basic development.
+
+Without any of these, the stack is still fully functional for frontend development, API testing, and Swagger UI exploration — responses will just be empty.
+
+### Requirements
+
+- Podman (for PostgreSQL and Redis containers)
+- Python virtualenv at `~/.virtualenvs/rcars-v2` with the `rcars` package installed (`pip install -e ".[dev]"`)
+- Node.js and npm (for the frontend dev server)
+
+### Logs
+
+All service logs go to `/tmp/`:
+
+- `/tmp/rcars-api.log`
+- `/tmp/rcars-scan-worker.log`
+- `/tmp/rcars-recommend-worker.log`
+- `/tmp/rcars-frontend.log`
+
+---
+
 ## Prerequisites
 
 - `oc` CLI with cluster-admin access (one-time bootstrap only)

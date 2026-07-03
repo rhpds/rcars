@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import uuid
@@ -255,9 +256,6 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     requests           INTEGER NOT NULL DEFAULT 0,
     experiences        INTEGER NOT NULL DEFAULT 0,
     unique_users       INTEGER NOT NULL DEFAULT 0,
-    unique_users_1q    INTEGER NOT NULL DEFAULT 0,
-    unique_users_2q    INTEGER NOT NULL DEFAULT 0,
-    unique_users_3q    INTEGER NOT NULL DEFAULT 0,
     success_ratio      NUMERIC NOT NULL DEFAULT 0,
     failure_ratio      NUMERIC NOT NULL DEFAULT 0,
     touched_amount     NUMERIC NOT NULL DEFAULT 0,
@@ -268,12 +266,38 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     last_provision     DATE,
     retirement_score   INTEGER NOT NULL DEFAULT 0,
     synced_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    quarterly_data     JSONB DEFAULT '{}'::jsonb
+    windowed_metrics   JSONB DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
     ON reporting_metrics (retirement_score DESC);
 CREATE INDEX IF NOT EXISTS ix_reporting_metrics_display_name
     ON reporting_metrics (display_name);
+
+CREATE TABLE IF NOT EXISTS retirement_workflow (
+    catalog_base_name    TEXT PRIMARY KEY,
+    status               TEXT NOT NULL DEFAULT 'reviewed',
+    step_reviewed_at     TIMESTAMPTZ,
+    step_reviewed_by     TEXT,
+    step_approved_at     TIMESTAMPTZ,
+    step_approved_by     TEXT,
+    approval_reason      TEXT,
+    approval_snapshot    JSONB,
+    step_notified_at     TIMESTAMPTZ,
+    step_notified_by     TEXT,
+    step_started_at      TIMESTAMPTZ,
+    step_started_by      TEXT,
+    retirement_target_date DATE,
+    step_retired_at      TIMESTAMPTZ,
+    replacement_ci       TEXT,
+    replacement_name     TEXT,
+    curator_notes        TEXT,
+    jira_key             TEXT,
+    jira_project         TEXT NOT NULL DEFAULT 'RHDPCD',
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS ix_retirement_workflow_status
+    ON retirement_workflow (status);
 """
 
 
@@ -316,6 +340,7 @@ class Database:
             )
 
         tables = [
+            "retirement_workflow",
             "content_similarity", "reporting_metrics",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
@@ -506,10 +531,19 @@ class Database:
             conditions.append("ci.stage = 'prod'")
 
         if search:
-            conditions.append(
-                "(ci.display_name ILIKE %(search)s OR ci.ci_name ILIKE %(search)s)"
-            )
-            params["search"] = f"%{search}%"
+            words = search.strip().split()
+            if len(words) == 1:
+                conditions.append(
+                    "(ci.display_name ILIKE %(search)s OR ci.ci_name ILIKE %(search)s)"
+                )
+                params["search"] = f"%{search}%"
+            else:
+                word_conds = []
+                for i, word in enumerate(words[:6]):
+                    key = f"sw{i}"
+                    word_conds.append(f"(ci.display_name ILIKE %({key})s OR ci.ci_name ILIKE %({key})s)")
+                    params[key] = f"%{word}%"
+                conditions.append(f"({' AND '.join(word_conds)})")
 
         if cloud_provider:
             conditions.append("ci.cloud_provider = %(cloud_provider)s")
@@ -619,6 +653,22 @@ class Database:
 
             if newly_retired or unretired:
                 conn.commit()
+
+            if newly_retired:
+                retired_base_names = set()
+                for item in newly_retired:
+                    ci = item["ci_name"]
+                    for suffix in (".prod", ".dev", ".event", ".test"):
+                        if ci.endswith(suffix):
+                            retired_base_names.add(ci[:-len(suffix)])
+                            break
+                if retired_base_names:
+                    closed = self.auto_close_retired_workflows(retired_base_names)
+                    if closed:
+                        logger.info("auto_closed_retirement_workflows",
+                                    component="rcars", action="auto_close",
+                                    count=closed)
+
             if unretired:
                 logger.info("unretired_items",
                             component="rcars", action="unretire",
@@ -1693,18 +1743,17 @@ class Database:
             INSERT INTO reporting_metrics (
                 catalog_base_name, display_name, provisions, provisions_quarter,
                 requests, experiences, unique_users,
-                unique_users_1q, unique_users_2q, unique_users_3q,
                 success_ratio, failure_ratio,
                 touched_amount, closed_amount, total_cost, avg_cost_per_provision,
-                first_provision, last_provision, retirement_score, quarterly_data, synced_at
+                first_provision, last_provision, retirement_score,
+                windowed_metrics, synced_at
             ) VALUES (
                 %(catalog_base_name)s, %(display_name)s, %(provisions)s, %(provisions_quarter)s,
                 %(requests)s, %(experiences)s, %(unique_users)s,
-                %(unique_users_1q)s, %(unique_users_2q)s, %(unique_users_3q)s,
                 %(success_ratio)s, %(failure_ratio)s,
                 %(touched_amount)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
                 %(first_provision)s, %(last_provision)s, %(retirement_score)s,
-                %(quarterly_data)s::jsonb, NOW()
+                %(windowed_metrics)s::jsonb, NOW()
             )
             ON CONFLICT (catalog_base_name) DO UPDATE SET
                 display_name = EXCLUDED.display_name,
@@ -1713,9 +1762,6 @@ class Database:
                 requests = EXCLUDED.requests,
                 experiences = EXCLUDED.experiences,
                 unique_users = EXCLUDED.unique_users,
-                unique_users_1q = EXCLUDED.unique_users_1q,
-                unique_users_2q = EXCLUDED.unique_users_2q,
-                unique_users_3q = EXCLUDED.unique_users_3q,
                 success_ratio = EXCLUDED.success_ratio,
                 failure_ratio = EXCLUDED.failure_ratio,
                 touched_amount = EXCLUDED.touched_amount,
@@ -1725,7 +1771,7 @@ class Database:
                 first_provision = EXCLUDED.first_provision,
                 last_provision = EXCLUDED.last_provision,
                 retirement_score = EXCLUDED.retirement_score,
-                quarterly_data = EXCLUDED.quarterly_data,
+                windowed_metrics = EXCLUDED.windowed_metrics,
                 synced_at = NOW()
         """
         with self._pool.connection() as conn:
@@ -1816,6 +1862,7 @@ class Database:
         category: str | None = None,
         has_prod: bool | None = None,
         search: str | None = None,
+        workflow_status: str | None = None,
     ) -> list[dict]:
         """List reporting metrics joined with catalog metadata for the retirement dashboard."""
         allowed_sorts = {
@@ -1840,8 +1887,19 @@ class Database:
             params["min_score"] = min_score
 
         if search:
-            conditions.append("rm.display_name ILIKE %(search)s")
-            params["search"] = f"%{search}%"
+            words = search.strip().split()
+            if len(words) == 1:
+                conditions.append(
+                    "(rm.display_name ILIKE %(search)s OR rm.catalog_base_name ILIKE %(search)s)"
+                )
+                params["search"] = f"%{search}%"
+            else:
+                word_conds = []
+                for i, word in enumerate(words[:6]):
+                    key = f"rsw{i}"
+                    word_conds.append(f"(rm.display_name ILIKE %({key})s OR rm.catalog_base_name ILIKE %({key})s)")
+                    params[key] = f"%{word}%"
+                conditions.append(f"({' AND '.join(word_conds)})")
 
         if category:
             conditions.append("""
@@ -1870,11 +1928,20 @@ class Database:
                 )
             """)
 
+        if workflow_status == "none":
+            conditions.append("rw.catalog_base_name IS NULL")
+        elif workflow_status == "in_process":
+            conditions.append("rw.status IN ('reviewed', 'approved', 'notified')")
+        elif workflow_status:
+            conditions.append("rw.status = %(workflow_status)s")
+            params["workflow_status"] = workflow_status
+
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         sql = f"""
             SELECT rm.*,
-                   ci.category, ci.product, ci.product_family
+                   ci.category, ci.product, ci.product_family,
+                   rw.status AS workflow_status, rw.jira_key, rw.retirement_target_date
             FROM reporting_metrics rm
             LEFT JOIN LATERAL (
                 SELECT category, product, product_family
@@ -1884,6 +1951,7 @@ class Database:
                          CASE stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
                 LIMIT 1
             ) ci ON true
+            LEFT JOIN retirement_workflow rw ON rw.catalog_base_name = rm.catalog_base_name
             {where}
             ORDER BY rm.{sort_by} {direction}
         """
@@ -1920,6 +1988,43 @@ class Database:
                         "has_showroom": row["has_showroom"],
                     }
                     result.setdefault(base, []).append(stage_info)
+        return result
+
+    def get_owners_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
+        """Get maintainer info for items, keyed by base name.
+
+        Pulls owners_json.maintainer from the prod stage CI preferentially.
+        Returns {base_name: [{name, email}, ...]} for items that have maintainer data.
+        """
+        if not base_names:
+            return {}
+        from rcars.services.reporting_sync import extract_base_name
+        placeholders = ",".join(["%s"] * len(base_names))
+        sql = f"""
+            SELECT ci_name, owners_json
+            FROM catalog_items
+            WHERE substring(ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+              AND owners_json IS NOT NULL
+              AND retired_at IS NULL
+            ORDER BY CASE WHEN stage = 'prod' THEN 0 ELSE 1 END
+        """
+        result: dict[str, list[dict]] = {}
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, base_names)
+                for row in cur.fetchall():
+                    base = extract_base_name(row["ci_name"])
+                    if base in result:
+                        continue
+                    oj = row["owners_json"]
+                    if isinstance(oj, dict):
+                        maintainers = oj.get("maintainer", [])
+                        owners = []
+                        for m in (maintainers if isinstance(maintainers, list) else []):
+                            if isinstance(m, dict) and m.get("email"):
+                                owners.append({"name": m.get("name", ""), "email": m["email"]})
+                        if owners:
+                            result[base] = owners
         return result
 
     def get_reporting_sync_status(self) -> dict:
@@ -1976,3 +2081,133 @@ class Database:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
                 return {row["base"] for row in cur.fetchall()}
+
+    # ── Retirement Workflow ──
+
+    def get_retirement_workflow(self, base_name: str) -> dict | None:
+        """Get retirement workflow record for a catalog base name."""
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT * FROM retirement_workflow WHERE catalog_base_name = %s",
+                    (base_name,),
+                )
+                return cur.fetchone()
+
+    def upsert_retirement_workflow(self, base_name: str, fields: dict) -> dict:
+        """Insert or update a retirement workflow record.
+
+        Handles special values:
+        - String "NOW()" is replaced with SQL NOW()
+        - Dict values for approval_snapshot are serialised to JSON
+        - updated_at is always set to NOW()
+        """
+        # Build column lists dynamically from the provided fields
+        all_fields = dict(fields)
+        all_fields["catalog_base_name"] = base_name
+
+        # Derive status from step timestamps only when step fields are being set
+        step_fields = {"step_approved_at", "step_notified_at", "step_started_at", "step_retired_at"}
+        if "status" not in all_fields and step_fields & all_fields.keys():
+            from rcars.services.retirement import derive_status
+            all_fields["status"] = derive_status(all_fields)
+
+        columns = []
+        placeholders = []
+        params = []
+        update_parts = []
+
+        for col, val in all_fields.items():
+            columns.append(col)
+            if val == "NOW()":
+                placeholders.append("NOW()")
+                update_parts.append(f"{col} = NOW()")
+            elif col == "approval_snapshot" and isinstance(val, dict):
+                placeholders.append("%s::jsonb")
+                params.append(json.dumps(val))
+                update_parts.append(f"{col} = %s::jsonb")
+            else:
+                placeholders.append("%s")
+                params.append(val)
+                update_parts.append(f"{col} = %s")
+
+        # Always set updated_at on upsert
+        if "updated_at" not in all_fields:
+            columns.append("updated_at")
+            placeholders.append("NOW()")
+            update_parts.append("updated_at = NOW()")
+
+        # Build update params (duplicate non-NOW values for the SET clause)
+        update_params = []
+        for col, val in all_fields.items():
+            if col == "catalog_base_name":
+                continue  # PK is not updated
+            if val == "NOW()":
+                continue  # No param needed for NOW()
+            elif col == "approval_snapshot" and isinstance(val, dict):
+                update_params.append(json.dumps(val))
+            else:
+                update_params.append(val)
+
+        sql = (
+            f"INSERT INTO retirement_workflow ({', '.join(columns)}) "
+            f"VALUES ({', '.join(placeholders)}) "
+            f"ON CONFLICT (catalog_base_name) DO UPDATE SET "
+            f"{', '.join(p for p in update_parts if not p.startswith('catalog_base_name'))} "
+            f"RETURNING *"
+        )
+
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params + update_params)
+                row = cur.fetchone()
+            conn.commit()
+        return row
+
+    def delete_retirement_workflow(self, base_name: str) -> bool:
+        """Delete a retirement workflow record. Returns True if a row was deleted."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM retirement_workflow WHERE catalog_base_name = %s",
+                    (base_name,),
+                )
+                deleted = cur.rowcount > 0
+            conn.commit()
+        return deleted
+
+    def list_retirement_workflows(self, status: str | None = None) -> list[dict]:
+        """List retirement workflow records, optionally filtered by status."""
+        if status:
+            sql = "SELECT * FROM retirement_workflow WHERE status = %s ORDER BY updated_at DESC"
+            params = (status,)
+        else:
+            sql = "SELECT * FROM retirement_workflow ORDER BY updated_at DESC"
+            params = ()
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    def auto_close_retired_workflows(self, retired_base_names: set[str]) -> int:
+        """Mark workflows as retired for base names that are fully retired in the catalog.
+
+        Sets step_retired_at = NOW() and status = 'retired' for matching rows
+        that have not already been marked retired.
+        Returns the number of rows updated.
+        """
+        if not retired_base_names:
+            return 0
+        placeholders = ",".join(["%s"] * len(retired_base_names))
+        sql = (
+            f"UPDATE retirement_workflow "
+            f"SET step_retired_at = NOW(), status = 'retired', updated_at = NOW() "
+            f"WHERE catalog_base_name IN ({placeholders}) "
+            f"AND step_retired_at IS NULL"
+        )
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, list(retired_base_names))
+                count = cur.rowcount
+            conn.commit()
+        return count
