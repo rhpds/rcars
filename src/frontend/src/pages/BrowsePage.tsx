@@ -215,10 +215,10 @@ function CuratorDrawer({
   onDurationSave: () => void
   overrideUrl: string
   onOverrideUrlChange: (val: string) => void
-  onOverrideUrlSave: () => void
+  onOverrideUrlSave: () => Promise<void>
   contentPath: string
   onContentPathChange: (val: string) => void
-  onContentPathSave: () => void
+  onContentPathSave: () => Promise<void>
   flagged: boolean
   onFlag: () => void
   analyzing: boolean
@@ -304,7 +304,7 @@ function CuratorDrawer({
                 onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave() }}
                 placeholder="Override Showroom URL..."
               />
-              <button className="browse-btn-action" onClick={() => { onOverrideUrlSave(); flashSave(setSavedUrl) }}>
+              <button className="browse-btn-action" onClick={() => onOverrideUrlSave().then(() => flashSave(setSavedUrl))}>
                 {savedUrl ? 'Saved' : 'Set URL'}
               </button>
             </div>
@@ -322,7 +322,7 @@ function CuratorDrawer({
                 onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
                 placeholder="Content path (e.g. docs/labs/)"
               />
-              <button className="browse-btn-action" onClick={() => { onContentPathSave(); flashSave(setSavedPath) }}>
+              <button className="browse-btn-action" onClick={() => onContentPathSave().then(() => flashSave(setSavedPath))}>
                 {savedPath ? 'Saved' : 'Set Path'}
               </button>
             </div>

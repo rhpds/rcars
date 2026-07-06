@@ -217,7 +217,7 @@ def classify_scan_error(
         suffix += f", content_path={content_path}" if suffix else f" (content_path={content_path})"
 
     if url and ("{{" in url or "{%" in url):
-        return "jinja_url", f"Showroom URL contains unresolved template variables: {url}"
+        return "jinja_url", f"Showroom URL contains unresolved template variables: {url}{suffix}"
 
     if isinstance(exc, subprocess.TimeoutExpired):
         return "timeout", f"Clone timed out after {exc.timeout}s for {url}{suffix}"
@@ -225,9 +225,9 @@ def classify_scan_error(
     if isinstance(exc, subprocess.CalledProcessError):
         stderr_lower = stderr.lower()
         if "permission denied" in stderr_lower or "403" in stderr_lower:
-            return "private_repo", f"Permission denied cloning {url}: {stderr.strip()}"
+            return "private_repo", f"Permission denied cloning {url}{suffix}: {stderr.strip()}"
         if "not found" in stderr_lower or "404" in stderr_lower:
-            return "http_404", f"Repository not found: {url}: {stderr.strip()}"
+            return "http_404", f"Repository not found: {url}{suffix}: {stderr.strip()}"
         return "clone_failed", f"Git clone failed for {url}{suffix}: {stderr.strip()}"
 
     msg_lower = msg.lower()

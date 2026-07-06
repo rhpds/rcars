@@ -44,11 +44,11 @@ def test_basic_description():
 
     assert "Legacy OpenShift Demo" in desc
     assert "openshift_cnv.legacy_demo" in desc
-    assert "catalog.demo.redhat.com/catalog?search=openshift_cnv.legacy_demo" in desc
+    assert "catalog.demo.redhat.com/catalog?item=babylon-catalog-prod/openshift_cnv.legacy_demo.prod" in desc
     assert "openshift_cnv/legacy_demo" in desc  # AgV ref
     assert "Low usage and high cost" in desc
     assert "Replaced by newer demo" in desc
-    assert "catalog.demo.redhat.com/catalog?search=openshift_cnv.new_demo" in desc
+    assert "catalog.demo.redhat.com/catalog?item=babylon-catalog-prod/openshift_cnv.new_demo" in desc
     assert "30 days" in desc
     assert "85" in desc
     assert "$15,000" in desc
