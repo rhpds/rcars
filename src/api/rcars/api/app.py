@@ -21,6 +21,14 @@ async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     setup_logging(level="INFO", component="api")
 
+    # CS-1: Warn if proxy_verification_secret is unconfigured in a deployed environment
+    if not settings.proxy_verification_secret and not settings.dev_user:
+        import structlog
+        structlog.get_logger(component="auth").warning(
+            "proxy_verification_secret is not set — OAuth proxy header auth is disabled. "
+            "Set RCARS_PROXY_VERIFICATION_SECRET in all deployed environments."
+        )
+
     app.state.db = Database(settings.database_url)
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     app.state.arq_redis = ArqRedis.from_url(settings.redis_url)

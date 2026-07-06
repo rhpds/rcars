@@ -128,6 +128,7 @@ type: Opaque
 stringData:
   proxy-verification-secret: "{{ rcars_proxy_verification_secret }}"
 {% endif %}
+{% if api_host is defined and api_host != '' %}
 ---
 # OAuthClient for CLI login flow (cluster-scoped)
 apiVersion: oauth.openshift.io/v1
@@ -137,6 +138,7 @@ metadata:
 redirectURIs:
   - "http://127.0.0.1"
 grantMethod: auto
+{% endif %}
 ---
 # PostgreSQL PVC
 apiVersion: v1
