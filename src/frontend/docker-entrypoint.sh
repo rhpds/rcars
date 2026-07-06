@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 # Read proxy secret from mounted file if available, substitute into nginx.conf
 if [ -f /etc/rcars/proxy-verification-secret ]; then
     export PROXY_SECRET=$(cat /etc/rcars/proxy-verification-secret)
