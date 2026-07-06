@@ -64,7 +64,9 @@ The `get_current_user()` function in `src/api/rcars/api/middleware/auth.py` gain
 1. Dev bypass        — RCARS_DEV_USER env var (local development only)
 2. K8s SA token      — Bearer token validated via TokenReview API, SA allowlist
 3. API key           — X-API-Key header, SHA-256 hash lookup in DB  ← NEW
-4. OAuth proxy       — X-Forwarded-Email header, proxy secret REQUIRED
+4. OAuth proxy       — X-Forwarded-Email header, verified by a shared secret
+                       (X-Proxy-Secret header injected by the OAuth proxy chain,
+                       matched against RCARS_PROXY_VERIFICATION_SECRET env var)
 ```
 
 #### API key validation (step 3)
@@ -282,7 +284,45 @@ Every auth decision produces a structlog entry:
 6. Key creation with role above creator's role returns 403.
 7. `/auth/token` rate-limits after 5 failed attempts.
 
-### 7. Future Path to RHSSO
+### 7. Admin UI — Key Management
+
+A new section in the existing Admin page (`/admin` or the System area) for managing API keys. Accessible to admin users only.
+
+#### Key list view
+
+A PatternFly table showing all API keys with columns:
+
+| Column | Source |
+|--------|--------|
+| Key prefix | `key_prefix` — e.g., `rcars_a1b2...` |
+| Name | `name` — human label |
+| Created by | `created_by` — email |
+| Role | `role` — user/curator/admin |
+| Created | `created_at` — relative time |
+| Expires | `expires_at` — relative time, or "Never" |
+| Last used | `last_used_at` — relative time, or "Never" |
+| Status | Derived: Active, Expired, or Revoked |
+| Actions | Revoke button (with confirmation modal) |
+
+Default filter: active keys only. Toggle to show revoked/expired keys.
+
+#### Create key form
+
+A modal or inline form for creating long-lived service keys:
+
+- **Name** (required) — text input
+- **Role** (required) — dropdown: user, curator, admin (filtered to creator's role or below)
+- **Expires** (optional) — dropdown: 7 days, 30 days, 90 days, 1 year, Never
+
+On submit, displays the raw key in a copyable one-time-show banner with a warning that it won't be shown again. Same pattern as GitHub personal access tokens.
+
+#### Implementation
+
+- Frontend: new component under `src/frontend/src/components/admin/ApiKeysPanel.tsx`
+- Calls `GET /api/v1/auth/keys` for the list and `POST /api/v1/auth/keys` / `DELETE /api/v1/auth/keys/{id}` for actions
+- Follows existing PatternFly 6 patterns from the admin page components
+
+### 8. Future Path to RHSSO (not in v1)
 
 This design is forward-compatible with RHSSO/Keycloak integration:
 
@@ -292,9 +332,8 @@ This design is forward-compatible with RHSSO/Keycloak integration:
 - **Same role resolution:** Whether identity comes from a JWT claim or API key lookup, it resolves to an email, and `is_curator()` / `is_admin()` works identically.
 - **No awkward migration:** API keys are opaque random strings, not custom token formats. There's no halfway-JWT to migrate away from.
 
-### 8. Out of Scope (v1)
+### 9. Out of Scope (v1)
 
-- Admin UI for key management (API-only for v1; admin UI is a follow-up)
 - Self-service key creation by non-admins (only OAuth login flow creates user keys)
 - Key rotation endpoint (revoke + create new)
 - Expiry extension (revoke old, create new)
