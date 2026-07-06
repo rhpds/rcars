@@ -14,7 +14,7 @@ from rcars.db.database import Database
 @pytest.fixture
 def db():
     """Ephemeral test database — uses RCARS_DATABASE_URL from env (rcars_test)."""
-    database = Database("postgresql://rcars:dev@localhost:5432/rcars_test")
+    database = Database("postgresql://rcars:rcars@localhost:5432/rcars_test")
     database.create_schema()
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM api_keys")

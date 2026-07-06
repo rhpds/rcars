@@ -63,7 +63,7 @@ class TestListApiKeys:
 class TestRevokeApiKey:
     def test_revokes_key(self, client):
         client.app.state.db.revoke_api_key.return_value = {
-            "id": 1, "revoked_at": datetime.now(timezone.utc)
+            "id": 1, "key_hash": "testhash123", "revoked_at": datetime.now(timezone.utc)
         }
         resp = client.delete("/api/v1/auth/keys/1")
         assert resp.status_code == 200

@@ -2272,7 +2272,7 @@ class Database:
             row = conn.execute(
                 """UPDATE api_keys SET revoked_at = NOW()
                    WHERE id = %s AND revoked_at IS NULL
-                   RETURNING id, revoked_at""",
+                   RETURNING id, key_hash, revoked_at""",
                 (key_id,),
             ).fetchone()
             return dict(row) if row else None

@@ -9,9 +9,6 @@ Validates that all auth mechanisms enforce boundaries correctly:
 
 from __future__ import annotations
 
-import hashlib
-import secrets
-from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest

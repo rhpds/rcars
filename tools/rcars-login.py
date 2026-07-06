@@ -17,8 +17,6 @@ import json
 import os
 import secrets
 import sys
-import threading
-import time
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -46,19 +44,6 @@ def _save_credentials(data):
     CREDENTIALS_DIR.mkdir(parents=True, exist_ok=True)
     CREDENTIALS_FILE.write_text(json.dumps(data, indent=2))
     os.chmod(CREDENTIALS_FILE, 0o600)
-
-
-def _discover_oauth_server(api_server):
-    """Discover the OpenShift OAuth server URL from the API's well-known endpoint."""
-    url = f"{api_server}/api/v1/health/ready"
-    try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            pass
-    except Exception:
-        pass
-    # For now, prompt the user or use a known default
-    return None
 
 
 def cmd_login(args):
@@ -115,7 +100,8 @@ def cmd_login(args):
 
     # Wait for callback
     httpd.timeout = 120
-    httpd.handle_request()
+    while not received_code["code"]:
+        httpd.handle_request()
     httpd.server_close()
 
     if not received_code["code"]:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import logging
 import time
 from pathlib import Path
@@ -141,7 +142,7 @@ async def get_current_user(request: Request) -> str | None:
         return None
 
     actual_secret = request.headers.get("X-Proxy-Secret", "")
-    if actual_secret != expected_secret:
+    if not hmac.compare_digest(actual_secret, expected_secret):
         logger.warning("proxy secret mismatch — rejecting forwarded headers")
         return None
 

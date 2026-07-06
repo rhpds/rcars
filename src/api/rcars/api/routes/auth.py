@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
-from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache
+from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache, _K8S_CA_PATH
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
     AuthMeResponse,
@@ -143,6 +143,7 @@ async def revoke_api_key(
     result = db.revoke_api_key(key_id)
     if not result:
         raise HTTPException(status_code=404, detail="Key not found or already revoked")
+    invalidate_api_key_cache(result["key_hash"])
     return RevokeApiKeyResponse(
         id=result["id"],
         revoked_at=result["revoked_at"].isoformat(),
@@ -164,7 +165,8 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
 
     # Exchange auth code for access token with OpenShift
     token_url = f"{settings.oauth_server_url}/oauth/token"
-    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+    verify_cert = str(_K8S_CA_PATH) if _K8S_CA_PATH.exists() else True
+    async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
         token_resp = await client.post(
             token_url,
             data={
@@ -182,13 +184,16 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
     # Get user identity from OpenShift
     access_token = token_data.get("access_token", "")
     user_url = f"{settings.oauth_server_url}/apis/user.openshift.io/v1/users/~"
-    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
-        user_resp = await client.get(
-            user_url,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        user_resp.raise_for_status()
-        user_data = user_resp.json()
+    async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
+        try:
+            user_resp = await client.get(
+                user_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            user_resp.raise_for_status()
+            user_data = user_resp.json()
+        except httpx.HTTPStatusError:
+            raise HTTPException(status_code=401, detail="Could not verify user identity")
 
     user_email = user_data.get("metadata", {}).get("name", "")
     if not user_email:
