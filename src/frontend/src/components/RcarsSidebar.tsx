@@ -111,6 +111,13 @@ export function RcarsSidebar() {
               >
                 Query History
               </NavLink>
+
+              <NavLink
+                to="/system/api-keys"
+                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+              >
+                API Keys
+              </NavLink>
             </>
           )}
         </nav>
