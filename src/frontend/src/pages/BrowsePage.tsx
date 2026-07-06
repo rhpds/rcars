@@ -195,7 +195,6 @@ function CuratorDrawer({
   contentPath,
   onContentPathChange,
   onContentPathSave,
-  scanning,
   flagged,
   onFlag,
   analyzing,
@@ -216,17 +215,19 @@ function CuratorDrawer({
   onDurationSave: () => void
   overrideUrl: string
   onOverrideUrlChange: (val: string) => void
-  onOverrideUrlSave: () => void
+  onOverrideUrlSave: () => Promise<void>
   contentPath: string
   onContentPathChange: (val: string) => void
-  onContentPathSave: () => void
-  scanning: boolean
+  onContentPathSave: () => Promise<void>
   flagged: boolean
   onFlag: () => void
   analyzing: boolean
   onAnalyze: () => void
   onClose: () => void
 }) {
+  const [savedUrl, setSavedUrl] = useState(false)
+  const [savedPath, setSavedPath] = useState(false)
+  const flashSave = (setter: (v: boolean) => void) => { setter(true); setTimeout(() => setter(false), 1500) }
   return (
     <>
       <div className="browse-drawer-overlay" onClick={onClose} />
@@ -303,7 +304,9 @@ function CuratorDrawer({
                 onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave() }}
                 placeholder="Override Showroom URL..."
               />
-              <button className="browse-btn-action" onClick={onOverrideUrlSave}>Set URL</button>
+              <button className="browse-btn-action" onClick={() => onOverrideUrlSave().then(() => flashSave(setSavedUrl))}>
+                {savedUrl ? 'Saved' : 'Set URL'}
+              </button>
             </div>
           </div>
 
@@ -319,13 +322,10 @@ function CuratorDrawer({
                 onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
                 placeholder="Content path (e.g. docs/labs/)"
               />
-              <button className="browse-btn-action" onClick={onContentPathSave} disabled={scanning}>
-                {scanning ? 'Scanning...' : 'Set & Scan'}
+              <button className="browse-btn-action" onClick={() => onContentPathSave().then(() => flashSave(setSavedPath))}>
+                {savedPath ? 'Saved' : 'Set Path'}
               </button>
             </div>
-            {scanning && (
-              <div className="browse-drawer-scanning">Content path updated — scanning with new path...</div>
-            )}
           </div>
 
           {/* Actions */}
@@ -408,7 +408,6 @@ export function BrowsePage() {
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
   const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
-  const [scanningPath, setScanningPath] = useState<Record<string, boolean>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
 
@@ -586,14 +585,9 @@ export function BrowsePage() {
 
   const handleSetContentPath = async (ciName: string) => {
     const path = contentPaths[ciName]?.trim() || null
-    setScanningPath(prev => ({ ...prev, [ciName]: true }))
     await api.setContentPath(ciName, path)
-    setTimeout(async () => {
-      const detail = await api.getCatalogItem(ciName) as ItemDetail
-      setItemDetails(prev => ({ ...prev, [ciName]: detail }))
-      setScanningPath(prev => ({ ...prev, [ciName]: false }))
-      fetchItems(page)
-    }, 5000)
+    const detail = await api.getCatalogItem(ciName) as ItemDetail
+    setItemDetails(prev => ({ ...prev, [ciName]: detail }))
   }
 
   const handleOverrideUrl = async (ciName: string) => {
@@ -1012,7 +1006,6 @@ export function BrowsePage() {
           contentPath={contentPaths[drawerItem] ?? ''}
           onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
           onContentPathSave={() => handleSetContentPath(drawerItem)}
-          scanning={scanningPath[drawerItem] || false}
           flagged={flaggedItems.has(drawerItem)}
           onFlag={() => handleFlag(drawerItem)}
           analyzing={analyzing === drawerItem}

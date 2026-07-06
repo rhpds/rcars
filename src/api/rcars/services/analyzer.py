@@ -204,31 +204,37 @@ def truncate_content(content: str, max_chars: int = 150000) -> str:
 
 
 def classify_scan_error(
-    exc: Exception, url: str | None = None
+    exc: Exception, url: str | None = None, ref: str | None = None,
+    content_path: str | None = None,
 ) -> tuple[str, str]:
     """Classify a scan error and return (error_class, human_message)."""
     msg = str(exc)
     stderr = getattr(exc, "stderr", "") or ""
+    suffix = ""
+    if ref:
+        suffix += f" (ref={ref})"
+    if content_path:
+        suffix += f", content_path={content_path}" if suffix else f" (content_path={content_path})"
 
     if url and ("{{" in url or "{%" in url):
-        return "jinja_url", f"Showroom URL contains unresolved template variables: {url}"
+        return "jinja_url", f"Showroom URL contains unresolved template variables: {url}{suffix}"
 
     if isinstance(exc, subprocess.TimeoutExpired):
-        return "timeout", f"Clone timed out after {exc.timeout}s for {url}"
+        return "timeout", f"Clone timed out after {exc.timeout}s for {url}{suffix}"
 
     if isinstance(exc, subprocess.CalledProcessError):
         stderr_lower = stderr.lower()
         if "permission denied" in stderr_lower or "403" in stderr_lower:
-            return "private_repo", f"Permission denied cloning {url}: {stderr.strip()}"
+            return "private_repo", f"Permission denied cloning {url}{suffix}: {stderr.strip()}"
         if "not found" in stderr_lower or "404" in stderr_lower:
-            return "http_404", f"Repository not found: {url}: {stderr.strip()}"
-        return "clone_failed", f"Git clone failed for {url}: {stderr.strip()}"
+            return "http_404", f"Repository not found: {url}{suffix}: {stderr.strip()}"
+        return "clone_failed", f"Git clone failed for {url}{suffix}: {stderr.strip()}"
 
     msg_lower = msg.lower()
     if "no .adoc" in msg_lower or isinstance(exc, FileNotFoundError):
-        return "missing_antora", f"No .adoc files found in Showroom layout for {url}"
+        return "missing_antora", f"No .adoc files found in Showroom layout for {url}{suffix}"
     if "boilerplate" in msg_lower:
-        return "no_content", f"All content filtered as boilerplate for {url}"
+        return "no_content", f"All content filtered as boilerplate for {url}{suffix}"
     if "parse" in msg_lower or "json" in msg_lower:
         return "parse_error", f"Failed to parse analysis response for {url}: {msg}"
 
@@ -621,8 +627,10 @@ def analyze_showroom(
         # Read content
         raw_files = read_showroom_content(clone_path, content_path=content_path, ci_name=ci_name)
         if not raw_files:
-            log.warning("analyze %s: no .adoc files found in %s", ci_name, showroom_url)
-            return {"error": "no_content", "message": f"No .adoc files found in {showroom_url}"}
+            ref_info = f" (ref={showroom_ref})" if showroom_ref else " (ref=HEAD)"
+            path_info = f", content_path={content_path}" if content_path else ""
+            log.warning("analyze %s: no .adoc files found in %s%s%s", ci_name, showroom_url, ref_info, path_info)
+            return {"error": "no_content", "message": f"No .adoc files found in {showroom_url}{ref_info}{path_info}"}
 
         # Filter boilerplate
         content_files = filter_boilerplate_files(raw_files)

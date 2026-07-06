@@ -1082,11 +1082,6 @@ RHDP Content Team`
                       >
                         {isStarted ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {wf?.retirement_target_date && (
-                              <div className="ret-target-date">
-                                Target: {new Date(wf.retirement_target_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                              </div>
-                            )}
                             {wf?.jira_key && (
                               <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
                                 target="_blank" rel="noreferrer" className="ret-jira-link">

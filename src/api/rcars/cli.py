@@ -292,7 +292,9 @@ def scan(max_analyze: int | None):
                     db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
                     _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
             except Exception as e:
-                error_class, error_msg = classify_scan_error(e, url=item.get("showroom_url"))
+                error_class, error_msg = classify_scan_error(
+                    e, url=item.get("showroom_url"), ref=item.get("showroom_ref"),
+                    content_path=item.get("content_path"))
                 errors += 1
                 db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
                 _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
