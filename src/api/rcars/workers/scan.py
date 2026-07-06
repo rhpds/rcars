@@ -180,7 +180,10 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
 
     except Exception as e:
         log.error("analysis_failed", action="job_failed", error=str(e))
-        error_class, error_msg = classify_scan_error(e, item.get("showroom_url") if item else None)
+        error_class, error_msg = classify_scan_error(
+            e, url=item.get("showroom_url") if item else None,
+            ref=item.get("showroom_ref") if item else None,
+            content_path=item.get("content_path") if item else None)
         wctx.db.complete_scan(ci_name, job_id, "failed",
                               result_json={"ci_name": ci_name, "status": "failed"}, error=str(e),
                               error_class=error_class, error_message=error_msg)
