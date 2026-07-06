@@ -4,8 +4,10 @@ import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache
+from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
     AuthMeResponse,
     CreateApiKeyRequest,
@@ -13,6 +15,8 @@ from rcars.api.schemas import (
     ApiKeyInfo,
     ApiKeyListResponse,
     RevokeApiKeyResponse,
+    TokenExchangeRequest,
+    TokenExchangeResponse,
 )
 from rcars.config import Settings
 
@@ -142,4 +146,70 @@ async def revoke_api_key(
     return RevokeApiKeyResponse(
         id=result["id"],
         revoked_at=result["revoked_at"].isoformat(),
+    )
+
+
+@router.post(
+    "/auth/token",
+    summary="Exchange OAuth code for API key",
+    description="Exchanges an OpenShift OAuth authorization code for a 24h API key. "
+                "Unauthenticated — this IS the login endpoint. Rate-limited to 5/min per IP.",
+    response_model=TokenExchangeResponse,
+)
+@limiter.limit("5/minute")
+async def exchange_token(body: TokenExchangeRequest, request: Request):
+    settings: Settings = request.app.state.settings
+    if not settings.oauth_server_url:
+        raise HTTPException(status_code=503, detail="OAuth login not configured")
+
+    # Exchange auth code for access token with OpenShift
+    token_url = f"{settings.oauth_server_url}/oauth/token"
+    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+        token_resp = await client.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": body.code,
+                "redirect_uri": body.redirect_uri,
+                "code_verifier": body.code_verifier,
+                "client_id": settings.oauth_client_id,
+            },
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=401, detail="OAuth code exchange failed")
+        token_data = token_resp.json()
+
+    # Get user identity from OpenShift
+    access_token = token_data.get("access_token", "")
+    user_url = f"{settings.oauth_server_url}/apis/user.openshift.io/v1/users/~"
+    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+        user_resp = await client.get(
+            user_url,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+        user_resp.raise_for_status()
+        user_data = user_resp.json()
+
+    user_email = user_data.get("metadata", {}).get("name", "")
+    if not user_email:
+        raise HTTPException(status_code=401, detail="Could not determine user identity")
+
+    # Create 24h API key
+    raw_key, key_hash, key_prefix = _generate_api_key()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+
+    db = request.app.state.db
+    db.create_api_key(
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+        name=f"CLI session {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}",
+        created_by=user_email,
+        role="user",
+        expires_at=expires_at,
+    )
+
+    return TokenExchangeResponse(
+        api_key=raw_key,
+        expires_at=expires_at.isoformat(),
+        user=user_email,
     )

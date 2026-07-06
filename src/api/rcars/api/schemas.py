@@ -46,6 +46,18 @@ class AuthMeResponse(BaseModel):
     roles: list[str] = Field(description="Granted roles: user, curator, admin")
 
 
+class TokenExchangeRequest(BaseModel):
+    code: str = Field(description="OAuth authorization code from callback")
+    code_verifier: str = Field(description="PKCE code verifier")
+    redirect_uri: str = Field(description="Redirect URI used in the authorize request")
+
+
+class TokenExchangeResponse(BaseModel):
+    api_key: str = Field(description="24h API key — shown once")
+    expires_at: str
+    user: str = Field(description="Authenticated user's email")
+
+
 # ── Advisor ─────────────────────────────────────────────────────────
 
 class QuerySubmitResponse(BaseModel):
