@@ -53,7 +53,7 @@ export function RcarsSidebar() {
             </NavLink>
           )}
 
-          {auth.isAdmin && (
+          {auth.isCurator && (
             <>
               <div className="rcars-nav-section-label">Analysis</div>
 
@@ -70,7 +70,11 @@ export function RcarsSidebar() {
               >
                 Retirement
               </NavLink>
+            </>
+          )}
 
+          {auth.isAdmin && (
+            <>
               <div className="rcars-nav-section-label">System</div>
 
               <NavLink
