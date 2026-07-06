@@ -46,7 +46,7 @@ Column details:
 
 - **`key_hash`** — SHA-256 of the raw API key. The raw key is never stored.
 - **`key_prefix`** — First 8 characters of the raw key (e.g., `rcars_a1`). Used for identification in the admin UI without exposing the full key.
-- **`name`** — Human-readable label (e.g., "Babylon integration", "Nate's CLI session").
+- **`name`** — Human-readable label (e.g., "Babylon integration", "CLI session 2026-07-03").
 - **`created_by`** — Email of the user who created the key. NOT NULL — every key traces to a person.
 - **`scopes`** — Reserved for future fine-grained permissions (e.g., `read:catalog`, `write:retirement`). Not enforced in v1.
 - **`role`** — Maximum role this key grants: `user`, `curator`, or `admin`. Acts as a ceiling — the effective role is `min(key.role, user's current role in env var lists)`.
@@ -189,7 +189,7 @@ Credentials file (`~/.config/rcars/credentials.json`):
   "server": "https://rcars-api.apps.example.com",
   "api_key": "rcars_a1b2c3d4...",
   "expires_at": "2026-07-04T15:30:00Z",
-  "user": "nate@redhat.com"
+  "user": "user@redhat.com"
 }
 ```
 
@@ -209,7 +209,7 @@ Four new endpoints under `/api/v1/auth/`:
 The only unauthenticated endpoint besides health checks. Exchanges an OAuth authorization code for a 24h API key.
 
 - **Request:** `{"code": "...", "code_verifier": "...", "redirect_uri": "http://127.0.0.1:PORT/callback"}`
-- **Response:** `{"api_key": "rcars_...", "expires_at": "2026-07-04T15:30:00Z", "user": "nate@redhat.com"}`
+- **Response:** `{"api_key": "rcars_...", "expires_at": "2026-07-04T15:30:00Z", "user": "user@redhat.com"}`
 - **Rate limit:** 5 attempts per source IP per minute. Returns 429 when exceeded.
 - The raw API key is returned exactly once and never stored or retrievable again.
 
@@ -263,7 +263,7 @@ Every auth decision produces a structlog entry:
 {
   "component": "auth",
   "auth_method": "api_key|sa_token|oauth_proxy|dev_bypass",
-  "user": "nate@redhat.com",
+  "user": "user@redhat.com",
   "key_id": 42,
   "source_ip": "10.0.0.1",
   "outcome": "success|rejected_expired|rejected_revoked|rejected_no_credentials"
