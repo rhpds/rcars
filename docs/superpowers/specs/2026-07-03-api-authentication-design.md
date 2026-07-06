@@ -79,9 +79,9 @@ The `get_current_user()` function in `src/api/rcars/api/middleware/auth.py` gain
 
 #### Proxy secret enforcement (step 4 — tightened)
 
-The `proxy_verification_secret` check becomes mandatory in production:
+The `proxy_verification_secret` check becomes mandatory on all deployed environments (dev, test, prod — anywhere `dev_user` is not set):
 
-- If `proxy_verification_secret` is empty and `dev_user` is not set, the API rejects all OAuth proxy header auth attempts and logs a warning on startup.
+- If `proxy_verification_secret` is empty and `dev_user` is not set, the API rejects all OAuth proxy header auth attempts and logs a warning on startup. This applies to all deployed environments (dev, test, prod) — any non-local environment must have the secret configured.
 - Requests with `X-Forwarded-Email` but without a matching `X-Proxy-Secret` header are rejected.
 - This closes the header spoofing vector on the direct API route — a request without a valid API key, SA token, or proxy secret gets 401.
 - **Migration:** Existing deployments that rely on OAuth proxy headers without a proxy secret must set `RCARS_PROXY_VERIFICATION_SECRET` in both the API deployment env vars and the OAuth proxy's upstream header configuration before deploying this change. The Ansible playbook will configure this automatically for new deploys; existing environments need the secret added to their vars file.
