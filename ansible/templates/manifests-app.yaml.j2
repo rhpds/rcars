@@ -125,7 +125,7 @@ spec:
             - name: RCARS_PROXY_VERIFICATION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ app_name }}-secrets
+                  name: {{ app_name }}-proxy-verification
                   key: proxy-verification-secret
 {% endif %}
 {% if rcars_reporting_mcp_url is defined %}
@@ -517,6 +517,9 @@ spec:
               mountPath: /var/run
             - name: nginx-log
               mountPath: /var/log/nginx
+            - name: proxy-secret
+              mountPath: /etc/rcars
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /
@@ -548,6 +551,11 @@ spec:
           emptyDir: {}
         - name: nginx-log
           emptyDir: {}
+{% if rcars_proxy_verification_secret is defined %}
+        - name: proxy-secret
+          secret:
+            secretName: {{ app_name }}-proxy-verification
+{% endif %}
 ---
 # ── OAuth Proxy (fronts the frontend service) ──
 apiVersion: v1
@@ -668,3 +676,26 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
+{% if api_host is defined and api_host != '' %}
+---
+# Direct API Route (bypasses OAuth proxy — auth handled by middleware)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ app_name }}-api
+  labels:
+    app: {{ app_name }}
+    component: api
+  annotations:
+    haproxy.router.openshift.io/timeout: 180s
+spec:
+  host: "{{ api_host }}"
+  to:
+    kind: Service
+    name: {{ app_name }}-api
+  port:
+    targetPort: {{ app_port }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{% endif %}
