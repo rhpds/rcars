@@ -85,9 +85,11 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     # AgV component/item from CI base name (e.g. enterprise.event-driven-ansible → enterprise/event-driven-ansible)
     agv_ref = base_name.replace(".", "/", 1) if "." in base_name else base_name
 
-    # Replacement: raw catalog URL
+    catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
+
+    # Replacement: direct catalog URL
     if replacement_ci:
-        replacement_line = f"https://catalog.demo.redhat.com/catalog?search={replacement_ci}"
+        replacement_line = f"{catalog_base}/{replacement_ci}"
     else:
         replacement_line = "N/A"
 
@@ -122,7 +124,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         repl_name = replacement_name or replacement_ci
         adoc_replacement_line = (
             f' Please use this as an alternative: '
-            f'link:https://catalog.demo.redhat.com/catalog?search={replacement_ci}'
+            f'link:{catalog_base}/{replacement_ci}'
             f'[{repl_name}, window="_blank"]'
         )
 
@@ -139,7 +141,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
 
     description = (
         f"*CI Name:* {display_name}\n\n"
-        f"*RHDP URL:* https://catalog.demo.redhat.com/catalog?search={base_name}\n\n"
+        f"*RHDP URL:* {catalog_base}/{base_name}.prod\n\n"
         f"*AgV:* {agv_ref}\n\n"
         f"*Retirement Notice:* {target_days} days\n\n"
         f"*Replacement CI:* {replacement_line}\n\n"
