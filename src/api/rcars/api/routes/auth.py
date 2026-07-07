@@ -167,9 +167,13 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
     if not settings.oauth_server_url:
         raise HTTPException(status_code=503, detail="OAuth login not configured")
 
-    # Validate the access token by calling the OpenShift user API
-    user_url = f"{settings.oauth_server_url}/apis/user.openshift.io/v1/users/~"
-    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
+    # Validate the access token by calling the K8s API server (not the OAuth server).
+    # From inside the cluster, use kubernetes.default.svc with the pod's CA bundle.
+    from rcars.api.middleware.auth import _K8S_CA_PATH
+    k8s_api = "https://kubernetes.default.svc"
+    verify_cert = str(_K8S_CA_PATH) if _K8S_CA_PATH.exists() else True
+    user_url = f"{k8s_api}/apis/user.openshift.io/v1/users/~"
+    async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
         try:
             user_resp = await client.get(
                 user_url,
