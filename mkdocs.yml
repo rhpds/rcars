@@ -41,6 +41,7 @@ nav:
       - Schema Reference: architecture/schema-reference.md
   - User Guides:
       - Web UI Guide: user/web-guide.md
+      - API Access: user/api-access.md
   - Admin Guides:
       - Deployment: admin/deployment.md
       - CLI Reference: admin/cli-guide.md
