@@ -160,11 +160,16 @@ print(p.get('state', [''])[0])
 
     # ── Exchange code for API key ─────────────────────────────────────────────
     echo "Exchanging auth code for API key..."
-    local response
-    response=$(curl -sf -X POST "${server}/api/v1/auth/token" \
+    local response http_code
+    response=$(curl -s -w "\n%{http_code}" -X POST "${server}/api/v1/auth/token" \
         -H "Content-Type: application/json" \
-        -d "{\"code\": \"${code}\", \"code_verifier\": \"${verifier}\", \"redirect_uri\": \"${redirect_uri}\"}" \
-    ) || { echo "Error: token exchange failed (is ${server} reachable?)" >&2; exit 1; }
+        -d "{\"code\": \"${code}\", \"code_verifier\": \"${verifier}\", \"redirect_uri\": \"${redirect_uri}\"}")
+    http_code=$(echo "$response" | tail -1)
+    response=$(echo "$response" | head -n -1)
+    if [[ "$http_code" != "200" ]]; then
+        echo "Error: token exchange failed (HTTP ${http_code}): ${response}" >&2
+        exit 1
+    fi
 
     # ── Save credentials ──────────────────────────────────────────────────────
     local api_key expires_at user
