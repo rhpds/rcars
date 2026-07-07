@@ -507,6 +507,8 @@ spec:
       labels:
         app: {{ app_name }}
         component: frontend
+      annotations:
+        checksum/secrets: "{{ rcars_proxy_verification_secret | default('') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
