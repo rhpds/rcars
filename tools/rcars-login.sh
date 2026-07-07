@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
-# rcars-login.sh — Get an RCARS API key via OpenShift OAuth (PKCE flow)
+# rcars-login.sh — Get an RCARS API key via OpenShift OAuth (implicit grant)
 #
 # Usage:
 #   ./rcars-login.sh --server URL --oauth-server URL
-#   ./rcars-login.sh --server URL --oauth-server URL --no-server  # manual mode (no local server)
+#   ./rcars-login.sh --server URL --oauth-server URL --no-server  # manual mode
 #   ./rcars-login.sh token    # print saved key
-#   ./rcars-login.sh status   # show expiry and user
+#   ./rcars-login.sh status   # show login status
 #
-# Requirements: curl, openssl, python3 (stdlib only — for JSON parsing and the
-#   local callback server). python3 is available on every macOS and Linux system.
+# Requirements: curl, python3 (stdlib only — for callback server and JSON).
 #
 # Credentials saved to ~/.config/rcars/credentials.json (mode 600).
 
@@ -55,38 +54,58 @@ cmd_login() {
     server="${server%/}"
     oauth_server="${oauth_server%/}"
 
-    # ── Generate PKCE + state ─────────────────────────────────────────────────
-    local verifier challenge state
-    verifier=$(openssl rand -base64 64 | tr -d '=+/' | head -c 96)
-    challenge=$(printf '%s' "$verifier" \
-        | openssl dgst -sha256 -binary \
-        | base64 | tr -d $'\n=' | tr '+/' '-_')
+    local state access_token
     state=$(openssl rand -hex 32)
 
-    # ── Determine redirect URI and start callback server ──────────────────────
-    local redirect_uri code callback_path tmpfile server_pid port
+    # ── Start callback server or manual mode ──────────────────────────────────
+    local redirect_uri port tmpfile server_pid
     if [[ $no_server -eq 0 ]]; then
-        # Find a free port
         port=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); p=s.getsockname()[1]; s.close(); print(p)")
         redirect_uri="http://127.0.0.1:${port}/callback"
 
-        # Write the callback server to a temp file
+        # Callback server: serves JS to extract the token from the URL fragment
         tmpfile=$(mktemp /tmp/rcars-XXXXXX)
         cat > "${tmpfile}.py" <<'PYEOF'
-import sys, http.server, pathlib
+import sys, http.server, pathlib, urllib.parse
 
 result_file = pathlib.Path(sys.argv[2])
 result_file.write_text("")
 
+CALLBACK_HTML = b"""<!DOCTYPE html><html><body>
+<h2>Completing login...</h2>
+<script>
+var h = window.location.hash.substring(1);
+var p = new URLSearchParams(h);
+var t = p.get("access_token");
+if (t) {
+    window.location = "/complete?access_token=" + encodeURIComponent(t);
+} else {
+    document.body.innerHTML = "<h2>Login failed</h2><p>No access token received.</p>";
+}
+</script>
+</body></html>"""
+
 class H(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        result_file.write_text(self.path)
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html")
-        self.end_headers()
-        self.wfile.write(b"<html><body><h2>Login successful!</h2><p>You can close this tab.</p></body></html>")
-    def log_message(self, *a):
-        pass
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/callback":
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(CALLBACK_HTML)
+        elif parsed.path == "/complete":
+            params = urllib.parse.parse_qs(parsed.query)
+            token = params.get("access_token", [None])[0]
+            if token:
+                result_file.write_text(token)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"<html><body><h2>Login successful!</h2><p>You can close this tab.</p></body></html>")
+        else:
+            self.send_response(404)
+            self.end_headers()
+    def log_message(self, *a): pass
 
 httpd = http.server.HTTPServer(("127.0.0.1", int(sys.argv[1])), H)
 httpd.timeout = 120
@@ -106,12 +125,10 @@ PYEOF
     auth_url="${oauth_server}/oauth/authorize"
     auth_url+="?client_id=rcars-api"
     auth_url+="&redirect_uri=$(urlencode "$redirect_uri")"
-    auth_url+="&response_type=code"
-    auth_url+="&code_challenge=${challenge}"
-    auth_url+="&code_challenge_method=S256"
+    auth_url+="&response_type=token"
     auth_url+="&state=${state}"
 
-    echo "Opening browser for OpenShift login..."
+    echo "Opening browser for login..."
     if command -v open &>/dev/null; then
         open "$auth_url"
     elif command -v xdg-open &>/dev/null; then
@@ -123,7 +140,7 @@ PYEOF
     echo "  $auth_url"
     echo ""
 
-    # ── Wait for callback ─────────────────────────────────────────────────────
+    # ── Wait for token ────────────────────────────────────────────────────────
     if [[ $no_server -eq 0 ]]; then
         echo "Waiting for OAuth callback (timeout: 120s)..."
         local waited=0
@@ -131,42 +148,21 @@ PYEOF
             sleep 1
             ((waited++)) || true
         done
-        callback_path=$(cat "$tmpfile" 2>/dev/null || true)
-        [[ -n "$callback_path" ]] || { echo "Error: timed out waiting for callback" >&2; exit 1; }
+        access_token=$(cat "$tmpfile" 2>/dev/null || true)
+        [[ -n "$access_token" ]] || { echo "Error: timed out waiting for callback" >&2; exit 1; }
     else
-        echo "After authenticating, your browser will redirect to a URL like:"
-        echo "  http://127.0.0.1/callback?code=...&state=..."
+        echo "After authenticating, your browser will show a page."
+        echo "Copy the access_token value from the URL fragment."
         echo ""
-        read -rp "Paste the full callback URL here: " callback_url
-        callback_path="${callback_url#http://127.0.0.1}"
+        read -rp "Paste the access_token here: " access_token
+        [[ -n "$access_token" ]] || { echo "Error: no access token provided" >&2; exit 1; }
     fi
 
-    # ── Validate state + extract code ─────────────────────────────────────────
-    code=$(python3 -c "
-import urllib.parse, sys
-p = urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query)
-print(p.get('code', [''])[0])
-" "$callback_path")
-
-    local returned_state
-    returned_state=$(python3 -c "
-import urllib.parse, sys
-p = urllib.parse.parse_qs(urllib.parse.urlparse(sys.argv[1]).query)
-print(p.get('state', [''])[0])
-" "$callback_path")
-
-    [[ "$returned_state" == "$state" ]] || { echo "Error: state mismatch — possible CSRF attack" >&2; exit 1; }
-    [[ -n "$code" ]]                    || { echo "Error: no authorization code received" >&2; exit 1; }
-
-    # ── Exchange code for API key ─────────────────────────────────────────────
-    echo "Exchanging auth code for API key..."
+    # ── Exchange token for API key ────────────────────────────────────────────
+    echo "Exchanging access token for API key..."
     local response http_code tmpresponse payload
     tmpresponse=$(mktemp /tmp/rcars-resp-XXXXXX)
-    # Use python3 to safely JSON-encode the payload (avoids control char issues from shell expansion)
-    payload=$(python3 -c "
-import json, sys
-print(json.dumps({'code': sys.argv[1], 'code_verifier': sys.argv[2], 'redirect_uri': sys.argv[3]}))
-" "$code" "$verifier" "$redirect_uri")
+    payload=$(python3 -c "import json,sys; print(json.dumps({'access_token': sys.argv[1]}))" "$access_token")
     http_code=$(curl -s -o "$tmpresponse" -w "%{http_code}" -X POST "${server}/api/v1/auth/token" \
         -H "Content-Type: application/json" \
         -d "$payload")

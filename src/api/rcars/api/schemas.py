@@ -47,9 +47,7 @@ class AuthMeResponse(BaseModel):
 
 
 class TokenExchangeRequest(BaseModel):
-    code: str = Field(description="OAuth authorization code from callback")
-    code_verifier: str = Field(description="PKCE code verifier")
-    redirect_uri: str = Field(description="Redirect URI used in the authorize request")
+    access_token: str = Field(description="OAuth access token from the implicit grant flow")
 
 
 class TokenExchangeResponse(BaseModel):

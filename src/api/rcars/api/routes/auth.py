@@ -155,8 +155,9 @@ async def revoke_api_key(
 
 @router.post(
     "/auth/token",
-    summary="Exchange OAuth code for API key",
-    description="Exchanges an OpenShift OAuth authorization code for a 24h API key. "
+    summary="Exchange OAuth token for API key",
+    description="Validates an OpenShift OAuth access token (from the implicit grant flow) "
+                "and returns a 24h API key. "
                 "Unauthenticated — this IS the login endpoint. Rate-limited to 5/min per IP.",
     response_model=TokenExchangeResponse,
 )
@@ -166,44 +167,23 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
     if not settings.oauth_server_url:
         raise HTTPException(status_code=503, detail="OAuth login not configured")
 
-    # Exchange auth code for access token with OpenShift
-    token_url = f"{settings.oauth_server_url}/oauth/token"
-    verify_cert = True  # OAuth server uses cluster ingress cert, not internal K8s CA
-    async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
-        token_data_params = {
-                "grant_type": "authorization_code",
-                "code": body.code,
-                "redirect_uri": body.redirect_uri,
-                "client_id": settings.oauth_client_id,
-            }
-        if settings.oauth_client_secret:
-            token_data_params["client_secret"] = settings.oauth_client_secret
-        token_resp = await client.post(token_url, data=token_data_params)
-        if token_resp.status_code != 200:
-            logger.warning(
-                "oauth_token_exchange_failed",
-                status=token_resp.status_code,
-                body=token_resp.text[:500],
-                token_url=token_url,
-                client_id=settings.oauth_client_id,
-                redirect_uri=body.redirect_uri,
-            )
-            raise HTTPException(status_code=401, detail="OAuth code exchange failed")
-        token_data = token_resp.json()
-
-    # Get user identity from OpenShift
-    access_token = token_data.get("access_token", "")
+    # Validate the access token by calling the OpenShift user API
     user_url = f"{settings.oauth_server_url}/apis/user.openshift.io/v1/users/~"
-    async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
+    async with httpx.AsyncClient(verify=True, timeout=10.0) as client:
         try:
             user_resp = await client.get(
                 user_url,
-                headers={"Authorization": f"Bearer {access_token}"},
+                headers={"Authorization": f"Bearer {body.access_token}"},
             )
             user_resp.raise_for_status()
             user_data = user_resp.json()
-        except httpx.HTTPStatusError:
-            raise HTTPException(status_code=401, detail="Could not verify user identity")
+        except httpx.HTTPStatusError as exc:
+            logger.warning(
+                "oauth_token_validation_failed",
+                status=exc.response.status_code,
+                body=exc.response.text[:500],
+            )
+            raise HTTPException(status_code=401, detail="Invalid or expired access token")
 
     user_email = user_data.get("metadata", {}).get("name", "")
     if not user_email:

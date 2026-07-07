@@ -2,7 +2,7 @@
 """RCARS API login helper — authenticates via OpenShift OAuth and obtains an API key.
 
 Usage:
-    python rcars-login.py --server https://rcars-api.apps.example.com
+    python rcars-login.py --server URL --oauth-server URL
     python rcars-login.py token     # print current key
     python rcars-login.py status    # show expiry and user
 
@@ -10,8 +10,6 @@ Zero external dependencies — stdlib only.
 """
 
 import argparse
-import base64
-import hashlib
 import http.server
 import json
 import os
@@ -25,13 +23,22 @@ from pathlib import Path
 CREDENTIALS_DIR = Path.home() / ".config" / "rcars"
 CREDENTIALS_FILE = CREDENTIALS_DIR / "credentials.json"
 
-
-def _generate_pkce():
-    verifier = secrets.token_urlsafe(64)[:128]
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).rstrip(b"=").decode()
-    return verifier, challenge
+# The implicit grant puts the access_token in the URL fragment (#access_token=...).
+# Browsers never send fragments to the server, so we serve a tiny HTML page
+# with JS that reads the fragment and redirects it as a query parameter.
+CALLBACK_HTML = b"""<!DOCTYPE html><html><body>
+<h2>Completing login...</h2>
+<script>
+var h = window.location.hash.substring(1);
+var p = new URLSearchParams(h);
+var t = p.get("access_token");
+if (t) {
+    window.location = "/complete?access_token=" + encodeURIComponent(t);
+} else {
+    document.body.innerHTML = "<h2>Login failed</h2><p>No access token received.</p>";
+}
+</script>
+</body></html>"""
 
 
 def _load_credentials():
@@ -51,31 +58,45 @@ def cmd_login(args):
     oauth_server = args.oauth_server
 
     if not oauth_server:
-        print("Error: --oauth-server is required (e.g., https://oauth-openshift.apps.example.com)")
+        print("Error: --oauth-server is required")
         sys.exit(1)
 
-    verifier, challenge = _generate_pkce()
     oauth_state = secrets.token_hex(32)
-    received_code = {"code": None}
+    received_token = {"access_token": None}
 
     class CallbackHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
-            query = urllib.parse.urlparse(self.path).query
-            params = urllib.parse.parse_qs(query)
-            returned_state = params.get("state", [None])[0]
-            if returned_state != oauth_state:
-                self.send_response(400)
+            parsed = urllib.parse.urlparse(self.path)
+
+            if parsed.path == "/callback":
+                # First hit: browser arrives with fragment. Serve JS to extract it.
+                self.send_response(200)
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
-                self.wfile.write(b"<html><body><h2>Login failed</h2>"
-                                 b"<p>State mismatch - possible CSRF attack.</p></body></html>")
+                self.wfile.write(CALLBACK_HTML)
                 return
-            received_code["code"] = params.get("code", [None])[0]
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
+
+            if parsed.path == "/complete":
+                # Second hit: JS redirected with access_token as query param.
+                params = urllib.parse.parse_qs(parsed.query)
+                token = params.get("access_token", [None])[0]
+                if token:
+                    received_token["access_token"] = token
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(b"<html><body><h2>Login successful!</h2>"
+                                     b"<p>You can close this tab.</p></body></html>")
+                else:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(b"<html><body><h2>Login failed</h2>"
+                                     b"<p>No access token received.</p></body></html>")
+                return
+
+            self.send_response(404)
             self.end_headers()
-            self.wfile.write(b"<html><body><h2>Login successful!</h2>"
-                             b"<p>You can close this tab.</p></body></html>")
 
         def log_message(self, format, *args):
             pass
@@ -88,33 +109,26 @@ def cmd_login(args):
         f"{oauth_server}/oauth/authorize?"
         f"client_id=rcars-api&"
         f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
-        f"response_type=code&"
-        f"code_challenge={challenge}&"
-        f"code_challenge_method=S256&"
+        f"response_type=token&"
         f"state={oauth_state}"
     )
 
-    print(f"Opening browser for login...")
-    print(f"If browser doesn't open, visit: {authorize_url}")
+    print("Opening browser for login...")
+    print(f"If browser doesn't open, visit:\n  {authorize_url}")
     webbrowser.open(authorize_url)
 
-    # Wait for callback
     httpd.timeout = 120
-    while not received_code["code"]:
+    while not received_token["access_token"]:
         httpd.handle_request()
     httpd.server_close()
 
-    if not received_code["code"]:
-        print("Error: no authorization code received (state mismatch or timeout)")
+    if not received_token["access_token"]:
+        print("Error: no access token received")
         sys.exit(1)
 
-    # Exchange code for API key
+    # Exchange the OAuth access token for an RCARS API key
     token_url = f"{server}/api/v1/auth/token"
-    payload = json.dumps({
-        "code": received_code["code"],
-        "code_verifier": verifier,
-        "redirect_uri": redirect_uri,
-    }).encode()
+    payload = json.dumps({"access_token": received_token["access_token"]}).encode()
 
     req = urllib.request.Request(
         token_url,
@@ -128,7 +142,7 @@ def cmd_login(args):
             data = json.loads(resp.read())
     except urllib.error.HTTPError as e:
         body = e.read().decode()
-        print(f"Error: {e.code} — {body}")
+        print(f"Error: {e.code} - {body}")
         sys.exit(1)
 
     _save_credentials({
@@ -138,9 +152,11 @@ def cmd_login(args):
         "user": data["user"],
     })
 
-    print(f"Logged in as {data['user']}")
+    print(f"\nLogged in as {data['user']}")
     print(f"Key expires: {data['expires_at']}")
     print(f"Credentials saved to {CREDENTIALS_FILE}")
+    print(f"\nUsage:")
+    print(f"  curl -H \"X-API-Key: $(python3 {sys.argv[0]} token)\" {server}/api/v1/catalog/items")
 
 
 def cmd_token(args):
@@ -167,12 +183,11 @@ def main():
 
     login_p = sub.add_parser("login", help="Authenticate and obtain an API key")
     login_p.add_argument("--server", required=True, help="RCARS API server URL")
-    login_p.add_argument("--oauth-server", required=True, help="OpenShift OAuth server URL")
+    login_p.add_argument("--oauth-server", required=True, help="OAuth server URL")
 
     sub.add_parser("token", help="Print current API key")
     sub.add_parser("status", help="Show login status")
 
-    # Default to login if --server is provided as a top-level arg
     parser.add_argument("--server", dest="top_server", help=argparse.SUPPRESS)
     parser.add_argument("--oauth-server", dest="top_oauth_server", help=argparse.SUPPRESS)
 
@@ -185,7 +200,6 @@ def main():
     elif args.command == "status":
         cmd_status(args)
     elif args.top_server:
-        # Allow: python rcars-login.py --server URL --oauth-server URL
         args.server = args.top_server
         args.oauth_server = args.top_oauth_server
         cmd_login(args)
