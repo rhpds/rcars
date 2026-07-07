@@ -176,7 +176,6 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
                 "grant_type": "authorization_code",
                 "code": body.code,
                 "redirect_uri": body.redirect_uri,
-                "code_verifier": body.code_verifier,
                 "client_id": settings.oauth_client_id,
             },
         )
