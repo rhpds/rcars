@@ -165,7 +165,7 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
 
     # Exchange auth code for access token with OpenShift
     token_url = f"{settings.oauth_server_url}/oauth/token"
-    verify_cert = str(_K8S_CA_PATH) if _K8S_CA_PATH.exists() else True
+    verify_cert = True  # OAuth server uses cluster ingress cert, not internal K8s CA
     async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
         token_resp = await client.post(
             token_url,
