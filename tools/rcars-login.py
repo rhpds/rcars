@@ -68,7 +68,7 @@ def cmd_login(args):
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self.wfile.write(b"<html><body><h2>Login failed</h2>"
-                                 b"<p>State mismatch — possible CSRF attack.</p></body></html>")
+                                 b"<p>State mismatch - possible CSRF attack.</p></body></html>")
                 return
             received_code["code"] = params.get("code", [None])[0]
             self.send_response(200)
