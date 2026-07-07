@@ -128,6 +128,14 @@ spec:
                   name: {{ app_name }}-proxy-verification
                   key: proxy-verification-secret
 {% endif %}
+{% if rcars_oauth_server_url is defined %}
+            - name: RCARS_OAUTH_SERVER_URL
+              value: "{{ rcars_oauth_server_url }}"
+{% endif %}
+{% if rcars_oauth_client_id is defined %}
+            - name: RCARS_OAUTH_CLIENT_ID
+              value: "{{ rcars_oauth_client_id }}"
+{% endif %}
 {% if rcars_reporting_mcp_url is defined %}
             - name: RCARS_REPORTING_MCP_URL
               value: "{{ rcars_reporting_mcp_url }}"
