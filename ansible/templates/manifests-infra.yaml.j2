@@ -127,6 +127,9 @@ metadata:
 type: Opaque
 stringData:
   proxy-verification-secret: "{{ rcars_proxy_verification_secret }}"
+{% if rcars_oauth_client_secret is defined %}
+  oauth-client-secret: "{{ rcars_oauth_client_secret }}"
+{% endif %}
 {% endif %}
 {% if api_host is defined and api_host != '' %}
 ---
@@ -135,6 +138,9 @@ apiVersion: oauth.openshift.io/v1
 kind: OAuthClient
 metadata:
   name: rcars-api
+{% if rcars_oauth_client_secret is defined %}
+secret: "{{ rcars_oauth_client_secret }}"
+{% endif %}
 redirectURIs:
   - "http://127.0.0.1"
   - "http://[::1]"

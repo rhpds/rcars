@@ -170,15 +170,15 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
     token_url = f"{settings.oauth_server_url}/oauth/token"
     verify_cert = True  # OAuth server uses cluster ingress cert, not internal K8s CA
     async with httpx.AsyncClient(verify=verify_cert, timeout=10.0) as client:
-        token_resp = await client.post(
-            token_url,
-            data={
+        token_data_params = {
                 "grant_type": "authorization_code",
                 "code": body.code,
                 "redirect_uri": body.redirect_uri,
                 "client_id": settings.oauth_client_id,
-            },
-        )
+            }
+        if settings.oauth_client_secret:
+            token_data_params["client_secret"] = settings.oauth_client_secret
+        token_resp = await client.post(token_url, data=token_data_params)
         if token_resp.status_code != 200:
             logger.warning(
                 "oauth_token_exchange_failed",
