@@ -4,9 +4,11 @@ RCARS exposes its full API externally, allowing programmatic access from scripts
 
 ## Prerequisites
 
-- A Red Hat account with access to the RCARS OpenShift cluster
-- The RCARS external API URL (ask an admin — e.g. `https://rcars-api-dev.apps.cluster.example.com`)
+- A Red Hat account that can log into the OpenShift cluster where RCARS is deployed
+- The RCARS external API URL (ask an admin — e.g. `https://rcars-api.apps.cluster.example.com`)
 - The OpenShift OAuth server URL (e.g. `https://oauth-openshift.apps.cluster.example.com`)
+
+No `oc` CLI or cluster access required. Everything runs over HTTPS.
 
 ## Getting an API Key
 
