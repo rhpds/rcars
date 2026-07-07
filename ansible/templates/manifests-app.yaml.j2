@@ -518,6 +518,17 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: {{ app_port }}
+          env:
+{% if rcars_proxy_verification_secret is defined %}
+            - name: PROXY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-proxy-verification
+                  key: proxy-verification-secret
+{% else %}
+            - name: PROXY_SECRET
+              value: ""
+{% endif %}
           volumeMounts:
             - name: nginx-tmp
               mountPath: /tmp
@@ -525,11 +536,6 @@ spec:
               mountPath: /var/run
             - name: nginx-log
               mountPath: /var/log/nginx
-{% if rcars_proxy_verification_secret is defined %}
-            - name: proxy-secret
-              mountPath: /etc/rcars
-              readOnly: true
-{% endif %}
           livenessProbe:
             httpGet:
               path: /
@@ -561,11 +567,6 @@ spec:
           emptyDir: {}
         - name: nginx-log
           emptyDir: {}
-{% if rcars_proxy_verification_secret is defined %}
-        - name: proxy-secret
-          secret:
-            secretName: {{ app_name }}-proxy-verification
-{% endif %}
 ---
 # ── OAuth Proxy (fronts the frontend service) ──
 apiVersion: v1
