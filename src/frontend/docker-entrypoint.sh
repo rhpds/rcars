@@ -6,5 +6,5 @@ if [ -f /etc/rcars/proxy-verification-secret ]; then
 else
     export PROXY_SECRET=""
 fi
-envsubst '${PROXY_SECRET}' < /etc/nginx/nginx.conf.template > /etc/nginx/nginx.conf
-exec nginx -g 'daemon off;'
+envsubst '${PROXY_SECRET}' < /etc/nginx/nginx.conf.template > /tmp/nginx.conf
+exec nginx -c /tmp/nginx.conf -g 'daemon off;'
