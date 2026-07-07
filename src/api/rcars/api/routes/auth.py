@@ -5,7 +5,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import structlog
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
+
+logger = structlog.get_logger(component="auth.token")
 from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache, _K8S_CA_PATH
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
@@ -178,6 +181,14 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
             },
         )
         if token_resp.status_code != 200:
+            logger.warning(
+                "oauth_token_exchange_failed",
+                status=token_resp.status_code,
+                body=token_resp.text[:500],
+                token_url=token_url,
+                client_id=settings.oauth_client_id,
+                redirect_uri=body.redirect_uri,
+            )
             raise HTTPException(status_code=401, detail="OAuth code exchange failed")
         token_data = token_resp.json()
 
