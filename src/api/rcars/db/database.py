@@ -1728,6 +1728,25 @@ class Database:
             conn.commit()
         return count
 
+    def prune_old_jobs(self, retain_days: int = 30) -> int:
+        """Delete completed/failed jobs older than retain_days, except advisor queries.
+
+        The 'recommend' queue jobs are retained indefinitely — they represent real
+        user searches and are intended for future recommendation quality analysis.
+        """
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                """DELETE FROM jobs
+                   WHERE queue != 'recommend'
+                     AND created_at < NOW() - make_interval(days => %s)
+                     AND (status = 'completed' OR status = 'failed')
+                   RETURNING id""",
+                (retain_days,),
+            )
+            count = len(cur.fetchall())
+            conn.commit()
+        return count
+
     def list_jobs(self, limit: int = 50, job_type: str | None = None) -> list[dict]:
         if job_type:
             sql = "SELECT * FROM jobs WHERE job_type = %s ORDER BY created_at DESC LIMIT %s"
