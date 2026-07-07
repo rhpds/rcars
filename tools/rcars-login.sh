@@ -160,11 +160,16 @@ print(p.get('state', [''])[0])
 
     # ── Exchange code for API key ─────────────────────────────────────────────
     echo "Exchanging auth code for API key..."
-    local response http_code tmpresponse
+    local response http_code tmpresponse payload
     tmpresponse=$(mktemp /tmp/rcars-resp-XXXXXX)
+    # Use python3 to safely JSON-encode the payload (avoids control char issues from shell expansion)
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({'code': sys.argv[1], 'code_verifier': sys.argv[2], 'redirect_uri': sys.argv[3]}))
+" "$code" "$verifier" "$redirect_uri")
     http_code=$(curl -s -o "$tmpresponse" -w "%{http_code}" -X POST "${server}/api/v1/auth/token" \
         -H "Content-Type: application/json" \
-        -d "{\"code\": \"${code}\", \"code_verifier\": \"${verifier}\", \"redirect_uri\": \"${redirect_uri}\"}")
+        -d "$payload")
     response=$(cat "$tmpresponse"); rm -f "$tmpresponse"
     if [[ "$http_code" != "200" ]]; then
         echo "Error: token exchange failed (HTTP ${http_code}): ${response}" >&2
