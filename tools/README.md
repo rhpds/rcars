@@ -4,10 +4,10 @@ Tools for authenticating with and calling the RCARS external API.
 
 ## Prerequisites
 
-- A Red Hat account that can log into the OpenShift cluster where RCARS is deployed
+- A Red Hat account that can log into RCARS
 - The RCARS API URL and OAuth server URL (ask an admin for these)
 
-No `oc` login or cluster access required. All communication is over HTTPS.
+No special tools or cluster access required. All communication is over HTTPS.
 
 ## Getting an API key
 
