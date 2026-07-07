@@ -160,12 +160,12 @@ print(p.get('state', [''])[0])
 
     # ── Exchange code for API key ─────────────────────────────────────────────
     echo "Exchanging auth code for API key..."
-    local response http_code
-    response=$(curl -s -w "\n%{http_code}" -X POST "${server}/api/v1/auth/token" \
+    local response http_code tmpresponse
+    tmpresponse=$(mktemp /tmp/rcars-resp-XXXXXX)
+    http_code=$(curl -s -o "$tmpresponse" -w "%{http_code}" -X POST "${server}/api/v1/auth/token" \
         -H "Content-Type: application/json" \
         -d "{\"code\": \"${code}\", \"code_verifier\": \"${verifier}\", \"redirect_uri\": \"${redirect_uri}\"}")
-    http_code=$(echo "$response" | tail -1)
-    response=$(echo "$response" | head -n -1)
+    response=$(cat "$tmpresponse"); rm -f "$tmpresponse"
     if [[ "$http_code" != "200" ]]; then
         echo "Error: token exchange failed (HTTP ${http_code}): ${response}" >&2
         exit 1
