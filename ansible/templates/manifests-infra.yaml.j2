@@ -130,11 +130,11 @@ stringData:
 {% endif %}
 {% if api_host is defined and api_host != '' %}
 ---
-# OAuthClient for CLI login flow (cluster-scoped)
+# OAuthClient for external/programmatic API access (cluster-scoped)
 apiVersion: oauth.openshift.io/v1
 kind: OAuthClient
 metadata:
-  name: rcars-cli
+  name: rcars-api
 redirectURIs:
   - "http://127.0.0.1"
 grantMethod: auto

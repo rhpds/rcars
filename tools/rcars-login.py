@@ -86,7 +86,7 @@ def cmd_login(args):
 
     authorize_url = (
         f"{oauth_server}/oauth/authorize?"
-        f"client_id=rcars-cli&"
+        f"client_id=rcars-api&"
         f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
         f"response_type=code&"
         f"code_challenge={challenge}&"

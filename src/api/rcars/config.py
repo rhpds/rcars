@@ -73,7 +73,7 @@ class Settings(BaseSettings):
     proxy_verification_secret: str = ""
     advisor_rate_limit_per_user_per_hour: int = 50
     oauth_server_url: str = ""
-    oauth_client_id: str = "rcars-cli"
+    oauth_client_id: str = "rcars-api"
 
     # Content overlap
     similarity_threshold: float = 0.75
