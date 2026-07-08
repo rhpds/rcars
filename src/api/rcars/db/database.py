@@ -1739,7 +1739,7 @@ class Database:
                 """DELETE FROM jobs
                    WHERE queue != 'recommend'
                      AND created_at < NOW() - make_interval(days => %s)
-                     AND (status = 'completed' OR status = 'failed')
+                     AND status IN ('complete', 'completed', 'failed')
                    RETURNING id""",
                 (retain_days,),
             )

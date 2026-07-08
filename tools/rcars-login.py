@@ -15,6 +15,7 @@ import json
 import os
 import secrets
 import sys
+import time
 import urllib.parse
 import urllib.request
 import webbrowser
@@ -32,8 +33,9 @@ CALLBACK_HTML = b"""<!DOCTYPE html><html><body>
 var h = window.location.hash.substring(1);
 var p = new URLSearchParams(h);
 var t = p.get("access_token");
-if (t) {
-    window.location = "/complete?access_token=" + encodeURIComponent(t);
+var s = p.get("state");
+if (t && s) {
+    window.location = "/complete?access_token=" + encodeURIComponent(t) + "&state=" + encodeURIComponent(s);
 } else {
     document.body.innerHTML = "<h2>Login failed</h2><p>No access token received.</p>";
 }
@@ -80,7 +82,8 @@ def cmd_login(args):
                 # Second hit: JS redirected with access_token as query param.
                 params = urllib.parse.parse_qs(parsed.query)
                 token = params.get("access_token", [None])[0]
-                if token:
+                state = params.get("state", [None])[0]
+                if token and state == oauth_state:
                     received_token["access_token"] = token
                     self.send_response(200)
                     self.send_header("Content-Type", "text/html")
@@ -92,7 +95,7 @@ def cmd_login(args):
                     self.send_header("Content-Type", "text/html")
                     self.end_headers()
                     self.wfile.write(b"<html><body><h2>Login failed</h2>"
-                                     b"<p>No access token received.</p></body></html>")
+                                     b"<p>Invalid state or no access token received.</p></body></html>")
                 return
 
             self.send_response(404)
@@ -118,7 +121,8 @@ def cmd_login(args):
     webbrowser.open(authorize_url)
 
     httpd.timeout = 120
-    while not received_token["access_token"]:
+    deadline = time.time() + 120
+    while not received_token["access_token"] and time.time() < deadline:
         httpd.handle_request()
     httpd.server_close()
 

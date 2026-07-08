@@ -68,6 +68,7 @@ cmd_login() {
         cat > "${tmpfile}.py" <<'PYEOF'
 import sys, http.server, pathlib, urllib.parse
 
+expected_state = sys.argv[3]
 result_file = pathlib.Path(sys.argv[2])
 result_file.write_text("")
 
@@ -77,8 +78,9 @@ CALLBACK_HTML = b"""<!DOCTYPE html><html><body>
 var h = window.location.hash.substring(1);
 var p = new URLSearchParams(h);
 var t = p.get("access_token");
-if (t) {
-    window.location = "/complete?access_token=" + encodeURIComponent(t);
+var s = p.get("state");
+if (t && s) {
+    window.location = "/complete?access_token=" + encodeURIComponent(t) + "&state=" + encodeURIComponent(s);
 } else {
     document.body.innerHTML = "<h2>Login failed</h2><p>No access token received.</p>";
 }
@@ -96,12 +98,14 @@ class H(http.server.BaseHTTPRequestHandler):
         elif parsed.path == "/complete":
             params = urllib.parse.parse_qs(parsed.query)
             token = params.get("access_token", [None])[0]
-            if token:
+            state = params.get("state", [None])[0]
+            if token and state == expected_state:
                 result_file.write_text(token)
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(b"<html><body><h2>Login successful!</h2><p>You can close this tab.</p></body></html>")
+            msg = b"<html><body><h2>Login successful!</h2><p>You can close this tab.</p></body></html>" if token and state == expected_state else b"<html><body><h2>Login failed</h2><p>Invalid state parameter.</p></body></html>"
+            self.wfile.write(msg)
         else:
             self.send_response(404)
             self.end_headers()
@@ -112,7 +116,7 @@ httpd.timeout = 120
 while not result_file.read_text():
     httpd.handle_request()
 PYEOF
-        python3 "${tmpfile}.py" "$port" "$tmpfile" &
+        python3 "${tmpfile}.py" "$port" "$tmpfile" "$state" &
         server_pid=$!
         trap "kill $server_pid 2>/dev/null; rm -f $tmpfile ${tmpfile}.py" EXIT
     else
@@ -180,17 +184,17 @@ PYEOF
 
     mkdir -p "$CREDS_DIR"
     python3 -c "
-import json, os
+import json, os, sys
 creds = {
-    'server':     '${server}',
-    'api_key':    '${api_key}',
-    'expires_at': '${expires_at}',
-    'user':       '${user}',
+    'server':     sys.argv[1],
+    'api_key':    sys.argv[2],
+    'expires_at': sys.argv[3],
+    'user':       sys.argv[4],
 }
-with open('${CREDS_FILE}', 'w') as f:
+with open(sys.argv[5], 'w') as f:
     json.dump(creds, f, indent=2)
-os.chmod('${CREDS_FILE}', 0o600)
-"
+os.chmod(sys.argv[5], 0o600)
+" "$server" "$api_key" "$expires_at" "$user" "$CREDS_FILE"
     echo ""
     echo "Logged in as ${user}"
     echo "Key expires: ${expires_at}"

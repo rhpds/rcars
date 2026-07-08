@@ -20,6 +20,7 @@ def upgrade() -> None:
     op.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS key_prefix TEXT NOT NULL DEFAULT ''")
     op.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'")
     op.execute("ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ")
+    op.execute("UPDATE api_keys SET created_by = '' WHERE created_by IS NULL")
     op.execute("ALTER TABLE api_keys ALTER COLUMN created_by SET NOT NULL")
     op.execute("ALTER TABLE api_keys ALTER COLUMN created_by SET DEFAULT ''")
     op.execute("CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash)")

@@ -11,7 +11,7 @@ No special tools or cluster access required. All communication is over HTTPS.
 
 ## Getting an API key
 
-Two login scripts are available — both do the same PKCE OAuth flow, pick whichever suits your environment:
+Two login scripts are available — both do the same OAuth implicit grant flow with state parameter validation, pick whichever suits your environment:
 
 | Script | Requirements | Best for |
 |--------|-------------|----------|

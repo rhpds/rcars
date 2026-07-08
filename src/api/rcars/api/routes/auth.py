@@ -8,7 +8,6 @@ import httpx
 import structlog
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 
-logger = structlog.get_logger(component="auth.token")
 from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache, _K8S_CA_PATH
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
@@ -22,6 +21,8 @@ from rcars.api.schemas import (
     TokenExchangeResponse,
 )
 from rcars.config import Settings
+
+logger = structlog.get_logger(component="auth.token")
 
 router = APIRouter()
 
@@ -160,6 +161,7 @@ async def revoke_api_key(
                 "and returns a 24h API key. "
                 "Unauthenticated — this IS the login endpoint. Rate-limited to 5/min per IP.",
     response_model=TokenExchangeResponse,
+    openapi_extra={"security": []},
 )
 @limiter.limit("5/minute")
 async def exchange_token(body: TokenExchangeRequest, request: Request):
@@ -188,6 +190,9 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
                 body=exc.response.text[:500],
             )
             raise HTTPException(status_code=401, detail="Invalid or expired access token")
+        except httpx.RequestError as exc:
+            logger.warning("oauth_token_validation_error", error=str(exc))
+            raise HTTPException(status_code=503, detail="Unable to reach authentication server")
 
     user_email = user_data.get("metadata", {}).get("name", "")
     if not user_email:

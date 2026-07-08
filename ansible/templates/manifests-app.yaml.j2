@@ -136,13 +136,6 @@ spec:
             - name: RCARS_OAUTH_CLIENT_ID
               value: "{{ rcars_oauth_client_id }}"
 {% endif %}
-{% if rcars_oauth_client_secret is defined %}
-            - name: RCARS_OAUTH_CLIENT_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: {{ app_name }}-proxy-verification
-                  key: oauth-client-secret
-{% endif %}
 {% if rcars_reporting_mcp_url is defined %}
             - name: RCARS_REPORTING_MCP_URL
               value: "{{ rcars_reporting_mcp_url }}"

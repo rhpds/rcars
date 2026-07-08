@@ -94,7 +94,7 @@ For API key auth, the key's `role` column acts as a ceiling. A key with `role=us
 
 #### In-memory cache
 
-Validated API keys are cached in a dict with a 60-second TTL to avoid a DB query on every request. Cache entries map `key_hash → (user_email, role, expires_at)`. Expired keys are evicted on access. The revoke endpoint explicitly invalidates the cache entry for the revoked key via `invalidate_api_key_cache(key_hash)`, so revocations take effect immediately — not after TTL expiry.
+Validated API keys are cached in a dict with a 60-second TTL to avoid a DB query on every request. Cache entries map `key_hash → (user_email, role, expires_at)`. Expired keys are evicted on access. The revoke endpoint explicitly invalidates the cache entry for the revoked key via `invalidate_api_key_cache(key_hash)`, so revocations take effect immediately on the current process, while other replicas remain TTL-bounded (60s).
 
 ### 3. Networking
 
