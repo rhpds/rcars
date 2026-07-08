@@ -256,6 +256,19 @@ export const api = {
 
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
+
+  // API Keys
+  listApiKeys: (active = true) =>
+    request<{ keys: Array<{ id: number; key_prefix: string; name: string; created_by: string; role: string; created_at: string; expires_at: string | null; last_used_at: string | null; is_active: boolean }> }>(
+      `/auth/keys?active=${active}`
+    ),
+  createApiKey: (name: string, role: string, expiresInDays: number | null) =>
+    request<{ api_key: string; id: number; name: string; role: string; expires_at: string | null }>(
+      '/auth/keys',
+      { method: 'POST', body: JSON.stringify({ name, role, expires_in_days: expiresInDays }) }
+    ),
+  revokeApiKey: (keyId: number) =>
+    request<{ id: number; revoked_at: string }>(`/auth/keys/${keyId}`, { method: 'DELETE' }),
 };
 
 export interface RetirementWorkflow {

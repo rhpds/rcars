@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.openapi.utils import get_openapi
 from redis.asyncio import Redis
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -19,6 +20,14 @@ from rcars.api.routes import health, auth, advisor, catalog, analysis, admin
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     setup_logging(level="INFO", component="api")
+
+    # CS-1: Warn if proxy_verification_secret is unconfigured in a deployed environment
+    if not settings.proxy_verification_secret and not settings.dev_user:
+        import structlog
+        structlog.get_logger(component="auth").warning(
+            "proxy_verification_secret is not set — OAuth proxy header auth is disabled. "
+            "Set RCARS_PROXY_VERIFICATION_SECRET in all deployed environments."
+        )
 
     app.state.db = Database(settings.database_url)
     app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
@@ -41,8 +50,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "RHDP Content Advisory & Recommendation System. "
             "Matches catalog items to events, opportunities, and user queries "
             "using vector search, LLM triage, and LLM-generated rationale.\n\n"
-            "**Authentication:** OAuth proxy headers (`X-Forwarded-Email`) or "
-            "Kubernetes ServiceAccount bearer tokens. "
+            "**Authentication:** API keys (`X-API-Key` header), "
+            "Kubernetes ServiceAccount bearer tokens, or "
+            "OAuth proxy headers (web UI only).\n\n"
+            "**API keys:** Obtain via `POST /api/v1/auth/token` (OAuth login) "
+            "or create via `POST /api/v1/auth/keys` (admin). "
             "Roles: `user` (read-only), `curator` (curation + analysis), `admin` (full access).\n\n"
             "**Async jobs:** Long-running operations return a `job_id` immediately. "
             "Poll results via the result endpoint or stream progress via SSE."
@@ -54,6 +66,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = settings
+
+    def custom_openapi():
+        if app.openapi_schema:
+            return app.openapi_schema
+        schema = get_openapi(
+            title=app.title,
+            version=app.version,
+            description=app.description,
+            routes=app.routes,
+        )
+        schema["components"]["securitySchemes"] = {
+            "ApiKeyAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-API-Key",
+                "description": "API key obtained via OAuth login or admin creation",
+            }
+        }
+        schema["security"] = [{"ApiKeyAuth": []}]
+        app.openapi_schema = schema
+        return schema
+
+    app.openapi = custom_openapi
 
     app.add_middleware(RequestLoggingMiddleware)
 

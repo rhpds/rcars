@@ -1198,7 +1198,7 @@ metadata:
     app: {{ app_name }}
 type: Opaque
 stringData:
-  proxy-secret: "{{ rcars_proxy_verification_secret }}"
+  proxy-verification-secret: "{{ rcars_proxy_verification_secret }}"
 {% endif %}
 ```
 
@@ -1265,8 +1265,8 @@ Create `src/frontend/docker-entrypoint.sh`:
 ```bash
 #!/bin/sh
 # Read proxy secret from mounted file if available, substitute into nginx.conf
-if [ -f /etc/rcars/proxy-secret ]; then
-    export PROXY_SECRET=$(cat /etc/rcars/proxy-secret)
+if [ -f /etc/rcars/proxy-verification-secret ]; then
+    export PROXY_SECRET=$(cat /etc/rcars/proxy-verification-secret)
 else
     export PROXY_SECRET=""
 fi
@@ -1335,7 +1335,7 @@ In `ansible/templates/manifests-app.yaml.j2`, change the `RCARS_PROXY_VERIFICATI
               valueFrom:
                 secretKeyRef:
                   name: {{ app_name }}-proxy-verification
-                  key: proxy-secret
+                  key: proxy-verification-secret
 {% endif %}
 ```
 
@@ -1642,12 +1642,21 @@ def cmd_login(args):
         sys.exit(1)
 
     verifier, challenge = _generate_pkce()
+    oauth_state = secrets.token_hex(32)
     received_code = {"code": None}
 
     class CallbackHandler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             query = urllib.parse.urlparse(self.path).query
             params = urllib.parse.parse_qs(query)
+            returned_state = params.get("state", [None])[0]
+            if returned_state != oauth_state:
+                self.send_response(400)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<html><body><h2>Login failed</h2>"
+                                 b"<p>State mismatch — possible CSRF attack.</p></body></html>")
+                return
             received_code["code"] = params.get("code", [None])[0]
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -1668,7 +1677,8 @@ def cmd_login(args):
         f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
         f"response_type=code&"
         f"code_challenge={challenge}&"
-        f"code_challenge_method=S256"
+        f"code_challenge_method=S256&"
+        f"state={oauth_state}"
     )
 
     print(f"Opening browser for login...")
@@ -1681,7 +1691,7 @@ def cmd_login(args):
     httpd.server_close()
 
     if not received_code["code"]:
-        print("Error: no authorization code received")
+        print("Error: no authorization code received (state mismatch or timeout)")
         sys.exit(1)
 
     # Exchange code for API key

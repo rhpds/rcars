@@ -125,8 +125,16 @@ spec:
             - name: RCARS_PROXY_VERIFICATION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ app_name }}-secrets
+                  name: {{ app_name }}-proxy-verification
                   key: proxy-verification-secret
+{% endif %}
+{% if rcars_oauth_server_url is defined %}
+            - name: RCARS_OAUTH_SERVER_URL
+              value: "{{ rcars_oauth_server_url }}"
+{% endif %}
+{% if rcars_oauth_client_id is defined %}
+            - name: RCARS_OAUTH_CLIENT_ID
+              value: "{{ rcars_oauth_client_id }}"
 {% endif %}
 {% if rcars_reporting_mcp_url is defined %}
             - name: RCARS_REPORTING_MCP_URL
@@ -499,6 +507,8 @@ spec:
       labels:
         app: {{ app_name }}
         component: frontend
+      annotations:
+        checksum/secrets: "{{ rcars_proxy_verification_secret | default('') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -510,6 +520,17 @@ spec:
           imagePullPolicy: Always
           ports:
             - containerPort: {{ app_port }}
+          env:
+{% if rcars_proxy_verification_secret is defined %}
+            - name: PROXY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-proxy-verification
+                  key: proxy-verification-secret
+{% else %}
+            - name: PROXY_SECRET
+              value: ""
+{% endif %}
           volumeMounts:
             - name: nginx-tmp
               mountPath: /tmp
@@ -668,3 +689,26 @@ spec:
   tls:
     termination: edge
     insecureEdgeTerminationPolicy: Redirect
+{% if api_host is defined and api_host != '' %}
+---
+# Direct API Route (bypasses OAuth proxy — auth handled by middleware)
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ app_name }}-api
+  labels:
+    app: {{ app_name }}
+    component: api
+  annotations:
+    haproxy.router.openshift.io/timeout: 180s
+spec:
+  host: "{{ api_host }}"
+  to:
+    kind: Service
+    name: {{ app_name }}-api
+  port:
+    targetPort: {{ app_port }}
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+{% endif %}

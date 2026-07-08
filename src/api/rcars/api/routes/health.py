@@ -7,7 +7,12 @@ from rcars.api.schemas import HealthResponse, ReadinessResponse
 router = APIRouter()
 
 
-@router.get("/health", summary="Health check", response_model=HealthResponse)
+@router.get(
+    "/health",
+    summary="Health check",
+    response_model=HealthResponse,
+    openapi_extra={"security": []},
+)
 async def health():
     return {"status": "ok"}
 
@@ -17,6 +22,7 @@ async def health():
     summary="Readiness probe",
     description="Checks database and Redis connectivity. Returns 'degraded' if either is unreachable.",
     response_model=ReadinessResponse,
+    openapi_extra={"security": []},
 )
 async def readiness(request: Request):
     db = request.app.state.db

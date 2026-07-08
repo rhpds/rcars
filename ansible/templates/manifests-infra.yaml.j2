@@ -115,6 +115,37 @@ type: Opaque
 stringData:
   token: "{{ rcars_jira_api_token }}"
 {% endif %}
+{% if rcars_proxy_verification_secret is defined and rcars_proxy_verification_secret != '' %}
+---
+# Proxy verification shared secret (frontend nginx + API)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-proxy-verification
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  proxy-verification-secret: "{{ rcars_proxy_verification_secret }}"
+{% if rcars_oauth_client_secret is defined %}
+  oauth-client-secret: "{{ rcars_oauth_client_secret }}"
+{% endif %}
+{% endif %}
+{% if api_host is defined and api_host != '' %}
+---
+# OAuthClient for external/programmatic API access (cluster-scoped)
+apiVersion: oauth.openshift.io/v1
+kind: OAuthClient
+metadata:
+  name: rcars-api
+{% if rcars_oauth_client_secret is defined %}
+secret: "{{ rcars_oauth_client_secret }}"
+{% endif %}
+redirectURIs:
+  - "http://127.0.0.1"
+  - "http://[::1]"
+grantMethod: auto
+{% endif %}
 ---
 # PostgreSQL PVC
 apiVersion: v1

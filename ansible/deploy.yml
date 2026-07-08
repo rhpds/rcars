@@ -15,9 +15,11 @@
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # App manifests only (no build)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # All manifests (infra + app, no build)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply-infra     # Infra manifests only (secrets, BuildConfigs)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply-manifests # App manifests only (deployments, routes)
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run migrations
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags update          # Build all + migrate (correct order)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags update          # Apply all + build all + migrate
 #   ansible-playbook ansible/deploy.yml -e env=dev --tags smoke-test      # Advisor end-to-end test only
 #
 # Prerequisites:
@@ -100,15 +102,15 @@
       ansible.builtin.include_tasks:
         file: tasks/apply-infra.yml
         apply:
-          tags: [deploy, apply]
-      tags: [deploy, apply]
+          tags: [deploy, apply, apply-infra, update]
+      tags: [deploy, apply, apply-infra, update]
 
     - name: Apply app manifests
       ansible.builtin.include_tasks:
         file: tasks/apply-manifests.yml
         apply:
-          tags: [deploy, apply]
-      tags: [deploy, apply]
+          tags: [deploy, apply, apply-manifests, update]
+      tags: [deploy, apply, apply-manifests, update]
 
     - name: Build all (API + frontend)
       ansible.builtin.include_tasks:
