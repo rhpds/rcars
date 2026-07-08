@@ -6,6 +6,8 @@ accurate Swagger/ReDoc documentation and validate responses at runtime.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -226,7 +228,7 @@ class RescanResponse(ScanResponse):
 # ── Admin ───────────────────────────────────────────────────────────
 
 class TokenUsageResponse(BaseModel):
-    stats: dict
+    stats: list[dict]
     recent_queries: list[dict]
     days: int
 
@@ -246,7 +248,7 @@ class RunningJob(BaseModel):
     id: str
     job_type: str
     ci_name: str | None = None
-    created_at: str
+    created_at: datetime
 
 
 class WorkerHealthResponse(BaseModel):
@@ -269,7 +271,7 @@ class ScanProgressResponse(BaseModel):
 
 class QueryHistorySession(BaseModel):
     session_id: str
-    started_at: str
+    started_at: datetime
     turn_count: int
     turns: list[dict]
 
@@ -324,7 +326,7 @@ class ReportingStatusResponse(BaseModel):
     with_provisions: int = 0
     with_cost: int = 0
     with_sales: int = 0
-    last_synced: str | None = None
+    last_synced: datetime | None = None
 
 
 # ── API Keys ───────────────────────────────────────────────────────
