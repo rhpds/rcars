@@ -387,6 +387,13 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         log.info("pipeline_reporting_sync_skipped", action="pipeline_step_skipped",
                  step="reporting_sync", reason="MCP URL or token not configured")
 
+    # Prune old completed/failed jobs — keep advisor query jobs (queue=recommend) indefinitely
+    try:
+        pruned = wctx.db.prune_old_jobs(retain_days=30)
+        log.info("pipeline_jobs_pruned", action="pipeline_step_complete", step="prune_jobs", pruned=pruned)
+    except Exception as exc:
+        log.warning("pipeline_jobs_prune_failed", action="pipeline_step_failed", step="prune_jobs", error=str(exc))
+
     # Complete pipeline
     result = {
         "refresh": refresh_result,

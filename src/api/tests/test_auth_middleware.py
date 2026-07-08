@@ -13,6 +13,8 @@ from rcars.api.middleware.auth import (
     _validate_sa_token,
     get_current_user,
     require_auth,
+    require_curator,
+    require_admin,
 )
 
 
@@ -21,15 +23,25 @@ from rcars.api.middleware.auth import (
 # ---------------------------------------------------------------------------
 
 
-def _make_request(headers: dict | None = None, dev_user: str = "", sa_allowlist_str: str = "") -> MagicMock:
-    """Build a mock Request with headers and app.state.settings."""
+def _make_request(
+    headers: dict | None = None,
+    dev_user: str = "",
+    sa_allowlist_str: str = "",
+    proxy_verification_secret: str = "",
+    db: MagicMock | None = None,
+) -> MagicMock:
+    """Build a mock Request with headers, settings, and optional db."""
     request = MagicMock()
     request.headers = headers or {}
     settings = MagicMock()
     settings.dev_user = dev_user
     settings.sa_allowlist_str = sa_allowlist_str
-    settings.proxy_verification_secret = ""
+    settings.proxy_verification_secret = proxy_verification_secret
+    settings.is_curator = MagicMock(return_value=False)
+    settings.is_admin = MagicMock(return_value=False)
     request.app.state.settings = settings
+    request.app.state.db = db or MagicMock()
+    request.state = MagicMock()
     return request
 
 
@@ -176,22 +188,32 @@ class TestGetCurrentUser:
             headers={
                 "authorization": "Bearer bad-token",
                 "X-Forwarded-Email": "user@redhat.com",
+                "X-Proxy-Secret": "secret",
             },
             sa_allowlist_str="system:serviceaccount:ns:sa",
+            proxy_verification_secret="secret",
         )
         result = await get_current_user(request)
         assert result == "user@redhat.com"
 
     async def test_falls_through_to_email(self):
         request = _make_request(
-            headers={"X-Forwarded-Email": "user@redhat.com"}
+            headers={
+                "X-Forwarded-Email": "user@redhat.com",
+                "X-Proxy-Secret": "secret",
+            },
+            proxy_verification_secret="secret",
         )
         result = await get_current_user(request)
         assert result == "user@redhat.com"
 
     async def test_falls_through_to_forwarded_user(self):
         request = _make_request(
-            headers={"X-Forwarded-User": "user@redhat.com"}
+            headers={
+                "X-Forwarded-User": "user@redhat.com",
+                "X-Proxy-Secret": "secret",
+            },
+            proxy_verification_secret="secret",
         )
         result = await get_current_user(request)
         assert result == "user@redhat.com"
@@ -202,8 +224,10 @@ class TestGetCurrentUser:
             headers={
                 "authorization": "Bearer some-token",
                 "X-Forwarded-Email": "user@redhat.com",
+                "X-Proxy-Secret": "secret",
             },
             sa_allowlist_str="",
+            proxy_verification_secret="secret",
         )
         result = await get_current_user(request)
         assert result == "user@redhat.com"
@@ -228,7 +252,100 @@ class TestRequireAuth:
 
     async def test_returns_user_when_present(self):
         request = _make_request(
-            headers={"X-Forwarded-Email": "user@redhat.com"}
+            headers={
+                "X-Forwarded-Email": "user@redhat.com",
+                "X-Proxy-Secret": "secret",
+            },
+            proxy_verification_secret="secret",
         )
         result = await require_auth(request)
         assert result == "user@redhat.com"
+
+
+# ---------------------------------------------------------------------------
+# API Key Auth
+# ---------------------------------------------------------------------------
+
+
+class TestApiKeyAuth:
+    async def test_valid_api_key_returns_user(self):
+        db = MagicMock()
+        db.get_api_key_by_hash.return_value = {
+            "id": 1, "created_by": "user@redhat.com", "role": "user"
+        }
+        db.touch_api_key = MagicMock()
+        request = _make_request(
+            headers={"X-API-Key": "rcars_abc123"},
+            db=db,
+        )
+        result = await get_current_user(request)
+        assert result == "user@redhat.com"
+
+    async def test_invalid_api_key_falls_through(self):
+        db = MagicMock()
+        db.get_api_key_by_hash.return_value = None
+        request = _make_request(
+            headers={"X-API-Key": "rcars_bad", "X-Forwarded-Email": "proxy@redhat.com"},
+            proxy_verification_secret="secret",
+            db=db,
+        )
+        request.headers = {
+            "X-API-Key": "rcars_bad",
+            "X-Forwarded-Email": "proxy@redhat.com",
+            "X-Proxy-Secret": "secret",
+        }
+        result = await get_current_user(request)
+        assert result == "proxy@redhat.com"
+
+
+class TestProxySecretEnforcement:
+    async def test_rejects_email_without_proxy_secret(self):
+        request = _make_request(
+            headers={"X-Forwarded-Email": "spoofed@redhat.com"},
+            proxy_verification_secret="real-secret",
+        )
+        result = await get_current_user(request)
+        assert result is None
+
+    async def test_rejects_email_when_no_secret_configured_and_no_dev_user(self):
+        request = _make_request(
+            headers={"X-Forwarded-Email": "spoofed@redhat.com"},
+            proxy_verification_secret="",
+            dev_user="",
+        )
+        result = await get_current_user(request)
+        assert result is None
+
+    async def test_accepts_email_with_correct_proxy_secret(self):
+        request = _make_request(
+            headers={
+                "X-Forwarded-Email": "real@redhat.com",
+                "X-Proxy-Secret": "my-secret",
+            },
+            proxy_verification_secret="my-secret",
+        )
+        result = await get_current_user(request)
+        assert result == "real@redhat.com"
+
+
+class TestApiKeyRoleCeiling:
+    async def test_user_key_blocked_from_curator_endpoint(self):
+        db = MagicMock()
+        db.get_api_key_by_hash.return_value = {
+            "id": 1, "created_by": "curator@redhat.com", "role": "user"
+        }
+        db.touch_api_key = MagicMock()
+        request = _make_request(headers={"X-API-Key": "rcars_abc"}, db=db)
+        request.state.auth_method = None
+        request.state.api_key_role = None
+
+        # Simulate the full auth flow
+        user = await get_current_user(request)
+        assert user == "curator@redhat.com"
+
+        # Now require_curator should check api_key_role
+        settings = request.app.state.settings
+        settings.is_curator.return_value = True
+        with pytest.raises(HTTPException) as exc_info:
+            await require_curator(request)
+        assert exc_info.value.status_code == 403

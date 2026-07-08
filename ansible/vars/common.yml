@@ -79,3 +79,6 @@ redis_memory_limit: 512Mi
 
 # API external route (disabled by default — cluster-internal only)
 rcars_api_external_route: false
+
+# External API access (set in env-specific vars, empty = no direct API route)
+# api_host: rcars-api.apps.{{ cluster_domain }}

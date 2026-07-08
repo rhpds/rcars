@@ -94,7 +94,7 @@ For API key auth, the key's `role` column acts as a ceiling. A key with `role=us
 
 #### In-memory cache
 
-Validated API keys are cached in a dict with a 60-second TTL to avoid a DB query on every request. Cache entries map `key_hash → (user_email, role, expires_at)`. Expired and revoked keys are evicted on access. The 60-second window after revocation is an accepted trade-off — consistent with how OAuth token validity windows work.
+Validated API keys are cached in a dict with a 60-second TTL to avoid a DB query on every request. Cache entries map `key_hash → (user_email, role, expires_at)`. Expired keys are evicted on access. The revoke endpoint explicitly invalidates the cache entry for the revoked key via `invalidate_api_key_cache(key_hash)`, so revocations take effect immediately on the current process, while other replicas remain TTL-bounded (60s).
 
 ### 3. Networking
 
@@ -138,7 +138,7 @@ metadata:
   name: {{ app_name }}-proxy-verification
 type: Opaque
 stringData:
-  proxy-secret: "{{ proxy_verification_secret }}"
+  proxy-verification-secret: "{{ rcars_proxy_verification_secret }}"
 ```
 
 **Frontend nginx pod** — the secret is mounted as a file (e.g., `/etc/rcars/proxy-secret`). The nginx.conf reads it at startup using `load_module` / `set_by_lua` or, more simply, the container entrypoint reads the file into an environment variable and `envsubst` renders the nginx.conf before nginx starts. The `proxy_set_header X-Proxy-Secret` directive uses the value from the file — not a pass-through of upstream headers.
@@ -181,25 +181,28 @@ This is added to the Ansible manifests alongside the existing OAuth proxy OAuthC
 ```
 1. User runs: python tools/rcars-login.py --server https://rcars-api.apps.example.com
 2. Script generates PKCE code_verifier (random 43-128 chars) + SHA-256 code_challenge
-3. Script starts HTTP server on a random localhost port
-4. Script opens browser to OpenShift OAuth /authorize endpoint:
+3. Script generates a random state parameter (32 bytes, hex-encoded)
+4. Script starts HTTP server on a random localhost port
+5. Script opens browser to OpenShift OAuth /authorize endpoint:
    ?client_id=rcars-cli
    &redirect_uri=http://127.0.0.1:PORT/callback
    &response_type=code
    &code_challenge=XXXX
    &code_challenge_method=S256
-5. User authenticates via OpenShift login page
-6. Browser redirects to http://127.0.0.1:PORT/callback?code=XXXX
-7. Script captures the auth code, shuts down the HTTP server
-8. Script sends the code to RCARS:
-   POST https://rcars-api.apps.example.com/api/v1/auth/token
-   {"code": "...", "code_verifier": "...", "redirect_uri": "http://127.0.0.1:PORT/callback"}
-9. RCARS API exchanges the code with OpenShift's token endpoint (server-side)
-10. RCARS extracts user email, creates a 24h API key, returns it
-11. Script saves credentials to ~/.config/rcars/credentials.json
+   &state=RANDOM_STATE
+6. User authenticates via OpenShift login page
+7. Browser redirects to http://127.0.0.1:PORT/callback?code=XXXX&state=RANDOM_STATE
+8. Script verifies the returned state matches the generated state (rejects on mismatch)
+9. Script captures the auth code, shuts down the HTTP server
+10. Script sends the code to RCARS:
+    POST https://rcars-api.apps.example.com/api/v1/auth/token
+    {"code": "...", "code_verifier": "...", "redirect_uri": "http://127.0.0.1:PORT/callback"}
+11. RCARS API exchanges the code with OpenShift's token endpoint (server-side)
+12. RCARS extracts user email, creates a 24h API key, returns it
+13. Script saves credentials to ~/.config/rcars/credentials.json
 ```
 
-PKCE prevents auth code interception — an attacker who captures the redirect can't use the code without the verifier, which never leaves the script's memory.
+PKCE prevents auth code interception — an attacker who captures the redirect can't use the code without the verifier, which never leaves the script's memory. The `state` parameter prevents OAuth CSRF/session mix-up attacks — the callback handler rejects responses with a mismatched or missing state.
 
 The RCARS API does the code exchange with OpenShift (step 9), not the script. The script never handles OAuth tokens directly.
 
@@ -250,9 +253,9 @@ For service-to-service consumers (Babylon, Publishing House, etc.). Created by a
 
 - **Request:** `{"name": "Babylon integration", "role": "user", "expires_in_days": null}`
 - **Response:** `{"api_key": "rcars_...", "id": 42, "name": "Babylon integration", "role": "user", "expires_at": null}`
-- **Role ceiling enforced:** admin can create any role, curator can create user/curator, user can create user only.
+- **Role field:** determines the maximum access level the key grants (user, curator, or admin). Admins can assign any role.
 - `expires_in_days: null` means never expires (revocation only).
-- **Requires:** `require_admin`
+- **Requires:** `require_admin` — only admins can create long-lived service keys.
 
 #### `GET /api/v1/auth/keys` — List API keys (admin only)
 
@@ -284,7 +287,7 @@ The existing `GET /api/v1/auth/me` endpoint continues to work unchanged — it r
 | DB breach (api_keys table) | LOW | Only SHA-256 hashes stored. High-entropy input makes reversal infeasible. |
 | OAuth callback interception | LOW | PKCE — interceptor can't use auth code without the code_verifier. OAuthClient CRD restricts redirectURIs to `http://127.0.0.1`. |
 | Privilege escalation via key creation | MEDIUM | Role ceiling enforced — key role cannot exceed creator's current role. |
-| Cache staleness after revocation | LOW | 60-second TTL. Accepted trade-off, consistent with OAuth token validity windows. |
+| Cache staleness after revocation | LOW | Revoke endpoint explicitly invalidates the cache entry. TTL is a fallback for multi-replica eventual consistency only. |
 
 #### Auth logging
 

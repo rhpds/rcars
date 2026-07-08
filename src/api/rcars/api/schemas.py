@@ -46,6 +46,16 @@ class AuthMeResponse(BaseModel):
     roles: list[str] = Field(description="Granted roles: user, curator, admin")
 
 
+class TokenExchangeRequest(BaseModel):
+    access_token: str = Field(description="OAuth access token from the implicit grant flow")
+
+
+class TokenExchangeResponse(BaseModel):
+    api_key: str = Field(description="24h API key — shown once")
+    expires_at: str
+    user: str = Field(description="Authenticated user's email")
+
+
 # ── Advisor ─────────────────────────────────────────────────────────
 
 class QuerySubmitResponse(BaseModel):
@@ -315,3 +325,40 @@ class ReportingStatusResponse(BaseModel):
     with_cost: int = 0
     with_sales: int = 0
     last_synced: str | None = None
+
+
+# ── API Keys ───────────────────────────────────────────────────────
+
+class CreateApiKeyRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200, description="Human-readable label for the key")
+    role: str = Field(default="user", pattern="^(user|curator|admin)$", description="Maximum role: user, curator, or admin")
+    expires_in_days: int | None = Field(default=None, ge=1, le=365, description="Days until expiry. Null = never expires.")
+
+
+class CreateApiKeyResponse(BaseModel):
+    api_key: str = Field(description="Raw API key — shown exactly once, never retrievable again")
+    id: int
+    name: str
+    role: str
+    expires_at: str | None
+
+
+class ApiKeyInfo(BaseModel):
+    id: int
+    key_prefix: str
+    name: str
+    created_by: str
+    role: str
+    created_at: str
+    expires_at: str | None
+    last_used_at: str | None
+    is_active: bool
+
+
+class ApiKeyListResponse(BaseModel):
+    keys: list[ApiKeyInfo]
+
+
+class RevokeApiKeyResponse(BaseModel):
+    id: int
+    revoked_at: str

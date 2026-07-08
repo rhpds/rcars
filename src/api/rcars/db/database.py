@@ -163,13 +163,19 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE TABLE IF NOT EXISTS api_keys (
     id SERIAL PRIMARY KEY,
     key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
     name TEXT NOT NULL,
-    created_by TEXT,
+    created_by TEXT NOT NULL,
     scopes TEXT[],
+    role TEXT NOT NULL DEFAULT 'user',
+    expires_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     last_used_at TIMESTAMPTZ,
     revoked_at TIMESTAMPTZ
 );
+
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
 
 CREATE TABLE IF NOT EXISTS catalog_item_workloads (
     id SERIAL PRIMARY KEY,
@@ -1722,6 +1728,25 @@ class Database:
             conn.commit()
         return count
 
+    def prune_old_jobs(self, retain_days: int = 30) -> int:
+        """Delete completed/failed jobs older than retain_days, except advisor queries.
+
+        The 'recommend' queue jobs are retained indefinitely — they represent real
+        user searches and are intended for future recommendation quality analysis.
+        """
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                """DELETE FROM jobs
+                   WHERE queue != 'recommend'
+                     AND created_at < NOW() - make_interval(days => %s)
+                     AND status IN ('complete', 'completed', 'failed')
+                   RETURNING id""",
+                (retain_days,),
+            )
+            count = len(cur.fetchall())
+            conn.commit()
+        return count
+
     def list_jobs(self, limit: int = 50, job_type: str | None = None) -> list[dict]:
         if job_type:
             sql = "SELECT * FROM jobs WHERE job_type = %s ORDER BY created_at DESC LIMIT %s"
@@ -2211,3 +2236,69 @@ class Database:
                 count = cur.rowcount
             conn.commit()
         return count
+
+    # ── API Keys ──
+
+    def create_api_key(
+        self,
+        key_hash: str,
+        key_prefix: str,
+        name: str,
+        created_by: str,
+        role: str,
+        expires_at: datetime | None,
+    ) -> int:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """INSERT INTO api_keys (key_hash, key_prefix, name, created_by, role, expires_at)
+                   VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
+                (key_hash, key_prefix, name, created_by, role, expires_at),
+            ).fetchone()
+            return row["id"]
+
+    def get_api_key_by_hash(self, key_hash: str) -> dict | None:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """SELECT * FROM api_keys
+                   WHERE key_hash = %s
+                     AND revoked_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > NOW())""",
+                (key_hash,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_api_keys(self, active_only: bool = True) -> list[dict]:
+        with self.pool.connection() as conn:
+            if active_only:
+                rows = conn.execute(
+                    """SELECT id, key_prefix, name, created_by, role, scopes,
+                              created_at, expires_at, last_used_at, revoked_at
+                       FROM api_keys
+                       WHERE revoked_at IS NULL
+                         AND (expires_at IS NULL OR expires_at > NOW())
+                       ORDER BY created_at DESC"""
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT id, key_prefix, name, created_by, role, scopes,
+                              created_at, expires_at, last_used_at, revoked_at
+                       FROM api_keys ORDER BY created_at DESC"""
+                ).fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_api_key(self, key_id: int) -> dict | None:
+        with self.pool.connection() as conn:
+            row = conn.execute(
+                """UPDATE api_keys SET revoked_at = NOW()
+                   WHERE id = %s AND revoked_at IS NULL
+                   RETURNING id, key_hash, revoked_at""",
+                (key_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def touch_api_key(self, key_id: int) -> None:
+        with self.pool.connection() as conn:
+            conn.execute(
+                "UPDATE api_keys SET last_used_at = NOW() WHERE id = %s",
+                (key_id,),
+            )

@@ -9,6 +9,7 @@ import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { WorkloadsPage } from './pages/WorkloadsPage'
 import { AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
+import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import { RetirementPage } from './pages/RetirementPage'
 import { StatusPage } from './pages/StatusPage'
@@ -58,6 +59,7 @@ export default function App() {
                       <Route path="/system/jobs" element={<RecentJobsPage />} />
                       <Route path="/system/tokens" element={<AdminTokensPage />} />
                       <Route path="/system/queries" element={<AdminQueriesPage />} />
+                      <Route path="/system/api-keys" element={<ApiKeysPanel />} />
                       {/* Legacy routes redirect */}
                       <Route path="/admin" element={<Navigate to="/system/status" replace />} />
                       <Route path="/admin/catalog" element={<Navigate to="/system/status" replace />} />
