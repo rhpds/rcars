@@ -1,0 +1,39 @@
+# Product term mappings for query expansion in the recommender pipeline.
+# Two sections: acronyms (word-boundary matched) and synonyms (phrase-matched).
+# Both are case-insensitive. Expansion appends the value in parentheses.
+# To update: edit this file, commit, rebuild image.
+
+acronyms:
+  AAP: "Ansible Automation Platform"
+  ACM: "Advanced Cluster Management for Kubernetes"
+  RHACM: "Advanced Cluster Management for Kubernetes"
+  ACS: "Advanced Cluster Security for Kubernetes"
+  RHACS: "Red Hat Advanced Cluster Security for Kubernetes"
+  RHOAI: "Red Hat OpenShift AI"
+  OCP: "OpenShift Container Platform"
+  ARO: "Azure Red Hat OpenShift"
+  ROSA: "Red Hat OpenShift Service on AWS"
+  RHEL: "Red Hat Enterprise Linux"
+  RHDH: "Red Hat Developer Hub"
+  SNO: "Single Node OpenShift"
+  RHSSO: "Red Hat Single Sign-On"
+  EDA: "Event-Driven Ansible"
+  TAP: "Trusted Application Pipeline"
+  AMQ: "Red Hat AMQ Streams"
+  CRW: "Red Hat CodeReady Workspaces"
+  RHBK: "Red Hat Build of Keycloak"
+
+synonyms:
+  "Red Hat AI": "Red Hat OpenShift AI"
+  "OpenShift AI": "Red Hat OpenShift AI"
+  "DevSpaces": "Red Hat OpenShift Dev Spaces"
+  "Dev Spaces": "Red Hat OpenShift Dev Spaces"
+  "Developer Hub": "Red Hat Developer Hub"
+  "Quay": "Red Hat Quay container registry"
+  "3scale": "Red Hat 3scale API Management"
+  "Service Mesh": "Red Hat OpenShift Service Mesh Istio"
+  "Serverless": "Red Hat OpenShift Serverless Knative"
+  "GitOps": "Red Hat OpenShift GitOps ArgoCD Argo CD"
+  "Virtualization": "Red Hat OpenShift Virtualization KubeVirt"
+  "MaaS": "Models as a Service model serving"
+  "model serving": "AI model serving LLM inference"

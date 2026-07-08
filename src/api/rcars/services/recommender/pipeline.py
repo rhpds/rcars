@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+import yaml
+from importlib.resources import files as _pkg_files
 from typing import Callable, Awaitable
 from rcars.db import Database
 from rcars.config import Settings
@@ -25,36 +27,49 @@ NO_MATCH_GUIDANCE = (
 )
 
 
-_ACRONYMS = {
-    "AAP": "Ansible Automation Platform",
-    "ACM": "Advanced Cluster Management for Kubernetes",
-    "RHACM": "Advanced Cluster Management for Kubernetes",
-    "ACS": "Advanced Cluster Security for Kubernetes",
-    "RHACS": "Red Hat Advanced Cluster Security for Kubernetes",
-    "RHOAI": "Red Hat OpenShift AI",
-    "OCP": "OpenShift Container Platform",
-    "ARO": "Azure Red Hat OpenShift",
-    "ROSA": "Red Hat OpenShift Service on AWS",
-    "RHEL": "Red Hat Enterprise Linux",
-    "RHDH": "Red Hat Developer Hub",
-    "SNO": "Single Node OpenShift",
-    "RHSSO": "Red Hat Single Sign-On",
-    "EDA": "Event-Driven Ansible",
-    "TAP": "Trusted Application Pipeline",
-}
-
-_ACRONYM_RE = re.compile(
-    r'\b(' + '|'.join(sorted(_ACRONYMS, key=len, reverse=True)) + r')\b',
-    re.IGNORECASE,
-)
+_product_terms_cache: tuple[dict[str, str], dict[str, str]] | None = None
 
 
-def _expand_acronyms(query: str) -> str:
-    """Expand Red Hat product acronyms to full names for better embedding match."""
-    def _replace(m: re.Match) -> str:
-        acro = m.group(0).upper()
-        return f"{acro} ({_ACRONYMS[acro]})"
-    return _ACRONYM_RE.sub(_replace, query)
+def _load_product_terms() -> tuple[dict[str, str], dict[str, str]]:
+    """Load product term mappings from the bundled YAML file.
+
+    Returns (acronyms, synonyms) dicts. Cached after first call.
+    """
+    global _product_terms_cache
+    if _product_terms_cache is not None:
+        return _product_terms_cache
+
+    yaml_path = _pkg_files("rcars.data").joinpath("product-terms.yaml")
+    data = yaml.safe_load(yaml_path.read_text())
+    acronyms = {k.upper(): v for k, v in (data.get("acronyms") or {}).items()}
+    synonyms = data.get("synonyms") or {}
+    _product_terms_cache = (acronyms, synonyms)
+    logger.info("product_terms_loaded", acronyms=len(acronyms), synonyms=len(synonyms))
+    return _product_terms_cache
+
+
+def _expand_query_terms(query: str) -> str:
+    """Expand product acronyms and synonyms for better embedding match."""
+    acronyms, synonyms = _load_product_terms()
+
+    # Synonym expansion first (phrase match, case-insensitive, longest first)
+    for phrase in sorted(synonyms, key=len, reverse=True):
+        pattern = re.compile(r'\b' + re.escape(phrase) + r'\b', re.IGNORECASE)
+        if pattern.search(query):
+            query = pattern.sub(lambda m: f"{m.group(0)} ({synonyms[phrase]})", query)
+
+    # Acronym expansion second (word-boundary, case-insensitive)
+    # This runs after synonym expansion to avoid double-expansion
+    if acronyms:
+        acronym_re = re.compile(
+            r'\b(' + '|'.join(sorted(acronyms, key=len, reverse=True)) + r')\b',
+            re.IGNORECASE,
+        )
+        def _replace_acronym(m: re.Match) -> str:
+            return f"{m.group(0)} ({acronyms[m.group(0).upper()]})"
+        query = acronym_re.sub(_replace_acronym, query)
+
+    return query
 
 
 _URL_RE = re.compile(r'(?:https?://\S+|www\.\S+\.\S+)', re.IGNORECASE)
@@ -224,9 +239,9 @@ async def run_query(
         ]
 
     # Expand acronyms for better embedding match
-    search_query = _expand_acronyms(query)
+    search_query = _expand_query_terms(query)
     if search_query != query:
-        logger.info("acronym_expansion", original=query[:200], expanded=search_query[:200])
+        logger.info("query_term_expansion", original=query[:200], expanded=search_query[:200])
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})

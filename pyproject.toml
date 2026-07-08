@@ -43,7 +43,7 @@ rcars = "rcars.cli:cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"rcars" = ["web/static/*", "web/templates/**/*", "prompts/*"]
+"rcars" = ["web/static/*", "web/templates/**/*", "prompts/*", "data/*"]
 
 [tool.pytest.ini_options]
 markers = [
