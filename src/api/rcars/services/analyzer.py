@@ -548,7 +548,7 @@ def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[
     return embedding.tolist()
 
 
-def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = None) -> str:
+def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = None, display_name: str | None = None) -> str:
     """Build text for CI-level embedding from analysis results."""
     parts = [
         analysis.get("summary", ""),
@@ -564,6 +564,9 @@ def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = 
         val = analysis.get(field, [])
         if isinstance(val, list):
             parts.extend(val)
+
+    if display_name:
+        parts.append(display_name)
 
     if keywords:
         parts.extend(keywords)
@@ -668,7 +671,7 @@ def analyze_showroom(
                 }
 
                 # Rebuild CI embedding with this CI's own keywords
-                ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords)
+                ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords, display_name=display_name)
                 ci_embedding = generate_embedding(ci_embedding_text)
 
                 # Module embeddings don't include keywords, safe to copy
@@ -730,7 +733,7 @@ def analyze_showroom(
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
 
         # Generate embeddings (include catalog keywords for event/metadata signal)
-        ci_embedding_text = build_embedding_text(analysis, keywords=keywords)
+        ci_embedding_text = build_embedding_text(analysis, keywords=keywords, display_name=display_name)
         ci_embedding = generate_embedding(ci_embedding_text)
 
         module_embeddings = []

@@ -67,3 +67,55 @@ class TestExpandQueryTerms:
     def test_expansion_format_parenthetical(self):
         result = _expand_query_terms("deploy on OCP")
         assert "OCP (OpenShift Container Platform)" in result
+
+
+from rcars.services.analyzer import build_embedding_text
+
+
+class TestBuildEmbeddingText:
+    def test_without_display_name(self):
+        analysis = {"summary": "A test lab about OpenShift."}
+        result = build_embedding_text(analysis)
+        assert result == "A test lab about OpenShift."
+
+    def test_with_display_name_positioned_after_content(self):
+        analysis = {
+            "summary": "A workshop about AI.",
+            "topics": ["machine learning"],
+            "products": ["OpenShift AI"],
+            "audience": ["developers"],
+            "use_cases": ["model training"],
+        }
+        result = build_embedding_text(analysis, display_name="My Great Workshop")
+        # display_name should appear after content fields but before any keywords
+        summary_pos = result.index("A workshop about AI.")
+        name_pos = result.index("My Great Workshop")
+        assert name_pos > summary_pos
+
+    def test_with_display_name_before_keywords(self):
+        analysis = {
+            "summary": "A workshop about AI.",
+        }
+        result = build_embedding_text(
+            analysis, keywords=["ai", "ml"], display_name="My Workshop"
+        )
+        name_pos = result.index("My Workshop")
+        keyword_pos = result.index("ai")
+        assert name_pos < keyword_pos
+
+    def test_display_name_none_is_skipped(self):
+        analysis = {"summary": "Just a summary."}
+        result = build_embedding_text(analysis, display_name=None)
+        assert result == "Just a summary."
+
+    def test_display_name_empty_string_is_skipped(self):
+        analysis = {"summary": "Just a summary."}
+        result = build_embedding_text(analysis, display_name="")
+        assert result == "Just a summary."
+
+    def test_backward_compatible_without_keyword_arg(self):
+        analysis = {"summary": "Summary.", "topics": ["k8s"]}
+        result = build_embedding_text(analysis, keywords=["tag1"])
+        assert "Summary." in result
+        assert "k8s" in result
+        assert "tag1" in result
