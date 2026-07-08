@@ -1451,7 +1451,7 @@ class Database:
     def get_siblings_by_showroom(self, showroom_url: str, showroom_ref: str | None) -> list[dict[str, Any]]:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT * FROM catalog_items WHERE showroom_url = %s AND COALESCE(showroom_ref, '') = COALESCE(%s, '') AND (is_published IS NULL OR is_published = FALSE) AND retired_at IS NULL ORDER BY ci_name",
+                "SELECT * FROM catalog_items WHERE showroom_url = %s AND COALESCE(showroom_ref, '') = COALESCE(%s, '') AND retired_at IS NULL ORDER BY ci_name",
                 (showroom_url, showroom_ref),
             )
             return cur.fetchall()
