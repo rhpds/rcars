@@ -3037,3 +3037,83 @@ body {
 .ret-drawer {
   width: 520px !important;
 }
+
+/* ── Muted inline badge ── */
+.ret-inline-badge--muted {
+  background: rgba(107, 112, 128, 0.08);
+  color: var(--text-muted);
+  border-color: rgba(107, 112, 128, 0.15);
+  font-style: italic;
+}
+
+/* ── Score Breakdown Popover ── */
+.ret-score-popover {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: 300px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-section);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0,0,0,.18);
+  padding: 14px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.ret-score-popover__summary {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  line-height: 1.4;
+}
+
+.ret-score-popover__factors {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ret-score-popover__factor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.ret-score-popover__factor-name {
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.ret-score-popover__factor-pts {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ret-score-popover__factor-bar {
+  height: 4px;
+  background: var(--bg-section);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 3px;
+}
+
+.ret-score-popover__factor-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 300ms ease;
+}
+
+.ret-score-popover__factor-reason {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.3;
+}
