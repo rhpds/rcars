@@ -187,7 +187,7 @@ def _compute_retirement_score_with_breakdown(
     score += pts
     factors.append({"factor": "sales", "points": pts, "max": 25, "level": level, "reason": reason})
 
-    # --- Cost Efficiency (max 15) — percentile-ranked ROI ---
+    # --- Cost Efficiency (max 15) — continuous percentile-scaled ---
     roi_val = (closed_amount / total_cost) if total_cost > 0 and closed_amount > 0 else 0
     roi_label = f"{roi_val:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost)"
     if roi_zero:
@@ -198,26 +198,21 @@ def _compute_retirement_score_with_breakdown(
         pts = 0
         reason = "No cost data"
         level = "none"
-    elif roi_pct < 10:
-        pts = 15
-        reason = f"{roi_label} — bottom 10% ({_pct_label(roi_pct)})"
-        level = "high"
-    elif roi_pct < 25:
-        pts = 12
-        reason = f"{roi_label} — bottom 25% ({_pct_label(roi_pct)})"
-        level = "high"
-    elif roi_pct < 50:
-        pts = 8
-        reason = f"{roi_label} — below median ({_pct_label(roi_pct)})"
-        level = "moderate"
-    elif roi_pct < 75:
-        pts = 3
-        reason = f"{roi_label} — above median ({_pct_label(roi_pct)})"
-        level = "low"
     else:
-        pts = 0
-        reason = f"{roi_label} — top 25% ({_pct_label(roi_pct)})"
-        level = "none"
+        pts = round(15 * (1 - roi_pct / 100))
+        if roi_pct < 25:
+            level = "high"
+            band = f"bottom 25% ({_pct_label(roi_pct)})"
+        elif roi_pct < 50:
+            level = "moderate"
+            band = f"below median ({_pct_label(roi_pct)})"
+        elif roi_pct < 75:
+            level = "low"
+            band = f"above median ({_pct_label(roi_pct)})"
+        else:
+            level = "none"
+            band = f"top 25% ({_pct_label(roi_pct)})"
+        reason = f"{roi_label} — {band}"
     score += pts
     factors.append({"factor": "roi", "points": pts, "max": 15, "level": level, "reason": reason})
 
