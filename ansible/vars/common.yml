@@ -10,7 +10,7 @@ mgmt_service_account:
   name: rcars-mgmt-sa
 
 # Container images
-pg_image: "pgvector/pgvector:0.8.0-pg16"
+pg_image: "quay.io/rhpds/rcars-pgvector:0.8.0-pg16"
 redis_image: "registry.redhat.io/rhel9/redis-7:1"
 oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:v4.17"
 
@@ -82,3 +82,6 @@ rcars_api_external_route: false
 
 # External API access (set in env-specific vars, empty = no direct API route)
 # api_host: rcars-api.apps.{{ cluster_domain }}
+
+# OAuth client ID for programmatic API access (matches OAuthClient name)
+rcars_oauth_client_id: "rcars-api-{{ env }}"

@@ -1359,6 +1359,7 @@ class Database:
     ) -> None:
         if opted_out:
             query_text = None
+            ci_name = None
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
@@ -1581,6 +1582,9 @@ class Database:
             query_text = None
             results = None
             overall_assessment = None
+            event_url = None
+            if user_email:
+                user_email = hashlib.sha256(user_email.encode()).hexdigest()[:16]
         with self._pool.connection() as conn:
             cur = conn.execute("""
                 INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment, opted_out)
@@ -2279,7 +2283,36 @@ class Database:
                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING id""",
                 (key_hash, key_prefix, name, created_by, role, expires_at),
             ).fetchone()
+            conn.commit()
             return row["id"]
+
+    def revoke_user_cli_keys(self, user_email: str) -> int:
+        """Revoke all active CLI session keys for a user (role='user' with expiry)."""
+        with self.pool.connection() as conn:
+            cur = conn.execute(
+                """UPDATE api_keys SET revoked_at = NOW()
+                   WHERE created_by = %s AND role = 'user'
+                     AND expires_at IS NOT NULL
+                     AND revoked_at IS NULL
+                     AND (expires_at IS NULL OR expires_at > NOW())""",
+                (user_email,),
+            )
+            count = cur.rowcount
+            conn.commit()
+        return count
+
+    def prune_expired_api_keys(self, retain_days: int = 30) -> int:
+        """Hard-delete API keys that expired or were revoked more than retain_days ago."""
+        with self.pool.connection() as conn:
+            cur = conn.execute(
+                """DELETE FROM api_keys
+                   WHERE (expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '%s days')
+                      OR (revoked_at IS NOT NULL AND revoked_at < NOW() - INTERVAL '%s days')""",
+                (retain_days, retain_days),
+            )
+            count = cur.rowcount
+            conn.commit()
+        return count
 
     def get_api_key_by_hash(self, key_hash: str) -> dict | None:
         with self.pool.connection() as conn:
