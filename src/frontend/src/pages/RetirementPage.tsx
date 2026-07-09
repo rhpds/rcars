@@ -14,7 +14,7 @@ type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
 type TimeWindow = '1q' | '2q' | '3q' | '1y'
-type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started'
+type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started' | 'muted'
 
 const fmt = (v: number | string) => {
   const n = typeof v === 'string' ? parseFloat(v) || 0 : v
@@ -303,7 +303,6 @@ export function RetirementPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [scorePopover, setScorePopover] = useState<string | null>(null)
-  const [showIgnored, setShowIgnored] = useState(false)
 
   const handleIgnore = async (baseName: string) => {
     try {
@@ -514,7 +513,9 @@ RHDP Content Team`
   const isIgnored = (i: ReportingMetricsItem) => !!i.ignored_until
   const activeItems = allItems.filter(i => !isIgnored(i))
   const ignoredCount = allItems.filter(isIgnored).length
-  const visibleItems = showIgnored ? items : items.filter(i => !isIgnored(i))
+  const visibleItems = workflowFilter === 'muted'
+    ? items.filter(isIgnored)
+    : items.filter(i => !isIgnored(i))
 
   const totalCost = activeItems.reduce((s, i) => s + i.total_cost, 0)
   const totalClosed = activeItems.reduce((s, i) => s + i.closed_amount, 0)
@@ -634,24 +635,13 @@ RHDP Content Team`
 
             <span className="ret-filter-label">Status</span>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started']] as [WorkflowFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['muted', `Muted${ignoredCount > 0 ? ` (${ignoredCount})` : ''}`]] as [WorkflowFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setWorkflowFilter(f)}
                   className={`ret-filter-group__btn${workflowFilter === f ? ' active' : ''}`}>
                   {label}
                 </button>
               ))}
             </div>
-
-            {ignoredCount > 0 && (
-              <>
-                <div className="ret-controls-row__divider" />
-                <button onClick={() => setShowIgnored(!showIgnored)}
-                  className={`ret-filter-group__btn${showIgnored ? ' active' : ''}`}
-                  style={{ fontSize: '11px' }}>
-                  {showIgnored ? 'Hide' : 'Show'} Muted ({ignoredCount})
-                </button>
-              </>
-            )}
 
             <input
               type="text" placeholder="Search by name..."
