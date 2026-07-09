@@ -102,6 +102,8 @@ def _compute_retirement_score_with_breakdown(
     first_provision: str,
     provisions_raw: int = 0,
     touched_raw: float = 0,
+    roi_zero: bool = False,
+    roi_pct: float = 0,
 ) -> tuple[dict, int]:
     """Internal: compute score and return (breakdown_dict, final_score)."""
     score = 0
@@ -185,32 +187,36 @@ def _compute_retirement_score_with_breakdown(
     score += pts
     factors.append({"factor": "sales", "points": pts, "max": 25, "level": level, "reason": reason})
 
-    # --- Cost-to-Sales ROI (max 15) ---
-    if total_cost > 0 and closed_amount > 0:
-        roi = closed_amount / total_cost
-        if roi < 10:
-            pts = 15
-            reason = f"{roi:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost) — poor"
-            level = "high"
-        elif roi < 50:
-            pts = 5
-            reason = f"{roi:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost) — moderate"
-            level = "low"
-        else:
-            pts = 0
-            reason = f"{roi:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost) — strong"
-            level = "none"
-    elif closed_amount == 0 and total_cost > 5000:
+    # --- Cost Efficiency (max 15) — percentile-ranked ROI ---
+    roi_val = (closed_amount / total_cost) if total_cost > 0 and closed_amount > 0 else 0
+    roi_label = f"{roi_val:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost)"
+    if roi_zero:
         pts = 15
-        reason = f"{_fmt_dollars(total_cost)} spent with no closed sales"
+        reason = f"{_fmt_dollars(total_cost)} spent with $0 closed — no return on investment"
         level = "critical"
-    elif closed_amount == 0 and total_cost > 0:
-        pts = 10
-        reason = f"{_fmt_dollars(total_cost)} spent with no closed sales"
-        level = "high"
-    else:
+    elif total_cost == 0:
         pts = 0
         reason = "No cost data"
+        level = "none"
+    elif roi_pct < 10:
+        pts = 15
+        reason = f"{roi_label} — bottom 10% ({_pct_label(roi_pct)})"
+        level = "high"
+    elif roi_pct < 25:
+        pts = 12
+        reason = f"{roi_label} — bottom 25% ({_pct_label(roi_pct)})"
+        level = "high"
+    elif roi_pct < 50:
+        pts = 8
+        reason = f"{roi_label} — below median ({_pct_label(roi_pct)})"
+        level = "moderate"
+    elif roi_pct < 75:
+        pts = 3
+        reason = f"{roi_label} — above median ({_pct_label(roi_pct)})"
+        level = "low"
+    else:
+        pts = 0
+        reason = f"{roi_label} — top 25% ({_pct_label(roi_pct)})"
         level = "none"
     score += pts
     factors.append({"factor": "roi", "points": pts, "max": 15, "level": level, "reason": reason})
@@ -514,12 +520,19 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
         sorted_prov = sorted(w["provisions"] for _, _, w in items_with_window if w.get("provisions", 0) > 0)
         sorted_touched = sorted(w["touched_amount"] for _, _, w in items_with_window if w.get("touched_amount", 0) > 0)
         sorted_closed = sorted(w["closed_amount"] for _, _, w in items_with_window if w.get("closed_amount", 0) > 0)
+        sorted_roi = sorted(
+            w["closed_amount"] / w["total_cost"]
+            for _, _, w in items_with_window
+            if w.get("total_cost", 0) > 0 and w.get("closed_amount", 0) > 0
+        )
 
         for row, wm, w in items_with_window:
             prov = w.get("provisions", 0)
             touched = w.get("touched_amount", 0)
             closed = w.get("closed_amount", 0)
             cost = w.get("total_cost", 0)
+            has_roi = cost > 0 and closed > 0
+            roi_val = closed / cost if has_roi else 0
             w["avg_cost_per_provision"] = round(cost / prov, 2) if prov > 0 else 0
             score_args = dict(
                 provisions_zero=prov == 0,
@@ -533,6 +546,8 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
                 first_provision=row.get("first_provision") or "",
                 provisions_raw=prov,
                 touched_raw=touched,
+                roi_zero=closed == 0 and cost > 0,
+                roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
             w["retirement_score"] = compute_retirement_score(**score_args)
             w["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
@@ -613,8 +628,17 @@ def _build_windowed_metrics(
         sorted_prov = sorted(e["provisions"] for _, e in entries if e["provisions"] > 0)
         sorted_touched = sorted(e["touched_amount"] for _, e in entries if e["touched_amount"] > 0)
         sorted_closed = sorted(e["closed_amount"] for _, e in entries if e["closed_amount"] > 0)
+        sorted_roi = sorted(
+            e["closed_amount"] / e["total_cost"]
+            for _, e in entries
+            if e["total_cost"] > 0 and e["closed_amount"] > 0
+        )
 
         for name, entry in entries:
+            cost = entry["total_cost"]
+            closed = entry["closed_amount"]
+            has_roi = cost > 0 and closed > 0
+            roi_val = closed / cost if has_roi else 0
             score_args = dict(
                 provisions_zero=entry["provisions"] == 0,
                 provisions_pct=_percentile_rank(entry["provisions"], sorted_prov),
@@ -622,11 +646,13 @@ def _build_windowed_metrics(
                 touched_pct=_percentile_rank(entry["touched_amount"], sorted_touched),
                 closed_zero=entry["closed_amount"] == 0,
                 closed_pct=_percentile_rank(entry["closed_amount"], sorted_closed),
-                total_cost=entry["total_cost"],
-                closed_amount=entry["closed_amount"],
+                total_cost=cost,
+                closed_amount=closed,
                 first_provision=first_provisions.get(name) or "",
                 provisions_raw=entry["provisions"],
                 touched_raw=entry["touched_amount"],
+                roi_zero=closed == 0 and cost > 0,
+                roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
             entry["retirement_score"] = compute_retirement_score(**score_args)
             entry["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
@@ -774,8 +800,17 @@ def run_reporting_sync(db, settings) -> dict:
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
+    sorted_roi = sorted(
+        r["closed_amount"] / r["total_cost"]
+        for r in merged_rows
+        if r["total_cost"] > 0 and r["closed_amount"] > 0
+    )
 
     for row in merged_rows:
+        cost = row["total_cost"]
+        closed = row["closed_amount"]
+        has_roi = cost > 0 and closed > 0
+        roi_val = closed / cost if has_roi else 0
         row["retirement_score"] = compute_retirement_score(
             provisions_zero=row["provisions"] == 0,
             provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
@@ -783,9 +818,11 @@ def run_reporting_sync(db, settings) -> dict:
             touched_pct=_percentile_rank(row["touched_amount"], sorted_touched),
             closed_zero=row["closed_amount"] == 0,
             closed_pct=_percentile_rank(row["closed_amount"], sorted_closed),
-            total_cost=row["total_cost"],
-            closed_amount=row["closed_amount"],
+            total_cost=cost,
+            closed_amount=closed,
             first_provision=row["first_provision"] or "",
+            roi_zero=closed == 0 and cost > 0,
+            roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
         )
 
     upserted = db.upsert_reporting_metrics(merged_rows)

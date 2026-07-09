@@ -47,6 +47,7 @@ class TestRetirementScore:
             touched_zero=False, touched_pct=90,
             closed_zero=False, closed_pct=90,
             total_cost=50000, closed_amount=5_000_000, first_provision="2024-01-01",
+            roi_zero=False, roi_pct=90,
         )
         assert score < 10
 

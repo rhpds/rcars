@@ -3069,6 +3069,8 @@ body {
   color: var(--text-primary);
   margin-bottom: 12px;
   line-height: 1.4;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .ret-score-popover__factors {
