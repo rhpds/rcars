@@ -2290,17 +2290,17 @@ class Database:
     def revoke_user_cli_keys(self, user_email: str) -> int:
         """Revoke all active CLI session keys for a user (role='user' with expiry)."""
         with self.pool.connection() as conn:
-            cur = conn.execute(
+            rows = conn.execute(
                 """UPDATE api_keys SET revoked_at = NOW()
                    WHERE created_by = %s AND role = 'user'
                      AND expires_at IS NOT NULL
                      AND revoked_at IS NULL
-                     AND (expires_at IS NULL OR expires_at > NOW())""",
+                     AND expires_at > NOW()
+                   RETURNING id""",
                 (user_email,),
-            )
-            count = cur.rowcount
+            ).fetchall()
             conn.commit()
-        return count
+        return len(rows)
 
     def prune_expired_api_keys(self, retain_days: int = 30) -> int:
         """Hard-delete API keys that expired or were revoked more than retain_days ago."""
