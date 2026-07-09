@@ -3047,6 +3047,12 @@ body {
 }
 
 /* ── Score Breakdown Popover ── */
+.ret-score-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+}
+
 .ret-score-popover {
   position: absolute;
   top: 100%;
@@ -3054,8 +3060,6 @@ body {
   transform: translateX(-50%);
   z-index: 100;
   width: 360px;
-  max-width: 360px;
-  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border-section);
   border-radius: var(--radius-md);
@@ -3063,6 +3067,9 @@ body {
   padding: 14px;
   font-size: 12px;
   font-family: var(--ff-body);
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
   cursor: default;
   box-sizing: border-box;
 }

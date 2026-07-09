@@ -227,12 +227,6 @@ function StepperStep({
 }
 
 function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdown; onClose: () => void }) {
-  useEffect(() => {
-    const handler = () => onClose()
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
   const factorLabels: Record<string, string> = { usage: 'Usage', pipeline: 'Pipeline', sales: 'Closed Sales', roi: 'Cost Efficiency' }
   const levelColor = (level: string) => {
     if (level === 'critical') return 'var(--score-red)'
@@ -243,7 +237,9 @@ function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdo
   }
 
   return (
-    <div className="ret-score-popover" onMouseDown={e => e.stopPropagation()}>
+    <>
+      <div className="ret-score-backdrop" onClick={e => { e.stopPropagation(); onClose() }} />
+      <div className="ret-score-popover" onClick={e => e.stopPropagation()}>
       <div className="ret-score-popover__summary">{breakdown.summary}</div>
       <div className="ret-score-popover__factors">
         {breakdown.factors.map(f => (
@@ -275,6 +271,7 @@ function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdo
         )}
       </div>
     </div>
+    </>
   )
 }
 
