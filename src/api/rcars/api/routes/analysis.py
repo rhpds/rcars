@@ -126,8 +126,22 @@ async def retirement_dashboard(
         default = "" if sort_by == "display_name" else 0
         items.sort(key=lambda i: (i.get(sort_by) or default), reverse=reverse)
 
+    from datetime import date as _date
+    today = _date.today()
     for item in items:
-        item.pop("windowed_metrics", None)
+        wm = item.pop("windowed_metrics", None) or {}
+        if isinstance(wm, str):
+            wm = _json.loads(wm)
+        w = wm.get(window_key, {})
+        item["score_breakdown"] = w.get("score_breakdown")
+
+        iu = item.get("ignored_until")
+        if iu and isinstance(iu, _date) and iu >= today:
+            item["ignored_until"] = iu.isoformat()
+        elif iu and isinstance(iu, str) and iu >= today.isoformat():
+            pass
+        else:
+            item["ignored_until"] = None
 
     sync_status = db.get_reporting_sync_status()
     return {
@@ -393,6 +407,40 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     result = {"marked_stale": marked, "enqueued": len(scan_items), **dedup_stats, **sha_stats}
     db.complete_job(parent_job_id, result_json=result)
     return {"job_id": parent_job_id, **result}
+
+
+@router.put(
+    "/retirement/ignore/{base_name}",
+    tags=["Retirement"],
+    summary="Ignore item for 30 days",
+    description="Mutes a catalog item from the retirement dashboard for 30 days. Curator-only.",
+)
+async def ignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    from datetime import date, timedelta
+    until = (date.today() + timedelta(days=30)).isoformat()
+    ok = db.set_ignored_until(base_name, until)
+    if not ok:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Item not found: {base_name}")
+    db.log_action(base_name, "retirement_ignored", user, f"Muted until {until}")
+    return {"status": "ok", "ignored_until": until}
+
+
+@router.delete(
+    "/retirement/ignore/{base_name}",
+    tags=["Retirement"],
+    summary="Un-ignore item",
+    description="Removes the mute/ignore from a catalog item. Curator-only.",
+)
+async def unignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    ok = db.clear_ignored(base_name)
+    if not ok:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Item not found: {base_name}")
+    db.log_action(base_name, "retirement_unignored", user, "Unmuted")
+    return {"status": "ok"}
 
 
 @router.post(

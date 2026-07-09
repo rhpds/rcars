@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { api, ReportingMetricsItem } from '../services/api'
-import type { RetirementWorkflow } from '../services/api'
+import type { RetirementWorkflow, ScoreBreakdown } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 
 function safeHref(url: string | null): string {
@@ -14,7 +14,7 @@ type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
 type TimeWindow = '1q' | '2q' | '3q' | '1y'
-type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started'
+type WorkflowFilter = 'all' | 'none' | 'in_process' | 'started' | 'muted'
 
 const fmt = (v: number | string) => {
   const n = typeof v === 'string' ? parseFloat(v) || 0 : v
@@ -226,6 +226,55 @@ function StepperStep({
   )
 }
 
+function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdown; onClose: () => void }) {
+  const factorLabels: Record<string, string> = { usage: 'Usage', pipeline: 'Pipeline', sales: 'Closed Sales', roi: 'Cost Efficiency' }
+  const levelColor = (level: string) => {
+    if (level === 'critical') return 'var(--score-red)'
+    if (level === 'high') return 'var(--score-red)'
+    if (level === 'moderate') return 'var(--score-amber)'
+    if (level === 'low') return 'var(--text-muted)'
+    return 'var(--score-green)'
+  }
+
+  return (
+    <>
+      <div className="ret-score-backdrop" onClick={e => { e.stopPropagation(); onClose() }} />
+      <div className="ret-score-popover" onClick={e => e.stopPropagation()}>
+      <div className="ret-score-popover__summary">{breakdown.summary}</div>
+      <div className="ret-score-popover__factors">
+        {breakdown.factors.map(f => (
+          <div key={f.factor} className="ret-score-popover__factor">
+            <div className="ret-score-popover__factor-header">
+              <span className="ret-score-popover__factor-name">{factorLabels[f.factor] || f.factor}</span>
+              <span className="ret-score-popover__factor-pts" style={{ color: levelColor(f.level) }}>
+                +{f.points}/{f.max}
+              </span>
+            </div>
+            <div className="ret-score-popover__factor-bar">
+              <div className="ret-score-popover__factor-fill" style={{
+                width: `${(f.points / f.max) * 100}%`,
+                background: levelColor(f.level),
+              }} />
+            </div>
+            <div className="ret-score-popover__factor-reason">{f.reason}</div>
+          </div>
+        ))}
+        {breakdown.age_discount !== 0 && (
+          <div className="ret-score-popover__factor">
+            <div className="ret-score-popover__factor-header">
+              <span className="ret-score-popover__factor-name">Age Discount</span>
+              <span className="ret-score-popover__factor-pts" style={{ color: 'var(--score-green)' }}>
+                {breakdown.age_discount}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+    </>
+  )
+}
+
 export function RetirementPage() {
   const { isAdmin } = useAuth()
   const [tab, setTab] = useState<RetirementTab>('prod')
@@ -253,6 +302,27 @@ export function RetirementPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
+  const [scorePopover, setScorePopover] = useState<string | null>(null)
+
+  const handleIgnore = async (baseName: string) => {
+    try {
+      const { ignored_until } = await api.ignoreRetirementItem(baseName)
+      setItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until } : i))
+      setAllItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until } : i))
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Mute failed')
+    }
+  }
+
+  const handleUnignore = async (baseName: string) => {
+    try {
+      await api.unignoreRetirementItem(baseName)
+      setItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until: null } : i))
+      setAllItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until: null } : i))
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Unmute failed')
+    }
+  }
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -444,22 +514,29 @@ RHDP Content Team`
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
     : 'never'
 
-  const totalCost = allItems.reduce((s, i) => s + i.total_cost, 0)
-  const totalClosed = allItems.reduce((s, i) => s + i.closed_amount, 0)
-  const totalTouched = allItems.reduce((s, i) => s + i.touched_amount, 0)
-  const prodHigh = allItems.filter(i => i.retirement_score >= 55).length
-  const prodReview = allItems.filter(i => i.retirement_score >= 35 && i.retirement_score < 55).length
-  const prodKeepers = allItems.filter(i => i.retirement_score < 35).length
+  const isIgnored = (i: ReportingMetricsItem) => !!i.ignored_until
+  const activeItems = allItems.filter(i => !isIgnored(i))
+  const ignoredCount = allItems.filter(isIgnored).length
+  const visibleItems = workflowFilter === 'muted'
+    ? items.filter(isIgnored)
+    : items.filter(i => !isIgnored(i))
 
-  const noProdOld = allItems.filter(i => {
+  const totalCost = activeItems.reduce((s, i) => s + i.total_cost, 0)
+  const totalClosed = activeItems.reduce((s, i) => s + i.closed_amount, 0)
+  const totalTouched = activeItems.reduce((s, i) => s + i.touched_amount, 0)
+  const prodHigh = activeItems.filter(i => i.retirement_score >= 55).length
+  const prodReview = activeItems.filter(i => i.retirement_score >= 35 && i.retirement_score < 55).length
+  const prodKeepers = activeItems.filter(i => i.retirement_score < 35).length
+
+  const noProdOld = activeItems.filter(i => {
     const d = ageDays(i.first_provision)
     return d !== null && d > 365
   }).length
-  const noProdMed = allItems.filter(i => {
+  const noProdMed = activeItems.filter(i => {
     const d = ageDays(i.first_provision)
     return d !== null && d > 180 && d <= 365
   }).length
-  const noProdNew = allItems.length - noProdOld - noProdMed
+  const noProdNew = activeItems.length - noProdOld - noProdMed
 
   const wf = drawerWorkflow
   const isApproved = !!wf?.step_approved_at
@@ -506,7 +583,7 @@ RHDP Content Team`
             <div className="ca-stats-grid">
               <div className="ret-stat-card ret-stat-card--blue">
                 <div className="ret-stat-label">Total Assets</div>
-                <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+                <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
               </div>
               <div className="ret-stat-card ret-stat-card--red">
                 <div className="ret-stat-label">High Retirement</div>
@@ -562,7 +639,7 @@ RHDP Content Team`
 
             <span className="ret-filter-label">Status</span>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started']] as [WorkflowFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['muted', `Muted${ignoredCount > 0 ? ` (${ignoredCount})` : ''}`]] as [WorkflowFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setWorkflowFilter(f)}
                   className={`ret-filter-group__btn${workflowFilter === f ? ' active' : ''}`}>
                   {label}
@@ -581,7 +658,7 @@ RHDP Content Team`
             <p className="ca-color-muted">Loading...</p>
           ) : (
             <>
-              <div className="ca-row-count">{items.length} of {allItems.length} assets</div>
+              <div className="ca-row-count">{visibleItems.length} of {activeItems.length} assets</div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
@@ -597,19 +674,29 @@ RHDP Content Team`
                     </tr>
                   </thead>
                   <tbody>
-                    {items.map(item => {
+                    {visibleItems.map(item => {
                       const isExpanded = expanded.has(item.catalog_base_name)
+                      const muted = isIgnored(item)
                       return (
                         <Fragment key={item.catalog_base_name}>
-                          <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}>
+                          <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}
+                            style={muted ? { opacity: 0.45 } : undefined}>
                             <td className="name" title={item.display_name}>
-                              <div>{item.display_name}{item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}</div>
+                              <div>
+                                {item.display_name}
+                                {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
+                                {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
+                              </div>
                               <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>{item.catalog_base_name}</div>
                             </td>
-                            <td className="num">
-                              <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score) }}>
+                            <td className="num" style={{ position: 'relative' }}>
+                              <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score), cursor: 'pointer' }}
+                                onClick={(e) => { e.stopPropagation(); setScorePopover(scorePopover === item.catalog_base_name ? null : item.catalog_base_name) }}>
                                 {item.retirement_score}
                               </span>
+                              {scorePopover === item.catalog_base_name && item.score_breakdown && (
+                                <ScoreBreakdownPopover breakdown={item.score_breakdown} onClose={() => setScorePopover(null)} />
+                              )}
                             </td>
                             <td className="num">{item.provisions.toLocaleString()}</td>
                             <td className="num">{fmt(item.touched_amount)}</td>
@@ -674,7 +761,17 @@ RHDP Content Team`
                                     <span className="ca-detail-label">Category</span>
                                     <span className="ca-detail-value">{item.category || '—'}</span>
                                   </div>
-                                  <div className="ca-detail-item" style={{ marginLeft: 'auto' }}>
+                                  <div className="ca-detail-item" style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                                    {muted ? (
+                                      <button className="ret-action-btn" onClick={(e) => { e.stopPropagation(); handleUnignore(item.catalog_base_name) }}>
+                                        Unmute
+                                      </button>
+                                    ) : (
+                                      <button className="ret-action-btn" onClick={(e) => { e.stopPropagation(); handleIgnore(item.catalog_base_name) }}
+                                        title="Mute this item for 30 days — removes it from counts and filters">
+                                        Mute 30d
+                                      </button>
+                                    )}
                                     <button className="ret-action-btn ret-action-btn--primary" onClick={(e) => { e.stopPropagation(); openDrawer(item) }}>
                                       Retirement Workflow
                                     </button>
@@ -697,7 +794,7 @@ RHDP Content Team`
           <div className="ca-stats-grid">
             <div className="ret-stat-card ret-stat-card--blue">
               <div className="ret-stat-label">Without Prod</div>
-              <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+              <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
             </div>
             <div className="ret-stat-card ret-stat-card--red">
               <div className="ret-stat-label">&gt; 1 Year</div>

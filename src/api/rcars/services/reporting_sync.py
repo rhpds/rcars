@@ -49,6 +49,7 @@ def compute_retirement_score(
     total_cost: float,
     closed_amount: float,
     first_provision: str,
+    **kwargs,
 ) -> int:
     """Compute retirement score 0-100 using percentile ranks.
 
@@ -56,44 +57,168 @@ def compute_retirement_score(
     ranks among non-zero peers only; the _zero flags handle the zero
     case separately. Max achievable ~80.
     """
+    _, score = _compute_retirement_score_with_breakdown(
+        provisions_zero, provisions_pct,
+        touched_zero, touched_pct,
+        closed_zero, closed_pct,
+        total_cost, closed_amount, first_provision,
+        **kwargs,
+    )
+    return score
+
+
+def compute_retirement_score_breakdown(
+    provisions_zero: bool,
+    provisions_pct: float,
+    touched_zero: bool,
+    touched_pct: float,
+    closed_zero: bool,
+    closed_pct: float,
+    total_cost: float,
+    closed_amount: float,
+    first_provision: str,
+    **kwargs,
+) -> dict:
+    """Return the full score breakdown dict (factors + explanation)."""
+    breakdown, _ = _compute_retirement_score_with_breakdown(
+        provisions_zero, provisions_pct,
+        touched_zero, touched_pct,
+        closed_zero, closed_pct,
+        total_cost, closed_amount, first_provision,
+        **kwargs,
+    )
+    return breakdown
+
+
+def _compute_retirement_score_with_breakdown(
+    provisions_zero: bool,
+    provisions_pct: float,
+    touched_zero: bool,
+    touched_pct: float,
+    closed_zero: bool,
+    closed_pct: float,
+    total_cost: float,
+    closed_amount: float,
+    first_provision: str,
+    provisions_raw: int = 0,
+    touched_raw: float = 0,
+    roi_zero: bool = False,
+    roi_pct: float = 0,
+) -> tuple[dict, int]:
+    """Internal: compute score and return (breakdown_dict, final_score)."""
     score = 0
+    factors = []
 
+    def _fmt_dollars(v: float) -> str:
+        if v >= 1_000_000:
+            return f"${v / 1_000_000:.1f}M"
+        if v >= 1_000:
+            return f"${v / 1_000:.1f}K"
+        return f"${v:.0f}"
+
+    def _pct_label(pct: float) -> str:
+        return f"percentile {int(pct)} of items with activity"
+
+    # --- Provisions (max 25) ---
     if provisions_zero:
-        score += 25
+        pts = 25
+        reason = "Zero provisions in this window — nobody ordered it"
+        level = "critical"
     elif provisions_pct < 10:
-        score += 22
+        pts = 22
+        reason = f"{provisions_raw} provisions — bottom 10% ({_pct_label(provisions_pct)})"
+        level = "high"
     elif provisions_pct < 25:
-        score += 18
+        pts = 18
+        reason = f"{provisions_raw} provisions — bottom 25% ({_pct_label(provisions_pct)})"
+        level = "high"
     elif provisions_pct < 50:
-        score += 10
+        pts = 10
+        reason = f"{provisions_raw} provisions — below median ({_pct_label(provisions_pct)})"
+        level = "moderate"
     elif provisions_pct < 75:
-        score += 3
+        pts = 3
+        reason = f"{provisions_raw} provisions — above median ({_pct_label(provisions_pct)})"
+        level = "low"
+    else:
+        pts = 0
+        reason = f"{provisions_raw} provisions — top 25% ({_pct_label(provisions_pct)})"
+        level = "none"
+    score += pts
+    factors.append({"factor": "usage", "points": pts, "max": 25, "level": level, "reason": reason})
 
+    # --- Pipeline Touched (max 15) ---
     if touched_zero:
-        score += 15
+        pts = 15
+        reason = "$0 pipeline influenced — no linked opportunities"
+        level = "critical"
     elif touched_pct < 50:
-        score += 10
+        pts = 10
+        reason = f"{_fmt_dollars(touched_raw)} pipeline — below median ({_pct_label(touched_pct)})"
+        level = "moderate"
     elif touched_pct < 75:
-        score += 4
+        pts = 4
+        reason = f"{_fmt_dollars(touched_raw)} pipeline — above median ({_pct_label(touched_pct)})"
+        level = "low"
+    else:
+        pts = 0
+        reason = f"{_fmt_dollars(touched_raw)} pipeline — top 25% ({_pct_label(touched_pct)})"
+        level = "none"
+    score += pts
+    factors.append({"factor": "pipeline", "points": pts, "max": 15, "level": level, "reason": reason})
 
+    # --- Closed Sales (max 25) ---
     if closed_zero:
-        score += 25
+        pts = 25
+        reason = "$0 closed — no deals won from demos of this item"
+        level = "critical"
     elif closed_pct < 50:
-        score += 15
+        pts = 15
+        reason = f"{_fmt_dollars(closed_amount)} closed — below median ({_pct_label(closed_pct)})"
+        level = "moderate"
     elif closed_pct < 75:
-        score += 5
+        pts = 5
+        reason = f"{_fmt_dollars(closed_amount)} closed — above median ({_pct_label(closed_pct)})"
+        level = "low"
+    else:
+        pts = 0
+        reason = f"{_fmt_dollars(closed_amount)} closed — top 25% ({_pct_label(closed_pct)})"
+        level = "none"
+    score += pts
+    factors.append({"factor": "sales", "points": pts, "max": 25, "level": level, "reason": reason})
 
-    if total_cost > 0 and closed_amount > 0:
-        roi = closed_amount / total_cost
-        if roi < 10:
-            score += 15
-        elif roi < 50:
-            score += 5
-    elif closed_amount == 0 and total_cost > 5000:
-        score += 15
-    elif closed_amount == 0 and total_cost > 0:
-        score += 10
+    # --- Cost Efficiency (max 15) — continuous percentile-scaled ---
+    roi_val = (closed_amount / total_cost) if total_cost > 0 and closed_amount > 0 else 0
+    roi_label = f"{roi_val:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost)"
+    if roi_zero:
+        pts = 15
+        reason = f"{_fmt_dollars(total_cost)} spent with $0 closed — no return on investment"
+        level = "critical"
+    elif total_cost == 0:
+        pts = 0
+        reason = "No cost data"
+        level = "none"
+    else:
+        pts = round(15 * (1 - roi_pct / 100))
+        if roi_pct < 25:
+            level = "high"
+            band = f"bottom 25% ({_pct_label(roi_pct)})"
+        elif roi_pct < 50:
+            level = "moderate"
+            band = f"below median ({_pct_label(roi_pct)})"
+        elif roi_pct < 75:
+            level = "low"
+            band = f"above median ({_pct_label(roi_pct)})"
+        else:
+            level = "none"
+            band = f"top 25% ({_pct_label(roi_pct)})"
+        reason = f"{roi_label} — {band}"
+    score += pts
+    factors.append({"factor": "roi", "points": pts, "max": 15, "level": level, "reason": reason})
 
+    # --- Age discount ---
+    age_discount = 0
+    age_reason = None
     if first_provision:
         try:
             from datetime import date
@@ -103,13 +228,49 @@ def compute_retirement_score(
                 first_date = datetime.strptime(str(first_provision), "%Y-%m-%d")
             age_days = (datetime.now() - first_date).days
             if age_days <= 90:
-                score = max(0, score - 30)
+                age_discount = -30
+                age_reason = f"New item ({age_days} days old) — score reduced by 30"
             elif age_days <= 180:
-                score = max(0, score - 10)
+                age_discount = -10
+                age_reason = f"Relatively new ({age_days} days old) — score reduced by 10"
         except (ValueError, TypeError):
             pass
 
-    return min(score, 100)
+    if age_discount:
+        score = max(0, score + age_discount)
+
+    final = min(score, 100)
+
+    # Build summary sentence
+    concern_names = {"usage": "low usage", "pipeline": "weak pipeline", "sales": "low sales", "roi": "poor ROI"}
+    mid_names = {"usage": "moderate usage", "pipeline": "moderate pipeline", "sales": "moderate sales", "roi": "moderate ROI"}
+    good_names = {"usage": "strong usage", "pipeline": "strong pipeline", "sales": "strong sales", "roi": "good ROI"}
+
+    high_factors = [f for f in factors if f["level"] in ("critical", "high")]
+    mid_factors = [f for f in factors if f["level"] in ("moderate", "low")]
+    ok_factors = [f for f in factors if f["level"] == "none"]
+
+    parts = []
+    if high_factors:
+        parts.append(", ".join(concern_names.get(f["factor"], f["factor"]) for f in high_factors))
+    if mid_factors and not high_factors:
+        parts.append(", ".join(mid_names.get(f["factor"], f["factor"]) for f in mid_factors))
+    if ok_factors:
+        label = ", ".join(good_names.get(f["factor"], f["factor"]) for f in ok_factors)
+        parts.append(f"offset by {label}" if high_factors or mid_factors else label)
+
+    summary = ". ".join(p.capitalize() if i == 0 else p for i, p in enumerate(parts)) if parts else "Neutral across all factors"
+    if age_reason:
+        summary += f". {age_reason}"
+    summary += "."
+
+    breakdown = {
+        "score": final,
+        "factors": factors,
+        "age_discount": age_discount,
+        "summary": summary,
+    }
+    return breakdown, final
 
 
 def compute_sales_impact(closed_amount: float) -> str:
@@ -326,7 +487,7 @@ def _merge_published_base_pairs(
             if wk in base_wm:
                 pub_w = pub_wm.setdefault(wk, {})
                 for metric, value in base_wm[wk].items():
-                    if metric in ("retirement_score", "sales_impact", "avg_cost_per_provision", "success_ratio", "failure_ratio"):
+                    if metric in ("retirement_score", "sales_impact", "avg_cost_per_provision", "success_ratio", "failure_ratio", "score_breakdown"):
                         continue
                     pub_w[metric] = pub_w.get(metric, 0) + value
         pub_row["windowed_metrics"] = json.dumps(pub_wm)
@@ -359,14 +520,21 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
         sorted_prov = sorted(w["provisions"] for _, _, w in items_with_window if w.get("provisions", 0) > 0)
         sorted_touched = sorted(w["touched_amount"] for _, _, w in items_with_window if w.get("touched_amount", 0) > 0)
         sorted_closed = sorted(w["closed_amount"] for _, _, w in items_with_window if w.get("closed_amount", 0) > 0)
+        sorted_roi = sorted(
+            w["closed_amount"] / w["total_cost"]
+            for _, _, w in items_with_window
+            if w.get("total_cost", 0) > 0 and w.get("closed_amount", 0) > 0
+        )
 
         for row, wm, w in items_with_window:
             prov = w.get("provisions", 0)
             touched = w.get("touched_amount", 0)
             closed = w.get("closed_amount", 0)
             cost = w.get("total_cost", 0)
+            has_roi = cost > 0 and closed > 0
+            roi_val = closed / cost if has_roi else 0
             w["avg_cost_per_provision"] = round(cost / prov, 2) if prov > 0 else 0
-            w["retirement_score"] = compute_retirement_score(
+            score_args = dict(
                 provisions_zero=prov == 0,
                 provisions_pct=_percentile_rank(prov, sorted_prov),
                 touched_zero=touched == 0,
@@ -376,7 +544,13 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
                 total_cost=cost,
                 closed_amount=closed,
                 first_provision=row.get("first_provision") or "",
+                provisions_raw=prov,
+                touched_raw=touched,
+                roi_zero=closed == 0 and cost > 0,
+                roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
+            w["retirement_score"] = compute_retirement_score(**score_args)
+            w["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
             w["sales_impact"] = compute_sales_impact(closed)
             wm[wk] = w
             row["windowed_metrics"] = json.dumps(wm)
@@ -454,19 +628,34 @@ def _build_windowed_metrics(
         sorted_prov = sorted(e["provisions"] for _, e in entries if e["provisions"] > 0)
         sorted_touched = sorted(e["touched_amount"] for _, e in entries if e["touched_amount"] > 0)
         sorted_closed = sorted(e["closed_amount"] for _, e in entries if e["closed_amount"] > 0)
+        sorted_roi = sorted(
+            e["closed_amount"] / e["total_cost"]
+            for _, e in entries
+            if e["total_cost"] > 0 and e["closed_amount"] > 0
+        )
 
         for name, entry in entries:
-            entry["retirement_score"] = compute_retirement_score(
+            cost = entry["total_cost"]
+            closed = entry["closed_amount"]
+            has_roi = cost > 0 and closed > 0
+            roi_val = closed / cost if has_roi else 0
+            score_args = dict(
                 provisions_zero=entry["provisions"] == 0,
                 provisions_pct=_percentile_rank(entry["provisions"], sorted_prov),
                 touched_zero=entry["touched_amount"] == 0,
                 touched_pct=_percentile_rank(entry["touched_amount"], sorted_touched),
                 closed_zero=entry["closed_amount"] == 0,
                 closed_pct=_percentile_rank(entry["closed_amount"], sorted_closed),
-                total_cost=entry["total_cost"],
-                closed_amount=entry["closed_amount"],
+                total_cost=cost,
+                closed_amount=closed,
                 first_provision=first_provisions.get(name) or "",
+                provisions_raw=entry["provisions"],
+                touched_raw=entry["touched_amount"],
+                roi_zero=closed == 0 and cost > 0,
+                roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
+            entry["retirement_score"] = compute_retirement_score(**score_args)
+            entry["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
             entry["sales_impact"] = compute_sales_impact(entry["closed_amount"])
             per_item.setdefault(name, {})[wk] = entry
 
@@ -611,8 +800,17 @@ def run_reporting_sync(db, settings) -> dict:
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
+    sorted_roi = sorted(
+        r["closed_amount"] / r["total_cost"]
+        for r in merged_rows
+        if r["total_cost"] > 0 and r["closed_amount"] > 0
+    )
 
     for row in merged_rows:
+        cost = row["total_cost"]
+        closed = row["closed_amount"]
+        has_roi = cost > 0 and closed > 0
+        roi_val = closed / cost if has_roi else 0
         row["retirement_score"] = compute_retirement_score(
             provisions_zero=row["provisions"] == 0,
             provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
@@ -620,9 +818,11 @@ def run_reporting_sync(db, settings) -> dict:
             touched_pct=_percentile_rank(row["touched_amount"], sorted_touched),
             closed_zero=row["closed_amount"] == 0,
             closed_pct=_percentile_rank(row["closed_amount"], sorted_closed),
-            total_cost=row["total_cost"],
-            closed_amount=row["closed_amount"],
+            total_cost=cost,
+            closed_amount=closed,
             first_provision=row["first_provision"] or "",
+            roi_zero=closed == 0 and cost > 0,
+            roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
         )
 
     upserted = db.upsert_reporting_metrics(merged_rows)

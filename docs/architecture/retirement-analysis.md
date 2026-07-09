@@ -96,7 +96,7 @@ RCARS joins reporting data to its catalog using `catalog_items.name` in the repo
 
 ### Storage
 
-Merged data is stored in the `reporting_metrics` table (one row per catalog base name) with an `ON CONFLICT ... DO UPDATE` upsert. The `quarterly_data` JSONB column stores per-quarter breakdowns (e.g., `{"2026-Q2": {"provisions": 27, "touched": 150000, "closed": 80000, "cost": 5000}}`). After upsert, orphan cleanup removes items not in the current sync batch AND items no longer in the local `catalog_items` table.
+Merged data is stored in the `reporting_metrics` table (one row per catalog base name) with an `ON CONFLICT ... DO UPDATE` upsert. The `windowed_metrics` JSONB column stores pre-computed metrics for each time window (3m, 6m, 9m, 12m), including the `score_breakdown` dict with per-factor points, levels, and reasons. The `ignored_until` DATE column tracks muted items. After upsert, orphan cleanup removes items not in the current sync batch AND items no longer in the local `catalog_items` table.
 
 ---
 
@@ -110,10 +110,10 @@ The theoretical maximum score is approximately **80 points** across the four sco
 
 | Component | Max Points | Method |
 |---|---|---|
-| **Usage** | 25 | Zero provisions gets max; non-zero ranked by percentile among non-zero peers |
-| **Pipeline** | 15 | Touched amount — zero gets max points; non-zero ranked by percentile |
-| **Revenue** | 25 | Closed amount — zero gets max points; non-zero ranked by percentile |
-| **Cost efficiency** | 15 | ROI (closed ÷ cost) — poor ROI, or any cost with zero revenue |
+| **Usage** | 25 | Zero provisions gets max; non-zero ranked by percentile among non-zero peers (fixed tiers: 0, 3, 10, 18, 22, 25) |
+| **Pipeline** | 15 | Touched amount — zero gets max points; non-zero ranked by percentile (fixed tiers: 0, 4, 10, 15) |
+| **Revenue** | 25 | Closed amount — zero gets max points; non-zero ranked by percentile (fixed tiers: 0, 5, 15, 25) |
+| **Cost efficiency** | 15 | Continuous percentile-scaled ROI: `round(15 × (1 - percentile/100))`. Produces smooth 0–15 values. Zero revenue with any cost always gets max 15. |
 | **Age discount** | -30 | Items less than 90 days old get a score reduction (-30); items 90-180 days old get -10 |
 
 ### Percentile Breakdown
@@ -133,15 +133,19 @@ The bottom percentile brackets are compressed toward the zero-value score to avo
 
 ### Cost Efficiency Scoring
 
-Cost efficiency uses ROI when both cost and revenue are non-zero, and a penalty for any cost with zero revenue:
+Cost efficiency uses **continuous percentile-scaled scoring** rather than fixed ROI thresholds. This produces a smooth distribution of 0–15 points across all items with ROI data, instead of clustering items into a few coarse buckets.
 
-| Condition | Points |
-|---|---|
-| Cost > $0, revenue > $0, ROI < 10x | 15 |
-| Cost > $0, revenue > $0, ROI 10–50x | 5 |
-| Revenue = $0, cost > $5,000 | 15 |
-| Revenue = $0, cost > $0 | 10 |
-| Revenue = $0, cost = $0 | 0 |
+For items with both cost and closed revenue, ROI is computed as `closed_amount / total_cost`, then ranked against all other items that also have ROI. The formula is `points = round(15 × (1 - percentile / 100))`:
+
+| Percentile | Points | Meaning |
+|---|---|---|
+| p90 (top 10%) | 2 | Strong return — among the best ROI in the catalog |
+| p75 (top 25%) | 4 | Good return |
+| p50 (median) | 8 | Average return |
+| p25 (bottom 25%) | 11 | Below-average return |
+| p10 (bottom 10%) | 14 | Poor return — among the worst ROI |
+
+Items with zero closed revenue but non-zero cost always receive the maximum 15 points — spending money with no closed deals is the strongest retirement signal in this dimension. Items with no cost data receive 0 points.
 
 ### Dashboard Thresholds
 
@@ -162,9 +166,9 @@ To illustrate how percentile scoring works in practice, here are three hypotheti
 | Provisions | 6,106 | p95 (top 5%) | 0 |
 | Touched | $1.28B | p99 | 0 |
 | Closed | $104M | p98 | 0 |
-| Cost | $686K, ROI = 151x | ROI ≥ 50 | 0 |
+| Cost | $686K, ROI = 151x | p92 (top 10%) | 1 |
 
-**Score: 0** — this item is in the top percentile on every dimension. It drives massive revenue relative to its cost. Clear keeper.
+**Score: 1** — this item is in the top percentile on every dimension. It drives massive revenue relative to its cost. Clear keeper.
 
 **Example 2: "Day in the Life Camel"** — a niche demo with low usage
 
@@ -173,7 +177,7 @@ To illustrate how percentile scoring works in practice, here are three hypotheti
 | Provisions | 53 | p18 (bottom 20%) | 18 |
 | Touched | $604K | p58 (non-zero) | 4 |
 | Closed | $0 | zero | 25 |
-| Cost | $5.8K, zero closed | cost > $5K, no revenue | 15 |
+| Cost | $5.8K, zero closed | zero revenue, has cost | 15 |
 
 **Score: 62** — low provisions, zero closed revenue, and costs $5.8K/year with no return. The touched amount keeps it out of the highest tier (someone is at least linking it to opportunities), but it's a strong retirement candidate.
 
@@ -184,7 +188,7 @@ To illustrate how percentile scoring works in practice, here are three hypotheti
 | Provisions | 280 | p42 | 10 |
 | Touched | $0 | zero | 15 |
 | Closed | $0 | zero | 25 |
-| Cost | $12K, zero closed | cost > $5K, no revenue | 15 |
+| Cost | $12K, zero closed | zero revenue, has cost | 15 |
 | Age | 120 days | ≤ 180 days | -10 |
 
 **Score: 55** (65 before age discount) — zero sales data looks bad, but the item is only 4 months old. The age discount reduces the score by 10 points, keeping it at the border of "high retirement" while it has time to build a track record. Without the discount, it would score 65 and show up as a strong candidate prematurely.
@@ -257,11 +261,14 @@ The total asset count stays constant across all windows — all current catalog 
 
 Shows scored items that have a production deployment. This is the primary triage tool.
 
-- **Stat cards** — total assets, high retirement (score ≥55), review (35-54), keepers (<35), total cost, total closed, total touched
-- **Filter pills** — All, High ≥55, Review 35-54, Keepers <35
+- **Stat cards** — total assets, high retirement (score ≥55), review (35-54), keepers (<35), total cost, total closed, total touched. Muted items are excluded from all counts.
+- **Score filter** — All, High ≥55, Review 35-54, Keepers <35
+- **Status filter** — All, No Action, In Process, Started, Muted. The "Muted" filter shows only muted items; all other filters exclude them.
 - **Search** — filter by display name
 - **Sortable table** — name, score, provisions, touched, T-ROI, closed, C-ROI, cost
-- **Expandable rows** — environments (with links to Browse for items with Showroom content, or to demo.redhat.com catalog for items without), unique users, experiences, cost/provision, success/failure ratio, first/last provision, category
+- **Score breakdown popover** — clicking a score badge opens a popover explaining why the score is what it is. Shows a one-line summary (e.g., "Weak pipeline, low sales, offset by strong usage"), then per-factor breakdowns with points, progress bars, and plain-English reasons including actual values and percentile rankings (e.g., "28 provisions — below median (percentile 28 of items with activity)"). Click anywhere outside or on the badge again to dismiss.
+- **Expandable rows** — environments (with links to Browse for items with Showroom content, or to demo.redhat.com catalog for items without), unique users, experiences, cost/provision, success/failure ratio, first/last provision, category, and action buttons
+- **Mute button** — "Mute 30d" in the expanded row marks an item as ignored for 30 days. Muted items appear at reduced opacity with a "muted" badge when viewing via the Muted status filter. Click "Unmute" to remove the mute early. Useful for infrastructure items (e.g., shared pool clusters) whose usage is reflected in other items.
 - Items without Showroom content in RCARS show a gray "catalog" badge instead of colored stage badges
 
 ### Without Prod Tab
@@ -358,7 +365,11 @@ All workflow actions are logged in the `analysis_log` table: `retirement_approve
 ## API
 
 ### Dashboard
-- `GET /analysis/retirement` — retirement dashboard with filtering, sorting, search, owner data
+- `GET /analysis/retirement` — retirement dashboard with filtering, sorting, search, owner data. Response includes `score_breakdown` (per-factor points, levels, reasons, summary) and `ignored_until` for each item.
+
+### Mute/Ignore
+- `PUT /analysis/retirement/ignore/{base_name}` — mute item for 30 days (curator)
+- `DELETE /analysis/retirement/ignore/{base_name}` — unmute item (curator)
 
 ### Workflow
 - `GET /analysis/retirement/workflow/{base_name}` — get workflow state

@@ -272,7 +272,8 @@ CREATE TABLE IF NOT EXISTS reporting_metrics (
     last_provision     DATE,
     retirement_score   INTEGER NOT NULL DEFAULT 0,
     synced_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    windowed_metrics   JSONB DEFAULT '{}'::jsonb
+    windowed_metrics   JSONB DEFAULT '{}'::jsonb,
+    ignored_until      DATE
 );
 CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
     ON reporting_metrics (retirement_score DESC);
@@ -1878,6 +1879,30 @@ class Database:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, (catalog_base_name,))
                 return cur.fetchone()
+
+    def set_ignored_until(self, catalog_base_name: str, until_date: str) -> bool:
+        """Mark a catalog item as ignored until the given date (YYYY-MM-DD)."""
+        sql = """
+            UPDATE reporting_metrics SET ignored_until = %s
+            WHERE catalog_base_name = %s
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (until_date, catalog_base_name))
+                conn.commit()
+                return cur.rowcount > 0
+
+    def clear_ignored(self, catalog_base_name: str) -> bool:
+        """Remove the ignored status from a catalog item."""
+        sql = """
+            UPDATE reporting_metrics SET ignored_until = NULL
+            WHERE catalog_base_name = %s
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (catalog_base_name,))
+                conn.commit()
+                return cur.rowcount > 0
 
     def list_reporting_metrics(
         self,

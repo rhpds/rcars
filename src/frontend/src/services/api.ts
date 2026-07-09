@@ -254,6 +254,12 @@ export const api = {
   cancelRetirementWorkflow: (baseName: string) =>
     request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
+  ignoreRetirementItem: (baseName: string) =>
+    request<{ status: string; ignored_until: string }>(`/analysis/retirement/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
+
+  unignoreRetirementItem: (baseName: string) =>
+    request<{ status: string }>(`/analysis/retirement/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
 
@@ -295,6 +301,21 @@ export interface RetirementWorkflow {
   updated_at: string
 }
 
+export interface ScoreBreakdownFactor {
+  factor: string
+  points: number
+  max: number
+  level: string
+  reason: string
+}
+
+export interface ScoreBreakdown {
+  score: number
+  factors: ScoreBreakdownFactor[]
+  age_discount: number
+  summary: string
+}
+
 export interface ReportingMetricsItem {
   catalog_base_name: string
   display_name: string
@@ -324,6 +345,8 @@ export interface ReportingMetricsItem {
   workflow_status?: string | null
   jira_key?: string | null
   retirement_target_date?: string | null
+  score_breakdown?: ScoreBreakdown | null
+  ignored_until?: string | null
 }
 
 export interface RetirementDashboardResponse {
