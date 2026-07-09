@@ -198,11 +198,16 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
     if not user_email:
         raise HTTPException(status_code=401, detail="Could not determine user identity")
 
+    # Revoke any existing CLI session keys for this user (one active key per user)
+    db = request.app.state.db
+    revoked = db.revoke_user_cli_keys(user_email)
+    if revoked:
+        logger.info("revoked_existing_cli_keys", user=user_email, revoked_count=revoked)
+
     # Create 24h API key
     raw_key, key_hash, key_prefix = _generate_api_key()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
-    db = request.app.state.db
     db.create_api_key(
         key_hash=key_hash,
         key_prefix=key_prefix,

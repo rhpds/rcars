@@ -394,6 +394,16 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     except Exception as exc:
         log.warning("pipeline_jobs_prune_failed", action="pipeline_step_failed", step="prune_jobs", error=str(exc))
 
+    # Prune expired/revoked API keys older than 30 days
+    try:
+        pruned_keys = wctx.db.prune_expired_api_keys(retain_days=30)
+        if pruned_keys:
+            log.info("pipeline_api_keys_pruned", action="pipeline_step_complete",
+                     step="prune_api_keys", pruned=pruned_keys)
+    except Exception as exc:
+        log.warning("pipeline_api_keys_prune_failed", action="pipeline_step_failed",
+                    step="prune_api_keys", error=str(exc))
+
     # Complete pipeline
     result = {
         "refresh": refresh_result,

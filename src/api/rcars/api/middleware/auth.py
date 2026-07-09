@@ -20,7 +20,7 @@ _TOKEN_REVIEW_URL = (
 
 # In-memory cache: key_hash → (user_email, role, expires_at_ts, cached_at)
 _api_key_cache: dict[str, tuple[str, str, float | None, float]] = {}
-_CACHE_TTL = 60.0
+_CACHE_TTL = 10.0
 
 
 def _log_auth_decision(

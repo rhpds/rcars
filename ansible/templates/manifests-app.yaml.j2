@@ -342,6 +342,12 @@ spec:
             initialDelaySeconds: 30
             periodSeconds: 60
             timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: {{ worker_cpu_request }}
@@ -463,6 +469,12 @@ spec:
               command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
             initialDelaySeconds: 30
             periodSeconds: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
             timeoutSeconds: 5
           resources:
             requests:
