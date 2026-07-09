@@ -100,7 +100,7 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## Database
 
-16 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-012). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom; soft-deleted via `retired_at` column), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns), `retirement_workflow` (retirement lifecycle tracking — approve/notify/start/retired steps, Jira integration, approval snapshots).
+16 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-014). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom; soft-deleted via `retired_at` column), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns + `ignored_until` for muting), `retirement_workflow` (retirement lifecycle tracking — approve/notify/start/retired steps, Jira integration, approval snapshots).
 
 **Soft-delete:** Items that disappear from Babylon CRDs get `retired_at = NOW()` instead of being deleted. All active-item queries filter on `retired_at IS NULL`. Items that reappear in a future scan are automatically un-retired. Browse page has a curator-only "Show Retired" toggle.
 
@@ -114,7 +114,23 @@ Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `reporting_metrics`
 
 **Catalog completeness:** After importing from the reporting MCP, `get_catalog_base_names()` pulls all unique base names from `catalog_items` (the local catalog — ALL Babylon items). Items in the catalog but missing from reporting data are backfilled with zero values. The orphan cleanup then removes items not in the current sync AND not in the current catalog. Result: Prod tab + Without Prod tab = total unique catalog items.
 
-**Time window:** `quarterly_data` JSONB column stores per-quarter breakdowns. The API's `window` parameter (1q/2q/3q/1y) triggers `compute_windowed_scores()` which sums relevant quarters, recomputes percentile rankings, and rescores. No MCP re-query needed.
+**Time window:** `windowed_metrics` JSONB column stores pre-computed metrics for each window (3m/6m/9m/12m). The API's `window` parameter (1q/2q/3q/1y) overlays the selected window's metrics and score. No MCP re-query needed.
+
+**Scoring formula:** Four factors scored using percentile ranks among non-zero peers, plus an age discount. Higher score = stronger retirement candidate. Max achievable ~80.
+
+| Factor | Max | Method | Points |
+|---|---|---|---|
+| Usage (provisions) | 25 | Percentile buckets | 0, 3, 10, 18, 22, 25 (fixed tiers) |
+| Pipeline (touched) | 15 | Percentile buckets | 0, 4, 10, 15 (fixed tiers) |
+| Closed Sales | 25 | Percentile buckets | 0, 5, 15, 25 (fixed tiers) |
+| Cost Efficiency (ROI) | 15 | Continuous percentile | `round(15 * (1 - pct/100))` — smooth 0-15 |
+| Age discount | -30/-10 | ≤90 days: -30, ≤180 days: -10 | Applied after sum, floor at 0 |
+
+Zero-value items (no provisions, no pipeline, no sales, cost with no sales) always receive maximum points for that factor. The `score_breakdown` dict is stored alongside each score in `windowed_metrics`, containing per-factor points, levels, reasons with actual values and percentile ranks, and a one-line summary sentence.
+
+**Score breakdown popover:** Clicking a score badge in the UI shows a popover with per-factor bars, points (e.g. "+10/25"), and plain-English explanations including raw values and percentile context (e.g. "28 provisions — below median (percentile 28 of items with activity)").
+
+**Mute/ignore:** Curators can mute items for 30 days via "Mute 30d" button in the expanded row. Muted items are excluded from stats and counts. The "Muted" filter in the Status filter group shows only muted items. Stored as `ignored_until DATE` on `reporting_metrics`. API endpoints: `PUT /analysis/retirement/ignore/{base_name}` (sets 30-day mute), `DELETE /analysis/retirement/ignore/{base_name}` (unmutes).
 
 **Scoring thresholds:** High ≥ 55, Review ≥ 35, Keepers < 35 (frontend and CLI).
 
