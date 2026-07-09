@@ -110,7 +110,7 @@ def cmd_login(args):
 
     authorize_url = (
         f"{oauth_server}/oauth/authorize?"
-        f"client_id=rcars-api&"
+        f"client_id={args.client_id}&"
         f"redirect_uri={urllib.parse.quote(redirect_uri)}&"
         f"response_type=token&"
         f"state={oauth_state}"
@@ -181,6 +181,35 @@ def cmd_status(args):
     print(f"Expires: {creds['expires_at']}")
 
 
+def cmd_logout(args):
+    creds = _load_credentials()
+    if not creds:
+        print("Not logged in.")
+        return
+
+    server = creds.get("server", "").rstrip("/")
+    api_key = creds.get("api_key")
+
+    if server and api_key:
+        try:
+            # Use the self-service revoke endpoint (no admin required)
+            revoke_url = f"{server}/api/v1/auth/token"
+            revoke_req = urllib.request.Request(
+                revoke_url,
+                headers={"X-API-Key": api_key},
+                method="DELETE",
+            )
+            urllib.request.urlopen(revoke_req, timeout=10)
+            print("Revoked API key on server.")
+        except Exception as e:
+            print(f"Warning: could not revoke key on server: {e}", file=sys.stderr)
+
+    if CREDENTIALS_FILE.exists():
+        CREDENTIALS_FILE.unlink()
+        print(f"Removed {CREDENTIALS_FILE}")
+    print("Logged out.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="RCARS API login helper")
     sub = parser.add_subparsers(dest="command")
@@ -188,9 +217,11 @@ def main():
     login_p = sub.add_parser("login", help="Authenticate and obtain an API key")
     login_p.add_argument("--server", required=True, help="RCARS API server URL")
     login_p.add_argument("--oauth-server", required=True, help="OAuth server URL")
+    login_p.add_argument("--client-id", default="rcars-api", help="OAuth client ID (default: rcars-api)")
 
     sub.add_parser("token", help="Print current API key")
     sub.add_parser("status", help="Show login status")
+    sub.add_parser("logout", help="Revoke API key and remove local credentials")
 
     parser.add_argument("--server", dest="top_server", help=argparse.SUPPRESS)
     parser.add_argument("--oauth-server", dest="top_oauth_server", help=argparse.SUPPRESS)
@@ -203,6 +234,8 @@ def main():
         cmd_token(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "logout":
+        cmd_logout(args)
     elif args.top_server:
         args.server = args.top_server
         args.oauth_server = args.top_oauth_server

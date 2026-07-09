@@ -20,7 +20,7 @@ _TOKEN_REVIEW_URL = (
 
 # In-memory cache: key_hash → (user_email, role, expires_at_ts, cached_at)
 _api_key_cache: dict[str, tuple[str, str, float | None, float]] = {}
-_CACHE_TTL = 60.0
+_CACHE_TTL = 10.0
 
 
 def _log_auth_decision(
@@ -121,10 +121,12 @@ async def get_current_user(request: Request) -> str | None:
     settings: Settings = request.app.state.settings
     request.state.auth_method = None
     request.state.api_key_role = None
+    request.state.user = None
 
     # 1. Dev bypass
     if settings.dev_user:
         request.state.auth_method = "dev_bypass"
+        request.state.user = settings.dev_user
         _log_auth_decision(request, "dev_bypass", settings.dev_user, "success")
         return settings.dev_user
 
@@ -137,6 +139,7 @@ async def get_current_user(request: Request) -> str | None:
             sa_identity = await _validate_sa_token(token, allowlist)
             if sa_identity:
                 request.state.auth_method = "sa_token"
+                request.state.user = sa_identity
                 _log_auth_decision(request, "sa_token", sa_identity, "success")
                 return sa_identity
 
@@ -148,6 +151,7 @@ async def get_current_user(request: Request) -> str | None:
             user, role, key_id = result
             request.state.auth_method = "api_key"
             request.state.api_key_role = role
+            request.state.user = user
             _log_auth_decision(request, "api_key", user, "success", key_id=key_id)
             return user
 
@@ -169,6 +173,7 @@ async def get_current_user(request: Request) -> str | None:
                 email = request.headers.get("X-Forwarded-User", "")
             if email:
                 request.state.auth_method = "oauth_proxy"
+                request.state.user = email
                 _log_auth_decision(request, "oauth_proxy", email, "success")
                 return email
 
