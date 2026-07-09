@@ -154,6 +154,20 @@ async def revoke_api_key(
     )
 
 
+@router.delete(
+    "/auth/token",
+    summary="Revoke caller's own CLI session key",
+    description="Revokes the CLI session API key associated with the authenticated user. "
+                "Used by the rcars-login logout command. Any authenticated user can call this.",
+    status_code=204,
+    openapi_extra={"security": [{"ApiKeyAuth": []}]},
+)
+async def revoke_own_token(request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    revoked = db.revoke_user_cli_keys(user)
+    logger.info("revoked_own_cli_keys", user=user, revoked_count=revoked)
+
+
 @router.post(
     "/auth/token",
     summary="Exchange OAuth token for API key",

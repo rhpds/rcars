@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -2306,8 +2307,8 @@ class Database:
         with self.pool.connection() as conn:
             cur = conn.execute(
                 """DELETE FROM api_keys
-                   WHERE (expires_at IS NOT NULL AND expires_at < NOW() - INTERVAL '%s days')
-                      OR (revoked_at IS NOT NULL AND revoked_at < NOW() - INTERVAL '%s days')""",
+                   WHERE (expires_at IS NOT NULL AND expires_at < NOW() - %s * INTERVAL '1 day')
+                      OR (revoked_at IS NOT NULL AND revoked_at < NOW() - %s * INTERVAL '1 day')""",
                 (retain_days, retain_days),
             )
             count = cur.rowcount

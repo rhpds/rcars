@@ -192,26 +192,15 @@ def cmd_logout(args):
 
     if server and api_key:
         try:
-            # List keys to find ours, then revoke it
-            list_url = f"{server}/api/v1/auth/keys"
-            req = urllib.request.Request(
-                list_url,
+            # Use the self-service revoke endpoint (no admin required)
+            revoke_url = f"{server}/api/v1/auth/token"
+            revoke_req = urllib.request.Request(
+                revoke_url,
                 headers={"X-API-Key": api_key},
+                method="DELETE",
             )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                keys = json.loads(resp.read())
-            key_prefix = api_key[:8]
-            for k in keys:
-                if k.get("key_prefix") == key_prefix:
-                    revoke_url = f"{server}/api/v1/auth/keys/{k['id']}"
-                    revoke_req = urllib.request.Request(
-                        revoke_url,
-                        headers={"X-API-Key": api_key},
-                        method="DELETE",
-                    )
-                    urllib.request.urlopen(revoke_req, timeout=10)
-                    print(f"Revoked API key on server.")
-                    break
+            urllib.request.urlopen(revoke_req, timeout=10)
+            print("Revoked API key on server.")
         except Exception as e:
             print(f"Warning: could not revoke key on server: {e}", file=sys.stderr)
 
