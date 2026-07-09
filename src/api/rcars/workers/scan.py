@@ -155,6 +155,18 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                         _propagate_to_sibling(wctx.db, ref_sib["ci_name"], analysis_data, result)
                         propagated_set.add(ref_sib["ci_name"])
 
+            # Propagate to published CIs linked via published_ci_name
+            published_propagated = 0
+            for scanned_name in list(propagated_set):
+                scanned_item = wctx.db.get_catalog_item(scanned_name) if scanned_name != ci_name else item
+                pub_name = (scanned_item or {}).get("published_ci_name")
+                if pub_name and pub_name not in propagated_set:
+                    _propagate_to_sibling(wctx.db, pub_name, analysis_data, result)
+                    propagated_set.add(pub_name)
+                    published_propagated += 1
+            if published_propagated:
+                log.info("published_ci_propagated", count=published_propagated)
+
             propagated = len(propagated_set) - 1
             wctx.db.complete_scan(ci_name, job_id, "success",
                                   result_json={"ci_name": ci_name, "status": "analyzed", "propagated": propagated})
