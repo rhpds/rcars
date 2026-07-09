@@ -309,7 +309,9 @@ export function RetirementPage() {
       const { ignored_until } = await api.ignoreRetirementItem(baseName)
       setItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until } : i))
       setAllItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until } : i))
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Mute failed')
+    }
   }
 
   const handleUnignore = async (baseName: string) => {
@@ -317,7 +319,9 @@ export function RetirementPage() {
       await api.unignoreRetirementItem(baseName)
       setItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until: null } : i))
       setAllItems(prev => prev.map(i => i.catalog_base_name === baseName ? { ...i, ignored_until: null } : i))
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : 'Unmute failed')
+    }
   }
 
   const loadData = useCallback(async () => {
@@ -579,7 +583,7 @@ RHDP Content Team`
             <div className="ca-stats-grid">
               <div className="ret-stat-card ret-stat-card--blue">
                 <div className="ret-stat-label">Total Assets</div>
-                <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+                <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
               </div>
               <div className="ret-stat-card ret-stat-card--red">
                 <div className="ret-stat-label">High Retirement</div>
@@ -654,7 +658,7 @@ RHDP Content Team`
             <p className="ca-color-muted">Loading...</p>
           ) : (
             <>
-              <div className="ca-row-count">{items.length} of {allItems.length} assets</div>
+              <div className="ca-row-count">{visibleItems.length} of {activeItems.length} assets</div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
@@ -790,7 +794,7 @@ RHDP Content Team`
           <div className="ca-stats-grid">
             <div className="ret-stat-card ret-stat-card--blue">
               <div className="ret-stat-label">Without Prod</div>
-              <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+              <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
             </div>
             <div className="ret-stat-card ret-stat-card--red">
               <div className="ret-stat-label">&gt; 1 Year</div>

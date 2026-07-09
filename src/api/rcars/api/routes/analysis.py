@@ -435,7 +435,10 @@ async def ignore_item(base_name: str, request: Request, user: str = Depends(requ
 )
 async def unignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.clear_ignored(base_name)
+    ok = db.clear_ignored(base_name)
+    if not ok:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Item not found: {base_name}")
     db.log_action(base_name, "retirement_unignored", user, "Unmuted")
     return {"status": "ok"}
 

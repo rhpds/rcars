@@ -242,17 +242,22 @@ def _compute_retirement_score_with_breakdown(
     final = min(score, 100)
 
     # Build summary sentence
+    concern_names = {"usage": "low usage", "pipeline": "weak pipeline", "sales": "low sales", "roi": "poor ROI"}
+    mid_names = {"usage": "moderate usage", "pipeline": "moderate pipeline", "sales": "moderate sales", "roi": "moderate ROI"}
+    good_names = {"usage": "strong usage", "pipeline": "strong pipeline", "sales": "strong sales", "roi": "good ROI"}
+
     high_factors = [f for f in factors if f["level"] in ("critical", "high")]
+    mid_factors = [f for f in factors if f["level"] in ("moderate", "low")]
     ok_factors = [f for f in factors if f["level"] == "none"]
 
     parts = []
     if high_factors:
-        names = {"usage": "low usage", "pipeline": "weak pipeline", "sales": "low sales", "roi": "poor ROI"}
-        parts.append(", ".join(names.get(f["factor"], f["factor"]) for f in high_factors))
+        parts.append(", ".join(concern_names.get(f["factor"], f["factor"]) for f in high_factors))
+    if mid_factors and not high_factors:
+        parts.append(", ".join(mid_names.get(f["factor"], f["factor"]) for f in mid_factors))
     if ok_factors:
-        names = {"usage": "strong usage", "pipeline": "strong pipeline", "sales": "strong sales", "roi": "good ROI"}
-        parts.append(", ".join(names.get(f["factor"], f["factor"]) for f in ok_factors))
-        parts[-1] = "offset by " + parts[-1]
+        label = ", ".join(good_names.get(f["factor"], f["factor"]) for f in ok_factors)
+        parts.append(f"offset by {label}" if high_factors or mid_factors else label)
 
     summary = ". ".join(p.capitalize() if i == 0 else p for i, p in enumerate(parts)) if parts else "Neutral across all factors"
     if age_reason:
