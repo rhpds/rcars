@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Masthead, MastheadMain, MastheadContent } from '@patternfly/react-core'
+import { Masthead, MastheadMain, MastheadContent, PageToggleButton } from '@patternfly/react-core'
 import { useAuth } from '../hooks/useAuth'
 import { useTheme } from '../hooks/useTheme'
 import { api } from '../services/api'
@@ -89,6 +89,7 @@ export function RcarsMasthead() {
     <Masthead className="rcars-masthead">
       <MastheadMain>
         <div className="rcars-masthead-left">
+          <PageToggleButton variant="plain" aria-label="Toggle navigation" isHamburgerButton />
           <Link to="/advisor" className="rcars-masthead-logo" aria-label="RCARS Home">
             <svg viewBox="0 0 196 54" xmlns="http://www.w3.org/2000/svg">
               <path d="M 6 3 A 28 28 0 0 1 34 31 L 46 31 L 46 51 L 30 51 Q 6 51 6 22 Z" className="rcars-svg-arc"/>

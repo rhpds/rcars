@@ -387,12 +387,21 @@ body {
 .pf-v6-c-page__sidebar {
   --pf-v6-c-page__sidebar--Width: 220px;
   --pf-v6-c-page__sidebar--BackgroundColor: var(--bg-sidebar);
+  --pf-v6-c-page__sidebar--TransitionDuration: 200ms;
+  --pf-v6-c-page__sidebar--TransitionTimingFunction: ease;
 
   background: var(--bg-sidebar) !important;
 }
 
 .pf-v6-c-page__sidebar-body {
   background: var(--bg-sidebar) !important;
+}
+
+.pf-v6-c-masthead__toggle .pf-v6-c-button {
+  color: var(--text-muted);
+}
+.pf-v6-c-masthead__toggle .pf-v6-c-button:hover {
+  color: var(--text-primary);
 }
 
 .pf-v6-c-masthead {
@@ -1901,14 +1910,26 @@ body {
 }
 
 .chat-pane {
-  flex: 2;
-  min-width: 320px;
+  min-width: 280px;
   min-height: 0;
-  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   padding: 20px;
   background: var(--bg-page);
+  overflow: hidden;
+}
+
+.pane-divider {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border-default);
+  flex-shrink: 0;
+  position: relative;
+  transition: background 150ms ease;
+}
+.pane-divider:hover,
+.pane-divider:active {
+  background: var(--rcars-amber-vivid);
 }
 
 .pane-label {
@@ -2050,8 +2071,9 @@ body {
    ══════════════════════════════════════════════════════════════════ */
 
 .rec-pane {
-  flex: 3;
+  flex: 1;
   padding: 20px;
+  min-width: 280px;
   min-height: 0;
   overflow-y: auto;
   background: var(--bg-page);
