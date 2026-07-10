@@ -49,6 +49,7 @@
       curl -sf --max-time 30 -X POST http://localhost:{{ app_port }}/api/v1/advisor/query
       -H 'Content-Type: application/json'
       -H 'X-Forwarded-Email: smoke-test@redhat.com'
+      -H 'X-Proxy-Secret: {{ rcars_proxy_verification_secret }}'
       -d '{"query": "OpenShift getting started demo", "include_zt": false}'
   register: smoke_query
   failed_when: smoke_query.rc != 0
@@ -65,6 +66,7 @@
     command: >-
       curl -sf --max-time 30 http://localhost:{{ app_port }}/api/v1/advisor/query/{{ smoke_job_id }}/result
       -H 'X-Forwarded-Email: smoke-test@redhat.com'
+      -H 'X-Proxy-Secret: {{ rcars_proxy_verification_secret }}'
   register: smoke_result
   until: >-
     (smoke_result.stdout | from_json).status | default('') in ['complete', 'failed']
