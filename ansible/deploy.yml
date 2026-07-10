@@ -204,8 +204,8 @@
       ansible.builtin.include_tasks:
         file: tasks/smoke-test.yml
         apply:
-          tags: [deploy, apply, smoke-test]
-      tags: [deploy, apply, smoke-test]
+          tags: [always]
+      tags: [always]
 
   post_tasks:
     - name: Get pod status
