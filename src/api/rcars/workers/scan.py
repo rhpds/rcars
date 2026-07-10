@@ -161,6 +161,10 @@ async def run_analysis(ctx: dict, job_id: str, ci_name: str, sha_siblings: list[
                 scanned_item = wctx.db.get_catalog_item(scanned_name) if scanned_name != ci_name else item
                 pub_name = (scanned_item or {}).get("published_ci_name")
                 if pub_name and pub_name not in propagated_set:
+                    pub_item = wctx.db.get_catalog_item(pub_name)
+                    if not pub_item:
+                        log.info("published_ci_skipped", base=scanned_name, published=pub_name, reason="not found in catalog")
+                        continue
                     _propagate_to_sibling(wctx.db, pub_name, analysis_data, result)
                     propagated_set.add(pub_name)
                     published_propagated += 1
