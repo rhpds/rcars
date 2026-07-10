@@ -34,6 +34,9 @@ class StartRequest(BaseModel):
 class NotesRequest(BaseModel):
     notes: str = Field(max_length=5000)
 
+class LinkJiraRequest(BaseModel):
+    jira_key: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9]+-\d+$")
+
 
 @router.get(
     "/retirement",
@@ -120,11 +123,17 @@ async def retirement_dashboard(
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 
-    allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name"}
+    allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name", "touched_roi", "closed_roi"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
-        default = "" if sort_by == "display_name" else 0
-        items.sort(key=lambda i: (i.get(sort_by) or default), reverse=reverse)
+        if sort_by == "touched_roi":
+            items.sort(key=lambda i: (i.get("touched_amount") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
+        elif sort_by == "closed_roi":
+            items.sort(key=lambda i: (i.get("closed_amount") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
+        elif sort_by == "display_name":
+            items.sort(key=lambda i: (i.get(sort_by) or ""), reverse=reverse)
+        else:
+            items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
 
     from datetime import date as _date
     today = _date.today()
@@ -297,6 +306,35 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     result = db.upsert_retirement_workflow(base_name, fields)
     db.log_action(base_name, "retirement_started", user, f"Jira: {jira_key}, target: {target_date}")
     return {"status": "ok", "workflow": result, "jira_key": jira_key}
+
+
+@router.put(
+    "/retirement/workflow/{base_name}/link-jira",
+    tags=["Retirement"],
+    summary="Link existing Jira ticket",
+    description="Links an existing Jira ticket to the retirement workflow and advances to started status. Requires prior approval.",
+    response_model=WorkflowResponse,
+    responses={400: {"description": "Item must be approved before linking Jira"}},
+)
+async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    wf = db.get_retirement_workflow(base_name)
+    if not wf or not wf.get("step_approved_at"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Item must be approved before linking a Jira ticket")
+    if wf.get("step_started_at"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
+
+    fields = {
+        "step_started_at": "NOW()",
+        "step_started_by": user,
+        "jira_key": body.jira_key,
+        "status": "started",
+    }
+    result = db.upsert_retirement_workflow(base_name, fields)
+    db.log_action(base_name, "retirement_jira_linked", user, f"Linked existing Jira: {body.jira_key}")
+    return {"status": "ok", "workflow": result}
 
 
 @router.put(

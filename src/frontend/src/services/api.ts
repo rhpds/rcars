@@ -251,6 +251,12 @@ export const api = {
       body: JSON.stringify({ notes }),
     }),
 
+  linkRetirementJira: (baseName: string, jiraKey: string) =>
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/link-jira`, {
+      method: 'PUT',
+      body: JSON.stringify({ jira_key: jiraKey }),
+    }),
+
   cancelRetirementWorkflow: (baseName: string) =>
     request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 

@@ -3076,10 +3076,6 @@ body {
 }
 
 .ret-score-popover {
-  position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
   z-index: 100;
   width: 360px;
   background: var(--bg-card);

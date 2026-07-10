@@ -9,7 +9,7 @@ function safeHref(url: string | null): string {
   catch { return '#' }
 }
 
-type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name'
+type SortField = 'retirement_score' | 'provisions' | 'total_cost' | 'closed_amount' | 'touched_amount' | 'display_name' | 'touched_roi' | 'closed_roi'
 type ScoreFilter = 'all' | 'high' | 'review' | 'keepers'
 type AgeFilter = 'all' | 'old' | 'med' | 'new'
 type RetirementTab = 'prod' | 'no-prod'
@@ -226,7 +226,7 @@ function StepperStep({
   )
 }
 
-function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdown; onClose: () => void }) {
+function ScoreBreakdownPopover({ breakdown, onClose, anchorRect }: { breakdown: ScoreBreakdown; onClose: () => void; anchorRect: DOMRect | null }) {
   const factorLabels: Record<string, string> = { usage: 'Usage', pipeline: 'Pipeline', sales: 'Closed Sales', roi: 'Cost Efficiency' }
   const levelColor = (level: string) => {
     if (level === 'critical') return 'var(--score-red)'
@@ -236,10 +236,17 @@ function ScoreBreakdownPopover({ breakdown, onClose }: { breakdown: ScoreBreakdo
     return 'var(--score-green)'
   }
 
+  const popoverStyle: React.CSSProperties = anchorRect ? {
+    position: 'fixed',
+    top: anchorRect.bottom + 4,
+    left: anchorRect.left + anchorRect.width / 2,
+    transform: 'translateX(-50%)',
+  } : {}
+
   return (
     <>
       <div className="ret-score-backdrop" onClick={e => { e.stopPropagation(); onClose() }} />
-      <div className="ret-score-popover" onClick={e => e.stopPropagation()}>
+      <div className="ret-score-popover" style={popoverStyle} onClick={e => e.stopPropagation()}>
       <div className="ret-score-popover__summary">{breakdown.summary}</div>
       <div className="ret-score-popover__factors">
         {breakdown.factors.map(f => (
@@ -302,7 +309,16 @@ export function RetirementPage() {
   const [actionLoading, setActionLoading] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
+  const [notesSaved, setNotesSaved] = useState(false)
+  const [linkJiraKey, setLinkJiraKey] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const emptyRanges = { provMin: '', provMax: '', touchedMin: '', touchedMax: '', closedMin: '', closedMax: '', costMin: '', costMax: '' }
+  type RangeFilters = typeof emptyRanges
+  const [rangeInputs, setRangeInputs] = useState<RangeFilters>(emptyRanges)
+  const [appliedRanges, setAppliedRanges] = useState<RangeFilters>(emptyRanges)
+  const hasActiveRanges = Object.values(appliedRanges).some(v => v !== '')
   const [scorePopover, setScorePopover] = useState<string | null>(null)
+  const [scorePopoverRect, setScorePopoverRect] = useState<DOMRect | null>(null)
 
   const handleIgnore = async (baseName: string) => {
     try {
@@ -362,6 +378,9 @@ export function RetirementPage() {
     setSearch('')
     setSortBy(tab === 'prod' ? 'retirement_score' : 'provisions')
     setSortDir(tab === 'prod' ? 'asc' : 'desc')
+    setRangeInputs(emptyRanges)
+    setAppliedRanges(emptyRanges)
+    setFiltersOpen(false)
   }, [tab])
 
   const toggleSort = (field: SortField) => {
@@ -395,6 +414,8 @@ export function RetirementPage() {
       setNotesText(workflow?.curator_notes || '')
       setTargetDays(30)
       setJiraProject(workflow?.jira_project || 'RHDPCD')
+      setLinkJiraKey('')
+      setNotesSaved(false)
     } catch { setDrawerWorkflow(null) }
     setDrawerLoading(false)
   }
@@ -469,7 +490,24 @@ export function RetirementPage() {
     try {
       const { workflow } = await api.updateRetirementNotes(drawerItem.catalog_base_name, notesText)
       setDrawerWorkflow(workflow)
+      setNotesSaved(true)
+      setTimeout(() => setNotesSaved(false), 2000)
     } catch (e) { console.error(e) }
+  }
+
+  const handleLinkJira = async () => {
+    if (!drawerItem || !linkJiraKey.trim()) return
+    setActionLoading(true)
+    setActionError(null)
+    try {
+      const { workflow } = await api.linkRetirementJira(drawerItem.catalog_base_name, linkJiraKey.trim())
+      setDrawerWorkflow(workflow)
+      setLinkJiraKey('')
+      loadData()
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to link Jira ticket')
+    }
+    setActionLoading(false)
   }
 
   const generateEmailTemplate = () => {
@@ -514,12 +552,56 @@ RHDP Content Team`
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
     : 'never'
 
+  const exportCsv = () => {
+    const headers = ['Name', 'Base Name', 'Score', 'Provisions', 'Touched', 'T-ROI', 'Closed', 'C-ROI', 'Cost', 'Status', 'Jira']
+    const rows = visibleItems.map(i => {
+      const troi = num(i.touched_amount) > 0 && num(i.total_cost) > 0 ? (num(i.touched_amount) / num(i.total_cost)).toFixed(1) : ''
+      const croi = num(i.closed_amount) > 0 && num(i.total_cost) > 0 ? (num(i.closed_amount) / num(i.total_cost)).toFixed(1) : ''
+      return [
+        `"${(i.display_name || '').replace(/"/g, '""')}"`,
+        i.catalog_base_name,
+        i.retirement_score,
+        i.provisions,
+        i.touched_amount,
+        troi,
+        i.closed_amount,
+        croi,
+        i.total_cost,
+        i.workflow_status || '',
+        i.jira_key || '',
+      ].join(',')
+    })
+    const csv = [headers.join(','), ...rows].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `rcars-retirement-${tab}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const isIgnored = (i: ReportingMetricsItem) => !!i.ignored_until
   const activeItems = allItems.filter(i => !isIgnored(i))
   const ignoredCount = allItems.filter(isIgnored).length
-  const visibleItems = workflowFilter === 'muted'
-    ? items.filter(isIgnored)
-    : items.filter(i => !isIgnored(i))
+  const rangeFiltered = (() => {
+    const base = workflowFilter === 'muted' ? items.filter(isIgnored) : items.filter(i => !isIgnored(i))
+    if (!hasActiveRanges) return base
+    const n = (s: string) => Number(s)
+    return base.filter(i => {
+      const r = appliedRanges
+      if (r.provMin && i.provisions < n(r.provMin)) return false
+      if (r.provMax && i.provisions > n(r.provMax)) return false
+      if (r.touchedMin && i.touched_amount < n(r.touchedMin)) return false
+      if (r.touchedMax && i.touched_amount > n(r.touchedMax)) return false
+      if (r.closedMin && i.closed_amount < n(r.closedMin)) return false
+      if (r.closedMax && i.closed_amount > n(r.closedMax)) return false
+      if (r.costMin && i.total_cost < n(r.costMin)) return false
+      if (r.costMax && i.total_cost > n(r.costMax)) return false
+      return true
+    })
+  })()
+  const visibleItems = rangeFiltered
 
   const totalCost = activeItems.reduce((s, i) => s + i.total_cost, 0)
   const totalClosed = activeItems.reduce((s, i) => s + i.closed_amount, 0)
@@ -652,13 +734,78 @@ RHDP Content Team`
               value={search} onChange={e => setSearch(e.target.value)}
               className="ca-search"
             />
+
+            <button
+              onClick={() => setFiltersOpen(o => !o)}
+              className={`ret-filter-group__btn${filtersOpen || hasActiveRanges ? ' active' : ''}`}
+              style={{ marginLeft: '4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
+              title="Advanced filters">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+              </svg>
+              {hasActiveRanges && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--score-amber)' }} />}
+            </button>
           </div>
+
+          {filtersOpen && (
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px',
+              padding: '8px 12px', background: 'var(--bg-section)', border: '1px solid var(--border-section)',
+              borderRadius: 'var(--radius-sm)', marginBottom: '8px', fontSize: '11px',
+            }}>
+              {([
+                ['Provisions', 'provMin', 'provMax'],
+                ['Touched ($)', 'touchedMin', 'touchedMax'],
+                ['Closed ($)', 'closedMin', 'closedMax'],
+                ['Cost ($)', 'costMin', 'costMax'],
+              ] as [string, keyof RangeFilters, keyof RangeFilters][]).map(([label, minKey, maxKey]) => (
+                <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>{label}</span>
+                  <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                    <input type="number" className="browse-drawer-input"
+                      placeholder="Min" value={rangeInputs[minKey]}
+                      onChange={e => setRangeInputs(p => ({ ...p, [minKey]: e.target.value }))}
+                      style={{ width: '70px', fontSize: '11px' }} />
+                    <span style={{ color: 'var(--text-muted)' }}>–</span>
+                    <input type="number" className="browse-drawer-input"
+                      placeholder="Max" value={rangeInputs[maxKey]}
+                      onChange={e => setRangeInputs(p => ({ ...p, [maxKey]: e.target.value }))}
+                      style={{ width: '70px', fontSize: '11px' }} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '6px', justifyContent: 'flex-end', paddingTop: '4px' }}>
+                <button className="ret-action-btn ret-action-btn--start"
+                  onClick={() => setAppliedRanges({ ...rangeInputs })}
+                  style={{ padding: '3px 12px', fontSize: '11px' }}>
+                  Apply
+                </button>
+                {hasActiveRanges && (
+                  <button className="ret-action-btn"
+                    onClick={() => { setRangeInputs(emptyRanges); setAppliedRanges(emptyRanges) }}
+                    style={{ padding: '3px 12px', fontSize: '11px' }}>
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {loading ? (
             <p className="ca-color-muted">Loading...</p>
           ) : (
             <>
-              <div className="ca-row-count">{visibleItems.length} of {activeItems.length} assets</div>
+              <div className="ca-row-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {visibleItems.length} of {activeItems.length} assets
+                <button className="ret-action-btn" onClick={exportCsv}
+                  style={{ padding: '2px 8px', fontSize: '10px', lineHeight: 1 }}
+                  title="Export visible items to CSV">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ verticalAlign: 'middle', marginRight: '3px' }}>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  CSV
+                </button>
+              </div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
@@ -667,9 +814,9 @@ RHDP Content Team`
                       <th className="num" onClick={() => toggleSort('retirement_score')} style={{ width: '7%' }}>Score{sortIndicator('retirement_score')}</th>
                       <th className="num" onClick={() => toggleSort('provisions')} style={{ width: '9%' }}>Provisions{sortIndicator('provisions')}</th>
                       <th className="num" onClick={() => toggleSort('touched_amount')} style={{ width: '9%' }}>Touched{sortIndicator('touched_amount')}</th>
-                      <th className="num" style={{ width: '7%' }}>T-ROI</th>
+                      <th className="num" onClick={() => toggleSort('touched_roi')} style={{ width: '7%' }}>T-ROI{sortIndicator('touched_roi')}</th>
                       <th className="num" onClick={() => toggleSort('closed_amount')} style={{ width: '9%' }}>Closed{sortIndicator('closed_amount')}</th>
-                      <th className="num" style={{ width: '7%' }}>C-ROI</th>
+                      <th className="num" onClick={() => toggleSort('closed_roi')} style={{ width: '7%' }}>C-ROI{sortIndicator('closed_roi')}</th>
                       <th className="num" onClick={() => toggleSort('total_cost')} style={{ width: '9%' }}>Cost{sortIndicator('total_cost')}</th>
                     </tr>
                   </thead>
@@ -691,11 +838,11 @@ RHDP Content Team`
                             </td>
                             <td className="num" style={{ position: 'relative' }}>
                               <span className="ca-score-badge" style={{ background: scoreBg(item.retirement_score), color: scoreColor(item.retirement_score), cursor: 'pointer' }}
-                                onClick={(e) => { e.stopPropagation(); setScorePopover(scorePopover === item.catalog_base_name ? null : item.catalog_base_name) }}>
+                                onClick={(e) => { e.stopPropagation(); const target = e.currentTarget; setScorePopoverRect(target.getBoundingClientRect()); setScorePopover(scorePopover === item.catalog_base_name ? null : item.catalog_base_name) }}>
                                 {item.retirement_score}
                               </span>
                               {scorePopover === item.catalog_base_name && item.score_breakdown && (
-                                <ScoreBreakdownPopover breakdown={item.score_breakdown} onClose={() => setScorePopover(null)} />
+                                <ScoreBreakdownPopover breakdown={item.score_breakdown} onClose={() => setScorePopover(null)} anchorRect={scorePopoverRect} />
                               )}
                             </td>
                             <td className="num">{item.provisions.toLocaleString()}</td>
@@ -1193,8 +1340,31 @@ RHDP Content Team`
                           </div>
                         ) : isApproved ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {/* Link existing Jira */}
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              Creates a Jira ticket in the selected project with retirement details, metrics snapshot, and adoc template. The retirement clock starts from this point.
+                              Already have a Jira ticket for this retirement?
+                            </div>
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                              <input type="text" className="browse-drawer-input"
+                                value={linkJiraKey} onChange={e => setLinkJiraKey(e.target.value.toUpperCase())}
+                                placeholder="RHDPCD-123"
+                                style={{ width: '120px', fontSize: '12px' }} />
+                              <button className="ret-action-btn ret-action-btn--start" onClick={handleLinkJira}
+                                disabled={actionLoading || !linkJiraKey.trim()}
+                                style={{ padding: '3px 10px', fontSize: '11px' }}>
+                                {actionLoading ? 'Linking...' : 'Link Jira'}
+                              </button>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                              <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
+                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>or create new</span>
+                              <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
+                            </div>
+
+                            {/* Create new Jira */}
+                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                              Creates a Jira ticket with retirement details, metrics snapshot, and adoc template.
                             </div>
                             {isAdmin ? (
                               <>
@@ -1215,7 +1385,7 @@ RHDP Content Team`
                               </>
                             ) : (
                               <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                                Admin access required to start retirement
+                                Admin access required to create a new Jira ticket
                               </div>
                             )}
                           </div>
@@ -1314,16 +1484,25 @@ RHDP Content Team`
                     <textarea
                       className="browse-drawer-textarea"
                       value={notesText}
-                      onChange={e => setNotesText(e.target.value)}
-                      onBlur={handleSaveNotes}
-                      placeholder="Add notes about this retirement..."
+                      onChange={e => { setNotesText(e.target.value); setNotesSaved(false) }}
+                      placeholder="Add notes about this item..."
                       rows={3}
                       style={{ fontSize: '12px' }}
                     />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px' }}>
+                      <button className="ret-action-btn ret-action-btn--start"
+                        onClick={handleSaveNotes}
+                        style={{ padding: '3px 10px', fontSize: '11px' }}>
+                        Save Notes
+                      </button>
+                      {notesSaved && (
+                        <span style={{ fontSize: '11px', color: 'var(--pf-t--global--color--status--success--default)' }}>Saved</span>
+                      )}
+                    </div>
                   </div>
 
-                  {/* ── Cancel Workflow (before start only — after start, use Stop in the step) ── */}
-                  {wf && !isStarted && (
+                  {/* ── Cancel Workflow (only when approved but not yet started) ── */}
+                  {wf && isApproved && !isStarted && (
                     <div style={{ paddingTop: '8px' }}>
                       <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
                         disabled={actionLoading}>
