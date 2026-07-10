@@ -152,7 +152,7 @@ The analysis and embeddings are written to the database. The temporary clone dir
 
 Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant. With ~600 scannable items in the catalog, deduplication and change detection are essential to keeping the nightly pipeline fast and LLM costs reasonable.
 
-### Sibling Grouping
+### Phase A — Ref-Based Sibling Grouping
 
 RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
 
@@ -164,6 +164,16 @@ RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
 **Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
 
 **`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
+
+### Phase B — SHA-Based Deduplication
+
+After ref-based grouping, RCARS resolves refs to commit SHAs via batch `git ls-remote` calls. Items in different ref groups that resolve to the **same commit SHA** are identified as SHA siblings. Only one group is scanned; the rest receive propagated results. Each SHA sibling's own ref-based siblings are also propagated to transitively. This catches the common case where `ref=main` and `ref=v1.0.1` point to the same commit.
+
+### Phase C — Published CI Propagation
+
+After both sibling phases complete, RCARS checks every CI that was scanned or propagated to. If any of them has a `published_ci_name` set (linking a base CI to its published Virtual Catalog Item), the analysis and embeddings are propagated to the published CI. This ensures published CIs — which are excluded from the scan queue since they have no Showroom content of their own — show full content analysis in Browse and participate in content overlap detection.
+
+Published CIs inherit the same analysis and embedding vectors as their base CI. When the base is re-scanned (due to content changes), the published CI's data is updated in the same propagation pass.
 
 ### Change Detection — Only Scan What Changed
 
