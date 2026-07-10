@@ -51,5 +51,6 @@ node_modules
 tsconfig.tsbuildinfo
 /OPERATIONS.md
 
-# Security audit reports (never commit)
+# Security audit reports (never commit — store in Jira)
 docs/admin/security-audit*.md
+docs/architecture/security-audit*.md

@@ -137,7 +137,7 @@ stringData:
 apiVersion: oauth.openshift.io/v1
 kind: OAuthClient
 metadata:
-  name: rcars-api
+  name: rcars-api-{{ env }}
 {% if rcars_oauth_client_secret is defined %}
 secret: "{{ rcars_oauth_client_secret }}"
 {% endif %}
@@ -330,6 +330,18 @@ spec:
               mountPath: /var/lib/redis/data
             - name: tmp
               mountPath: /tmp
+          livenessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 3
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
           resources:
             requests:
               cpu: {{ redis_cpu_request }}

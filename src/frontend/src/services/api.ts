@@ -21,10 +21,10 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[] }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true, optedOut = false) =>
+  submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true) =>
     request<{ job_id: string }>('/advisor/query', {
       method: 'POST',
-      body: JSON.stringify({ query, stages, include_zt: includeZt, opted_out: optedOut }),
+      body: JSON.stringify({ query, stages, include_zt: includeZt }),
     }),
   getQueryResult: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
