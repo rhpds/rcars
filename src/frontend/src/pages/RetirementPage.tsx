@@ -312,7 +312,7 @@ export function RetirementPage() {
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const emptyRanges = { provMin: '', provMax: '', touchedMin: '', touchedMax: '', closedMin: '', closedMax: '', costMin: '', costMax: '' }
+  const emptyRanges = { provMin: '', provMax: '', touchedMin: '', touchedMax: '', closedMin: '', closedMax: '', costMin: '', costMax: '', expMin: '', expMax: '', usersMin: '', usersMax: '' }
   type RangeFilters = typeof emptyRanges
   const [rangeInputs, setRangeInputs] = useState<RangeFilters>(emptyRanges)
   const [appliedRanges, setAppliedRanges] = useState<RangeFilters>(emptyRanges)
@@ -598,6 +598,10 @@ RHDP Content Team`
       if (r.closedMax && i.closed_amount > n(r.closedMax)) return false
       if (r.costMin && i.total_cost < n(r.costMin)) return false
       if (r.costMax && i.total_cost > n(r.costMax)) return false
+      if (r.expMin && (i.experiences || 0) < n(r.expMin)) return false
+      if (r.expMax && (i.experiences || 0) > n(r.expMax)) return false
+      if (r.usersMin && (i.unique_users || 0) < n(r.usersMin)) return false
+      if (r.usersMax && (i.unique_users || 0) > n(r.usersMax)) return false
       return true
     })
   })()
@@ -749,12 +753,14 @@ RHDP Content Team`
 
           {filtersOpen && (
             <div style={{
-              display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px',
+              display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px',
               padding: '8px 12px', background: 'var(--bg-section)', border: '1px solid var(--border-section)',
               borderRadius: 'var(--radius-sm)', marginBottom: '8px', fontSize: '11px',
             }}>
               {([
                 ['Provisions', 'provMin', 'provMax'],
+                ['Experiences', 'expMin', 'expMax'],
+                ['Unique Users', 'usersMin', 'usersMax'],
                 ['Touched ($)', 'touchedMin', 'touchedMax'],
                 ['Closed ($)', 'closedMin', 'closedMax'],
                 ['Cost ($)', 'costMin', 'costMax'],
