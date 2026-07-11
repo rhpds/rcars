@@ -106,6 +106,7 @@ export function AdvisorPage() {
   const layoutRef = useRef<HTMLDivElement>(null)
   const [chatWidthPct, setChatWidthPct] = useState(40)
   const isDragging = useRef(false)
+  const cleanupDragRef = useRef<(() => void) | null>(null)
 
   const handleResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -125,10 +126,16 @@ export function AdvisorPage() {
       document.body.style.userSelect = ''
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+      cleanupDragRef.current = null
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    cleanupDragRef.current = onUp
   }, [])
+
+  useEffect(() => () => cleanupDragRef.current?.(), [])
 
   const stream = useJobStream(activeJobId)
 
@@ -366,7 +373,23 @@ export function AdvisorPage() {
       </div>
 
       {/* Resize handle */}
-      <div className="pane-divider" onMouseDown={handleResizeStart} />
+      <div
+        className="pane-divider"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat and recommendations panes"
+        aria-valuemin={25}
+        aria-valuemax={75}
+        aria-valuenow={chatWidthPct}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            setChatWidthPct(prev => Math.max(25, Math.min(75, prev + (e.key === 'ArrowRight' ? 5 : -5))))
+          }
+        }}
+        onMouseDown={handleResizeStart}
+      />
 
       {/* Recommendations panel */}
       <div className="rec-pane" style={{ flex: 1 }}>

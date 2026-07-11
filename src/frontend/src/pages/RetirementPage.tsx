@@ -1346,34 +1346,34 @@ RHDP Content Team`
                           </div>
                         ) : isApproved ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                            {/* Link existing Jira */}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              Already have a Jira ticket for this retirement?
-                            </div>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <input type="text" className="browse-drawer-input"
-                                value={linkJiraKey} onChange={e => setLinkJiraKey(e.target.value.toUpperCase())}
-                                placeholder="RHDPCD-123"
-                                style={{ width: '120px', fontSize: '12px' }} />
-                              <button className="ret-action-btn ret-action-btn--start" onClick={handleLinkJira}
-                                disabled={actionLoading || !linkJiraKey.trim()}
-                                style={{ padding: '3px 10px', fontSize: '11px' }}>
-                                {actionLoading ? 'Linking...' : 'Link Jira'}
-                              </button>
-                            </div>
-
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
-                              <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
-                              <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>or create new</span>
-                              <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
-                            </div>
-
-                            {/* Create new Jira */}
-                            <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              Creates a Jira ticket with retirement details, metrics snapshot, and adoc template.
-                            </div>
                             {isAdmin ? (
                               <>
+                                {/* Link existing Jira */}
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                  Already have a Jira ticket for this retirement?
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                  <input type="text" className="browse-drawer-input"
+                                    value={linkJiraKey} onChange={e => setLinkJiraKey(e.target.value.toUpperCase())}
+                                    placeholder="RHDPCD-123"
+                                    style={{ width: '120px', fontSize: '12px' }} />
+                                  <button className="ret-action-btn ret-action-btn--start" onClick={handleLinkJira}
+                                    disabled={actionLoading || !linkJiraKey.trim()}
+                                    style={{ padding: '3px 10px', fontSize: '11px' }}>
+                                    {actionLoading ? 'Linking...' : 'Link Jira'}
+                                  </button>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0' }}>
+                                  <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
+                                  <span style={{ fontSize: '10px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>or create new</span>
+                                  <div style={{ flex: 1, height: '1px', background: 'var(--border-section)' }} />
+                                </div>
+
+                                {/* Create new Jira */}
+                                <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                                  Creates a Jira ticket with retirement details, metrics snapshot, and adoc template.
+                                </div>
                                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                                   <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
                                   <input type="number" className="browse-drawer-input"
@@ -1391,7 +1391,7 @@ RHDP Content Team`
                               </>
                             ) : (
                               <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                                Admin access required to create a new Jira ticket
+                                Admin access required to start retirement
                               </div>
                             )}
                           </div>

@@ -316,7 +316,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     response_model=WorkflowResponse,
     responses={400: {"description": "Item must be approved before linking Jira"}},
 )
-async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, user: str = Depends(require_curator)):
+async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     wf = db.get_retirement_workflow(base_name)
     if not wf or not wf.get("step_approved_at"):
