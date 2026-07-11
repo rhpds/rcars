@@ -1923,6 +1923,7 @@ class Database:
         allowed_sorts = {
             "retirement_score", "provisions", "total_cost",
             "closed_amount", "touched_amount", "display_name",
+            "touched_roi", "closed_roi",
         }
         if sort_by not in allowed_sorts:
             sort_by = "retirement_score"
@@ -1986,17 +1987,24 @@ class Database:
         if workflow_status == "none":
             conditions.append("rw.catalog_base_name IS NULL")
         elif workflow_status == "in_process":
-            conditions.append("rw.status IN ('reviewed', 'approved', 'notified')")
+            conditions.append("rw.step_approved_at IS NOT NULL AND rw.status IN ('approved', 'notified')")
         elif workflow_status:
             conditions.append("rw.status = %(workflow_status)s")
             params["workflow_status"] = workflow_status
 
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
+        roi_sorts = {
+            "touched_roi": "rm.touched_amount / NULLIF(rm.total_cost, 0)",
+            "closed_roi": "rm.closed_amount / NULLIF(rm.total_cost, 0)",
+        }
+        order_expr = roi_sorts.get(sort_by, f"rm.{sort_by}")
+
         sql = f"""
             SELECT rm.*,
                    ci.category, ci.product, ci.product_family,
-                   rw.status AS workflow_status, rw.jira_key, rw.retirement_target_date
+                   CASE WHEN rw.step_approved_at IS NOT NULL THEN rw.status END AS workflow_status,
+                   rw.jira_key, rw.retirement_target_date
             FROM reporting_metrics rm
             LEFT JOIN LATERAL (
                 SELECT category, product, product_family
@@ -2008,7 +2016,7 @@ class Database:
             ) ci ON true
             LEFT JOIN retirement_workflow rw ON rw.catalog_base_name = rm.catalog_base_name
             {where}
-            ORDER BY rm.{sort_by} {direction}
+            ORDER BY {order_expr} {direction} NULLS LAST
         """
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:

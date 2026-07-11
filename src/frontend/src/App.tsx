@@ -39,6 +39,7 @@ export default function App() {
             <Page
               masthead={<RcarsMasthead />}
               sidebar={<RcarsSidebar />}
+              isManagedSidebar
             >
               <div className="rcars-main">
                 <Routes>

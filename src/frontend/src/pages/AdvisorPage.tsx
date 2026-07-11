@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, KeyboardEvent } from 'react'
+import React, { useState, useRef, useEffect, useCallback, KeyboardEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 import { useJobStream, StreamCandidate } from '../hooks/useJobStream'
@@ -103,6 +103,39 @@ export function AdvisorPage() {
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  const layoutRef = useRef<HTMLDivElement>(null)
+  const [chatWidthPct, setChatWidthPct] = useState(40)
+  const isDragging = useRef(false)
+  const cleanupDragRef = useRef<(() => void) | null>(null)
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    isDragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+
+    const onMove = (ev: MouseEvent) => {
+      if (!isDragging.current || !layoutRef.current) return
+      const rect = layoutRef.current.getBoundingClientRect()
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100
+      setChatWidthPct(Math.max(25, Math.min(75, pct)))
+    }
+    const onUp = () => {
+      isDragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      window.removeEventListener('blur', onUp)
+      cleanupDragRef.current = null
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
+    cleanupDragRef.current = onUp
+  }, [])
+
+  useEffect(() => () => cleanupDragRef.current?.(), [])
 
   const stream = useJobStream(activeJobId)
 
@@ -228,15 +261,21 @@ export function AdvisorPage() {
   const streamingCandidates = sending && stream.candidates.length > 0 ? stream.candidates : null
 
   return (
-    <div className="advisor-layout">
+    <div className="advisor-layout" ref={layoutRef}>
       {/* Chat panel */}
-      <div className="chat-pane">
+      <div className="chat-pane" style={{ flex: `0 0 ${chatWidthPct}%` }}>
         <div className="pane-label">Chat</div>
         <div className="chat-turns">
           {messages.length === 0 && !sending && (
             <div className="chat-welcome">
+              <p style={{ fontSize: '17px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
+                Welcome to the RHDP Content Advisor &amp; Recommendation System (RCARS)!
+              </p>
+              <p style={{ fontSize: '13px', color: 'var(--rcars-amber-vivid)', marginBottom: '14px', fontStyle: 'italic' }}>
+                This is a beta release and we are regularly adding features.
+              </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS searches across the entire RHDP catalog to find what fits your needs. It uses AI to match your request against analyzed content, scoring relevance and generating detailed recommendations. This goes far deeper than keyword matching against a description.
+                RCARS has cataloged all RHDP assets with Showroom lab or demo guides and searches across all of these to find what fits your needs. It uses AI to match your request against analyzed content, scoring relevance and generating detailed recommendations. This goes far deeper than keyword matching against a description.
               </p>
               <p className="hint" style={{ marginBottom: '12px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>How to get the best results:</strong><br/>
@@ -333,8 +372,27 @@ export function AdvisorPage() {
         </div>
       </div>
 
+      {/* Resize handle */}
+      <div
+        className="pane-divider"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize chat and recommendations panes"
+        aria-valuemin={25}
+        aria-valuemax={75}
+        aria-valuenow={chatWidthPct}
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault()
+            setChatWidthPct(prev => Math.max(25, Math.min(75, prev + (e.key === 'ArrowRight' ? 5 : -5))))
+          }
+        }}
+        onMouseDown={handleResizeStart}
+      />
+
       {/* Recommendations panel */}
-      <div className="rec-pane">
+      <div className="rec-pane" style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="pane-label">Recommendations</div>
           {turns.length > 1 && (
