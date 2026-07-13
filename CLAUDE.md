@@ -142,27 +142,23 @@ Entry point: `rcars` (installed via `pip install -e ".[dev]"`). Run `rcars --hel
 
 ## Build & Deploy
 
+Every tag applies all manifests first (idempotent), so the BuildConfig always matches the branch in `git_ref`. No more tag ordering bugs.
+
 ```bash
-# Frontend only (~30s)
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
+# Full deploy (manifests + build API + build frontend + migrate + smoke test)
+ansible-playbook ansible/deploy.yml -e env=dev --tags full
 
-# API + workers (~3min, restarts api + scan-worker + recommend-worker)
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+# API only (manifests + build API + migrate + smoke test, ~3min)
+ansible-playbook ansible/deploy.yml -e env=dev --tags api
 
-# Config changes only (user lists, env vars, no builds)
-ansible-playbook ansible/deploy.yml -e env=dev --tags apply
+# Frontend only (manifests + build frontend + smoke test, ~30s)
+ansible-playbook ansible/deploy.yml -e env=dev --tags frontend
 
-# Database migrations only (runs rcars init-db + alembic upgrade head)
-# NOTE: migrations run on the CURRENT pod — if you have schema changes in new code,
-# build the API first so the pod has the new migration files
-ansible-playbook ansible/deploy.yml -e env=dev --tags migrate
-
-# Build all + migrate (correct order: build API, build frontend, then run migrations)
-# Use this when changes span API code + schema — it ensures migrations run on the new code
-ansible-playbook ansible/deploy.yml -e env=dev --tags update
+# Config only (manifests only — env vars, user lists, secrets, no builds)
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 ```
 
-**Migration ordering:** Migrations execute on the running API pod, so the pod must have the new code. When deploying changes that include schema modifications, use `--tags update` — never run `--tags migrate` before `--tags build-api`. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
+**Migrations** run automatically after every API build (`--tags api` or `--tags full`). They execute on the new pod, so the code and schema are always in sync. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 

@@ -87,9 +87,10 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
 
     catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
 
-    # Replacement: direct catalog URL
+    # Replacement: direct catalog URL (append .prod for the catalog link)
     if replacement_ci:
-        replacement_line = f"{catalog_base}/{replacement_ci}"
+        repl_ci_prod = replacement_ci if replacement_ci.endswith(".prod") else f"{replacement_ci}.prod"
+        replacement_line = f"{catalog_base}/{repl_ci_prod}"
     else:
         replacement_line = "N/A"
 
@@ -124,7 +125,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         repl_name = replacement_name or replacement_ci
         adoc_replacement_line = (
             f' Please use this as an alternative: '
-            f'link:{catalog_base}/{replacement_ci}'
+            f'link:{catalog_base}/{repl_ci_prod}'
             f'[{repl_name}, window="_blank"]'
         )
 

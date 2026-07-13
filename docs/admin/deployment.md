@@ -109,13 +109,17 @@ All service logs go to `/tmp/`:
 
 ## Playbook Tags
 
+Every tag (except `mgmt-rbac`) applies all manifests first — infra secrets, BuildConfigs, deployments, routes, ConfigMaps — so infrastructure and app state never diverge. If nothing changed, Ansible skips the task. This eliminates bugs where a BuildConfig points to the wrong branch because manifests weren't updated.
+
 | Tag | What it does | When to use |
 |---|---|---|
-| `mgmt-rbac` | Creates management SA, RBAC, kubeconfig | One-time per env |
-| `deploy` | Full deploy: infra + app + build + migrate | First-time deploy or full update |
-| `apply` | Apply namespace + app manifests only (no builds, no infra) | Config changes: user lists, env vars, resource limits |
-| `build-frontend` | Build and deploy frontend only (~30s) | Frontend-only code changes |
-| `build-api` | Build and deploy API + workers (~5 min) | Backend-only code changes |
+| `full` | Apply manifests → build API → build frontend → migrate → smoke test | First-time deploy, full update, or when both API and frontend changed |
+| `api` | Apply manifests → build API → migrate → smoke test | Backend-only code changes |
+| `frontend` | Apply manifests → build frontend → smoke test | Frontend-only code changes |
+| `apply-config` | Apply manifests only (no builds) | Config changes: user lists, env vars, secrets, resource limits |
+| `mgmt-rbac` | Create management SA, RBAC, kubeconfig | One-time per environment |
+
+Migrations run automatically after every API build. They execute on the new pod, so code and schema are always in sync.
 
 ---
 
@@ -163,16 +167,16 @@ ansible-playbook ansible/deploy.yml -e env=prod -e kubeconfig=~/.kube/config --t
 ### 3. Deploy
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
+ansible-playbook ansible/deploy.yml -e env=dev --tags full
 ```
 
 This does everything in the right order:
 1. Creates namespace
 2. Applies infra (Secrets, PostgreSQL, Redis, ImageStreams, BuildConfigs, OAuthClient)
 3. Applies app manifests (Deployments, Services, Routes, ConfigMaps)
-4. Triggers Docker builds for API (~5 min) and frontend (~30s)
-5. Waits for builds to complete (image change triggers roll the pods automatically)
-6. Runs database schema setup
+4. Builds API image (~5 min) and frontend image (~30s)
+5. Runs database schema setup and migrations
+6. Runs advisor smoke test to verify end-to-end functionality
 
 ### 4. Load initial data
 
@@ -206,19 +210,25 @@ Open `https://rcars-dev.apps.<cluster-domain>`. After SSO login you should see t
 ### Rebuild frontend only (~30s)
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
+ansible-playbook ansible/deploy.yml -e env=dev --tags frontend
 ```
 
 ### Rebuild API + workers (~5 min)
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+ansible-playbook ansible/deploy.yml -e env=dev --tags api
 ```
 
-### Full redeploy (infra + app + build + migrate)
+### Full redeploy
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
+ansible-playbook ansible/deploy.yml -e env=dev --tags full
+```
+
+### Update config only (no builds)
+
+```bash
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 ```
 
 ### Configure scheduled maintenance
@@ -231,10 +241,10 @@ pipeline_hour: 4         # UTC hour (0-23)
 pipeline_minute: 0       # minute (0-59)
 ```
 
-Then redeploy the scan worker:
+Then redeploy the API:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+ansible-playbook ansible/deploy.yml -e env=dev --tags api
 ```
 
 ### Promote to production
@@ -244,14 +254,14 @@ Production merges must go through a pull request:
 ```bash
 gh pr create --base production --head main --title "Promote main to production"
 # Wait for CodeRabbit review, then merge via GitHub
-ansible-playbook ansible/deploy.yml -e env=prod --tags deploy
+ansible-playbook ansible/deploy.yml -e env=prod --tags full
 ```
 
 For targeted prod updates:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=prod --tags build-frontend
-ansible-playbook ansible/deploy.yml -e env=prod --tags build-api
+ansible-playbook ansible/deploy.yml -e env=prod --tags frontend
+ansible-playbook ansible/deploy.yml -e env=prod --tags api
 ```
 
 ---
@@ -277,13 +287,13 @@ sa_allowlist:
   - system:serviceaccount:my-namespace:my-sa
 ```
 
-Then apply the updated manifests:
+Then apply the updated config:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags apply
+ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 ```
 
-This updates the deployment env vars and triggers a rollout — no image rebuilds or infrastructure changes.
+This reapplies all manifests, updates deployment env vars, and triggers a rollout — without image rebuilds.
 
 ---
 
