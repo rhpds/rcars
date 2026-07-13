@@ -1531,13 +1531,16 @@ class Database:
                 stale_count = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE scan_status = 'failed' AND retired_at IS NULL")
                 failed_count = cur.fetchone()["count"]
-                cur.execute("SELECT MAX(last_analyzed) as max_analyzed FROM showroom_analysis")
+                cur.execute(
+                    "SELECT MAX(completed_at) as last_run FROM jobs "
+                    "WHERE job_type = 'maintenance' AND status = 'complete'"
+                )
                 row = cur.fetchone()
-                last_analyzed = row["max_analyzed"] if row else None
+                last_pipeline_run = row["last_run"] if row else None
         unanalyzed = max(0, scannable - analyzed - failed_count)
         incomplete = stale_count + unanalyzed + failed_count
         analysis_stale = (incomplete / scannable > 0.10) if scannable > 0 else True
-        analysis_date = last_analyzed.strftime("%Y.%m.%d") if last_analyzed else "never"
+        analysis_date = last_pipeline_run.strftime("%Y.%m.%d") if last_pipeline_run else "never"
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT COUNT(*) as count FROM catalog_items WHERE retired_at IS NULL")

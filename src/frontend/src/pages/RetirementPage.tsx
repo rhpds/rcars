@@ -1338,11 +1338,17 @@ RHDP Content Team`
                                 {wf.jira_key}
                               </a>
                             )}
-                            <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                              disabled={actionLoading}
-                              style={{ fontSize: '11px', marginTop: '4px' }}>
-                              {actionLoading ? 'Stopping...' : 'Stop Retirement'}
-                            </button>
+                            {isAdmin ? (
+                              <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
+                                disabled={actionLoading}
+                                style={{ fontSize: '11px', marginTop: '4px' }}>
+                                {actionLoading ? 'Stopping...' : 'Stop Retirement'}
+                              </button>
+                            ) : (
+                              <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                                Admin access required to stop retirement
+                              </div>
+                            )}
                           </div>
                         ) : isApproved ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1507,8 +1513,8 @@ RHDP Content Team`
                     </div>
                   </div>
 
-                  {/* ── Cancel Workflow (only when approved but not yet started) ── */}
-                  {wf && isApproved && !isStarted && (
+                  {/* ── Cancel Workflow (admin only, when approved but not yet started) ── */}
+                  {wf && isApproved && !isStarted && isAdmin && (
                     <div style={{ paddingTop: '8px' }}>
                       <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
                         disabled={actionLoading}>

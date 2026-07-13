@@ -50,11 +50,15 @@ export default function App() {
                   {auth.isCurator && (
                     <Route path="/browse/workloads" element={<WorkloadsPage />} />
                   )}
-                  {auth.isAdmin && (
+                  {auth.isCurator && (
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                       <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
                       <Route path="/analysis/retirement" element={<RetirementPage />} />
+                    </>
+                  )}
+                  {auth.isAdmin && (
+                    <>
                       <Route path="/system/status" element={<StatusPage />} />
                       <Route path="/system/sync" element={<SyncPage />} />
                       <Route path="/system/jobs" element={<RecentJobsPage />} />
