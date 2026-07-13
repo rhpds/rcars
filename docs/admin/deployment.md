@@ -293,7 +293,7 @@ Then apply the updated config:
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 ```
 
-This updates the deployment env vars and triggers a rollout — no image rebuilds or infrastructure changes.
+This reapplies all manifests, updates deployment env vars, and triggers a rollout — without image rebuilds.
 
 ---
 

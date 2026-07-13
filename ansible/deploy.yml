@@ -3,7 +3,8 @@
 #
 # Automates the full setup from empty namespace to running instance.
 # All tasks are idempotent — running the playbook twice produces the same result.
-# Every tag applies all manifests first so infra and app state never diverge.
+# Every deployment tag except mgmt-rbac applies all manifests first
+# so infra and app state never diverge.
 #
 # Usage:
 #   # One-time bootstrap: create SA, RBAC, kubeconfig (requires cluster-admin)
