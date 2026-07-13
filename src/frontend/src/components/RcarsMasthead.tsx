@@ -24,6 +24,12 @@ function formatAge(dateStr: string): string {
 }
 
 const DOCS_BASE = 'https://rhpds.github.io/rcars'
+const API_DOCS_URL = (() => {
+  const h = window.location.hostname
+  if (h === 'localhost' || h === '127.0.0.1') return '/api/v1/docs'
+  const apiHost = h.replace(/^rcars(-|\.)/,  (_m, sep) => `rcars-api${sep}`)
+  return `https://${apiHost}/api/v1/docs`
+})()
 
 function HelpMenu() {
   const [open, setOpen] = useState(false)
@@ -53,6 +59,9 @@ function HelpMenu() {
           </a>
           <a href={`${DOCS_BASE}/user/guide-web/`} target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
             Web UI Guide
+          </a>
+          <a href={API_DOCS_URL} target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
+            API Docs (Swagger)
           </a>
           <div style={{ borderTop: '1px solid var(--border-default)', margin: '4px 0' }} />
           <a href="https://demo.redhat.com" target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
