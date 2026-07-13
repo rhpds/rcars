@@ -3,24 +3,23 @@
 #
 # Automates the full setup from empty namespace to running instance.
 # All tasks are idempotent — running the playbook twice produces the same result.
+# Every tag applies all manifests first so infra and app state never diverge.
 #
 # Usage:
 #   # One-time bootstrap: create SA, RBAC, kubeconfig (requires cluster-admin)
-#   ansible-playbook ansible/deploy.yml -e env=dev -e kubeconfig=~/.kube/config --tags mgmt-rbac
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags mgmt-rbac -e kubeconfig=~/.kube/config
 #
-#   # Full deploy (infra + app + build + migrate) — works for first-time or updates
-#   ansible-playbook ansible/deploy.yml -e env=prod --tags deploy
+#   # Full deploy (manifests + build API + build frontend + migrate + smoke test)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags full
 #
-#   # Individual operations
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-frontend
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags builds          # Build all
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply           # All manifests (infra + app, no build)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply-infra     # Infra manifests only (secrets, BuildConfigs)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply-manifests # App manifests only (deployments, routes)
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags migrate         # Just run migrations
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags update          # Apply all + build all + migrate
-#   ansible-playbook ansible/deploy.yml -e env=dev --tags smoke-test      # Advisor end-to-end test only
+#   # API only (manifests + build API + migrate + smoke test)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags api
+#
+#   # Frontend only (manifests + build frontend + smoke test)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags frontend
+#
+#   # Config only (manifests only — env vars, user lists, secrets, no builds)
+#   ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 #
 # Prerequisites:
 #   - ansible-galaxy collection install -r ansible/requirements.yml
@@ -84,6 +83,7 @@
       tags: [always]
 
   tasks:
+    # ── One-time bootstrap ──
     - name: Bootstrap management RBAC
       ansible.builtin.include_tasks:
         file: tasks/mgmt-rbac.yml
@@ -91,48 +91,45 @@
           tags: [mgmt-rbac]
       tags: [mgmt-rbac]
 
+    # ── Apply manifests (runs on every tag except mgmt-rbac) ──
     - name: Create namespace
       ansible.builtin.include_tasks:
         file: tasks/namespace.yml
         apply:
-          tags: [deploy, apply]
-      tags: [deploy, apply]
+          tags: [full, api, frontend, apply-config]
+      tags: [full, api, frontend, apply-config]
 
     - name: Apply infra manifests
       ansible.builtin.include_tasks:
         file: tasks/apply-infra.yml
         apply:
-          tags: [deploy, apply, apply-infra, update]
-      tags: [deploy, apply, apply-infra, update]
+          tags: [full, api, frontend, apply-config]
+      tags: [full, api, frontend, apply-config]
 
     - name: Apply app manifests
       ansible.builtin.include_tasks:
         file: tasks/apply-manifests.yml
         apply:
-          tags: [deploy, apply, apply-manifests, update]
-      tags: [deploy, apply, apply-manifests, update]
+          tags: [full, api, frontend, apply-config]
+      tags: [full, api, frontend, apply-config]
 
-    - name: Build all (API + frontend)
-      ansible.builtin.include_tasks:
-        file: tasks/wait-for-builds.yml
-        apply:
-          tags: [deploy, builds]
-      tags: [deploy, builds]
-
-    - name: Build frontend only
-      ansible.builtin.include_tasks:
-        file: tasks/build-frontend.yml
-        apply:
-          tags: [build-frontend, update]
-      tags: [build-frontend, update]
-
-    - name: Build API + workers only
+    # ── Build API ──
+    - name: Build API + workers
       ansible.builtin.include_tasks:
         file: tasks/build-api.yml
         apply:
-          tags: [build-api, update]
-      tags: [build-api, update]
+          tags: [full, api]
+      tags: [full, api]
 
+    # ── Build frontend ──
+    - name: Build frontend
+      ansible.builtin.include_tasks:
+        file: tasks/build-frontend.yml
+        apply:
+          tags: [full, frontend]
+      tags: [full, frontend]
+
+    # ── Database migrations (after API build so pod has new code) ──
     - name: Run database migrations
       block:
         - name: Wait for API rollout to complete
@@ -198,14 +195,15 @@
           retries: 6
           delay: 30
           failed_when: expected_version.stdout | default('') | trim not in (actual_version.stdout | default(''))
-      tags: [deploy, migrate, update]
+      tags: [full, api]
 
+    # ── Smoke test ──
     - name: Advisor smoke test (end-to-end LLM verification)
       ansible.builtin.include_tasks:
         file: tasks/smoke-test.yml
         apply:
-          tags: [deploy, build-api, build-frontend, update, smoke-test]
-      tags: [deploy, build-api, build-frontend, update, smoke-test]
+          tags: [full, api, frontend]
+      tags: [full, api, frontend]
 
   post_tasks:
     - name: Get pod status
