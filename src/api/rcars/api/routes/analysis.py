@@ -355,10 +355,10 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     "/retirement/workflow/{base_name}",
     tags=["Retirement"],
     summary="Cancel retirement workflow",
-    description="Cancels and removes the retirement workflow for a catalog item. Curator-only.",
+    description="Cancels and removes the retirement workflow for a catalog item. Admin-only.",
     response_model=CancelWorkflowResponse,
 )
-async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
+async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     deleted = db.delete_retirement_workflow(base_name)
     if deleted:
