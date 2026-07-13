@@ -1738,15 +1738,18 @@ class Database:
         return count
 
     def prune_old_jobs(self, retain_days: int = 30) -> int:
-        """Delete completed/failed jobs older than retain_days, except advisor queries.
+        """Delete completed/failed jobs older than retain_days, except advisor queries and maintenance.
 
         The 'recommend' queue jobs are retained indefinitely — they represent real
         user searches and are intended for future recommendation quality analysis.
+        Maintenance jobs are retained — their completion timestamps drive the
+        analysis status display in the masthead.
         """
         with self._pool.connection() as conn:
             cur = conn.execute(
                 """DELETE FROM jobs
                    WHERE queue != 'recommend'
+                     AND job_type != 'maintenance'
                      AND created_at < NOW() - make_interval(days => %s)
                      AND status IN ('complete', 'completed', 'failed')
                    RETURNING id""",
