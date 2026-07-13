@@ -31,7 +31,7 @@ jiter==0.14.0
 joblib==1.5.3
 kubernetes==35.0.0
 limits==5.8.0
-Mako==1.3.11
+Mako==1.3.12
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
 mdurl==0.1.2
