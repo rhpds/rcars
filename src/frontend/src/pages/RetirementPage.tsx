@@ -587,9 +587,10 @@ RHDP Content Team`
   const ignoredCount = allItems.filter(isIgnored).length
 
   const extractNs = (name: string) => name.split('.')[0]
+  const statusBaseItems = workflowFilter === 'muted' ? allItems.filter(isIgnored) : activeItems
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
-    for (const i of activeItems) {
+    for (const i of statusBaseItems) {
       const ns = extractNs(i.catalog_base_name)
       counts[ns] = (counts[ns] || 0) + 1
     }
@@ -852,7 +853,7 @@ RHDP Content Team`
           ) : (
             <>
               <div className="ca-row-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {visibleItems.length} of {nsActiveItems.length} assets
+                {visibleItems.length} of {statusBaseItems.filter(nsMatch).length} assets
                 <button className="ret-action-btn" onClick={exportCsv}
                   style={{ padding: '2px 8px', fontSize: '10px', lineHeight: 1 }}
                   title="Export visible items to CSV">
@@ -997,7 +998,7 @@ RHDP Content Team`
           <div className="ca-stats-grid">
             <div className="ret-stat-card ret-stat-card--blue">
               <div className="ret-stat-label">Without Prod</div>
-              <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
+              <div className="ret-stat-value ca-color-blue">{nsActiveItems.length}</div>
             </div>
             <div className="ret-stat-card ret-stat-card--red">
               <div className="ret-stat-label">&gt; 1 Year</div>
@@ -1087,7 +1088,7 @@ RHDP Content Team`
             })
             return (
             <>
-              <div className="ca-row-count">{filtered.length} of {items.length} items without production deployment</div>
+              <div className="ca-row-count">{filtered.length} of {nsFiltered.length} items without production deployment</div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
