@@ -353,7 +353,7 @@ export function RetirementPage() {
         has_prod: tab === 'prod' ? true : false,
         search: search || undefined,
         window: tab === 'prod' ? window : undefined,
-        workflow_status: workflowFilter !== 'all' ? workflowFilter : undefined,
+        workflow_status: workflowFilter !== 'all' && workflowFilter !== 'muted' ? workflowFilter : undefined,
       })
       let filtered = data.items
       if (tab === 'prod' && maxForKeepers) {
