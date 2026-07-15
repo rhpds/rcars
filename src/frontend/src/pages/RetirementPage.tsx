@@ -312,6 +312,7 @@ export function RetirementPage() {
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(new Set())
   const emptyRanges = { provMin: '', provMax: '', touchedMin: '', touchedMax: '', closedMin: '', closedMax: '', costMin: '', costMax: '', expMin: '', expMax: '', usersMin: '', usersMax: '' }
   type RangeFilters = typeof emptyRanges
   const [rangeInputs, setRangeInputs] = useState<RangeFilters>(emptyRanges)
@@ -352,7 +353,7 @@ export function RetirementPage() {
         has_prod: tab === 'prod' ? true : false,
         search: search || undefined,
         window: tab === 'prod' ? window : undefined,
-        workflow_status: workflowFilter !== 'all' ? workflowFilter : undefined,
+        workflow_status: workflowFilter !== 'all' && workflowFilter !== 'muted' ? workflowFilter : undefined,
       })
       let filtered = data.items
       if (tab === 'prod' && maxForKeepers) {
@@ -584,8 +585,30 @@ RHDP Content Team`
   const isIgnored = (i: ReportingMetricsItem) => !!i.ignored_until
   const activeItems = allItems.filter(i => !isIgnored(i))
   const ignoredCount = allItems.filter(isIgnored).length
+
+  const extractNs = (name: string) => name.split('.')[0]
+  const statusBaseItems = workflowFilter === 'muted' ? allItems.filter(isIgnored) : activeItems
+  const availableNamespaces = (() => {
+    const counts: Record<string, number> = {}
+    for (const i of statusBaseItems) {
+      const ns = extractNs(i.catalog_base_name)
+      counts[ns] = (counts[ns] || 0) + 1
+    }
+    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
+  })()
+  const toggleNamespace = (ns: string) => {
+    setSelectedNamespaces(prev => {
+      const next = new Set(prev)
+      if (next.has(ns)) next.delete(ns); else next.add(ns)
+      return next
+    })
+  }
+  const nsMatch = (i: ReportingMetricsItem) =>
+    selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name))
+  const nsActiveItems = activeItems.filter(nsMatch)
+
   const rangeFiltered = (() => {
-    const base = workflowFilter === 'muted' ? items.filter(isIgnored) : items.filter(i => !isIgnored(i))
+    const base = (workflowFilter === 'muted' ? items.filter(isIgnored) : items.filter(i => !isIgnored(i))).filter(nsMatch)
     if (!hasActiveRanges) return base
     const n = (s: string) => Number(s)
     return base.filter(i => {
@@ -607,22 +630,22 @@ RHDP Content Team`
   })()
   const visibleItems = rangeFiltered
 
-  const totalCost = activeItems.reduce((s, i) => s + i.total_cost, 0)
-  const totalClosed = activeItems.reduce((s, i) => s + i.closed_amount, 0)
-  const totalTouched = activeItems.reduce((s, i) => s + i.touched_amount, 0)
-  const prodHigh = activeItems.filter(i => i.retirement_score >= 55).length
-  const prodReview = activeItems.filter(i => i.retirement_score >= 35 && i.retirement_score < 55).length
-  const prodKeepers = activeItems.filter(i => i.retirement_score < 35).length
+  const totalCost = nsActiveItems.reduce((s, i) => s + i.total_cost, 0)
+  const totalClosed = nsActiveItems.reduce((s, i) => s + i.closed_amount, 0)
+  const totalTouched = nsActiveItems.reduce((s, i) => s + i.touched_amount, 0)
+  const prodHigh = nsActiveItems.filter(i => i.retirement_score >= 55).length
+  const prodReview = nsActiveItems.filter(i => i.retirement_score >= 35 && i.retirement_score < 55).length
+  const prodKeepers = nsActiveItems.filter(i => i.retirement_score < 35).length
 
-  const noProdOld = activeItems.filter(i => {
+  const noProdOld = nsActiveItems.filter(i => {
     const d = ageDays(i.first_provision)
     return d !== null && d > 365
   }).length
-  const noProdMed = activeItems.filter(i => {
+  const noProdMed = nsActiveItems.filter(i => {
     const d = ageDays(i.first_provision)
     return d !== null && d > 180 && d <= 365
   }).length
-  const noProdNew = activeItems.length - noProdOld - noProdMed
+  const noProdNew = nsActiveItems.length - noProdOld - noProdMed
 
   const wf = drawerWorkflow
   const isApproved = !!wf?.step_approved_at
@@ -669,7 +692,7 @@ RHDP Content Team`
             <div className="ca-stats-grid">
               <div className="ret-stat-card ret-stat-card--blue">
                 <div className="ret-stat-label">Total Assets</div>
-                <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
+                <div className="ret-stat-value ca-color-blue">{nsActiveItems.length}</div>
               </div>
               <div className="ret-stat-card ret-stat-card--red">
                 <div className="ret-stat-label">High Retirement</div>
@@ -733,22 +756,19 @@ RHDP Content Team`
               ))}
             </div>
 
+            <button
+              onClick={() => setFiltersOpen(o => !o)}
+              className={`ret-filter-group__btn${filtersOpen || hasActiveRanges || selectedNamespaces.size > 0 ? ' active' : ''}`}
+              style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              More Filters
+              {(hasActiveRanges || selectedNamespaces.size > 0) && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--score-amber)' }} />}
+            </button>
+
             <input
               type="text" placeholder="Search by name..."
               value={search} onChange={e => setSearch(e.target.value)}
               className="ca-search"
             />
-
-            <button
-              onClick={() => setFiltersOpen(o => !o)}
-              className={`ret-filter-group__btn${filtersOpen || hasActiveRanges ? ' active' : ''}`}
-              style={{ marginLeft: '4px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}
-              title="Advanced filters">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-              </svg>
-              {hasActiveRanges && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--score-amber)' }} />}
-            </button>
           </div>
 
           {filtersOpen && (
@@ -780,15 +800,46 @@ RHDP Content Team`
                   </div>
                 </div>
               ))}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Namespace</span>
+                  {selectedNamespaces.size > 0 && (
+                    <button onClick={() => setSelectedNamespaces(new Set())}
+                      style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                      Clear ({selectedNamespaces.size})
+                    </button>
+                  )}
+                </div>
+                <div style={{
+                  maxHeight: '140px', overflowY: 'auto', border: '1px solid var(--border-section)',
+                  borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
+                }}>
+                  {availableNamespaces.map(([ns, count]) => (
+                    <label key={ns} style={{
+                      display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
+                      cursor: 'pointer', fontSize: '11px',
+                      background: selectedNamespaces.has(ns) ? 'var(--bg-hover)' : 'transparent',
+                    }}
+                      onMouseEnter={e => { if (!selectedNamespaces.has(ns)) e.currentTarget.style.background = 'var(--bg-hover)' }}
+                      onMouseLeave={e => { if (!selectedNamespaces.has(ns)) e.currentTarget.style.background = 'transparent' }}>
+                      <input type="checkbox" checked={selectedNamespaces.has(ns)}
+                        onChange={() => toggleNamespace(ns)}
+                        style={{ accentColor: 'var(--accent-blue)', margin: 0 }} />
+                      <span style={{ fontFamily: 'var(--ff-mono)', flex: 1 }}>{ns}</span>
+                      <span style={{ color: 'var(--text-muted)' }}>{count}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
               <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '6px', justifyContent: 'flex-end', paddingTop: '4px' }}>
                 <button className="ret-action-btn ret-action-btn--start"
                   onClick={() => setAppliedRanges({ ...rangeInputs })}
                   style={{ padding: '3px 12px', fontSize: '11px' }}>
                   Apply
                 </button>
-                {hasActiveRanges && (
+                {(hasActiveRanges || selectedNamespaces.size > 0) && (
                   <button className="ret-action-btn"
-                    onClick={() => { setRangeInputs(emptyRanges); setAppliedRanges(emptyRanges) }}
+                    onClick={() => { setRangeInputs(emptyRanges); setAppliedRanges(emptyRanges); setSelectedNamespaces(new Set()) }}
                     style={{ padding: '3px 12px', fontSize: '11px' }}>
                     Clear
                   </button>
@@ -802,7 +853,7 @@ RHDP Content Team`
           ) : (
             <>
               <div className="ca-row-count" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                {visibleItems.length} of {activeItems.length} assets
+                {visibleItems.length} of {statusBaseItems.filter(nsMatch).length} assets
                 <button className="ret-action-btn" onClick={exportCsv}
                   style={{ padding: '2px 8px', fontSize: '10px', lineHeight: 1 }}
                   title="Export visible items to CSV">
@@ -947,7 +998,7 @@ RHDP Content Team`
           <div className="ca-stats-grid">
             <div className="ret-stat-card ret-stat-card--blue">
               <div className="ret-stat-label">Without Prod</div>
-              <div className="ret-stat-value ca-color-blue">{activeItems.length}</div>
+              <div className="ret-stat-value ca-color-blue">{nsActiveItems.length}</div>
             </div>
             <div className="ret-stat-card ret-stat-card--red">
               <div className="ret-stat-label">&gt; 1 Year</div>
@@ -972,6 +1023,15 @@ RHDP Content Team`
                 </button>
               ))}
             </div>
+
+            <button
+              onClick={() => setFiltersOpen(o => !o)}
+              className={`ret-filter-group__btn${filtersOpen || selectedNamespaces.size > 0 ? ' active' : ''}`}
+              style={{ fontSize: '11px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              More Filters
+              {selectedNamespaces.size > 0 && <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: 'var(--score-amber)' }} />}
+            </button>
+
             <input
               type="text" placeholder="Search by name..."
               value={search} onChange={e => setSearch(e.target.value)}
@@ -979,10 +1039,48 @@ RHDP Content Team`
             />
           </div>
 
+          {filtersOpen && (
+            <div style={{
+              padding: '8px 12px', background: 'var(--bg-section)', border: '1px solid var(--border-section)',
+              borderRadius: 'var(--radius-sm)', marginBottom: '8px', fontSize: '11px', maxWidth: '300px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+                <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Namespace</span>
+                {selectedNamespaces.size > 0 && (
+                  <button onClick={() => setSelectedNamespaces(new Set())}
+                    style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                    Clear ({selectedNamespaces.size})
+                  </button>
+                )}
+              </div>
+              <div style={{
+                maxHeight: '140px', overflowY: 'auto', border: '1px solid var(--border-section)',
+                borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
+              }}>
+                {availableNamespaces.map(([ns, count]) => (
+                  <label key={ns} style={{
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
+                    cursor: 'pointer', fontSize: '11px',
+                    background: selectedNamespaces.has(ns) ? 'var(--bg-hover)' : 'transparent',
+                  }}
+                    onMouseEnter={e => { if (!selectedNamespaces.has(ns)) e.currentTarget.style.background = 'var(--bg-hover)' }}
+                    onMouseLeave={e => { if (!selectedNamespaces.has(ns)) e.currentTarget.style.background = 'transparent' }}>
+                    <input type="checkbox" checked={selectedNamespaces.has(ns)}
+                      onChange={() => toggleNamespace(ns)}
+                      style={{ accentColor: 'var(--accent-blue)', margin: 0 }} />
+                    <span style={{ fontFamily: 'var(--ff-mono)', flex: 1 }}>{ns}</span>
+                    <span style={{ color: 'var(--text-muted)' }}>{count}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <p className="ca-color-muted">Loading...</p>
           ) : (() => {
-            const filtered = ageFilter === 'all' ? items : items.filter(i => {
+            const nsFiltered = items.filter(nsMatch)
+            const filtered = ageFilter === 'all' ? nsFiltered : nsFiltered.filter(i => {
               const d = ageDays(i.first_provision)
               if (ageFilter === 'old') return d !== null && d > 365
               if (ageFilter === 'med') return d !== null && d > 180 && d <= 365
@@ -990,7 +1088,7 @@ RHDP Content Team`
             })
             return (
             <>
-              <div className="ca-row-count">{filtered.length} of {items.length} items without production deployment</div>
+              <div className="ca-row-count">{filtered.length} of {nsFiltered.length} items without production deployment</div>
               <div className="ca-table-wrap">
                 <table className="ca-table">
                   <thead>
