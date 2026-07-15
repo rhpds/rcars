@@ -20,7 +20,7 @@ PROVISION_FILTERS = """
     AND ps.user_group IN ('Only Regular Users', 'Red Hat Console')
 """
 
-EXCLUDE_PREFIXES = ("tests.", "clusterplatform.", "resourcehub.")
+EXCLUDE_PREFIXES = ("tests.",)
 
 
 def extract_base_name(ci_name: str) -> str:
