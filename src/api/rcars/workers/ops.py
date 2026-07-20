@@ -20,8 +20,8 @@ def sha_dedup_scan_items(
     """Further deduplicate ref-based scan items by resolving refs to commit SHAs.
 
     Returns (items_to_scan, sha_siblings_map).
-    sha_siblings_map keys are representative ci_names, values are lists of
-    skipped item dicts with keys: ci_name, effective_url, showroom_ref.
+    sha_siblings_map keys are representative content_ids, values are lists of
+    skipped item dicts with keys: content_id, ci_name, content_type, effective_url, showroom_ref.
     """
     log = logger.bind(action="sha_dedup")
 
@@ -61,11 +61,13 @@ def sha_dedup_scan_items(
             for item in group_items[1:]:
                 effective_url = item.get("showroom_url_override") or item["showroom_url"]
                 skipped.append({
+                    "content_id": item["content_id"],
                     "ci_name": item["ci_name"],
+                    "content_type": item.get("content_type"),
                     "effective_url": effective_url,
                     "showroom_ref": item.get("showroom_ref"),
                 })
-            sha_siblings_map[representative["ci_name"]] = skipped
+            sha_siblings_map[representative["content_id"]] = skipped
             refs_in_group = list({i.get("showroom_ref") for i in group_items})
             if len(refs_in_group) > 1:
                 log.info("sha_group_merged",
@@ -146,8 +148,7 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
     wctx.db.update_job_status(job_id, "running")
 
     try:
-        items = wctx.db.list_catalog_items()
-        checkable = [i for i in items if i.get("showroom_url") and wctx.db.get_showroom_analysis(i["ci_name"])]
+        checkable = wctx.db.get_stale_check_candidates()
 
         # Deduplicate by (showroom_url, showroom_ref) — clone each unique repo once
         groups: dict[tuple[str, str | None], list[dict]] = {}
@@ -167,12 +168,12 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         changed = []
         skipped = 0
         for (url, ref), group_items in groups.items():
-            analysis = wctx.db.get_showroom_analysis(group_items[0]["ci_name"])
+            analysis = wctx.db.get_showroom_analysis(group_items[0]["content_id"])
             stored_sha = analysis.get("last_repo_commit")
             remote_sha = ls_remote_sha(url, ref)
             if remote_sha and stored_sha and remote_sha == stored_sha:
                 for item in group_items:
-                    wctx.db.clear_stale(item["ci_name"])
+                    wctx.db.clear_stale(item["content_id"])
                 skipped += 1
             else:
                 changed.append(((url, ref), group_items, analysis))
@@ -201,9 +202,9 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
                 stale_result = check_showroom_stale(clone_path, analysis.get("content_hash"))
                 for item in group_items:
                     if stale_result["is_stale"]:
-                        wctx.db.mark_stale(item["ci_name"], stale_result.get("head_sha"))
+                        wctx.db.mark_stale(item["content_id"], stale_result.get("head_sha"))
                     else:
-                        wctx.db.clear_stale(item["ci_name"])
+                        wctx.db.clear_stale(item["content_id"])
                 if stale_result["is_stale"]:
                     stale_count += 1
                     stale_cis += len(group_items)
@@ -306,8 +307,8 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             for item in scan_items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
                 await arq_redis.enqueue_job(
-                    "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"],
-                    sha_siblings=sha_siblings_map.get(item["ci_name"]),
+                    "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
+                    sha_siblings=sha_siblings_map.get(item["content_id"]),
                     _queue_name="arq:queue:scan"
                 )
             analysis_enqueued = len(scan_items)
