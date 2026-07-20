@@ -22,6 +22,30 @@ router = APIRouter(prefix="/analysis")
 WINDOW_KEYS = {"1q": "3m", "2q": "6m", "3q": "9m", "1y": "12m"}
 
 
+def _base_name_to_content_id(base_name: str, db) -> str | None:
+    """Resolve a catalog base name (e.g. 'ocp4-getting-started') to a content_id.
+
+    Tries common stage suffixes via the DB lookup. Returns content_id or None.
+    """
+    result = db.resolve_base_names_to_content_ids({base_name})
+    return result.get(base_name)
+
+
+def _extract_base_name_from_content_id(content_id: str) -> str:
+    """Derive a catalog_base_name from a content_id for backward compatibility.
+
+    content_id format: 'babylon:some-name.stage' → base_name: 'some-name'
+    """
+    name = content_id
+    if name.startswith("babylon:"):
+        name = name[len("babylon:"):]
+    # Strip known stage suffixes
+    for suffix in (".prod", ".event", ".dev", ".test"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 class ApproveRequest(BaseModel):
     reason: str = Field(min_length=1)
     replacement_ci: str | None = None
@@ -64,48 +88,45 @@ async def retirement_dashboard(
     db = request.app.state.db
     window_key = WINDOW_KEYS.get(window, "12m")
 
-    items = db.list_reporting_metrics(
-        sort_by="retirement_score", sort_dir="desc",
+    # Map frontend sort names to DB column names
+    sort_map = {"retirement_score": "performance_score", "touched_amount": "pipeline_touched"}
+    db_sort_by = sort_map.get(sort_by, sort_by)
+
+    items = db.list_performance_data(
+        sort_by=db_sort_by, sort_dir=sort_dir,
+        min_score=min_score, category=category,
+        has_prod=has_prod, search=search,
         workflow_status=workflow_status,
     )
 
     import json as _json
     for item in items:
+        # Backward-compat: derive catalog_base_name from content_id
+        item["catalog_base_name"] = _extract_base_name_from_content_id(item.get("content_id", ""))
+
+        # Field name aliases for frontend compat
+        item["touched_amount"] = item.get("pipeline_touched", 0)
+        item["experiences"] = item.get("completions", 0)
+        item["retirement_score"] = item.get("performance_score", 0)
+
+        # Apply windowed metrics overlay
         wm = item.get("windowed_metrics") or {}
         if isinstance(wm, str):
             wm = _json.loads(wm)
         w = wm.get(window_key, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
-            item["experiences"] = w.get("experiences", 0)
+            item["experiences"] = w.get("experiences", w.get("completions", 0))
             item["requests"] = w.get("requests", 0)
             item["unique_users"] = w.get("unique_users", 0)
             item["success_ratio"] = w.get("success_ratio", 0)
             item["failure_ratio"] = w.get("failure_ratio", 0)
-            item["touched_amount"] = w.get("touched_amount", 0)
+            item["touched_amount"] = w.get("touched_amount", w.get("pipeline_touched", 0))
             item["closed_amount"] = w.get("closed_amount", 0)
             item["total_cost"] = w.get("total_cost", 0)
             item["avg_cost_per_provision"] = w.get("avg_cost_per_provision", 0)
-            item["retirement_score"] = w.get("retirement_score", 0)
+            item["retirement_score"] = w.get("retirement_score", w.get("performance_score", 0))
             item["sales_impact"] = w.get("sales_impact", "low")
-
-    if has_prod is True:
-        prod_names = db.get_all_base_names_with_prod()
-        items = [i for i in items if i["catalog_base_name"] in prod_names]
-    elif has_prod is False:
-        prod_names = db.get_all_base_names_with_prod()
-        items = [i for i in items if i["catalog_base_name"] not in prod_names]
-    if search:
-        words = search.lower().split()
-        def _matches(item: dict) -> bool:
-            text = f"{item.get('display_name', '')} {item.get('catalog_base_name', '')}".lower()
-            return all(w in text for w in words)
-        items = [i for i in items if _matches(i)]
-    if min_score is not None:
-        items = [i for i in items if (i.get("retirement_score") or 0) >= min_score]
-    if category:
-        cat_lower = category.lower()
-        items = [i for i in items if (i.get("category") or "").lower() == cat_lower]
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
@@ -123,6 +144,7 @@ async def retirement_dashboard(
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 
+    # Re-sort by frontend sort names (DB sorted by DB column names, may differ)
     allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name", "touched_roi", "closed_roi"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
@@ -142,7 +164,7 @@ async def retirement_dashboard(
         if isinstance(wm, str):
             wm = _json.loads(wm)
         w = wm.get(window_key, {})
-        item["score_breakdown"] = w.get("score_breakdown")
+        item["score_breakdown"] = w.get("score_breakdown") or item.get("score_breakdown")
 
         iu = item.get("ignored_until")
         if iu and isinstance(iu, _date) and iu >= today:
@@ -171,7 +193,8 @@ async def retirement_dashboard(
 )
 async def get_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    wf = db.get_retirement_workflow(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    wf = db.get_retirement_workflow(content_id) if content_id else None
     return {"workflow": wf}
 
 
@@ -184,12 +207,16 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 )
 async def review_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {
         "step_reviewed_at": "NOW()",
         "step_reviewed_by": user,
         "status": "reviewed",
     }
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_reviewed", user, "Marked as reviewed")
     return {"status": "ok", "workflow": result}
 
@@ -208,15 +235,23 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
     db = request.app.state.db
     from datetime import datetime
 
-    metrics = db.get_reporting_metrics(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    # Build approval snapshot from performance data
+    perf_score = db.get_performance_score(content_id)
+    perf_channels = db.get_performance_channels(content_id)
+    rhdp = next((ch for ch in perf_channels if ch.get("channel") == "rhdp"), None) if perf_channels else None
     snapshot = {
-        "provisions": metrics.get("provisions", 0) if metrics else 0,
-        "experiences": metrics.get("experiences", 0) if metrics else 0,
-        "unique_users": metrics.get("unique_users", 0) if metrics else 0,
-        "touched_amount": float(metrics.get("touched_amount", 0) or 0) if metrics else 0,
-        "closed_amount": float(metrics.get("closed_amount", 0) or 0) if metrics else 0,
-        "total_cost": float(metrics.get("total_cost", 0) or 0) if metrics else 0,
-        "retirement_score": metrics.get("retirement_score", 0) if metrics else 0,
+        "provisions": rhdp.get("provisions", 0) if rhdp else 0,
+        "experiences": rhdp.get("completions", 0) if rhdp else 0,
+        "unique_users": rhdp.get("unique_users", 0) if rhdp else 0,
+        "touched_amount": float(rhdp.get("pipeline_touched", 0) or 0) if rhdp else 0,
+        "closed_amount": float(rhdp.get("closed_amount", 0) or 0) if rhdp else 0,
+        "total_cost": float(rhdp.get("total_cost", 0) or 0) if rhdp else 0,
+        "retirement_score": perf_score.get("performance_score", 0) if perf_score else 0,
         "window": "12m",
         "snapshot_date": datetime.now().strftime("%Y-%m-%d"),
     }
@@ -234,7 +269,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
         fields["replacement_ci"] = body.replacement_ci
         fields["replacement_name"] = body.replacement_name
 
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_approved", user, f"Reason: {body.reason}")
     return {"status": "ok", "workflow": result}
 
@@ -248,12 +283,16 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 )
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {
         "step_notified_at": "NOW()",
         "step_notified_by": user,
         "status": "notified",
     }
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_notified", user, "Owner notified")
     return {"status": "ok", "workflow": result}
 
@@ -274,7 +313,12 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     settings = request.app.state.settings
     from datetime import datetime, timedelta
 
-    wf = db.get_retirement_workflow(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_approved_at"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Item must be approved before starting retirement")
@@ -283,7 +327,11 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
         raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
 
     target_date = (datetime.now() + timedelta(days=body.target_days)).date()
-    metrics = db.get_reporting_metrics(base_name) or {}
+
+    # Build metrics dict from performance data for Jira ticket
+    perf_channels = db.get_performance_channels(content_id)
+    rhdp = next((ch for ch in perf_channels if ch.get("channel") == "rhdp"), None) if perf_channels else None
+    metrics = dict(rhdp) if rhdp else {}
 
     wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days}
 
@@ -291,7 +339,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     try:
         jira_key = create_retirement_ticket(settings, wf_for_jira, metrics)
     except Exception as exc:
-        logger.error("retirement_jira_failed", base_name=base_name, error=str(exc))
+        logger.error("retirement_jira_failed", base_name=base_name, content_id=content_id, error=str(exc))
         from fastapi import HTTPException
         raise HTTPException(status_code=502, detail=f"Failed to create Jira ticket: {exc}")
 
@@ -303,7 +351,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
         "jira_project": body.jira_project,
         "status": "started",
     }
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_started", user, f"Jira: {jira_key}, target: {target_date}")
     return {"status": "ok", "workflow": result, "jira_key": jira_key}
 
@@ -318,7 +366,12 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 )
 async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    wf = db.get_retirement_workflow(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_approved_at"):
         from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Item must be approved before linking a Jira ticket")
@@ -332,7 +385,7 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
         "jira_key": body.jira_key,
         "status": "started",
     }
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_jira_linked", user, f"Linked existing Jira: {body.jira_key}")
     return {"status": "ok", "workflow": result}
 
@@ -346,8 +399,12 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 )
 async def update_notes(base_name: str, body: NotesRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {"curator_notes": body.notes}
-    result = db.upsert_retirement_workflow(base_name, fields)
+    result = db.upsert_retirement_workflow(content_id, fields)
     return {"status": "ok", "workflow": result}
 
 
@@ -360,7 +417,11 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    deleted = db.delete_retirement_workflow(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    deleted = db.delete_retirement_workflow(content_id)
     if deleted:
         db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
     return {"status": "ok", "deleted": deleted}
@@ -390,7 +451,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     for item in scan_items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
         await arq_redis.enqueue_job(
-            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"],
+            "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             sha_siblings=sha_siblings_map.get(item["ci_name"]),
             _queue_name="arq:queue:scan"
         )
@@ -437,7 +498,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     for item in scan_items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all")
         await arq_redis.enqueue_job(
-            "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"],
+            "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             sha_siblings=sha_siblings_map.get(item["ci_name"]),
             _queue_name="arq:queue:scan"
         )
@@ -456,8 +517,12 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
 async def ignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     from datetime import date, timedelta
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Item not found: {base_name}")
     until = (date.today() + timedelta(days=30)).isoformat()
-    ok = db.set_ignored_until(base_name, until)
+    ok = db.set_ignored_until(content_id, until)
     if not ok:
         from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
@@ -473,7 +538,11 @@ async def ignore_item(base_name: str, request: Request, user: str = Depends(requ
 )
 async def unignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    ok = db.clear_ignored(base_name)
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        from fastapi import HTTPException
+        raise HTTPException(404, f"Item not found: {base_name}")
+    ok = db.clear_ignored(content_id)
     if not ok:
         from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
@@ -482,17 +551,18 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
 
 
 @router.post(
-    "/{ci_name}",
+    "/{identifier}",
     tags=["Content Analysis"],
     summary="Analyze single item",
-    description="Triggers content analysis for a single catalog item. Curator-only.",
+    description="Triggers content analysis for a single catalog item. Accepts content_id or ci_name. Curator-only.",
     response_model=JobResponse,
 )
-async def analyze_single(ci_name: str, request: Request, user: str = Depends(require_curator)):
+async def analyze_single(identifier: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
+    content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
     job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
-    await arq_redis.enqueue_job("run_analysis", job_id=job_id, ci_name=ci_name, _queue_name="arq:queue:scan")
+    await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}
 
 

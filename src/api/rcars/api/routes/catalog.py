@@ -15,12 +15,26 @@ from rcars.api.schemas import (
 router = APIRouter(prefix="/catalog")
 
 
+def _resolve_to_content_id(identifier: str) -> str:
+    """Return content_id from an identifier that may be a ci_name or content_id."""
+    if identifier.startswith("babylon:"):
+        return identifier
+    return f"babylon:{identifier}"
+
+
+def _resolve_item(identifier: str, db) -> dict | None:
+    """Resolve identifier (content_id or ci_name) to a full babylon item dict."""
+    if identifier.startswith("babylon:"):
+        return db.get_babylon_item(identifier)
+    return db.get_babylon_item_by_ci_name(identifier)
+
+
 @router.get(
     "",
     summary="List catalog items",
     description=(
-        "Paginated catalog listing with filtering by stage, cloud provider, workloads, "
-        "AgnosticD config type, and curator content filters. "
+        "Paginated catalog listing with filtering by content type, stage, cloud provider, "
+        "workloads, AgnosticD config type, and curator content filters. "
         "Text search matches on CI name and display name (case-insensitive)."
     ),
 )
@@ -28,6 +42,7 @@ async def list_catalog(
     request: Request,
     user: str = Depends(require_auth),
     search: str | None = Query(None, description="Case-insensitive text search on name and CI"),
+    content_type: str | None = Query(None, description="Comma-separated content types: lab,demo,workshop"),
     stage: str | None = Query(None, description="Comma-separated stages: prod,dev,event"),
     cloud_provider: str | None = Query(None, description="Filter by cloud provider"),
     workloads: str | None = Query(None, description="Comma-separated product names (AND semantics)"),
@@ -41,9 +56,11 @@ async def list_catalog(
     db = request.app.state.db
     stage_list = [s.strip() for s in stage.split(",")] if stage else None
     workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
+    content_type_list = [t.strip() for t in content_type.split(",")] if content_type else None
 
-    return db.list_catalog_items_filtered(
+    return db.list_content_entities_filtered(
         search=search,
+        content_types=content_type_list,
         stages=stage_list,
         cloud_provider=cloud_provider,
         agd_config=agd_config,
@@ -101,7 +118,7 @@ async def search_infrastructure(
     )
     mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
     for item in items:
-        raw_workloads = db.get_workloads(item["ci_name"])
+        raw_workloads = db.get_workloads(item["content_id"])
         item["workloads"] = [
             {
                 "role": w["workload_role"],
@@ -197,49 +214,72 @@ async def infra_stats(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/{ci_name}/similar",
+    "/{identifier}/similar",
     summary="Find similar catalog items",
     description="Returns catalog items with similar content based on vector embedding similarity.",
     response_model=SimilarItemsResponse,
     responses={404: {"description": "Catalog item not found"}},
 )
 async def get_similar_items(
-    ci_name: str,
+    identifier: str,
     request: Request,
     user: str = Depends(require_auth),
     min_score: float = Query(0.75, ge=0.0, le=1.0),
 ):
     db = request.app.state.db
-    item = db.get_catalog_item(ci_name)
+    item = _resolve_item(identifier, db)
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
-    similar = db.get_similar_items(ci_name, min_score=min_score)
-    return {"ci_name": ci_name, "similar": similar, "count": len(similar)}
+    content_id = item["content_id"]
+    similar = db.get_similar_items(content_id, min_score=min_score)
+    return {"ci_name": item.get("ci_name", identifier), "content_id": content_id,
+            "similar": similar, "count": len(similar)}
 
 
 @router.get(
-    "/{ci_name}",
+    "/{identifier}",
     summary="Get catalog item details",
     description=(
         "Returns full catalog item with LLM analysis, enrichment tags, "
-        "workload mappings, ACL groups, and reporting metrics (provisions, cost, sales impact)."
+        "workload mappings, ACL groups, and performance data (provisions, cost, sales impact). "
+        "Accepts content_id (babylon:...) or legacy ci_name."
     ),
     response_model=CatalogItemResponse,
     responses={404: {"description": "Catalog item not found"}},
 )
-async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(require_auth)):
+async def get_catalog_item(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
-    item = db.get_catalog_item(ci_name)
+    item = _resolve_item(identifier, db)
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
-    analysis = db.get_showroom_analysis(ci_name)
-    tags = db.get_enrichment_tags(ci_name)
-    workloads = db.get_workloads(ci_name) if item.get("is_agd_v2") else []
-    acl_groups = db.get_acl_groups(ci_name) if item.get("is_agd_v2") else []
-    from rcars.services.reporting_sync import extract_base_name, compute_sales_impact
-    base_name = extract_base_name(ci_name)
-    reporting = db.get_reporting_metrics(base_name)
-    if reporting:
+    content_id = item["content_id"]
+    analysis = db.get_showroom_analysis(content_id)
+    tags = db.get_enrichment_tags(content_id)
+    workloads = db.get_workloads(content_id) if item.get("is_agd_v2") else []
+    acl_groups = db.get_acl_groups(content_id) if item.get("is_agd_v2") else []
+    performance_channels = db.get_performance_channels(content_id)
+    performance_score = db.get_performance_score(content_id)
+    reporting = None
+    if performance_channels or performance_score:
+        # Build a reporting-compatible dict from performance data
+        rhdp = next((ch for ch in performance_channels if ch.get("channel") == "rhdp"), None)
+        reporting = {}
+        if rhdp:
+            reporting.update({
+                "provisions": rhdp.get("provisions", 0),
+                "unique_users": rhdp.get("unique_users", 0),
+                "requests": rhdp.get("requests", 0),
+                "completions": rhdp.get("completions", 0),
+                "pipeline_touched": rhdp.get("pipeline_touched", 0),
+                "closed_amount": rhdp.get("closed_amount", 0),
+                "total_cost": rhdp.get("total_cost", 0),
+                "avg_cost_per_provision": rhdp.get("avg_cost_per_provision", 0),
+                "success_ratio": rhdp.get("success_ratio", 0),
+            })
+        if performance_score:
+            reporting["retirement_score"] = performance_score.get("performance_score", 0)
+            reporting["score_breakdown"] = performance_score.get("score_breakdown")
+        from rcars.services.reporting_sync import compute_sales_impact
         reporting["sales_impact"] = compute_sales_impact(float(reporting.get("closed_amount", 0) or 0))
 
     return {**item, "analysis": analysis, "tags": tags,
@@ -248,14 +288,15 @@ async def get_catalog_item(ci_name: str, request: Request, user: str = Depends(r
 
 
 @router.get(
-    "/{ci_name}/analysis",
+    "/{identifier}/analysis",
     summary="Get content analysis",
     description="Returns the LLM-generated content analysis for a catalog item (summary, audience, topics, duration estimate).",
     responses={404: {"description": "No analysis found for this item"}},
 )
-async def get_analysis(ci_name: str, request: Request, user: str = Depends(require_auth)):
+async def get_analysis(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
-    analysis = db.get_showroom_analysis(ci_name)
+    content_id = _resolve_to_content_id(identifier)
+    analysis = db.get_showroom_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
     return analysis
@@ -281,26 +322,28 @@ class TagRequest(BaseModel):
 
 
 @router.post(
-    "/{ci_name}/tags",
+    "/{identifier}/tags",
     summary="Add enrichment tag",
     description="Adds a curation tag to a catalog item (e.g., audience, use-case). Curator-only.",
     response_model=StatusResponse,
 )
-async def add_tag(ci_name: str, body: TagRequest, request: Request, user: str = Depends(require_curator)):
+async def add_tag(identifier: str, body: TagRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.add_enrichment_tag(ci_name, body.tag_type, body.tag_value, added_by=user)
+    content_id = _resolve_to_content_id(identifier)
+    db.add_enrichment_tag(content_id, body.tag_type, body.tag_value, added_by=user)
     return {"status": "ok"}
 
 
 @router.delete(
-    "/{ci_name}/tags/{tag_id}",
+    "/{identifier}/tags/{tag_id}",
     summary="Remove enrichment tag",
     description="Removes a curation tag from a catalog item by tag ID. Curator-only.",
     response_model=StatusResponse,
 )
-async def remove_tag(ci_name: str, tag_id: int, request: Request, user: str = Depends(require_curator)):
+async def remove_tag(identifier: str, tag_id: int, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.remove_enrichment_tag_by_id(tag_id, ci_name=ci_name)
+    content_id = _resolve_to_content_id(identifier)
+    db.remove_enrichment_tag_by_id(tag_id, content_id=content_id)
     return {"status": "ok"}
 
 
@@ -309,26 +352,28 @@ class NoteRequest(BaseModel):
 
 
 @router.put(
-    "/{ci_name}/note",
+    "/{identifier}/note",
     summary="Set curator note",
     description="Sets or updates the curator's free-text note on a catalog item. Curator-only.",
     response_model=StatusResponse,
 )
-async def set_note(ci_name: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
+async def set_note(identifier: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_enrichment_note(ci_name, body.note)
+    content_id = _resolve_to_content_id(identifier)
+    db.set_enrichment_note(content_id, body.note)
     return {"status": "ok"}
 
 
 @router.post(
-    "/{ci_name}/flag",
+    "/{identifier}/flag",
     summary="Flag item for review",
     description="Flags a catalog item for curator review. Curator-only.",
     response_model=StatusResponse,
 )
-async def flag_item(ci_name: str, request: Request, user: str = Depends(require_curator)):
+async def flag_item(identifier: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_enrichment_review_flag(ci_name, True)
+    content_id = _resolve_to_content_id(identifier)
+    db.set_enrichment_review_flag(content_id, True)
     return {"status": "ok"}
 
 
@@ -337,14 +382,15 @@ class OverrideUrlRequest(BaseModel):
 
 
 @router.post(
-    "/{ci_name}/override-url",
+    "/{identifier}/override-url",
     summary="Override Showroom URL",
     description="Sets a custom Showroom URL override for a catalog item (e.g., when auto-detection fails). Curator-only.",
     response_model=StatusResponse,
 )
-async def override_url(ci_name: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
+async def override_url(identifier: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_showroom_url_override(ci_name, body.url)
+    content_id = _resolve_to_content_id(identifier)
+    db.set_showroom_url_override(content_id, body.url)
     return {"status": "ok"}
 
 
@@ -353,14 +399,15 @@ class DurationRequest(BaseModel):
 
 
 @router.put(
-    "/{ci_name}/duration",
+    "/{identifier}/duration",
     summary="Set curated duration",
     description="Sets a curator-curated duration estimate (in minutes) for a catalog item. Curator-only.",
     response_model=StatusResponse,
 )
-async def set_duration(ci_name: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
+async def set_duration(identifier: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    db.set_curated_duration(ci_name, body.duration_min, updated_by=user)
+    content_id = _resolve_to_content_id(identifier)
+    db.set_curated_duration(content_id, body.duration_min, updated_by=user)
     return {"status": "ok"}
 
 
@@ -376,7 +423,7 @@ class ContentPathRequest(BaseModel):
 
 
 @router.post(
-    "/{ci_name}/content-path",
+    "/{identifier}/content-path",
     summary="Set content path",
     description=(
         "Sets a custom content path within the Showroom repo for analysis. "
@@ -384,8 +431,9 @@ class ContentPathRequest(BaseModel):
     ),
     response_model=ContentPathResponse,
 )
-async def set_content_path(ci_name: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
+async def set_content_path(identifier: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
+    content_id = _resolve_to_content_id(identifier)
     path = body.path.strip().rstrip("/") if body.path else None
-    db.set_content_path(ci_name, path)
+    db.set_content_path(content_id, path)
     return {"status": "ok", "content_path": path, "job_id": ""}
