@@ -23,89 +23,304 @@ from rcars.config import STAGE_PRIORITY
 logger = structlog.get_logger()
 
 SCHEMA_SQL = """
-CREATE TABLE IF NOT EXISTS catalog_items (
-    ci_name TEXT PRIMARY KEY,
-    display_name TEXT,
-    category TEXT,
-    product TEXT,
-    product_family TEXT,
-    primary_bu TEXT,
-    secondary_bu TEXT,
-    stage TEXT,
+-- ═══════════════════════════════════════════════════════════════════
+-- content_entities — universal entity registry (replaces catalog_items)
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS content_entities (
+    content_id      TEXT PRIMARY KEY,
+    source          TEXT NOT NULL,
+    content_type    TEXT NOT NULL,
+    is_hands_on     BOOLEAN NOT NULL DEFAULT FALSE,
+
+    display_name    TEXT NOT NULL,
+    summary         TEXT,
+    products_json   JSONB,
+    topics_json     JSONB,
+    audience_json   JSONB,
+    difficulty      TEXT,
+
+    retired_at      TIMESTAMPTZ,
+    retirement_reason TEXT,
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ce_source ON content_entities(source);
+CREATE INDEX IF NOT EXISTS idx_ce_content_type ON content_entities(content_type);
+CREATE INDEX IF NOT EXISTS idx_ce_retired ON content_entities(retired_at);
+CREATE INDEX IF NOT EXISTS idx_ce_products ON content_entities USING gin(products_json);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- babylon_items — Babylon-specific extension (1:1 with content_entities)
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS babylon_items (
+    content_id      TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    ci_name         TEXT NOT NULL UNIQUE,
+
+    category        TEXT,
+    stage           TEXT,
     catalog_namespace TEXT,
-    keywords TEXT[],
-    description TEXT,
-    icon_url TEXT,
-    owners_json JSONB,
-    showroom_url TEXT,
-    showroom_ref TEXT,
-    content_path TEXT,
-    last_crd_update TIMESTAMPTZ,
-    last_refreshed TIMESTAMPTZ DEFAULT NOW(),
-    is_prod BOOLEAN DEFAULT FALSE,
-    is_published BOOLEAN DEFAULT FALSE,
+    is_prod         BOOLEAN DEFAULT FALSE,
+    is_published    BOOLEAN DEFAULT FALSE,
     published_ci_name TEXT,
-    base_ci_name TEXT,
-    scan_status TEXT NOT NULL DEFAULT 'not_scanned',
-    scan_error_class TEXT,
-    scan_error TEXT,
-    scan_failed_at TIMESTAMPTZ,
+    base_ci_name    TEXT,
+
+    showroom_url    TEXT,
+    showroom_ref    TEXT,
+    content_path    TEXT,
     showroom_url_override TEXT,
-    is_agd_v2 BOOLEAN DEFAULT FALSE,
-    agd_config TEXT,
-    cloud_provider TEXT,
-    ocp_version TEXT,
-    os_image TEXT,
+
+    is_agd_v2       BOOLEAN DEFAULT FALSE,
+    agd_config      TEXT,
+    cloud_provider  TEXT,
+    ocp_version     TEXT,
+    os_image        TEXT,
     worker_instance_count TEXT,
     control_plane_instance_count TEXT,
-    instances_json JSONB,
-    retired_at TIMESTAMPTZ,
-    retirement_reason TEXT
+    instances_json  JSONB,
+
+    keywords        TEXT[],
+    description     TEXT,
+    owners_json     JSONB,
+    icon_url        TEXT,
+    last_crd_update TIMESTAMPTZ,
+    last_refreshed  TIMESTAMPTZ DEFAULT NOW(),
+
+    scan_status     TEXT NOT NULL DEFAULT 'not_scanned',
+    scan_error_class TEXT,
+    scan_error      TEXT,
+    scan_failed_at  TIMESTAMPTZ
 );
 
+CREATE INDEX IF NOT EXISTS idx_bi_ci_name ON babylon_items(ci_name);
+CREATE INDEX IF NOT EXISTS idx_bi_stage ON babylon_items(stage);
+CREATE INDEX IF NOT EXISTS idx_bi_is_prod ON babylon_items(is_prod);
+CREATE INDEX IF NOT EXISTS idx_bi_showroom_url ON babylon_items(showroom_url);
+CREATE INDEX IF NOT EXISTS idx_bi_cloud_provider ON babylon_items(cloud_provider);
+CREATE INDEX IF NOT EXISTS idx_bi_category ON babylon_items(category);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- showroom_analysis — re-keyed from ci_name to content_id
+-- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS showroom_analysis (
-    ci_name TEXT PRIMARY KEY REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    content_type TEXT,
-    summary TEXT,
-    products_json JSONB,
-    audience_json JSONB,
-    topics_json JSONB,
-    modules_json JSONB,
+    content_id              TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+
+    summary                 TEXT,
+    products_json           JSONB,
+    topics_json             JSONB,
+    audience_json           JSONB,
+    difficulty              TEXT,
+    content_hash            TEXT,
+    last_analyzed           TIMESTAMPTZ,
+    is_stale                BOOLEAN DEFAULT FALSE,
+    stale_commit            TEXT,
+
+    content_type            TEXT,
+    modules_json            JSONB,
     learning_objectives_json JSONB,
-    difficulty TEXT,
-    estimated_duration_min INTEGER,
-    curated_duration_min INTEGER CHECK (curated_duration_min >= 0),
+    estimated_duration_min  INTEGER,
+    curated_duration_min    INTEGER CHECK (curated_duration_min >= 0),
     format_suitability_json JSONB,
-    use_cases_json JSONB,
-    last_repo_commit TEXT,
-    last_repo_updated TIMESTAMPTZ,
-    last_analyzed TIMESTAMPTZ,
-    is_stale BOOLEAN DEFAULT FALSE,
-    stale_commit TEXT,
-    content_hash TEXT,
+    use_cases_json          JSONB,
+
+    last_repo_commit        TEXT,
+    last_repo_updated       TIMESTAMPTZ,
+
     enrichment_review_needed BOOLEAN DEFAULT FALSE,
-    notes TEXT
+    review_reasons           JSONB,
+    notes                   TEXT
 );
 
+-- ═══════════════════════════════════════════════════════════════════
+-- embeddings — re-keyed, new content_type and source columns
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS embeddings (
+    id              SERIAL PRIMARY KEY,
+    content_id      TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    content_type    TEXT NOT NULL,
+    source          TEXT NOT NULL,
+    embed_type      TEXT NOT NULL,
+    module_title    TEXT,
+    content_text    TEXT,
+    embedding       vector(384)
+);
+
+CREATE INDEX IF NOT EXISTS idx_emb_content_id ON embeddings(content_id);
+CREATE INDEX IF NOT EXISTS idx_emb_content_type ON embeddings(content_type);
+CREATE INDEX IF NOT EXISTS idx_emb_embed_type ON embeddings(embed_type);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- performance_channels — replaces reporting_metrics
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS performance_channels (
+    id                      SERIAL PRIMARY KEY,
+    content_id              TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    channel                 TEXT NOT NULL,
+
+    provisions              INTEGER DEFAULT 0,
+    unique_users            INTEGER DEFAULT 0,
+    requests                INTEGER DEFAULT 0,
+    page_views              INTEGER DEFAULT 0,
+    downloads               INTEGER DEFAULT 0,
+    completions             INTEGER DEFAULT 0,
+
+    pipeline_touched        NUMERIC,
+    closed_amount           NUMERIC,
+    marketing_spend         NUMERIC,
+    total_cost              NUMERIC,
+    avg_cost_per_provision  NUMERIC,
+    success_ratio           NUMERIC,
+
+    first_activity          DATE,
+    last_activity           DATE,
+
+    windowed_metrics        JSONB DEFAULT '{}'::jsonb,
+
+    synced_at               TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(content_id, channel)
+);
+
+CREATE INDEX IF NOT EXISTS idx_pc_content_id ON performance_channels(content_id);
+CREATE INDEX IF NOT EXISTS idx_pc_channel ON performance_channels(channel);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- performance_scores — replaces retirement_score on reporting_metrics
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS performance_scores (
+    content_id      TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    performance_score INTEGER NOT NULL DEFAULT 0,
+    score_breakdown JSONB,
+    channel_scores  JSONB,
+    computed_at     TIMESTAMPTZ DEFAULT NOW(),
+    ignored_until   DATE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ps_score ON performance_scores(performance_score DESC);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- retirement_workflow — re-keyed from catalog_base_name to content_id
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS retirement_workflow (
+    content_id          TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    status              TEXT NOT NULL DEFAULT 'reviewed',
+    step_reviewed_at    TIMESTAMPTZ,
+    step_reviewed_by    TEXT,
+    step_approved_at    TIMESTAMPTZ,
+    step_approved_by    TEXT,
+    approval_reason     TEXT,
+    approval_snapshot   JSONB,
+    step_notified_at    TIMESTAMPTZ,
+    step_notified_by    TEXT,
+    step_started_at     TIMESTAMPTZ,
+    step_started_by     TEXT,
+    retirement_target_date DATE,
+    step_retired_at     TIMESTAMPTZ,
+    replacement_ci      TEXT,
+    replacement_name    TEXT,
+    curator_notes       TEXT,
+    jira_key            TEXT,
+    jira_project        TEXT NOT NULL DEFAULT 'RHDPCD',
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_rw_status ON retirement_workflow(status);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- content_similarity — re-keyed from ci_name_a/b to content_id_a/b
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS content_similarity (
+    id SERIAL PRIMARY KEY,
+    content_id_a TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    content_id_b TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    similarity_score REAL NOT NULL,
+    computed_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(content_id_a, content_id_b)
+);
+
+CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(content_id_a);
+CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(content_id_b);
+CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- babylon_item_workloads — re-keyed from ci_name to content_id
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS babylon_item_workloads (
+    id SERIAL PRIMARY KEY,
+    content_id TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    workload_fqcn TEXT NOT NULL,
+    workload_role TEXT NOT NULL,
+    workload_collection TEXT,
+    UNIQUE(content_id, workload_fqcn)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biw_content_id ON babylon_item_workloads(content_id);
+CREATE INDEX IF NOT EXISTS idx_biw_workload_role ON babylon_item_workloads(workload_role);
+CREATE INDEX IF NOT EXISTS idx_biw_workload_collection ON babylon_item_workloads(workload_collection);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- babylon_item_acl_groups — re-keyed from ci_name to content_id
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS babylon_item_acl_groups (
+    id SERIAL PRIMARY KEY,
+    content_id TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    group_name TEXT NOT NULL,
+    UNIQUE(content_id, group_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_biacl_content_id ON babylon_item_acl_groups(content_id);
+CREATE INDEX IF NOT EXISTS idx_biacl_group_name ON babylon_item_acl_groups(group_name);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- Independent reference tables (unchanged)
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS workload_mapping (
+    id SERIAL PRIMARY KEY,
+    workload_role TEXT NOT NULL UNIQUE,
+    product_name TEXT NOT NULL,
+    description TEXT,
+    category TEXT,
+    source_collection TEXT,
+    verified BOOLEAN DEFAULT FALSE,
+    added_by TEXT,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    verified_at TIMESTAMPTZ
+);
+
+CREATE TABLE IF NOT EXISTS workload_aliases (
+    id SERIAL PRIMARY KEY,
+    product_name TEXT NOT NULL,
+    alias TEXT NOT NULL UNIQUE,
+    added_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name);
+CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
+
+CREATE TABLE IF NOT EXISTS workload_scan_state (
+    collection TEXT PRIMARY KEY,
+    last_sha TEXT,
+    last_scanned TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- enrichment_tags — re-keyed from ci_name to content_id
+-- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS enrichment_tags (
     id SERIAL PRIMARY KEY,
-    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
+    content_id TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
     tag_type TEXT NOT NULL,
     tag_value TEXT NOT NULL,
     added_by TEXT,
     added_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(ci_name, tag_type, tag_value)
+    UNIQUE(content_id, tag_type, tag_value)
 );
 
-CREATE TABLE IF NOT EXISTS embeddings (
-    id SERIAL PRIMARY KEY,
-    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    embed_type TEXT NOT NULL,
-    module_title TEXT,
-    content_text TEXT,
-    embedding vector(384)
-);
+CREATE INDEX IF NOT EXISTS idx_et_content_id ON enrichment_tags(content_id);
 
+-- ═══════════════════════════════════════════════════════════════════
+-- Operational tables (recreated empty, unchanged structure)
+-- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS analysis_log (
     id SERIAL PRIMARY KEY,
     ci_name TEXT,
@@ -124,26 +339,6 @@ CREATE TABLE IF NOT EXISTS token_usage (
     input_tokens INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
     provider TEXT DEFAULT 'anthropic',
-    created_at TIMESTAMPTZ DEFAULT NOW()
-);
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'token_usage' AND column_name = 'provider') THEN
-    CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
-  END IF;
-END $$;
-
-CREATE TABLE IF NOT EXISTS advisor_sessions (
-    id SERIAL PRIMARY KEY,
-    session_id TEXT NOT NULL,
-    turn_index INTEGER NOT NULL,
-    user_email TEXT,
-    query_text TEXT,
-    event_url TEXT,
-    results_json JSONB,
-    overall_assessment TEXT,
-    chosen_ci_name TEXT,
-    chosen_at TIMESTAMPTZ,
-    opted_out BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -175,137 +370,40 @@ CREATE TABLE IF NOT EXISTS api_keys (
     revoked_at TIMESTAMPTZ
 );
 
-CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
-CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
-
-CREATE TABLE IF NOT EXISTS catalog_item_workloads (
+-- ═══════════════════════════════════════════════════════════════════
+-- advisor_sessions — preserved with new chosen_content_id column
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS advisor_sessions (
     id SERIAL PRIMARY KEY,
-    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    workload_fqcn TEXT NOT NULL,
-    workload_role TEXT NOT NULL,
-    workload_collection TEXT,
-    UNIQUE(ci_name, workload_fqcn)
+    session_id TEXT NOT NULL,
+    turn_index INTEGER NOT NULL,
+    user_email TEXT,
+    query_text TEXT,
+    event_url TEXT,
+    results_json JSONB,
+    overall_assessment TEXT,
+    chosen_ci_name TEXT,
+    chosen_content_id TEXT,
+    chosen_at TIMESTAMPTZ,
+    opted_out BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS workload_mapping (
-    id SERIAL PRIMARY KEY,
-    workload_role TEXT NOT NULL UNIQUE,
-    product_name TEXT NOT NULL,
-    description TEXT,
-    category TEXT,
-    source_collection TEXT,
-    verified BOOLEAN DEFAULT FALSE,
-    added_by TEXT,
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    verified_at TIMESTAMPTZ
-);
-
-CREATE TABLE IF NOT EXISTS workload_aliases (
-    id SERIAL PRIMARY KEY,
-    product_name TEXT NOT NULL,
-    alias TEXT NOT NULL UNIQUE,
-    added_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS catalog_item_acl_groups (
-    id SERIAL PRIMARY KEY,
-    ci_name TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    group_name TEXT NOT NULL,
-    UNIQUE(ci_name, group_name)
-);
-
-CREATE TABLE IF NOT EXISTS workload_scan_state (
-    collection TEXT PRIMARY KEY,
-    last_sha TEXT,
-    last_scanned TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_catalog_items_stage ON catalog_items(stage);
-CREATE INDEX IF NOT EXISTS idx_catalog_items_is_prod ON catalog_items(is_prod);
-CREATE INDEX IF NOT EXISTS idx_catalog_items_category ON catalog_items(category);
-CREATE INDEX IF NOT EXISTS idx_catalog_items_showroom_url ON catalog_items(showroom_url);
-CREATE INDEX IF NOT EXISTS idx_enrichment_tags_ci_name ON enrichment_tags(ci_name);
-CREATE INDEX IF NOT EXISTS idx_embeddings_ci_name ON embeddings(ci_name);
+-- ═══════════════════════════════════════════════════════════════════
+-- Operational indexes
+-- ═══════════════════════════════════════════════════════════════════
 CREATE INDEX IF NOT EXISTS idx_analysis_log_ci_name ON analysis_log(ci_name);
 CREATE INDEX IF NOT EXISTS idx_analysis_log_created_at ON analysis_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage(created_at);
 CREATE INDEX IF NOT EXISTS idx_token_usage_operation ON token_usage(operation);
+CREATE INDEX IF NOT EXISTS idx_token_usage_provider ON token_usage(provider);
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_keys_created_by ON api_keys(created_by);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_session ON advisor_sessions(session_id);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_email);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs(created_at);
-CREATE INDEX IF NOT EXISTS idx_ciw_ci_name ON catalog_item_workloads(ci_name);
-CREATE INDEX IF NOT EXISTS idx_ciw_workload_role ON catalog_item_workloads(workload_role);
-CREATE INDEX IF NOT EXISTS idx_ciw_workload_collection ON catalog_item_workloads(workload_collection);
-CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name);
-CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
-CREATE INDEX IF NOT EXISTS idx_ciag_ci_name ON catalog_item_acl_groups(ci_name);
-CREATE INDEX IF NOT EXISTS idx_ciag_group_name ON catalog_item_acl_groups(group_name);
-
-CREATE TABLE IF NOT EXISTS content_similarity (
-    id SERIAL PRIMARY KEY,
-    ci_name_a TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    ci_name_b TEXT NOT NULL REFERENCES catalog_items(ci_name) ON DELETE CASCADE,
-    similarity_score REAL NOT NULL,
-    computed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE(ci_name_a, ci_name_b)
-);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(ci_name_a);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(ci_name_b);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
-
-CREATE TABLE IF NOT EXISTS reporting_metrics (
-    catalog_base_name  TEXT PRIMARY KEY,
-    display_name       TEXT NOT NULL,
-    provisions         INTEGER NOT NULL DEFAULT 0,
-    provisions_quarter INTEGER NOT NULL DEFAULT 0,
-    requests           INTEGER NOT NULL DEFAULT 0,
-    experiences        INTEGER NOT NULL DEFAULT 0,
-    unique_users       INTEGER NOT NULL DEFAULT 0,
-    success_ratio      NUMERIC NOT NULL DEFAULT 0,
-    failure_ratio      NUMERIC NOT NULL DEFAULT 0,
-    touched_amount     NUMERIC NOT NULL DEFAULT 0,
-    closed_amount      NUMERIC NOT NULL DEFAULT 0,
-    total_cost         NUMERIC NOT NULL DEFAULT 0,
-    avg_cost_per_provision NUMERIC NOT NULL DEFAULT 0,
-    first_provision    DATE,
-    last_provision     DATE,
-    retirement_score   INTEGER NOT NULL DEFAULT 0,
-    synced_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    windowed_metrics   JSONB DEFAULT '{}'::jsonb,
-    ignored_until      DATE
-);
-CREATE INDEX IF NOT EXISTS ix_reporting_metrics_retirement_score
-    ON reporting_metrics (retirement_score DESC);
-CREATE INDEX IF NOT EXISTS ix_reporting_metrics_display_name
-    ON reporting_metrics (display_name);
-
-CREATE TABLE IF NOT EXISTS retirement_workflow (
-    catalog_base_name    TEXT PRIMARY KEY,
-    status               TEXT NOT NULL DEFAULT 'reviewed',
-    step_reviewed_at     TIMESTAMPTZ,
-    step_reviewed_by     TEXT,
-    step_approved_at     TIMESTAMPTZ,
-    step_approved_by     TEXT,
-    approval_reason      TEXT,
-    approval_snapshot    JSONB,
-    step_notified_at     TIMESTAMPTZ,
-    step_notified_by     TEXT,
-    step_started_at      TIMESTAMPTZ,
-    step_started_by      TEXT,
-    retirement_target_date DATE,
-    step_retired_at      TIMESTAMPTZ,
-    replacement_ci       TEXT,
-    replacement_name     TEXT,
-    curator_notes        TEXT,
-    jira_key             TEXT,
-    jira_project         TEXT NOT NULL DEFAULT 'RHDPCD',
-    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS ix_retirement_workflow_status
-    ON retirement_workflow (status);
 """
 
 
@@ -349,12 +447,18 @@ class Database:
 
         tables = [
             "retirement_workflow",
-            "content_similarity", "reporting_metrics",
+            "content_similarity",
+            "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys", "catalog_item_workloads", "catalog_item_acl_groups",
+            "api_keys",
+            "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "workload_mapping", "workload_scan_state",
-            "catalog_items", "alembic_version",
+            "babylon_items", "content_entities",
+            # Legacy tables (ensure clean drop if they exist from previous schema)
+            "catalog_item_workloads", "catalog_item_acl_groups",
+            "reporting_metrics", "catalog_items",
+            "alembic_version",
         ]
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
