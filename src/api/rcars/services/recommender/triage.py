@@ -16,17 +16,22 @@ def format_triage_candidates(candidates: list[Candidate]) -> str:
     """Format candidates compactly for the triage prompt."""
     parts = []
     for i, c in enumerate(candidates, 1):
-        parts.append(
+        block = (
             f"--- Candidate {i} ---\n"
-            f"CI Name: {c.ci_name}\n"
+            f"Content ID: {c.content_id}\n"
+            f"Content Type: {c.content_type}\n"
+        )
+        if c.ci_name:
+            block += f"CI Name: {c.ci_name}\n"
+        block += (
             f"Display Name: {c.display_name}\n"
             f"Summary: {c.summary}\n"
             f"Topics: {', '.join(c.topics)}\n"
             f"Products: {', '.join(c.products)}\n"
             f"Category: {c.category}\n"
-            f"Content Type: {c.content_type}\n"
             f"Duration: {c.duration_min or '?'} min"
         )
+        parts.append(block)
     return "\n\n".join(parts)
 
 
@@ -62,22 +67,35 @@ def triage(
     if triage_results is None:
         log.error("triage: failed to parse LLM response, raw=%s", response_text[:500])
 
-    # Build lookup by ci_name
+    # Build lookup by ci_name and content_id for backward compat
+    scores_by_key: dict[str, dict] = {}
     if isinstance(triage_results, list):
-        scores_by_ci = {r["ci_name"]: r for r in triage_results if isinstance(r, dict) and "ci_name" in r}
+        for r in triage_results:
+            if isinstance(r, dict):
+                if "ci_name" in r:
+                    scores_by_key[r["ci_name"]] = r
+                if "content_id" in r:
+                    scores_by_key[r["content_id"]] = r
     elif isinstance(triage_results, dict) and "recommendations" in triage_results:
-        scores_by_ci = {r["ci_name"]: r for r in triage_results["recommendations"] if isinstance(r, dict) and "ci_name" in r}
+        for r in triage_results["recommendations"]:
+            if isinstance(r, dict):
+                if "ci_name" in r:
+                    scores_by_key[r["ci_name"]] = r
+                if "content_id" in r:
+                    scores_by_key[r["content_id"]] = r
     else:
         log.warning("triage: unexpected result type=%s, keys=%s", type(triage_results).__name__,
                     list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")
-        scores_by_ci = {}
 
     annotated = []
     relevant_count = 0
     for candidate in state.candidates:
-        score_data = scores_by_ci.get(candidate.ci_name)
+        # Try ci_name first (backward compat with existing triage prompts), then content_id
+        score_data = scores_by_key.get(candidate.ci_name) if candidate.ci_name else None
         if not score_data:
-            log.info("  triage: not scored %s — marking white", candidate.ci_name)
+            score_data = scores_by_key.get(candidate.content_id)
+        if not score_data:
+            log.info("  triage: not scored %s — marking white", candidate.content_id)
             annotated.append(candidate)
             continue
 
@@ -92,12 +110,12 @@ def triage(
             candidate.tier = "yellow"
             candidate.relevant = True
             relevant_count += 1
-            log.info("  triage: yellow %s — score=%d (%s)", candidate.ci_name, relevance, reason)
+            log.info("  triage: yellow %s — score=%d (%s)", candidate.content_id, relevance, reason)
         else:
             candidate.tier = "white"
             candidate.relevant = False
             log.info("  triage: white %s — score=%d relevant=%s (%s)",
-                     candidate.ci_name, relevance, relevant, reason)
+                     candidate.content_id, relevance, relevant, reason)
 
         annotated.append(candidate)
 

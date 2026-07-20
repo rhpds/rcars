@@ -17,9 +17,13 @@ SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "ratio
 
 
 def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
-    """Format one candidate with full analysis data for the per-candidate prompt."""
+    """Format one candidate with full analysis data for the per-candidate prompt.
+
+    Routes by content_type: lab/demo gets full showroom data,
+    sandbox gets infrastructure metadata.
+    """
     lines = [
-        f"CI Name: {c.ci_name}",
+        f"Content ID: {c.content_id}",
         f"Display Name: {c.display_name}",
         f"Category: {c.category}",
         f"Content Type: {c.content_type}",
@@ -31,24 +35,39 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
         f"Products: {', '.join(c.products)}",
     ]
 
-    audience = analysis.get("audience_json", [])
-    if audience:
-        lines.append(f"Audience: {', '.join(audience)}")
+    if c.content_type in ("lab", "demo"):
+        # Full showroom data for guided content
+        audience = analysis.get("audience_json", [])
+        if audience:
+            lines.append(f"Audience: {', '.join(audience)}")
 
-    objectives = analysis.get("learning_objectives_json", {})
-    if isinstance(objectives, dict):
-        stated = objectives.get("stated", [])
-        inferred = objectives.get("inferred", [])
-        if stated:
-            lines.append(f"Stated Objectives: {'; '.join(stated)}")
-        if inferred:
-            lines.append(f"Inferred Objectives: {'; '.join(inferred)}")
+        objectives = analysis.get("learning_objectives_json", {})
+        if isinstance(objectives, dict):
+            stated = objectives.get("stated", [])
+            inferred = objectives.get("inferred", [])
+            if stated:
+                lines.append(f"Stated Objectives: {'; '.join(stated)}")
+            if inferred:
+                lines.append(f"Inferred Objectives: {'; '.join(inferred)}")
 
-    modules = analysis.get("modules_json", [])
-    if modules:
-        mod_titles = [m.get("title", "") for m in modules if m.get("title")]
-        if mod_titles:
-            lines.append(f"Modules: {'; '.join(mod_titles)}")
+        modules = analysis.get("modules_json", [])
+        if modules:
+            mod_titles = [m.get("title", "") for m in modules if m.get("title")]
+            if mod_titles:
+                lines.append(f"Modules: {'; '.join(mod_titles)}")
+    elif c.content_type == "sandbox":
+        # Infrastructure metadata for sandboxes (no guided content)
+        cloud = analysis.get("cloud_provider", "")
+        if cloud:
+            lines.append(f"Cloud Provider: {cloud}")
+        ocp = analysis.get("ocp_version", "")
+        if ocp:
+            lines.append(f"OpenShift Version: {ocp}")
+        workloads = analysis.get("workload_classifications", [])
+        if workloads:
+            wl_names = [w.get("workload_name", "") for w in workloads if w.get("workload_name")]
+            if wl_names:
+                lines.append(f"Workloads: {'; '.join(wl_names)}")
 
     return "\n".join(lines)
 
@@ -71,13 +90,13 @@ def _call_rationale_single(
 
     result = parse_analysis_response(llm_result.text)
     if result is None:
-        log.warning("rationale_single: failed to parse response for %s", c.ci_name)
-        return {"ci_name": c.ci_name, "tokens": {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}}
+        log.warning("rationale_single: failed to parse response for %s", c.content_id)
+        return {"content_id": c.content_id, "tokens": {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}}
 
     if isinstance(result, list) and result:
         result = result[0]
 
-    result["ci_name"] = c.ci_name
+    result["content_id"] = c.content_id
     result["tokens"] = {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}
     return result
 
@@ -171,13 +190,26 @@ def generate_rationale(
     top_candidates = state.candidates[:top_n]
     remaining = state.candidates[top_n:]
 
-    # Fetch full analysis for top candidates (published CIs store analysis on their base CI)
+    # Fetch full analysis for top candidates, routed by content_type
     analyses = {}
     for c in top_candidates:
-        analysis_ci = c.base_ci_name or c.ci_name
-        analysis = db.get_showroom_analysis(analysis_ci)
-        if analysis:
-            analyses[c.ci_name] = analysis
+        if c.content_type in ("lab", "demo"):
+            # Published CIs store analysis on their base CI
+            if c.base_ci_name:
+                analysis_content_id = f"babylon:{c.base_ci_name}"
+            else:
+                analysis_content_id = c.content_id
+            analysis = db.get_showroom_analysis(analysis_content_id)
+            if analysis:
+                analyses[c.content_id] = analysis
+        elif c.content_type == "sandbox":
+            # Sandboxes: infrastructure metadata + workload classifications
+            babylon_item = db.get_babylon_item(c.content_id)
+            workloads = db.get_workload_classifications(c.content_id)
+            analysis = {**(babylon_item or {})}
+            if workloads:
+                analysis["workload_classifications"] = workloads
+            analyses[c.content_id] = analysis
 
     # Phase 3a: Parallel per-candidate Sonnet calls
     tokens_by_provider: dict[str, dict[str, int]] = {}
@@ -186,12 +218,12 @@ def generate_rationale(
     with ThreadPoolExecutor(max_workers=min(top_n, 5)) as executor:
         futures = {}
         for c in top_candidates:
-            analysis = analyses.get(c.ci_name, {})
+            analysis = analyses.get(c.content_id, {})
             future = executor.submit(_call_rationale_single, c, analysis, state.query, settings, model)
-            futures[future] = c.ci_name
+            futures[future] = c.content_id
 
         for future in as_completed(futures):
-            ci_name = futures[future]
+            content_id = futures[future]
             try:
                 result = future.result()
                 tokens = result.pop("tokens", {})
@@ -199,13 +231,13 @@ def generate_rationale(
                 bucket = tokens_by_provider.setdefault(provider, {"input": 0, "output": 0})
                 bucket["input"] += tokens.get("input", 0)
                 bucket["output"] += tokens.get("output", 0)
-                rationale_results[ci_name] = result
+                rationale_results[content_id] = result
             except Exception as e:
-                log.error("rationale_single: failed for %s: %s", ci_name, e)
+                log.error("rationale_single: failed for %s: %s", content_id, e)
 
     # Apply rationale results to candidates
     for c in top_candidates:
-        rec = rationale_results.get(c.ci_name, {})
+        rec = rationale_results.get(c.content_id, {})
         c.why_it_fits = rec.get("why_it_fits")
         c.how_to_use = rec.get("how_to_use")
         c.rationale = c.why_it_fits or rec.get("rationale")
@@ -215,7 +247,7 @@ def generate_rationale(
 
     matched = sum(1 for c in top_candidates if c.why_it_fits)
     if matched < len(top_candidates):
-        missing = [c.ci_name for c in top_candidates if not c.why_it_fits]
+        missing = [c.content_id for c in top_candidates if not c.why_it_fits]
         log.warning("rationale: %d/%d candidates missing why_it_fits", len(missing), len(top_candidates), missing=missing)
 
     rationale_elapsed = time.monotonic() - t0
