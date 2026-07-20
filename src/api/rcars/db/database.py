@@ -781,7 +781,7 @@ class Database:
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
             {join_sql}
             {where}
-            ORDER BY COALESCE(bi.ci_name, ce.content_id)
+            ORDER BY ce.content_id
             LIMIT %(limit)s OFFSET %(offset)s
         """
         params["limit"] = limit
