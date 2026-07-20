@@ -44,6 +44,7 @@ export const api = {
     workloads?: string;
     agd_config?: string;
     content_filter?: string;
+    content_type?: string;
     category?: string;
     include_retired?: string | boolean;
     limit?: number;
@@ -56,6 +57,7 @@ export const api = {
     if (params?.workloads) qs.set('workloads', params.workloads);
     if (params?.agd_config) qs.set('agd_config', params.agd_config);
     if (params?.content_filter) qs.set('content_filter', params.content_filter);
+    if (params?.content_type) qs.set('content_type', params.content_type);
     if (params?.category) qs.set('category', params.category);
     if (params?.include_retired) qs.set('include_retired', String(params.include_retired));
     if (params?.limit) qs.set('limit', String(params.limit));
@@ -285,6 +287,7 @@ export const api = {
 
 export interface RetirementWorkflow {
   catalog_base_name: string
+  content_id: string
   status: string
   step_reviewed_at: string | null
   step_reviewed_by: string | null
@@ -324,6 +327,8 @@ export interface ScoreBreakdown {
 
 export interface ReportingMetricsItem {
   catalog_base_name: string
+  content_id?: string
+  content_type?: string
   display_name: string
   provisions: number
   provisions_quarter: number

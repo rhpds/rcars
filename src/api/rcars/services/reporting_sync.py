@@ -726,6 +726,12 @@ def run_reporting_sync(db, settings) -> dict:
              retired_excluded=len(retired_names & all_names),
              filtered=len(filtered_names))
 
+    # Resolve catalog_base_name → content_id for the content model
+    name_to_content_id = db.resolve_base_names_to_content_ids(filtered_names)
+    log.info("resolved_content_ids", resolved=len(name_to_content_id),
+             total=len(filtered_names),
+             unresolved=len(filtered_names - set(name_to_content_id)))
+
     first_provisions = {
         name: (date_data.get(name, {}).get("first_provision", "") or "") or None
         for name in filtered_names
@@ -746,6 +752,7 @@ def run_reporting_sync(db, settings) -> dict:
 
         merged_rows.append({
             "catalog_base_name": name,
+            "content_id": name_to_content_id.get(name),
             "display_name": prov.get("display_name", "") or dates.get("display_name", "") or name,
             "provisions": provisions,
             "provisions_quarter": quarter_data.get(name, 0),
@@ -772,9 +779,18 @@ def run_reporting_sync(db, settings) -> dict:
     log.info("backfilling_catalog", catalog_items=len(catalog_names),
              already_in_reporting=len(filtered_names & set(catalog_names)),
              missing=len(missing), published_bases_excluded=len(published_bases & set(catalog_names)))
+
+    # Resolve backfill names to content_ids
+    backfill_ids = db.resolve_base_names_to_content_ids(missing)
+    name_to_content_id.update(backfill_ids)
+    log.info("resolved_backfill_content_ids", resolved=len(backfill_ids),
+             total=len(missing),
+             unresolved=len(missing - set(backfill_ids)))
+
     for name in missing:
         merged_rows.append({
             "catalog_base_name": name,
+            "content_id": name_to_content_id.get(name),
             "display_name": catalog_names[name] or name,
             "provisions": 0,
             "provisions_quarter": 0,
@@ -825,13 +841,58 @@ def run_reporting_sync(db, settings) -> dict:
             roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
         )
 
-    upserted = db.upsert_reporting_metrics(merged_rows)
-    synced_names = {r["catalog_base_name"] for r in merged_rows}
-    orphans = db.delete_orphan_reporting_metrics(synced_names=synced_names)
+    # Filter out rows where content_id resolution failed
+    unresolved_rows = [r for r in merged_rows if not r.get("content_id")]
+    for r in unresolved_rows:
+        log.warning("skipping_unresolved_content_id",
+                     catalog_base_name=r["catalog_base_name"])
+    resolved_rows = [r for r in merged_rows if r.get("content_id")]
+    log.info("content_id_filter", total=len(merged_rows),
+             resolved=len(resolved_rows), unresolved=len(unresolved_rows))
+
+    # Build channel rows with renamed fields for performance_channels
+    channel_rows = []
+    for row in resolved_rows:
+        channel_rows.append({
+            "content_id": row["content_id"],
+            "channel": "rhdp",
+            "provisions": row["provisions"],
+            "unique_users": row["unique_users"],
+            "requests": row["requests"],
+            "completions": row["experiences"],
+            "pipeline_touched": row["touched_amount"],
+            "closed_amount": row["closed_amount"],
+            "total_cost": row["total_cost"],
+            "avg_cost_per_provision": row["avg_cost_per_provision"],
+            "success_ratio": row["success_ratio"],
+            "first_activity": row["first_provision"],
+            "last_activity": row["last_provision"],
+            "windowed_metrics": row["windowed_metrics"],
+        })
+
+    upserted = db.upsert_performance_channels(channel_rows)
+
+    # Compute and upsert performance scores (one per content_id)
+    scores_upserted = 0
+    for row in resolved_rows:
+        wm = json.loads(row["windowed_metrics"]) if isinstance(row["windowed_metrics"], str) else row["windowed_metrics"]
+        breakdown_12m = wm.get("12m", {}).get("score_breakdown")
+        db.upsert_performance_score(
+            content_id=row["content_id"],
+            score=row["retirement_score"],
+            breakdown=breakdown_12m,
+            channel_scores={"rhdp": {"score": row["retirement_score"]}},
+        )
+        scores_upserted += 1
+
+    synced_content_ids = {r["content_id"] for r in resolved_rows}
+    orphans = db.delete_orphan_performance_data(synced_content_ids=synced_content_ids)
 
     summary = {
         "synced": upserted,
+        "scores_upserted": scores_upserted,
         "orphans_removed": orphans,
+        "unresolved": len(unresolved_rows),
         "catalog_backfilled": len(missing),
         "published_base_merged": merged_pairs,
         "provisions_rows": len(prov_data),

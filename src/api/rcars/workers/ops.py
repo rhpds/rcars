@@ -360,6 +360,36 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:workload_scan", status="failed", message=msg)
 
+    # Step 4b: Sandbox summary generation (after workload scan populates classifications)
+    sandbox_summary_result = None
+    try:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="running",
+                               message="Step 4b: Generating sandbox summaries from infrastructure metadata...")
+        sandbox_job_id = wctx.db.create_job(job_type="sandbox_summary", queue="ops", created_by="maintenance")
+        sandbox_summary_result = await run_sandbox_summary(ctx, sandbox_job_id)
+        generated = sandbox_summary_result.get("generated", 0)
+        total = sandbox_summary_result.get("total", 0)
+        errs = sandbox_summary_result.get("errors", 0)
+        if total == 0:
+            step4b_msg = "Step 4b complete: No sandboxes need summary generation"
+        else:
+            step4b_msg = f"Step 4b complete: {generated}/{total} sandbox summaries generated"
+            if errs:
+                step4b_msg += f" ({errs} errors)"
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="complete",
+                               message=step4b_msg)
+        log.info("pipeline_sandbox_summary_complete", action="pipeline_step_complete",
+                 step="sandbox_summary", **sandbox_summary_result)
+    except Exception as e:
+        msg = f"Step 4b failed (sandbox summary): {e}"
+        warnings.append(msg)
+        log.error("pipeline_sandbox_summary_failed", action="pipeline_step_failed",
+                  step="sandbox_summary", error=str(e), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="failed", message=msg)
+
     # Step 5: Reporting metrics sync (if configured)
     reporting_result = None
     if wctx.settings.reporting_mcp_url and wctx.settings.reporting_mcp_token:
@@ -411,6 +441,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "stale_check": stale_result,
         "analysis_enqueued": analysis_enqueued,
         "workload_scan": workload_scan_result,
+        "sandbox_summary": sandbox_summary_result,
         "reporting_sync": reporting_result,
         "warnings": warnings,
     }
@@ -479,6 +510,101 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
 
     except Exception as e:
         log.error("workload_scan_failed", action="job_failed", error=str(e))
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="failed", status="failed", message=str(e), error=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        raise
+
+
+async def run_sandbox_summary(ctx: dict, job_id: str) -> dict:
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("picked_up", action="picked_up", queue="ops")
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        from rcars.services.sandbox_summary import build_sandbox_summary
+        from rcars.services.analyzer import generate_embedding
+
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="sandbox_summary", status="started",
+                               message="Generating sandbox summaries from infrastructure metadata...")
+
+        sandboxes = wctx.db.get_sandboxes_needing_summary()
+        total = len(sandboxes)
+        log.info("sandbox_summary_candidates", total=total)
+
+        if total == 0:
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="complete", status="complete",
+                                   message="No sandboxes need summary generation")
+            wctx.db.complete_job(job_id, result_json={"generated": 0, "total": 0})
+            return {"generated": 0, "total": 0}
+
+        generated = 0
+        errors = 0
+
+        for i, sandbox in enumerate(sandboxes, 1):
+            content_id = sandbox["content_id"]
+            try:
+                workload_products = wctx.db.get_workload_classifications(content_id)
+
+                result = build_sandbox_summary(
+                    display_name=sandbox.get("display_name", content_id),
+                    description=sandbox.get("description"),
+                    cloud_provider=sandbox.get("cloud_provider"),
+                    ocp_version=sandbox.get("ocp_version"),
+                    agd_config=sandbox.get("agd_config"),
+                    workload_products=workload_products,
+                )
+
+                wctx.db.update_content_entity_card(
+                    content_id,
+                    result["summary"],
+                    result["products_json"],
+                    result["topics_json"],
+                )
+
+                embed_text = f"Environment: {result['summary']}"
+                embedding = generate_embedding(embed_text)
+                wctx.db.clear_embeddings(content_id)
+                wctx.db.store_embedding(
+                    content_id=content_id,
+                    content_type="sandbox",
+                    source="babylon",
+                    embed_type="summary",
+                    content_text=embed_text,
+                    embedding=embedding,
+                )
+
+                generated += 1
+                log.info("sandbox_summary_generated", content_id=content_id,
+                         products=len(result["products_json"]),
+                         topics=len(result["topics_json"]))
+            except Exception as e:
+                errors += 1
+                log.error("sandbox_summary_item_failed", content_id=content_id,
+                          error=str(e), traceback=traceback.format_exc())
+
+            if i % 25 == 0:
+                await publish_progress(wctx.relay, job_id, wctx.db,
+                                       phase="sandbox_summary", status="progress",
+                                       message=f"Sandbox summaries: {i}/{total} processed, {generated} generated...",
+                                       current=i, total=total)
+
+        result = {"generated": generated, "errors": errors, "total": total}
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="complete", status="complete",
+                               message=f"Sandbox summary complete: {generated} generated, {errors} errors out of {total}",
+                               **result)
+        wctx.db.complete_job(job_id, result_json=result)
+        log.info("sandbox_summary_complete", action="job_complete", **result)
+        return result
+
+    except Exception as e:
+        log.error("sandbox_summary_failed", action="job_failed", error=str(e),
+                  traceback=traceback.format_exc())
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="failed", status="failed", message=str(e), error=str(e))
         wctx.db.fail_job(job_id, error=str(e))

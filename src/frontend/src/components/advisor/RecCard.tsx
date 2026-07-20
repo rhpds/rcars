@@ -3,6 +3,8 @@ import { api } from '../../services/api'
 
 interface Candidate {
   ci_name: string
+  content_id?: string
+  content_type?: string
   display_name: string
   tier: string
   relevance_score: number | null
@@ -17,6 +19,8 @@ interface Candidate {
   caveats: string | null
   duration_min: number | null
   duration_source: string | null
+  best_match_type?: string
+  best_match_detail?: string | null
   provisions_quarter?: number | null
   sales_impact?: string | null
 }
