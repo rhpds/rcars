@@ -481,7 +481,7 @@ class Database:
         showroom_url = item.get("showroom_url")
         category = (item.get("category") or "").lower()
         if showroom_url:
-            content_type = "demo" if category in ("demo",) else "lab"
+            content_type = "demo" if category in ("demo", "demos") else "lab"
         else:
             content_type = "sandbox"
 
