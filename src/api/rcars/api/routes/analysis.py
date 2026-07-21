@@ -452,7 +452,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
-            sha_siblings=sha_siblings_map.get(item["ci_name"]),
+            sha_siblings=sha_siblings_map.get(item["content_id"]),
             _queue_name="arq:queue:scan"
         )
 
@@ -499,7 +499,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all")
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
-            sha_siblings=sha_siblings_map.get(item["ci_name"]),
+            sha_siblings=sha_siblings_map.get(item["content_id"]),
             _queue_name="arq:queue:scan"
         )
 

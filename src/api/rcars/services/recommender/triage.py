@@ -67,22 +67,23 @@ def triage(
     if triage_results is None:
         log.error("triage: failed to parse LLM response, raw=%s", response_text[:500])
 
-    # Build lookup by ci_name and content_id for backward compat
     scores_by_key: dict[str, dict] = {}
     if isinstance(triage_results, list):
         for r in triage_results:
             if isinstance(r, dict):
-                if "ci_name" in r:
-                    scores_by_key[r["ci_name"]] = r
                 if "content_id" in r:
                     scores_by_key[r["content_id"]] = r
+                elif "ci_name" in r:
+                    log.warning("triage: LLM returned ci_name instead of content_id: %s", r["ci_name"])
+                    scores_by_key[f"babylon:{r['ci_name']}"] = r
     elif isinstance(triage_results, dict) and "recommendations" in triage_results:
         for r in triage_results["recommendations"]:
             if isinstance(r, dict):
-                if "ci_name" in r:
-                    scores_by_key[r["ci_name"]] = r
                 if "content_id" in r:
                     scores_by_key[r["content_id"]] = r
+                elif "ci_name" in r:
+                    log.warning("triage: LLM returned ci_name instead of content_id: %s", r["ci_name"])
+                    scores_by_key[f"babylon:{r['ci_name']}"] = r
     else:
         log.warning("triage: unexpected result type=%s, keys=%s", type(triage_results).__name__,
                     list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")
@@ -90,10 +91,7 @@ def triage(
     annotated = []
     relevant_count = 0
     for candidate in state.candidates:
-        # Try ci_name first (backward compat with existing triage prompts), then content_id
-        score_data = scores_by_key.get(candidate.ci_name) if candidate.ci_name else None
-        if not score_data:
-            score_data = scores_by_key.get(candidate.content_id)
+        score_data = scores_by_key.get(candidate.content_id)
         if not score_data:
             log.info("  triage: not scored %s — marking white", candidate.content_id)
             annotated.append(candidate)

@@ -192,14 +192,16 @@ def scan(max_analyze: int | None):
             item = futures[future]
             try:
                 result = future.result()
+                content_id = item["content_id"]
+                content_type = item.get("content_type", "lab")
                 if result and "error" in result:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class=result["error"], error_message=result["message"])
+                    db.set_scan_status(content_id, "failed", error_class=result["error"], error_message=result["message"])
                     _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
                 elif result and "analysis" in result:
                     analysis = result["analysis"]
                     db.upsert_showroom_analysis({
-                        "ci_name": result["ci_name"],
+                        "content_id": content_id,
                         "content_type": analysis.get("content_type"),
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
@@ -217,25 +219,27 @@ def scan(max_analyze: int | None):
                         "is_stale": False,
                         "stale_commit": None,
                     })
-                    db.clear_embeddings(result["ci_name"])
+                    db.clear_embeddings(content_id)
                     db.store_embedding(
-                        ci_name=result["ci_name"], embed_type="ci_summary",
+                        content_id=content_id, content_type=content_type, source="babylon",
+                        embed_type="summary",
                         content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
                     )
                     for mod_emb in result.get("module_embeddings", []):
                         db.store_embedding(
-                            ci_name=result["ci_name"], embed_type="module",
+                            content_id=content_id, content_type=content_type, source="babylon",
+                            embed_type="module",
                             module_title=mod_emb["module_title"],
                             content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                         )
-                    db.set_scan_status(result["ci_name"], "success")
+                    db.set_scan_status(content_id, "success")
 
                     # Propagate to siblings with same (url, ref)
                     effective_url = item.get("showroom_url_override") or item["showroom_url"]
                     siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
-                    propagated_set = {result["ci_name"]}
+                    propagated_set = {content_id}
                     analysis_data = {
-                        "ci_name": None,
+                        "content_id": None,
                         "content_type": analysis.get("content_type"),
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
@@ -254,41 +258,43 @@ def scan(max_analyze: int | None):
                         "stale_commit": None,
                     }
 
-                    def _cli_propagate(sib_name):
+                    def _cli_propagate(sib_content_id, sib_content_type):
                         sib_data = dict(analysis_data)
-                        sib_data["ci_name"] = sib_name
+                        sib_data["content_id"] = sib_content_id
                         db.upsert_showroom_analysis(sib_data)
-                        db.clear_embeddings(sib_name)
+                        db.clear_embeddings(sib_content_id)
                         db.store_embedding(
-                            ci_name=sib_name, embed_type="ci_summary",
+                            content_id=sib_content_id, content_type=sib_content_type, source="babylon",
+                            embed_type="summary",
                             content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
                         )
                         for mod_emb in result.get("module_embeddings", []):
                             db.store_embedding(
-                                ci_name=sib_name, embed_type="module",
+                                content_id=sib_content_id, content_type=sib_content_type, source="babylon",
+                                embed_type="module",
                                 module_title=mod_emb["module_title"],
                                 content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                             )
-                        db.set_scan_status(sib_name, "success")
+                        db.set_scan_status(sib_content_id, "success")
 
                     for sibling in siblings:
-                        if sibling["ci_name"] not in propagated_set:
-                            _cli_propagate(sibling["ci_name"])
-                            propagated_set.add(sibling["ci_name"])
+                        if sibling["content_id"] not in propagated_set:
+                            _cli_propagate(sibling["content_id"], sibling.get("content_type", "lab"))
+                            propagated_set.add(sibling["content_id"])
 
                     # Propagate to SHA siblings (different ref, same commit)
-                    sha_sibs = sha_siblings_map.get(item["ci_name"], [])
+                    sha_sibs = sha_siblings_map.get(content_id, [])
                     for sha_sib in sha_sibs:
-                        sib_name = sha_sib["ci_name"]
-                        if sib_name not in propagated_set:
-                            _cli_propagate(sib_name)
-                            propagated_set.add(sib_name)
-                            # Also propagate to this SHA sibling's ref-based siblings
+                        sib_cid = sha_sib["content_id"]
+                        sib_ctype = sha_sib.get("content_type", "lab")
+                        if sib_cid not in propagated_set:
+                            _cli_propagate(sib_cid, sib_ctype)
+                            propagated_set.add(sib_cid)
                             ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
                             for ref_sib in ref_sibs:
-                                if ref_sib["ci_name"] not in propagated_set:
-                                    _cli_propagate(ref_sib["ci_name"])
-                                    propagated_set.add(ref_sib["ci_name"])
+                                if ref_sib["content_id"] not in propagated_set:
+                                    _cli_propagate(ref_sib["content_id"], ref_sib.get("content_type", "lab"))
+                                    propagated_set.add(ref_sib["content_id"])
 
                     propagated = len(propagated_set) - 1
                     completed += 1
@@ -296,14 +302,14 @@ def scan(max_analyze: int | None):
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
                 else:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
+                    db.set_scan_status(content_id, "failed", error_class="no_result", error_message="Analysis returned no results")
                     _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
             except Exception as e:
                 error_class, error_msg = classify_scan_error(
                     e, url=item.get("showroom_url"), ref=item.get("showroom_ref"),
                     content_path=item.get("content_path"))
                 errors += 1
-                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                db.set_scan_status(content_id, "failed", error_class=error_class, error_message=error_msg)
                 _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
 
     elapsed = time.monotonic() - t0

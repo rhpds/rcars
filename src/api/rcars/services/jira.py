@@ -72,9 +72,18 @@ def _jira_request(
         raise
 
 
+def _base_name_from_content_id(content_id: str) -> str:
+    """Derive catalog base name from content_id (e.g. 'babylon:foo.prod' → 'foo')."""
+    name = content_id.removeprefix("babylon:")
+    for suffix in (".prod", ".event", ".dev", ".test"):
+        if name.endswith(suffix):
+            return name[:-len(suffix)]
+    return name
+
+
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
     """Build the Jira ticket description in Jira wiki markup."""
-    base_name = workflow.get("catalog_base_name", "unknown")
+    base_name = _base_name_from_content_id(workflow.get("content_id", "")) or "unknown"
     display_name = metrics.get("display_name", base_name)
     reason = workflow.get("approval_reason", "No reason provided")
     notes = workflow.get("curator_notes")
@@ -176,7 +185,7 @@ def create_retirement_ticket(
 
     Returns the new Jira issue key (e.g. "RHDPCD-999").
     """
-    display_name = metrics.get("display_name", workflow.get("catalog_base_name", "unknown"))
+    display_name = metrics.get("display_name", _base_name_from_content_id(workflow.get("content_id", "")) or "unknown")
     project_key = workflow.get("jira_project", "GPTEINFRA").upper()
     description = build_retirement_description(workflow, metrics)
 

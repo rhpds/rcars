@@ -35,6 +35,7 @@ async def run_recommendation(
 
         candidates_json = [
             {
+                "content_id": c.content_id,
                 "ci_name": c.ci_name,
                 "display_name": c.display_name,
                 "tier": c.tier,
@@ -57,7 +58,7 @@ async def run_recommendation(
         from rcars.services.reporting_sync import compute_sales_impact
 
         for candidate in candidates_json:
-            content_id = candidate.get("content_id") or f"babylon:{candidate['ci_name']}"
+            content_id = candidate["content_id"]
             channels = wctx.db.get_performance_channels(content_id)
             rhdp = next((ch for ch in channels if ch["channel"] == "rhdp"), None) if channels else None
             if rhdp:
