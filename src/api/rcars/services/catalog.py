@@ -231,7 +231,7 @@ def extract_showroom_url(
     return None, None
 
 
-AGD_V2_SCM_URL = "https://github.com/agnosticd/agnosticd-v2"
+AGD_V2_SCM_URL = "https://github.com/rhpds/agnosticd-v2"
 
 VM_WORKLOAD_FIELDS = [
     "software_workloads",
