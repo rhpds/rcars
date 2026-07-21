@@ -49,15 +49,21 @@ def cli(verbose: bool):
 @click.option("--drop", is_flag=True, default=False, help="Drop all tables before creating schema")
 def init_db(drop: bool):
     """Initialize or reset the database schema."""
-    db = get_db()
     if drop:
+        settings = Settings()
+        if not settings.database_url:
+            console.print("[red]Error:[/red] RCARS_DATABASE_URL not set")
+            sys.exit(1)
+        db = Database(settings.database_url)
         console.print("[yellow]Dropping all tables...[/yellow]")
         db.drop_schema()
         db.create_schema()
         console.print("[green]Schema recreated.[/green]")
+        db.close()
     else:
+        db = get_db()
         console.print("[green]Schema is up to date.[/green]")
-    db.close()
+        db.close()
 
 
 @cli.command()
