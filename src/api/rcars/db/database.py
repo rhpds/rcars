@@ -458,7 +458,6 @@ class Database:
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
             "reporting_metrics", "catalog_items",
-            "alembic_version",
         ]
         with self._pool.connection() as conn:
             with conn.cursor() as cur:

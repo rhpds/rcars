@@ -239,7 +239,7 @@ def cmd_import_sessions(args):
             # Table has data — update rows missing chosen_content_id
             if not has_content_id_col:
                 print(f"  Table has {existing_count} rows but no chosen_content_id column.")
-                print("  Skipping — column will be added by Alembic migration.")
+                print("  Skipping — column not present. Run rcars init-db --drop to recreate schema.")
                 return
 
             print(f"  Table has {existing_count} rows. Updating missing chosen_content_id values...")

@@ -72,7 +72,7 @@ def migrate():
         tables = [
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys", "catalog_items", "alembic_version",
+            "api_keys", "catalog_items",
         ]
         for table in tables:
             conn.execute(f"DROP TABLE IF EXISTS {table} CASCADE")

@@ -100,7 +100,7 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## Database
 
-16 tables in PostgreSQL with pgvector. Schema defined in `src/api/rcars/db/database.py`. Migrations in `src/api/alembic/versions/` (currently 001-014). Key tables: `catalog_items` (CRD metadata — ALL Babylon items, not just Showroom; soft-deleted via `retired_at` column), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors), `advisor_sessions` (query history), `catalog_item_workloads` + `workload_mapping` (infrastructure metadata), `reporting_metrics` (retirement scoring + quarterly JSONB breakdowns + `ignored_until` for muting), `retirement_workflow` (retirement lifecycle tracking — approve/notify/start/retired steps, Jira integration, approval snapshots).
+PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/database.py` — this is the single source of truth. `rcars init-db` runs `create_schema()` (all `CREATE TABLE IF NOT EXISTS`) on every deploy. For column additions to existing tables, add `ALTER TABLE ADD COLUMN IF NOT EXISTS` at the bottom of `SCHEMA_SQL`. For structural changes, use `rcars init-db --drop` to drop and recreate. No Alembic — removed in the content model migration (RHDPCD-359). Key tables: `content_entities` (universal entity registry, card fields for Browse/triage), `babylon_items` (Babylon-specific extension, 1:1 with content_entities), `showroom_analysis` (LLM results + content_hash), `embeddings` (384-dim vectors with content_type + source), `advisor_sessions` (query history), `babylon_item_workloads` + `workload_mapping` (infrastructure metadata), `performance_channels` + `performance_scores` (multi-channel performance metrics + retirement scoring), `retirement_workflow` (retirement lifecycle tracking).
 
 **Soft-delete:** Items that disappear from Babylon CRDs get `retired_at = NOW()` instead of being deleted. All active-item queries filter on `retired_at IS NULL`. Items that reappear in a future scan are automatically un-retired. Browse page has a curator-only "Show Retired" toggle.
 
@@ -158,7 +158,7 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags frontend
 ansible-playbook ansible/deploy.yml -e env=dev --tags apply-config
 ```
 
-**Migrations** run automatically after every API build (`--tags api` or `--tags full`). They execute on the new pod, so the code and schema are always in sync. For new tables, `create_schema()` handles them; for column additions to existing tables, Alembic is required.
+**Schema setup** runs automatically after every API build (`--tags api` or `--tags full`). `rcars init-db` executes on the new pod, running `create_schema()` which uses `CREATE TABLE IF NOT EXISTS` — idempotent and safe to repeat. For structural schema changes, run `rcars init-db --drop` manually via port-forward (requires `RCARS_ALLOW_DROP=true` or localhost connection).
 
 Only build the changed component. Never do a full deploy for frontend-only or API-only changes.
 
