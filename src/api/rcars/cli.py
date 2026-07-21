@@ -91,25 +91,26 @@ def refresh():
         sys.exit(1)
 
     _print(f"Retrieved {len(items)} catalog items. Upserting to database...")
-    refreshed_ci_names = set()
+    current_content_ids: set[str] = set()
     count_with_showroom = 0
     for i, item in enumerate(items, 1):
         workloads = item.pop("_workloads", [])
         acl_groups = item.pop("_acl_groups", [])
-        db.upsert_catalog_item(item)
-        db.log_action(item["ci_name"], "refresh")
-        refreshed_ci_names.add(item["ci_name"])
-        db.sync_workloads(item["ci_name"], workloads)
-        db.sync_acl_groups(item["ci_name"], acl_groups)
+        content_id = f"babylon:{item['ci_name']}"
+        db.upsert_babylon_catalog_item(item)
+        db.log_action(content_id, "refresh")
+        current_content_ids.add(content_id)
+        db.sync_workloads(content_id, workloads)
+        db.sync_acl_groups(content_id, acl_groups)
         if item.get("showroom_url"):
             count_with_showroom += 1
         if i % 25 == 0 or i == len(items):
             _print(f"  upserted {i}/{len(items)} items...")
 
-    retired = db.retire_removed_items(refreshed_ci_names)
+    retired = db.retire_removed_items(current_content_ids)
     if retired:
         for r in retired:
-            _print(f"  retired: {r['ci_name']} (stage={r.get('stage', '?')})")
+            _print(f"  retired: {r['content_id']} (stage={r.get('stage', '?')})")
 
     elapsed = time.monotonic() - t0
     _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(retired)} retired.")
@@ -692,34 +693,47 @@ def reporting_db_status(ctx):
 
 
 @reporting_db_group.command("show")
-@click.argument("ci_name")
+@click.argument("identifier")
 @click.pass_context
-def reporting_db_show(ctx, ci_name: str):
-    """Show reporting metrics for a specific CI (accepts ci_name or base name)."""
+def reporting_db_show(ctx, identifier: str):
+    """Show performance metrics for a content entity (accepts ci_name, content_id, or base name)."""
     from rcars.services.reporting_sync import extract_base_name
 
     settings = Settings()
     db = Database(settings.database_url)
-    base_name = extract_base_name(ci_name)
-    metrics = db.get_reporting_metrics(base_name)
 
-    if not metrics:
-        _print(f"No reporting metrics found for: {base_name}")
+    if identifier.startswith("babylon:"):
+        content_id = identifier
+    else:
+        base_name = extract_base_name(identifier)
+        resolved = db.resolve_base_names_to_content_ids({base_name})
+        content_id = resolved.get(base_name)
+        if not content_id:
+            _print(f"No content entity found for: {base_name}")
+            return
+
+    channels = db.get_performance_channels(content_id)
+    score = db.get_performance_score(content_id)
+    rhdp = next((ch for ch in channels if ch["channel"] == "rhdp"), None) if channels else None
+
+    if not rhdp and not score:
+        _print(f"No performance data found for: {content_id}")
         return
 
-    _print(f"  Base name:         {metrics['catalog_base_name']}")
-    _print(f"  Display name:      {metrics['display_name']}")
-    _print(f"  Retirement score:  {metrics['retirement_score']}")
-    _print(f"  Provisions:        {metrics['provisions']} (quarter: {metrics['provisions_quarter']})")
-    _print(f"  Experiences:       {metrics['experiences']}")
-    _print(f"  Unique users:      {metrics['unique_users']}")
-    _print(f"  Touched amount:    ${metrics['touched_amount']:,.0f}")
-    _print(f"  Closed amount:     ${metrics['closed_amount']:,.0f}")
-    _print(f"  Total cost:        ${metrics['total_cost']:,.0f}")
-    _print(f"  Avg cost/prov:     ${metrics['avg_cost_per_provision']:,.2f}")
-    _print(f"  First provision:   {metrics['first_provision'] or 'N/A'}")
-    _print(f"  Last provision:    {metrics['last_provision'] or 'N/A'}")
-    _print(f"  Synced at:         {metrics['synced_at']}")
+    _print(f"  Content ID:        {content_id}")
+    if score:
+        _print(f"  Performance score: {score['performance_score']}")
+    if rhdp:
+        _print(f"  Provisions:        {rhdp.get('provisions', 0)}")
+        _print(f"  Completions:       {rhdp.get('completions', 0)}")
+        _print(f"  Unique users:      {rhdp.get('unique_users', 0)}")
+        _print(f"  Pipeline touched:  ${float(rhdp.get('pipeline_touched') or 0):,.0f}")
+        _print(f"  Closed amount:     ${float(rhdp.get('closed_amount') or 0):,.0f}")
+        _print(f"  Total cost:        ${float(rhdp.get('total_cost') or 0):,.0f}")
+        _print(f"  Avg cost/prov:     ${float(rhdp.get('avg_cost_per_provision') or 0):,.2f}")
+        _print(f"  First activity:    {rhdp.get('first_activity') or 'N/A'}")
+        _print(f"  Last activity:     {rhdp.get('last_activity') or 'N/A'}")
+        _print(f"  Synced at:         {rhdp.get('synced_at')}")
 
 
 # ── Server command ──

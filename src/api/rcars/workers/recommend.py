@@ -54,24 +54,25 @@ async def run_recommendation(
             for c in state.candidates
         ]
 
-        from rcars.services.reporting_sync import extract_base_name, compute_sales_impact
+        from rcars.services.reporting_sync import compute_sales_impact
 
         for candidate in candidates_json:
-            if candidate.get("provisions_quarter") is not None:
-                base_name = extract_base_name(candidate["ci_name"])
-                metrics = wctx.db.get_reporting_metrics(base_name)
-                candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"] or 0) if metrics else None
-                candidate["sales_impact"] = compute_sales_impact(float(metrics["closed_amount"] or 0)) if metrics else None
+            content_id = candidate.get("content_id") or f"babylon:{candidate['ci_name']}"
+            channels = wctx.db.get_performance_channels(content_id)
+            rhdp = next((ch for ch in channels if ch["channel"] == "rhdp"), None) if channels else None
+            if rhdp:
+                import json as _json
+                wm = rhdp.get("windowed_metrics") or {}
+                if isinstance(wm, str):
+                    wm = _json.loads(wm)
+                q = wm.get("3m", {})
+                candidate["provisions_quarter"] = q.get("provisions", 0)
+                candidate["avg_cost_per_provision"] = float(rhdp.get("avg_cost_per_provision") or 0)
+                candidate["sales_impact"] = compute_sales_impact(float(rhdp.get("closed_amount") or 0))
             else:
-                base_name = extract_base_name(candidate["ci_name"])
-                metrics = wctx.db.get_reporting_metrics(base_name)
-                if metrics:
-                    candidate["provisions_quarter"] = metrics["provisions_quarter"]
-                    candidate["avg_cost_per_provision"] = float(metrics["avg_cost_per_provision"] or 0)
-                    candidate["sales_impact"] = compute_sales_impact(float(metrics["closed_amount"] or 0))
-                else:
-                    candidate["avg_cost_per_provision"] = None
-                    candidate["sales_impact"] = None
+                candidate["provisions_quarter"] = candidate.get("provisions_quarter")
+                candidate["avg_cost_per_provision"] = None
+                candidate["sales_impact"] = None
 
         results = {
             "phase": state.phase,

@@ -651,7 +651,7 @@ def analyze_showroom(
         # If so, reuse them instead of calling the LLM again — identical content
         # must produce identical analysis and embeddings.
         if db is not None:
-            donor = db.find_donor_by_content_hash(content_hash, exclude_ci=ci_name)
+            donor = db.find_donor_by_content_hash(content_hash, exclude_content_id=f"babylon:{ci_name}")
             if donor:
                 donor_name = donor["ci_name"]
                 log.info("analyze %s: reusing analysis from %s (same content_hash %s)",
@@ -675,7 +675,7 @@ def analyze_showroom(
                 ci_embedding = generate_embedding(ci_embedding_text)
 
                 # Module embeddings don't include keywords, safe to copy
-                donor_embeddings = db.get_embeddings_for_ci(donor_name)
+                donor_embeddings = db.get_embeddings_for_content(donor["content_id"])
                 module_embeddings = []
                 for e in donor_embeddings:
                     if e["embed_type"] == "module":
