@@ -117,13 +117,10 @@ def cmd_export(args):
         sessions = [dict(row) for row in cur.fetchall()]
         print(f"  {len(sessions)} rows exported")
 
-        # 2. Export active retirement_workflow rows
-        #    Keep anything not fully retired, OR anything with a Jira key
-        #    (Jira links are valuable even for completed retirements)
-        print("Exporting retirement_workflow (active + Jira-linked)...")
+        # 2. Export ALL retirement_workflow rows (small table, keep for audit trail)
+        print("Exporting retirement_workflow (all rows)...")
         cur = conn.execute(
             "SELECT * FROM retirement_workflow "
-            "WHERE status NOT IN ('retired') OR jira_key IS NOT NULL "
             "ORDER BY catalog_base_name"
         )
         workflows = [dict(row) for row in cur.fetchall()]
@@ -277,6 +274,14 @@ def cmd_import_workflows(args):
             print("ERROR: content_entities table not found. Run catalog refresh first.")
             sys.exit(1)
 
+        # Warn if content_entities is empty — all workflows will fail to resolve
+        ce_count = _row_count(conn, "content_entities")
+        if ce_count == 0:
+            print("WARNING: content_entities is empty — catalog refresh may not have run yet.")
+            print("All workflows will be skipped because base names cannot resolve to content_ids.")
+            print("Run catalog refresh first, then re-run this command.")
+            return
+
         # Check if new schema uses content_id PK or catalog_base_name PK
         has_content_id_pk = _column_exists(conn, "retirement_workflow", "content_id")
 
@@ -312,12 +317,16 @@ def cmd_import_workflows(args):
                     "  content_id, status, "
                     "  step_reviewed_at, step_reviewed_by, "
                     "  step_approved_at, step_approved_by, "
+                    "  approval_reason, approval_snapshot, "
                     "  step_notified_at, step_notified_by, "
                     "  step_started_at, step_started_by, "
-                    "  step_retired_at, "
-                    "  jira_key, notes, approval_snapshot"
+                    "  retirement_target_date, step_retired_at, "
+                    "  replacement_ci, replacement_name, "
+                    "  curator_notes, jira_key, jira_project, "
+                    "  created_at, updated_at"
                     ") VALUES ("
-                    "  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb"
+                    "  %s, %s, %s, %s, %s, %s, %s, %s::jsonb, "
+                    "  %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s"
                     ") ON CONFLICT (content_id) DO NOTHING",
                     (
                         content_id,
@@ -326,14 +335,21 @@ def cmd_import_workflows(args):
                         row.get("step_reviewed_by"),
                         row.get("step_approved_at"),
                         row.get("step_approved_by"),
+                        row.get("approval_reason"),
+                        json.dumps(row["approval_snapshot"]) if row.get("approval_snapshot") else None,
                         row.get("step_notified_at"),
                         row.get("step_notified_by"),
                         row.get("step_started_at"),
                         row.get("step_started_by"),
+                        row.get("retirement_target_date"),
                         row.get("step_retired_at"),
-                        row.get("jira_key"),
+                        row.get("replacement_ci"),
+                        row.get("replacement_name"),
                         row.get("curator_notes"),
-                        json.dumps(row["approval_snapshot"]) if row.get("approval_snapshot") else None,
+                        row.get("jira_key"),
+                        row.get("jira_project", "RHDPCD"),
+                        row.get("created_at"),
+                        row.get("updated_at"),
                     ),
                 )
                 imported += 1
@@ -399,21 +415,25 @@ def cmd_import_workflows(args):
 
 
 def _resolve_base_name_to_content_id(
-    conn: psycopg.Connection, base_name: str
+    conn: psycopg.Connection, base_name: str, verbose: bool = True
 ) -> str | None:
     """Resolve a catalog_base_name to a content_id in content_entities.
 
     Tries babylon:{base_name}.prod first, then .event, .dev, .test.
     Returns the first content_id that exists in content_entities, or None.
     """
+    tried = []
     for suffix in STAGE_SUFFIXES:
         candidate = f"babylon:{base_name}{suffix}"
+        tried.append(candidate)
         cur = conn.execute(
             "SELECT content_id FROM content_entities WHERE content_id = %s",
             (candidate,),
         )
         if cur.fetchone():
             return candidate
+    if verbose:
+        print(f"    Tried: {', '.join(tried)} — none found")
     return None
 
 
