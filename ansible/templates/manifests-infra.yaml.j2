@@ -429,6 +429,21 @@ spec:
     dockerStrategy:
       dockerfilePath: Containerfile
 ---
+# Embedding model PVC (vLLM downloads model on first start, PVC persists across restarts)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ app_name }}-embedding-models
+  labels:
+    app: {{ app_name }}
+    component: embedding
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ pg_storage_class }}
+  resources:
+    requests:
+      storage: {{ embedding_pvc_size }}
+---
 # OAuthClient registration
 apiVersion: oauth.openshift.io/v1
 kind: OAuthClient

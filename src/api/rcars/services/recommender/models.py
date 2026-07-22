@@ -49,11 +49,6 @@ class Candidate:
     caveats: str | None = None
 
     @staticmethod
-    def similarity_pct(distance: float) -> int:
-        """Convert cosine distance to similarity percentage (legacy)."""
-        return round((1 - distance / 2) * 100)
-
-    @staticmethod
     def from_similarity(similarity: float) -> int:
         """Convert similarity score (0.0-1.0) to percentage."""
         return round(similarity * 100)

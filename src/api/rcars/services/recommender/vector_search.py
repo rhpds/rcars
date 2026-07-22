@@ -100,7 +100,7 @@ def search(
     effective_stages = stages or ["prod"]
     quality_threshold = 1.0 - distance_cutoff
 
-    query_embedding = generate_embedding(query)
+    query_embedding = generate_embedding(query, prefix="search_query")
 
     rows = db.search_embeddings(
         query_embedding=query_embedding,

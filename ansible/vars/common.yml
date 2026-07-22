@@ -13,6 +13,7 @@ mgmt_service_account:
 pg_image: "quay.io/rhpds/rcars-pgvector:0.8.0-pg16"
 redis_image: "registry.redhat.io/rhel9/redis-7:1"
 oauth_proxy_image: "registry.redhat.io/openshift4/ose-oauth-proxy-rhel9:v4.17"
+embedding_image: "registry.redhat.io/rhaii/vllm-cpu-rhel9:3"
 
 # PostgreSQL
 pg_port: 5432
@@ -50,6 +51,7 @@ api_replicas: 1
 scan_worker_replicas: 1
 recommend_worker_replicas: 1
 frontend_replicas: 1
+embedding_replicas: 1
 
 # Resource limits
 api_cpu_request: 500m
@@ -76,6 +78,14 @@ redis_cpu_request: 100m
 redis_cpu_limit: 500m
 redis_memory_request: 256Mi
 redis_memory_limit: 512Mi
+
+embedding_model: "nomic-ai/nomic-embed-text-v1.5"
+embedding_port: 8000
+embedding_pvc_size: 5Gi
+embedding_cpu_request: "1"
+embedding_cpu_limit: "4"
+embedding_memory_request: 4Gi
+embedding_memory_limit: 8Gi
 
 # API external route (disabled by default — cluster-internal only)
 rcars_api_external_route: false

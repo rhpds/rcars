@@ -7,40 +7,15 @@ structured analysis, generates embeddings, and stores results.
 import hashlib
 import json
 import logging
-import os
 import re
 import shutil
 import subprocess
 import threading
 import uuid
-import warnings
 from pathlib import Path
 from typing import Any
 
-# Silence HuggingFace/sentence-transformers noise before any library imports.
-# These env vars are read at library import time — setting them here at module
-# load ensures they're in place before sentence_transformers is imported lazily
-# inside generate_embedding().
-#
-# TQDM_DISABLE=1            — suppresses the "Loading weights" progress bar
-# TRANSFORMERS_VERBOSITY    — suppresses BertModel LOAD REPORT and similar
-# HF_HUB_DISABLE_PROGRESS_BARS — suppresses HuggingFace download progress
-os.environ.setdefault("TQDM_DISABLE", "1")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-
 log = logging.getLogger(__name__)
-
-# Suppress low-level HTTP and HuggingFace loggers. Set at module load time
-# so they take effect before any CLI basicConfig call cascades DEBUG to root.
-for _noisy_logger in ("httpcore", "httpx", "huggingface_hub", "transformers", "urllib3"):
-    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
-logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
-
-# Suppress the "unauthenticated HF Hub" UserWarning — goes through Python's
-# warnings module, not logging, so setLevel alone doesn't catch it.
-warnings.filterwarnings("ignore", message=".*unauthenticated.*")
-warnings.filterwarnings("ignore", message=".*HF_TOKEN.*")
 
 # Content signals that indicate boilerplate (case-insensitive)
 BOILERPLATE_SIGNALS = [
@@ -525,27 +500,56 @@ def build_analysis_prompt(
     return system_prompt, user_message
 
 
+_embedding_client: Any = None
 _embedding_lock = threading.Lock()
-_embedding_models: dict[str, Any] = {}
 
 
-def generate_embedding(text: str, model_name: str = "all-MiniLM-L6-v2") -> list[float]:
-    """Generate a 384-dim embedding for text using sentence-transformers."""
-    if model_name not in _embedding_models:
+def _get_embedding_client():
+    """Lazy-init a shared httpx client for the vLLM embedding server."""
+    global _embedding_client
+    if _embedding_client is None:
         with _embedding_lock:
-            if model_name not in _embedding_models:
-                from sentence_transformers import SentenceTransformer
-                # Try loading from local cache first (no network check, no tqdm bar).
-                # Falls back to downloading if not yet cached (first install).
-                try:
-                    _embedding_models[model_name] = SentenceTransformer(
-                        model_name, local_files_only=True
+            if _embedding_client is None:
+                import httpx
+                from rcars.config import Settings
+                settings = Settings()
+                if not settings.embedding_url:
+                    raise RuntimeError(
+                        "RCARS_EMBEDDING_URL is not set. "
+                        "A vLLM embedding server is required — see deployment docs."
                     )
-                except Exception:
-                    _embedding_models[model_name] = SentenceTransformer(model_name)
+                headers = {}
+                if settings.embedding_api_key:
+                    headers["Authorization"] = f"Bearer {settings.embedding_api_key}"
+                _embedding_client = httpx.Client(
+                    base_url=settings.embedding_url,
+                    headers=headers,
+                    timeout=30.0,
+                )
+    return _embedding_client
 
-    embedding = _embedding_models[model_name].encode(text, normalize_embeddings=True)
-    return embedding.tolist()
+
+EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
+EMBEDDING_DIM = 768
+
+
+def generate_embedding(text: str, prefix: str = "search_document") -> list[float]:
+    """Generate a 768-dim embedding via the vLLM embedding server.
+
+    Nomic requires task prefixes: 'search_query' for advisor queries,
+    'search_document' for content being indexed. The prefix is prepended
+    client-side before sending to the vLLM /v1/embeddings API.
+    """
+    from rcars.config import Settings
+    client = _get_embedding_client()
+    prefixed_text = f"{prefix}: {text}" if prefix else text
+
+    resp = client.post("/embeddings", json={
+        "model": Settings().embedding_model,
+        "input": prefixed_text,
+    })
+    resp.raise_for_status()
+    return resp.json()["data"][0]["embedding"]
 
 
 def build_embedding_text(analysis: dict[str, Any], keywords: list[str] | None = None, display_name: str | None = None) -> str:

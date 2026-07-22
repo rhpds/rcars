@@ -158,8 +158,8 @@ spec:
 {% endif %}
             - name: RCARS_DEV_USER
               value: ""
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -317,8 +317,8 @@ spec:
                   name: {{ app_name }}-reporting-mcp
                   key: token
 {% endif %}
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -453,8 +453,8 @@ spec:
 {% endif %}
             - name: RCARS_RECOMMEND_MAX_JOBS
               value: "{{ recommend_max_jobs | default('15') }}"
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials
@@ -496,6 +496,99 @@ spec:
 {% endif %}
         - name: tmp
           emptyDir: {}
+---
+# ── Embedding Server Service (internal — used by API and workers) ──
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-embedding
+  labels:
+    app: {{ app_name }}
+    component: embedding
+spec:
+  selector:
+    app: {{ app_name }}
+    component: embedding
+  ports:
+    - port: {{ embedding_port }}
+      targetPort: {{ embedding_port }}
+  type: ClusterIP
+---
+# ── Embedding Server Deployment (vLLM serving nomic-embed-text) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-embedding
+  labels:
+    app: {{ app_name }}
+    component: embedding
+spec:
+  replicas: {{ embedding_replicas }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: embedding
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: embedding
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}-embedding
+          image: {{ embedding_image }}
+          args:
+            - "--model"
+            - "{{ embedding_model }}"
+            - "--task"
+            - "embed"
+            - "--trust-remote-code"
+            - "--dtype"
+            - "float32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "{{ embedding_port }}"
+            - "--download-dir"
+            - "/models"
+          ports:
+            - containerPort: {{ embedding_port }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ embedding_port }}
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ embedding_port }}
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: {{ embedding_cpu_request }}
+              memory: {{ embedding_memory_request }}
+            limits:
+              cpu: "{{ embedding_cpu_limit }}"
+              memory: {{ embedding_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: {{ app_name }}-embedding-models
 ---
 # ── Frontend Deployment ──
 apiVersion: apps/v1

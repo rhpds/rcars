@@ -142,12 +142,14 @@ CREATE TABLE IF NOT EXISTS embeddings (
     embed_type      TEXT NOT NULL,
     module_title    TEXT,
     content_text    TEXT,
-    embedding       vector(384)
+    embedding       vector(768)
 );
 
 CREATE INDEX IF NOT EXISTS idx_emb_content_id ON embeddings(content_id);
 CREATE INDEX IF NOT EXISTS idx_emb_content_type ON embeddings(content_type);
 CREATE INDEX IF NOT EXISTS idx_emb_embed_type ON embeddings(embed_type);
+
+ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector(768);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- performance_channels — replaces reporting_metrics
