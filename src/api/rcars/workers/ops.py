@@ -526,7 +526,6 @@ async def run_sandbox_summary(ctx: dict, job_id: str) -> dict:
 
     try:
         from rcars.services.sandbox_summary import build_sandbox_summary
-        from rcars.services.analyzer import generate_embedding
 
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="sandbox_summary", status="started",
@@ -565,18 +564,6 @@ async def run_sandbox_summary(ctx: dict, job_id: str) -> dict:
                     result["summary"],
                     result["products_json"],
                     result["topics_json"],
-                )
-
-                embed_text = f"Environment: {result['summary']}"
-                embedding = generate_embedding(embed_text)
-                wctx.db.clear_embeddings(content_id)
-                wctx.db.store_embedding(
-                    content_id=content_id,
-                    content_type="sandbox",
-                    source="babylon",
-                    embed_type="summary",
-                    content_text=embed_text,
-                    embedding=embedding,
                 )
 
                 generated += 1
