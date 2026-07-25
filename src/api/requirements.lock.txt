@@ -69,7 +69,7 @@ safetensors==0.7.0
 scikit-learn==1.8.0
 scipy==1.17.1
 sentence-transformers==5.4.1
-setuptools==81.0.0
+setuptools==83.0.0
 shellingham==1.5.4
 six==1.17.0
 slowapi==0.1.10
