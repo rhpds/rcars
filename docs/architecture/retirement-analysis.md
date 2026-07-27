@@ -74,7 +74,7 @@ This amortization means that development and event infrastructure costs are bake
 
 ### Catalog Backfill
 
-After importing reporting data, the sync queries the local `catalog_items` table for all unique base names. Items that exist in the current catalog but have no reporting data (never provisioned by a PROD real user) are backfilled into `reporting_metrics` with zero values. These items score high on the retirement scale (zero provisions + zero sales = strong retirement candidate).
+After importing reporting data, the sync queries the local `content_entities` table (joined with `babylon_items`) for all unique base names. Items that exist in the current catalog but have no reporting data (never provisioned by a PROD real user) are backfilled into `performance_scores` with zero values. These items score high on the retirement scale (zero provisions + zero sales = strong retirement candidate).
 
 This ensures the retirement dashboard covers the entire current catalog — `Prod Retirements + Without Prod = total unique catalog items`.
 
@@ -96,7 +96,7 @@ RCARS joins reporting data to its catalog using `catalog_items.name` in the repo
 
 ### Storage
 
-Merged data is stored in the `reporting_metrics` table (one row per catalog base name) with an `ON CONFLICT ... DO UPDATE` upsert. The `windowed_metrics` JSONB column stores pre-computed metrics for each time window (3m, 6m, 9m, 12m), including the `score_breakdown` dict with per-factor points, levels, and reasons. The `ignored_until` DATE column tracks muted items. After upsert, orphan cleanup removes items not in the current sync batch AND items no longer in the local `catalog_items` table.
+Merged data is stored in the `performance_channels` and `performance_scores` tables (one set of rows per content entity) with an `ON CONFLICT ... DO UPDATE` upsert. The `windowed_metrics` JSONB column on `performance_scores` stores pre-computed metrics for each time window (3m, 6m, 9m, 12m), including the `score_breakdown` dict with per-factor points, levels, and reasons. The `ignored_until` DATE column tracks muted items. After upsert, orphan cleanup removes items not in the current sync batch AND items no longer in the local `content_entities` table.
 
 ---
 
@@ -212,14 +212,14 @@ When catalog items disappear from the Babylon CRDs during a catalog refresh, RCA
 During every catalog refresh (nightly pipeline Step 1, or manual trigger), RCARS:
 
 1. **Upserts all items** from the current CRD scan. Any item being upserted automatically has its `retired_at` cleared — this is the un-retire path.
-2. **Marks missing items** as retired. After all upserts, items in `catalog_items` that were NOT in the current scan and don't already have `retired_at` set get `retired_at = NOW()` with reason "Disappeared from Babylon CRDs".
+2. **Marks missing items** as retired. After all upserts, items in `content_entities` that were NOT in the current scan and don't already have `retired_at` set get `retired_at = NOW()` with reason "Disappeared from Babylon CRDs".
 3. **Logs un-retirements.** Items that were previously retired but reappear in the scan are logged with their ci_names for audit visibility.
 
 ### Query Filtering
 
 All active-item queries include a `WHERE retired_at IS NULL` condition. This applies to:
 
-- **Browse** — `list_catalog_items_filtered()` hides retired items by default
+- **Browse** — catalog listing hides retired items by default
 - **Advisor** — `search_embeddings()` excludes retired items from vector search results
 - **Scan pipeline** — `get_items_needing_analysis()` won't queue retired items for analysis
 - **Admin stats** — `get_status_summary()` and `get_db_currency()` count only active items (with a separate retired count)
@@ -239,8 +239,8 @@ The Browse page hides retired items by default. Curators see a **Show Retired** 
 Fully-retired items (all stage variants soft-deleted) are excluded from the reporting sync and the retirement dashboard:
 
 - **Sync exclusion** — `run_reporting_sync()` calls `get_fully_retired_base_names()` and removes those names from the MCP import before computing percentile rankings. This prevents retired items from diluting the scoring pool — a mediocre active item shouldn't look good just because there are retired items with zero activity below it.
-- **Dashboard exclusion** — `list_reporting_metrics()` requires at least one active `catalog_items` entry (`retired_at IS NULL`) for the base name. A fully-retired item won't appear in either the Prod or Without Prod tab.
-- **Orphan cleanup** — since retired items are excluded from the sync, they're not in the synced-names set, and the orphan cleanup removes their `reporting_metrics` rows. This is intentional: reporting data is always re-derivable from the MCP server, unlike analysis and embeddings which are unique computed data.
+- **Dashboard exclusion** — `list_performance_data()` requires at least one active `content_entities` entry (`retired_at IS NULL`) for the base name. A fully-retired item won't appear in either the Prod or Without Prod tab.
+- **Orphan cleanup** — since retired items are excluded from the sync, they're not in the synced-names set, and the orphan cleanup removes their `performance_scores` rows. This is intentional: reporting data is always re-derivable from the MCP server, unlike analysis and embeddings which are unique computed data.
 - **Partial retirement** — if only the `.prod` variant is retired but `.dev` is still active, the item IS included in the sync and scores normally. It appears in the "Without Prod" tab, correctly reflecting that it's now a dev-only item.
 
 ---
@@ -343,7 +343,7 @@ The `retirement_workflow` table tracks one row per catalog base name:
 
 | Column | Type | Purpose |
 |---|---|---|
-| `catalog_base_name` | TEXT PK | Links to `reporting_metrics` |
+| `content_id` | TEXT PK | Links to `content_entities` |
 | `status` | TEXT | Derived: `approved`, `notified`, `started`, `retired` |
 | `step_approved_at/by` | TIMESTAMPTZ, TEXT | When and who approved |
 | `approval_reason` | TEXT | Required reason for retirement |
@@ -351,6 +351,7 @@ The `retirement_workflow` table tracks one row per catalog base name:
 | `step_notified_at/by` | TIMESTAMPTZ, TEXT | Optional owner notification |
 | `step_started_at/by` | TIMESTAMPTZ, TEXT | When Jira was created |
 | `retirement_target_date` | DATE | Target retirement date |
+| `step_reviewed_at/by` | TIMESTAMPTZ, TEXT | When and who reviewed |
 | `step_retired_at` | TIMESTAMPTZ | Auto-set when item disappears |
 | `replacement_ci` | TEXT | Base name of replacement item |
 | `replacement_name` | TEXT | Display name of replacement |

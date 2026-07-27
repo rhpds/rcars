@@ -27,7 +27,7 @@ RCARS addresses all three by reading the actual lab content — not just titles 
 
 ### Content Ingestion
 
-RCARS reads the live RHDP catalog directly from the Babylon platform's Kubernetes CRDs. For every catalog item with a Showroom (lab content repository), it clones the repo, reads the AsciiDoc modules, and sends the content to Claude Sonnet for structured analysis: what the lab covers, learning objectives, audience, duration estimate, and format suitability. The analysis is stored alongside 384-dimensional vector embeddings that capture the semantic meaning of each piece of content.
+RCARS reads the live RHDP catalog directly from the Babylon platform's Kubernetes CRDs. For every catalog item with a Showroom (lab content repository), it clones the repo, reads the AsciiDoc modules, and sends the content to Claude Sonnet for structured analysis: what the lab covers, learning objectives, audience, duration estimate, and format suitability. The analysis is stored alongside 768-dimensional vector embeddings (via a dedicated vLLM embedding server) that capture the semantic meaning of each piece of content.
 
 For AgnosticD v2 items, RCARS also extracts infrastructure metadata — cloud provider, OCP version, installed workloads — and maps workload roles to human-readable product names through a curated mapping table.
 
