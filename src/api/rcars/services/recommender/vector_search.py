@@ -73,6 +73,7 @@ def _resolve_ci_references(
         neighbors = db.search_embeddings(
             query_embedding=embedding, limit=25, stages=stages,
             include_zt=include_zt, content_types=content_types,
+            quality_threshold=0.45,
         )
         for row in neighbors:
             if row["content_id"] != item["content_id"] and row["content_id"] not in seen:
@@ -108,6 +109,7 @@ def search(
         stages=effective_stages,
         include_zt=include_zt,
         content_types=content_types,
+        quality_threshold=quality_threshold,
     )
 
     ci_ref_rows = _resolve_ci_references(query, db, effective_stages, include_zt, content_types)

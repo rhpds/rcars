@@ -3456,5 +3456,5 @@ Task 12: Migration Execution (depends on ALL Tasks 1-11)
 - **Git workflow:** Batch commits at task boundaries. Push at milestones (e.g., after Tasks 1-4, after Tasks 5-8, after Tasks 9-11). NEVER push without explicit user approval.
 - **Test continuously:** Run `python -m pytest tests/ -v` after each task. Update test fixtures as needed — many tests reference `catalog_items` table and `ci_name` fields.
 - **Database method naming:** New methods use `content_id` parameter names. Backward-compat methods (e.g., `get_babylon_item_by_ci_name()`) are provided for code paths that still use `ci_name`.
-- **No Alembic migrations:** This is a full schema swap via `create_schema()`. Alembic version table is dropped and recreated. Future incremental changes (e.g., adding Portfolio Architecture tables) will use Alembic.
+- **No Alembic migrations:** This is a full schema swap via `create_schema()`. Alembic was removed in this migration. Future incremental changes use `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` appended to `SCHEMA_SQL` in `database.py`.
 - **Frontend TypeScript:** All new fields added as optional (`?`) to interfaces. No breaking type changes. `npm run build` must pass without errors.

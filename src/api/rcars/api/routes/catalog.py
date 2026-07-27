@@ -15,11 +15,17 @@ from rcars.api.schemas import (
 router = APIRouter(prefix="/catalog")
 
 
-def _resolve_to_content_id(identifier: str) -> str:
-    """Return content_id from an identifier that may be a ci_name or content_id."""
-    if identifier.startswith("babylon:"):
-        return identifier
-    return f"babylon:{identifier}"
+def _resolve_to_content_id(identifier: str, db=None) -> str:
+    """Return content_id from an identifier that may be a ci_name or content_id.
+
+    When db is provided, validates existence and raises 404 if not found.
+    """
+    content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    if db is not None:
+        entity = db.get_content_entity(content_id)
+        if not entity:
+            raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")
+    return content_id
 
 
 def _resolve_item(identifier: str, db) -> dict | None:
@@ -295,7 +301,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
 )
 async def get_analysis(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     analysis = db.get_showroom_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
@@ -329,7 +335,7 @@ class TagRequest(BaseModel):
 )
 async def add_tag(identifier: str, body: TagRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.add_enrichment_tag(content_id, body.tag_type, body.tag_value, added_by=user)
     return {"status": "ok"}
 
@@ -342,7 +348,7 @@ async def add_tag(identifier: str, body: TagRequest, request: Request, user: str
 )
 async def remove_tag(identifier: str, tag_id: int, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.remove_enrichment_tag_by_id(tag_id, content_id=content_id)
     return {"status": "ok"}
 
@@ -359,7 +365,7 @@ class NoteRequest(BaseModel):
 )
 async def set_note(identifier: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.set_enrichment_note(content_id, body.note)
     return {"status": "ok"}
 
@@ -372,7 +378,7 @@ async def set_note(identifier: str, body: NoteRequest, request: Request, user: s
 )
 async def flag_item(identifier: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.set_enrichment_review_flag(content_id, True)
     return {"status": "ok"}
 
@@ -389,7 +395,7 @@ class OverrideUrlRequest(BaseModel):
 )
 async def override_url(identifier: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.set_showroom_url_override(content_id, body.url)
     return {"status": "ok"}
 
@@ -406,7 +412,7 @@ class DurationRequest(BaseModel):
 )
 async def set_duration(identifier: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     db.set_curated_duration(content_id, body.duration_min, updated_by=user)
     return {"status": "ok"}
 
@@ -433,7 +439,7 @@ class ContentPathRequest(BaseModel):
 )
 async def set_content_path(identifier: str, body: ContentPathRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier)
+    content_id = _resolve_to_content_id(identifier, db)
     path = body.path.strip().rstrip("/") if body.path else None
     db.set_content_path(content_id, path)
     return {"status": "ok", "content_path": path, "job_id": ""}

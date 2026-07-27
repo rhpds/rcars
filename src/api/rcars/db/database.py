@@ -149,8 +149,6 @@ CREATE INDEX IF NOT EXISTS idx_emb_content_id ON embeddings(content_id);
 CREATE INDEX IF NOT EXISTS idx_emb_content_type ON embeddings(content_type);
 CREATE INDEX IF NOT EXISTS idx_emb_embed_type ON embeddings(embed_type);
 
-ALTER TABLE embeddings ALTER COLUMN embedding TYPE vector(768);
-
 -- ═══════════════════════════════════════════════════════════════════
 -- performance_channels — replaces reporting_metrics
 -- ═══════════════════════════════════════════════════════════════════
@@ -475,8 +473,11 @@ class Database:
 
     # ── Content entities + Babylon items ──
 
-    def upsert_babylon_catalog_item(self, item: dict[str, Any]):
-        """Upsert a Babylon catalog item across content_entities + babylon_items in one transaction."""
+    def upsert_babylon_catalog_item(self, item: dict[str, Any]) -> str:
+        """Upsert a Babylon catalog item across content_entities + babylon_items in one transaction.
+
+        Returns the content_id that was written.
+        """
         ci_name = item["ci_name"]
         content_id = f"babylon:{ci_name}"
 
@@ -545,6 +546,7 @@ class Database:
                 cur.execute(ce_sql, ce_data)
                 cur.execute(bi_sql, bi_data)
             conn.commit()
+        return content_id
 
     def get_content_entity(self, content_id: str) -> dict[str, Any] | None:
         with self._pool.connection() as conn:
@@ -1740,6 +1742,7 @@ class Database:
     def get_sandboxes_needing_summary(self) -> list[dict]:
         sql = """
             SELECT ce.content_id, ce.display_name, ce.summary,
+                   ce.audience_json, ce.difficulty,
                    bi.ci_name, bi.description, bi.cloud_provider,
                    bi.ocp_version, bi.agd_config
             FROM content_entities ce
@@ -1747,7 +1750,7 @@ class Database:
             WHERE ce.content_type = 'sandbox'
               AND ce.retired_at IS NULL
               AND (ce.summary IS NULL
-                   OR ce.updated_at < (
+                   OR bi.last_refreshed > (
                        SELECT COALESCE(MAX(wss.last_scanned), '1970-01-01')
                        FROM workload_scan_state wss
                    ))
@@ -2248,14 +2251,15 @@ class Database:
             with conn.cursor() as cur:
                 deleted = 0
                 if synced_content_ids:
+                    id_list = list(synced_content_ids)
                     cur.execute(
-                        "DELETE FROM performance_channels WHERE content_id NOT IN (SELECT content_id FROM content_entities) AND content_id != ALL(%s)",
-                        (list(synced_content_ids),),
+                        "DELETE FROM performance_channels WHERE content_id != ALL(%s)",
+                        (id_list,),
                     )
                     deleted += cur.rowcount
                     cur.execute(
-                        "DELETE FROM performance_scores WHERE content_id NOT IN (SELECT content_id FROM content_entities) AND content_id != ALL(%s)",
-                        (list(synced_content_ids),),
+                        "DELETE FROM performance_scores WHERE content_id != ALL(%s)",
+                        (id_list,),
                     )
                     deleted += cur.rowcount
                 else:
@@ -2270,6 +2274,10 @@ class Database:
         if not base_names:
             return {}
         STAGE_SUFFIXES = [".prod", ".event", ".dev", ".test"]
+        candidates = []
+        for bn in base_names:
+            for suffix in STAGE_SUFFIXES:
+                candidates.append(bn + suffix)
         sql = """
             SELECT bi.ci_name, bi.content_id, ce.retired_at,
                    CASE bi.stage
@@ -2279,11 +2287,12 @@ class Database:
                    END AS stage_priority
             FROM babylon_items bi
             JOIN content_entities ce ON ce.content_id = bi.content_id
+            WHERE bi.ci_name = ANY(%s)
             ORDER BY stage_priority, ce.retired_at NULLS FIRST
         """
         result = {}
         with self._pool.connection() as conn:
-            rows = conn.execute(sql).fetchall()
+            rows = conn.execute(sql, (candidates,)).fetchall()
         for row in rows:
             ci_name = row["ci_name"]
             for suffix in STAGE_SUFFIXES:

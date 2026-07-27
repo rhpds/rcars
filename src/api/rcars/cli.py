@@ -96,9 +96,8 @@ def refresh():
     for i, item in enumerate(items, 1):
         workloads = item.pop("_workloads", [])
         acl_groups = item.pop("_acl_groups", [])
-        content_id = f"babylon:{item['ci_name']}"
-        db.upsert_babylon_catalog_item(item)
-        db.log_action(content_id, "refresh")
+        content_id = db.upsert_babylon_catalog_item(item)
+        db.log_action(item["ci_name"], "refresh")
         current_content_ids.add(content_id)
         db.sync_workloads(content_id, workloads)
         db.sync_acl_groups(content_id, acl_groups)
@@ -190,10 +189,10 @@ def scan(max_analyze: int | None):
         futures = {executor.submit(process_item, item): item for item in items}
         for future in as_completed(futures):
             item = futures[future]
+            content_id = item["content_id"]
+            content_type = item.get("content_type", "lab")
             try:
                 result = future.result()
-                content_id = item["content_id"]
-                content_type = item.get("content_type", "lab")
                 if result and "error" in result:
                     errors += 1
                     db.set_scan_status(content_id, "failed", error_class=result["error"], error_message=result["message"])

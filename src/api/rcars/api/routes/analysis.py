@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth
 from rcars.api.schemas import (
@@ -112,7 +112,10 @@ async def retirement_dashboard(
         # Apply windowed metrics overlay
         wm = item.get("windowed_metrics") or {}
         if isinstance(wm, str):
-            wm = _json.loads(wm)
+            try:
+                wm = _json.loads(wm)
+            except (ValueError, TypeError):
+                wm = {}
         w = wm.get(window_key, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
@@ -561,6 +564,9 @@ async def analyze_single(identifier: str, request: Request, user: str = Depends(
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    entity = db.get_content_entity(content_id)
+    if not entity:
+        raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")
     job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
     await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}

@@ -65,7 +65,7 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
             lines.append(f"OpenShift Version: {ocp}")
         workloads = analysis.get("workload_classifications", [])
         if workloads:
-            wl_names = [w.get("workload_name", "") for w in workloads if w.get("workload_name")]
+            wl_names = [w.get("product_name", "") for w in workloads if w.get("product_name")]
             if wl_names:
                 lines.append(f"Workloads: {'; '.join(wl_names)}")
 

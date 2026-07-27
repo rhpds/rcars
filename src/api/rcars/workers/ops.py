@@ -111,8 +111,7 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
         for i, item in enumerate(items, 1):
             workloads = item.pop("_workloads", [])
             acl_groups = item.pop("_acl_groups", [])
-            content_id = f"babylon:{item['ci_name']}"
-            wctx.db.upsert_babylon_catalog_item(item)
+            content_id = wctx.db.upsert_babylon_catalog_item(item)
             current_content_ids.add(content_id)
             wctx.db.sync_workloads(content_id, workloads)
             wctx.db.sync_acl_groups(content_id, acl_groups)
@@ -564,6 +563,8 @@ async def run_sandbox_summary(ctx: dict, job_id: str) -> dict:
                     result["summary"],
                     result["products_json"],
                     result["topics_json"],
+                    audience_json=sandbox.get("audience_json"),
+                    difficulty=sandbox.get("difficulty"),
                 )
 
                 generated += 1
