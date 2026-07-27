@@ -57,7 +57,7 @@ These per-pod limits cannot be changed via configuration. To increase total conc
 
 Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
-The scan worker has higher resource limits because it runs `git clone` operations and loads the sentence-transformers model for embedding generation.
+The scan worker has higher resource limits because it runs `git clone` operations and sends content to the vLLM embedding server for embedding generation.
 
 ## Scan Deduplication
 

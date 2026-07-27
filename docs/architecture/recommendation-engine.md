@@ -17,7 +17,7 @@ flowchart TD
     Fetch --> Extract[Extract Event Profile<br/>via Sonnet]
     Extract --> Merge[Merge Event Queries<br/>with User Text]
     URLCheck -->|No| Merge
-    Merge --> Embed[Embed Query<br/>all-MiniLM-L6-v2]
+    Merge --> Embed[Embed Query<br/>nomic-embed-text-v1.5]
 
     subgraph "Phase 1 — Vector Search"
         Embed --> PGV[pgvector Cosine Search<br/>Find nearest embeddings]
@@ -52,7 +52,7 @@ Vector search is how RCARS finds relevant content without requiring exact keywor
 
 ### How It Works
 
-1. The user's query text is converted into a 384-dimensional vector using the same `all-MiniLM-L6-v2` model used during scanning. This vector captures the semantic meaning of the query — "I need content about securing Kubernetes clusters" produces a vector that is close to labs about ACS, compliance operators, and pod security.
+1. The user's query text is converted into a 768-dimensional vector using the same nomic-embed-text-v1.5 model used during scanning. This vector captures the semantic meaning of the query — "I need content about securing Kubernetes clusters" produces a vector that is close to labs about ACS, compliance operators, and pod security.
 
 2. PostgreSQL's pgvector extension compares this query vector against every stored lab embedding using **cosine distance** (the `<=>` operator). Cosine distance measures how different two vectors' directions are, on a scale from 0.0 (identical meaning) to 2.0 (opposite meaning). In practice, distances above 0.6 indicate little meaningful similarity.
 
@@ -202,7 +202,7 @@ When a URL is detected in the user's query, RCARS runs an event parsing step bef
 
 ## Acronym Expansion
 
-The embedding model (`all-MiniLM-L6-v2`) does not recognize Red Hat product acronyms. "AAP" produces a poor vector match (distance 0.66) while "Ansible Automation Platform" matches well (distance 0.28).
+The embedding model (nomic-embed-text-v1.5) does not recognize Red Hat product acronyms. "AAP" produces a poor vector match (distance 0.66) while "Ansible Automation Platform" matches well (distance 0.28).
 
 Before embedding, RCARS expands recognized acronyms inline — "AAP" becomes "AAP (Ansible Automation Platform)". This preserves the original text while adding the expanded form for the embedding model. The expansion is case-insensitive.
 

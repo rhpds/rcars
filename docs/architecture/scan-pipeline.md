@@ -20,7 +20,7 @@ flowchart TD
     Filter --> Prompt[Build Prompt<br/>+ CI metadata]
     Prompt --> LLM[Call Claude Sonnet<br/>max_tokens=8192, temp=0]
     LLM --> Parse[Parse JSON Response]
-    Parse --> Embed[Generate Embeddings<br/>all-MiniLM-L6-v2, 384-dim]
+    Parse --> Embed[Generate Embeddings<br/>nomic-embed-text-v1.5, 768-dim]
     Embed --> Store[Store Analysis +<br/>Embeddings in PostgreSQL]
     Store --> Siblings{Has Siblings?<br/>Same URL+ref}
     Siblings -->|Yes| Propagate[Propagate to<br/>All Siblings]
@@ -107,9 +107,9 @@ Sonnet's response is expected to be JSON. The parser handles common response art
 
 ## Step 6 — Generate Embeddings
 
-This is where the structured analysis from Step 4 gets converted into a form that enables semantic search. The analysis JSON tells us *what* a lab teaches in human-readable terms. The embedding step converts that into a **vector** — a list of 384 numbers — that captures the *meaning* of that content in a way that a database can search efficiently.
+This is where the structured analysis from Step 4 gets converted into a form that enables semantic search. The analysis JSON tells us *what* a lab teaches in human-readable terms. The embedding step converts that into a **vector** — a list of 768 numbers — that captures the *meaning* of that content in a way that a database can search efficiently.
 
-The conversion is done by a sentence-transformers model (`all-MiniLM-L6-v2`) that runs locally inside the RCARS pod. The model takes text as input and produces a 384-dimensional vector as output. Texts with similar meaning produce similar vectors — so two labs that both teach "deploying applications with GitOps on OpenShift" will have vectors that point in roughly the same direction, even if one uses ArgoCD terminology and the other uses Flux.
+The conversion is done by the nomic-embed-text-v1.5 model served by a dedicated vLLM server (configured via `RCARS_EMBEDDING_URL`). The model takes text as input and produces a 768-dimensional vector as output. Texts with similar meaning produce similar vectors — so two labs that both teach "deploying applications with GitOps on OpenShift" will have vectors that point in roughly the same direction, even if one uses ArgoCD terminology and the other uses Flux.
 
 These vectors are stored in the `embeddings` table in PostgreSQL (using the pgvector extension) and are the foundation for two features:
 
@@ -140,7 +140,7 @@ The CI-level embedding combines data from **two different sources**: keywords co
 
 ### Technical Details
 
-The sentence-transformers model requires no external API call — it runs locally with negligible latency. Embeddings are normalized to unit vectors, which makes cosine similarity equivalent to dot product. pgvector's IVFFlat index on the embedding column enables fast nearest-neighbor search across thousands of vectors.
+The embedding model runs on a dedicated vLLM server that provides an OpenAI-compatible `/v1/embeddings` API. Nomic requires task prefixes (`search_document` for indexing, `search_query` for queries), which RCARS applies automatically. Embeddings are normalized to unit vectors, which makes cosine similarity equivalent to dot product. pgvector's IVFFlat index on the embedding column enables fast nearest-neighbor search across thousands of vectors.
 
 ## Step 7 — Store, Propagate, and Clean Up
 
@@ -191,7 +191,7 @@ Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) w
 
 ## Error Classification
 
-When a scan fails, RCARS classifies the error into one of these categories (stored in `catalog_items.scan_error_class`):
+When a scan fails, RCARS classifies the error into one of these categories (stored in `babylon_items.scan_error_class`):
 
 | Error Class | Cause |
 |---|---|

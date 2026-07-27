@@ -13,11 +13,11 @@ This is a curator tool for consolidating duplicate content. It is not part of th
 
 The overlap system is built entirely on top of infrastructure that already exists from the scan and recommendation pipelines. No new models, no new external API calls, and no new data collection steps are required.
 
-During the scan pipeline, every analyzed Showroom lab gets a **CI-level embedding** — a 384-dimensional vector that captures what the lab is about. These embeddings live in the `embeddings` table and are the same vectors used by the recommendation engine's vector search. The overlap system reuses them for a different purpose: instead of comparing a user's query against lab embeddings, it compares lab embeddings against each other.
+During the scan pipeline, every analyzed Showroom lab gets a **CI-level embedding** — a 768-dimensional vector that captures what the lab is about. These embeddings live in the `embeddings` table and are the same vectors used by the recommendation engine's vector search. The overlap system reuses them for a different purpose: instead of comparing a user's query against lab embeddings, it compares lab embeddings against each other.
 
 ## How Cosine Similarity Works
 
-Each embedding is a list of 384 numbers produced by the sentence-transformer model. These numbers position the lab in a high-dimensional semantic space where similar content clusters together. To measure how similar two labs are, RCARS computes the **cosine similarity** between their embedding vectors.
+Each embedding is a list of 768 numbers produced by the nomic-embed-text-v1.5 model. These numbers position the lab in a high-dimensional semantic space where similar content clusters together. To measure how similar two labs are, RCARS computes the **cosine similarity** between their embedding vectors.
 
 Cosine similarity measures the angle between two vectors, ignoring their magnitude. Two vectors pointing in the same direction have a cosine similarity of 1.0 (identical meaning). Two vectors at right angles have a cosine similarity of 0.0 (unrelated topics). In practice, scores below 0.5 indicate little meaningful overlap.
 
@@ -31,15 +31,15 @@ The computation is a single SQL query that joins the `embeddings` table against 
 
 ```sql
 -- Simplified version of the actual query
-INSERT INTO content_similarity (ci_name_a, ci_name_b, similarity_score)
-SELECT a.ci_name, b.ci_name, 1.0 - (a.embedding <=> b.embedding)
+INSERT INTO content_similarity (content_id_a, content_id_b, similarity_score)
+SELECT a.content_id, b.content_id, 1.0 - (a.embedding <=> b.embedding)
 FROM embeddings a
-JOIN embeddings b ON a.ci_name < b.ci_name   -- each pair once
+JOIN embeddings b ON a.content_id < b.content_id   -- each pair once
 WHERE a.embed_type = 'ci_summary'
   AND b.embed_type = 'ci_summary'
   AND 1.0 - (a.embedding <=> b.embedding) >= 0.75  -- threshold
-  AND ci_a.stage = 'prod'                           -- same stage
-  AND ci_b.stage = 'prod'
+  AND bi_a.stage = 'prod'                           -- same stage (babylon_items)
+  AND bi_b.stage = 'prod'
 ```
 
 The `a.ci_name < b.ci_name` condition ensures each pair is stored exactly once (A↔B, never both A→B and B→A). Published Virtual CIs are excluded because they have no Showroom content — they are ordering wrappers that point to a base CI.

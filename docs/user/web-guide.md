@@ -233,7 +233,7 @@ The Overlap page helps identify catalog items that teach substantially the same 
 
 #### Understanding how similarity works
 
-When RCARS scans a Showroom lab, it sends the lab's content to Claude Sonnet, which returns a structured analysis: summary, topics, products, modules, and learning objectives. RCARS then feeds that analysis text into a sentence-transformer model (all-MiniLM-L6-v2), which converts it into a list of 384 numbers called an **embedding**. Think of this as a fingerprint that captures *what the lab is about* — not the exact words used, but the underlying meaning. Two labs about "deploying containerized applications on OpenShift" will get similar fingerprints even if they use completely different wording.
+When RCARS scans a Showroom lab, it sends the lab's content to Claude Sonnet, which returns a structured analysis: summary, topics, products, modules, and learning objectives. RCARS then feeds that analysis text into a nomic-embed-text-v1.5 embedding model, which converts it into a list of 768 numbers called an **embedding**. Think of this as a fingerprint that captures *what the lab is about* — not the exact words used, but the underlying meaning. Two labs about "deploying containerized applications on OpenShift" will get similar fingerprints even if they use completely different wording.
 
 Every analyzed lab in the catalog already has one of these fingerprints stored in the database from its original scan. The overlap detection reuses them — it does not call Claude or any external API. The entire computation runs inside PostgreSQL.
 

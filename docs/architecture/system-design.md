@@ -140,7 +140,7 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 **What's extracted:** config type (`agd_config`), cloud provider, OCP version, OS image, cluster sizing, VM topology, workloads (Ansible roles in FQCN format), and ACL groups.
 
-**Workload extraction:** Workload role names are extracted from the CRD `spec.definition` during catalog refresh. These come from multiple sources — `workloads`, `software_workloads`, `openshift_workload_deployer_workloads`, and other stage-specific fields — and include roles from any Ansible collection, not just the `agnosticd` organization. All discovered roles are stored in `catalog_item_workloads`.
+**Workload extraction:** Workload role names are extracted from the CRD `spec.definition` during catalog refresh. These come from multiple sources — `workloads`, `software_workloads`, `openshift_workload_deployer_workloads`, and other stage-specific fields — and include roles from any Ansible collection, not just the `agnosticd` organization. All discovered roles are stored in `babylon_item_workloads`.
 
 **Workload mapping:** Extracted role names are mapped to human-readable product names via a curated `workload_mapping` table. Product aliases allow queries using common names (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in queries; unmapped roles are stored but invisible until curated.
 
@@ -152,11 +152,11 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 ## PostgreSQL and Vector Embeddings
 
-RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed with `CREATE TABLE IF NOT EXISTS` for fresh installs and Alembic migrations for changes to existing tables. For the full table list and column-level details, see the [Schema Reference](schema-reference.md).
+RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed via `SCHEMA_SQL` in `database.py` — `CREATE TABLE IF NOT EXISTS` for fresh installs, `ALTER TABLE ADD COLUMN IF NOT EXISTS` for additions. No Alembic. For the full table list and column-level details, see the [Data Design](data-design.md).
 
 Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings, reporting metrics) is preserved. Active-item queries filter on `retired_at IS NULL`. See [Retirement Analysis — Soft-Delete](retirement-analysis.md#soft-delete--preserving-retired-items) for details.
 
-The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 384 numbers produced by a locally-running sentence-transformers model (`all-MiniLM-L6-v2`). These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
+The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 768 numbers produced by `nomic-embed-text-v1.5`, served by a dedicated vLLM embedding server. These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
 For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.
 
@@ -167,7 +167,7 @@ These embeddings power two core features:
 
 **Cosine similarity** measures the angle between two vectors. A score of 1.0 means identical meaning; 0.0 means unrelated. pgvector returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index makes this search fast even across thousands of embeddings.
 
-The sentence-transformers model runs locally inside the RCARS pod — embedding generation requires no external API call and adds negligible latency.
+The embedding model runs on a dedicated vLLM server (`RCARS_EMBEDDING_URL`). It provides an OpenAI-compatible `/v1/embeddings` API and supports batch generation.
 
 ---
 
@@ -198,7 +198,7 @@ The split exists because of a starvation problem: with a single worker, a bulk s
 2. **API** enqueues the task to the appropriate Redis queue
 3. **Worker** picks up the task, updates status to `running`
 4. **Worker** executes the task and writes results to PostgreSQL
-5. **Worker** atomically updates both `catalog_items.scan_status` and `jobs.status` in a single transaction (via `complete_scan()`)
+5. **Worker** atomically updates both `babylon_items.scan_status` and `jobs.status` in a single transaction (via `complete_scan()`)
 6. For recommendation jobs: progress is published to Redis pub/sub, relayed to the browser via SSE
 
 ### Configuration
@@ -271,7 +271,7 @@ RCARS runs on OpenShift, managed by an Ansible playbook (`ansible/deploy.yml`) w
 | `build-api` | Trigger API image build, wait for build + rollout |
 | `build-frontend` | Trigger frontend image build, wait for build |
 | `apply` | Apply Kubernetes manifests only (config changes, secrets, env vars) |
-| `migrate` | Run `rcars init-db` + `alembic upgrade head` on the current pod |
+| `migrate` | Run `rcars init-db` on the current pod |
 | `mgmt-rbac` | Bootstrap management ServiceAccount, ClusterRole, and kubeconfig |
 
 **Migration ordering:** Migrations execute on the running API pod. When deploying changes that include schema modifications, use `--tags update` — never run `--tags migrate` before `--tags build-api`.

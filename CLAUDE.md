@@ -105,13 +105,13 @@ PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/da
 
 ## Retirement Analysis — Key Implementation Details
 
-Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `reporting_metrics` table → `/analysis/retirement` endpoint → frontend.
+Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `performance_channels` + `performance_scores` tables → `/analysis/retirement` endpoint → frontend.
 
 **Cost methodology:** Cost queries include ALL environments (dev/event/prod) — no `PROVISION_FILTERS`. The `avg_cost_per_provision` is computed in Python as `total_cost / provisions` where provisions is PROD-only. This amortizes dev/event infrastructure costs into each production deployment, reflecting the full cost of maintaining an item.
 
 **Query scoping:** Provisions, touched, closed, and dates queries apply `PROVISION_FILTERS` (PROD environment + real users). Cost queries do NOT apply this filter. The `PROVISION_FILTERS` constant in `reporting_sync.py` controls this.
 
-**Catalog completeness:** After importing from the reporting MCP, `get_catalog_base_names()` pulls all unique base names from `catalog_items` (the local catalog — ALL Babylon items). Items in the catalog but missing from reporting data are backfilled with zero values. The orphan cleanup then removes items not in the current sync AND not in the current catalog. Result: Prod tab + Without Prod tab = total unique catalog items.
+**Catalog completeness:** After importing from the reporting MCP, `get_catalog_base_names()` pulls all unique base names from `content_entities` / `babylon_items` (the local catalog — ALL Babylon items). Items in the catalog but missing from reporting data are backfilled with zero values. The orphan cleanup then removes items not in the current sync AND not in the current catalog. Result: Prod tab + Without Prod tab = total unique catalog items.
 
 **Time window:** `windowed_metrics` JSONB column stores pre-computed metrics for each window (3m/6m/9m/12m). The API's `window` parameter (1q/2q/3q/1y) overlays the selected window's metrics and score. No MCP re-query needed.
 
@@ -129,7 +129,7 @@ Zero-value items (no provisions, no pipeline, no sales, cost with no sales) alwa
 
 **Score breakdown popover:** Clicking a score badge in the UI shows a popover with per-factor bars, points (e.g. "+10/25"), and plain-English explanations including raw values and percentile context (e.g. "28 provisions — below median (percentile 28 of items with activity)").
 
-**Mute/ignore:** Curators can mute items for 30 days via "Mute 30d" button in the expanded row. Muted items are excluded from stats and counts. The "Muted" filter in the Status filter group shows only muted items. Stored as `ignored_until DATE` on `reporting_metrics`. API endpoints: `PUT /analysis/retirement/ignore/{base_name}` (sets 30-day mute), `DELETE /analysis/retirement/ignore/{base_name}` (unmutes).
+**Mute/ignore:** Curators can mute items for 30 days via "Mute 30d" button in the expanded row. Muted items are excluded from stats and counts. The "Muted" filter in the Status filter group shows only muted items. Stored as `ignored_until DATE` on `performance_scores`. API endpoints: `PUT /analysis/retirement/ignore/{base_name}` (sets 30-day mute), `DELETE /analysis/retirement/ignore/{base_name}` (unmutes).
 
 **Scoring thresholds:** High ≥ 55, Review ≥ 35, Keepers < 35 (frontend and CLI).
 
