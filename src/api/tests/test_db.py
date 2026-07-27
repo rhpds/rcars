@@ -10,7 +10,6 @@ TEST_DB_URL = os.environ.get(
 
 @pytest.fixture
 def db():
-    # Use a separate connection to drop schema to avoid killing pool connections
     import psycopg
     with psycopg.connect(TEST_DB_URL) as conn:
         conn.autocommit = True
@@ -19,7 +18,7 @@ def db():
             "SELECT tablename FROM pg_tables WHERE schemaname = 'public'"
         )
         for row in cur.fetchall():
-            conn.execute(f"DROP TABLE IF EXISTS {row['tablename']} CASCADE")
+            conn.execute(f"DROP TABLE IF EXISTS {row[0]} CASCADE")
 
     database = Database(TEST_DB_URL)
     database.create_schema()
@@ -33,10 +32,13 @@ def test_schema_creation(db):
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
         )
         tables = [row["table_name"] for row in cur.fetchall()]
-    assert "catalog_items" in tables
+    assert "content_entities" in tables
+    assert "babylon_items" in tables
     assert "showroom_analysis" in tables
     assert "embeddings" in tables
     assert "enrichment_tags" in tables
+    assert "performance_channels" in tables
+    assert "performance_scores" in tables
     assert "token_usage" in tables
     assert "advisor_sessions" in tables
     assert "jobs" in tables
@@ -51,22 +53,23 @@ def test_upsert_and_get_catalog_item(db):
         "category": "Workshops",
         "stage": "prod",
     }
-    db.upsert_catalog_item(item)
-    result = db.get_catalog_item("test.item.prod")
+    db.upsert_babylon_catalog_item(item)
+    result = db.get_babylon_item_by_ci_name("test.item.prod")
     assert result is not None
     assert result["display_name"] == "Test Item"
+    assert result["content_id"] == "babylon:test.item.prod"
 
 
 def test_upsert_updates_existing(db):
-    db.upsert_catalog_item({"ci_name": "test.item.prod", "display_name": "V1", "stage": "prod"})
-    db.upsert_catalog_item({"ci_name": "test.item.prod", "display_name": "V2", "stage": "prod"})
-    result = db.get_catalog_item("test.item.prod")
+    db.upsert_babylon_catalog_item({"ci_name": "test.item.prod", "display_name": "V1", "stage": "prod"})
+    db.upsert_babylon_catalog_item({"ci_name": "test.item.prod", "display_name": "V2", "stage": "prod"})
+    result = db.get_babylon_item_by_ci_name("test.item.prod")
     assert result["display_name"] == "V2"
 
 
 def test_list_catalog_items(db):
-    db.upsert_catalog_item({"ci_name": "a.prod", "stage": "prod", "is_prod": True, "category": "Demos"})
-    db.upsert_catalog_item({"ci_name": "b.dev", "stage": "dev", "is_prod": False, "category": "Workshops"})
+    db.upsert_babylon_catalog_item({"ci_name": "a.prod", "stage": "prod", "is_prod": True, "category": "Demos"})
+    db.upsert_babylon_catalog_item({"ci_name": "b.dev", "stage": "dev", "is_prod": False, "category": "Workshops"})
     assert len(db.list_catalog_items()) == 2
     assert len(db.list_catalog_items(prod_only=True)) == 1
     assert len(db.list_catalog_items(stage="dev")) == 1
@@ -110,15 +113,16 @@ def test_list_jobs(db):
 
 
 def test_enrichment_tags(db):
-    db.upsert_catalog_item({"ci_name": "test.item", "stage": "prod"})
-    db.add_enrichment_tag("test.item", "lifecycle", "active", added_by="curator@redhat.com")
-    db.add_enrichment_tag("test.item", "event", "summit-2026")
-    tags = db.get_enrichment_tags("test.item")
+    db.upsert_babylon_catalog_item({"ci_name": "test.item", "stage": "prod"})
+    content_id = "babylon:test.item"
+    db.add_enrichment_tag(content_id, "lifecycle", "active", added_by="curator@redhat.com")
+    db.add_enrichment_tag(content_id, "event", "summit-2026")
+    tags = db.get_enrichment_tags(content_id)
     assert len(tags) == 2
     assert tags[0]["tag_type"] == "lifecycle"
 
-    db.remove_enrichment_tag("test.item", "lifecycle", "active")
-    tags = db.get_enrichment_tags("test.item")
+    db.remove_enrichment_tag(content_id, "lifecycle", "active")
+    tags = db.get_enrichment_tags(content_id)
     assert len(tags) == 1
 
 
@@ -132,9 +136,10 @@ def test_token_usage(db):
 
 
 def test_content_path(db):
-    db.upsert_catalog_item({"ci_name": "test.nonstandard", "stage": "prod"})
-    db.set_content_path("test.nonstandard", "docs/labs/")
-    item = db.get_catalog_item("test.nonstandard")
+    db.upsert_babylon_catalog_item({"ci_name": "test.nonstandard", "stage": "prod"})
+    content_id = "babylon:test.nonstandard"
+    db.set_content_path(content_id, "docs/labs/")
+    item = db.get_babylon_item(content_id)
     assert item["content_path"] == "docs/labs/"
 
 
@@ -154,9 +159,10 @@ def test_advisor_session(db):
     assert len(turns) == 1
     assert turns[0]["query_text"] == "find openshift content"
 
-    db.update_advisor_session_choice("sess-1", 0, "test.item")
+    db.update_advisor_session_choice("sess-1", 0, chosen_ci_name="test.item", chosen_content_id="babylon:test.item")
     turns = db.get_advisor_session("sess-1")
     assert turns[0]["chosen_ci_name"] == "test.item"
+    assert turns[0]["chosen_content_id"] == "babylon:test.item"
 
 
 # ── Filtered catalog query tests ──
@@ -193,16 +199,16 @@ def _seed_items(db):
          "is_prod": True, "showroom_url": "https://github.com/example/failed"},
     ]
     for item in items:
-        db.upsert_catalog_item(item)
-    db.set_scan_status("ns.stale-item.prod", "success")
-    db.set_scan_status("ns.failed-item.prod", "failed", error_class="clone_failed", error_message="test error")
-    db.upsert_showroom_analysis({"ci_name": "ns.stale-item.prod", "summary": "test", "is_stale": True})
-    db.upsert_showroom_analysis({"ci_name": "ns.failed-item.prod", "summary": "test", "enrichment_review_needed": True})
+        db.upsert_babylon_catalog_item(item)
+    db.set_scan_status("babylon:ns.stale-item.prod", "success")
+    db.set_scan_status("babylon:ns.failed-item.prod", "failed", error_class="clone_failed", error_message="test error")
+    db.upsert_showroom_analysis({"content_id": "babylon:ns.stale-item.prod", "summary": "test", "is_stale": True})
+    db.upsert_showroom_analysis({"content_id": "babylon:ns.failed-item.prod", "summary": "test", "enrichment_review_needed": True})
     with db.pool.connection() as conn:
         conn.execute(
-            "INSERT INTO catalog_item_workloads (ci_name, workload_fqcn, workload_role, workload_collection) "
+            "INSERT INTO babylon_item_workloads (content_id, workload_fqcn, workload_role, workload_collection) "
             "VALUES (%s, %s, %s, %s)",
-            ("ns.ocp-ai-workshop.prod", "agnosticd.ai_workloads.openshift_ai", "openshift_ai", "ai_workloads"),
+            ("babylon:ns.ocp-ai-workshop.prod", "agnosticd.ai_workloads.openshift_ai", "openshift_ai", "ai_workloads"),
         )
         conn.execute(
             "INSERT INTO workload_mapping (workload_role, product_name, verified) VALUES (%s, %s, %s)",
@@ -216,76 +222,67 @@ def _seed_items(db):
 
 
 def test_filtered_catalog_default(db):
-    """Default query returns prod items only, paginated."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered()
+    result = db.list_content_entities_filtered()
     assert result["total"] >= 5
     assert all(item["stage"] == "prod" for item in result["items"])
 
 
 def test_filtered_catalog_search(db):
-    """Text search matches display_name case-insensitively."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(search="openshift ai")
+    result = db.list_content_entities_filtered(search="openshift ai")
     assert result["total"] >= 1
     assert any("AI" in item["display_name"] for item in result["items"])
 
 
 def test_filtered_catalog_stage(db):
-    """Stage filter includes dev items when requested."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(stages=["prod", "dev"])
+    result = db.list_content_entities_filtered(stages=["prod", "dev"])
     ci_names = [item["ci_name"] for item in result["items"]]
     assert "ns.ai-dev.dev" in ci_names
 
 
 def test_filtered_catalog_cloud_provider(db):
-    """Cloud provider filter narrows results."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(cloud_provider="ec2")
+    result = db.list_content_entities_filtered(cloud_provider="ec2")
     assert result["total"] >= 1
     assert all(item.get("cloud_provider") == "ec2" for item in result["items"])
 
 
 def test_filtered_catalog_agd_config(db):
-    """AgnosticD config filter narrows results."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(agd_config="ocp-cnv")
+    result = db.list_content_entities_filtered(agd_config="ocp-cnv")
     assert result["total"] >= 1
     assert all(item.get("agd_config") == "ocp-cnv" for item in result["items"])
 
 
 def test_filtered_catalog_workloads(db):
-    """Workload filter with alias resolution."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(workloads=["OpenShift AI"])
+    result = db.list_content_entities_filtered(workloads=["OpenShift AI"])
     assert result["total"] >= 1
     assert any("ai-workshop" in item["ci_name"] for item in result["items"])
-    result2 = db.list_catalog_items_filtered(workloads=["RHOAI"])
+    result2 = db.list_content_entities_filtered(workloads=["RHOAI"])
     assert result2["total"] == result["total"]
 
 
 def test_filtered_catalog_content_filter_failures(db):
-    """Content filter for scan failures."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(content_filter="scan_failures")
+    result = db.list_content_entities_filtered(content_filter="scan_failures")
     assert result["total"] >= 1
     assert all(item["scan_status"] == "failed" for item in result["items"])
 
 
 def test_filtered_catalog_content_filter_stale(db):
-    """Content filter for stale items."""
     _seed_items(db)
-    result = db.list_catalog_items_filtered(content_filter="stale")
+    result = db.list_content_entities_filtered(content_filter="stale")
     assert result["total"] >= 1
     assert all(item.get("is_stale") for item in result["items"])
 
 
 def test_filtered_catalog_pagination(db):
-    """Pagination returns correct slice and total."""
     _seed_items(db)
-    page1 = db.list_catalog_items_filtered(limit=2, offset=0)
-    page2 = db.list_catalog_items_filtered(limit=2, offset=2)
+    page1 = db.list_content_entities_filtered(limit=2, offset=0)
+    page2 = db.list_content_entities_filtered(limit=2, offset=2)
     assert len(page1["items"]) == 2
     assert len(page2["items"]) >= 1
     assert page1["total"] == page2["total"]

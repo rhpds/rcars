@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     max_parallel: int = 5
     clone_dir: str = "/tmp/rcars-clones"
 
+    # Embedding server (vLLM)
+    embedding_url: str = ""
+    embedding_api_key: str = ""
+    embedding_model: str = "nomic-ai/nomic-embed-text-v1.5"
+    embedding_dim: int = 768
+
     # Recommender pipeline
     vector_cutoff: float = 0.55
     triage_model: str = "claude-haiku-4-5"

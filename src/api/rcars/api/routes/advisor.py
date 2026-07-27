@@ -26,7 +26,8 @@ class QueryRequest(BaseModel):
 
 class SelectRequest(BaseModel):
     turn_index: int
-    ci_name: str
+    ci_name: str | None = None
+    content_id: str | None = None
 
 
 def _advisor_limit() -> str:
@@ -161,9 +162,14 @@ async def select_recommendation(
     turns = db.get_advisor_session(session_id, user_email=user)
     if not turns:
         raise HTTPException(status_code=404, detail="Session not found")
+    # Derive content_id from ci_name if not provided
+    content_id = body.content_id
+    if not content_id and body.ci_name:
+        content_id = f"babylon:{body.ci_name}"
     db.update_advisor_session_choice(
         session_id=session_id,
         turn_index=body.turn_index,
         chosen_ci_name=body.ci_name,
+        chosen_content_id=content_id,
     )
     return {"status": "ok"}

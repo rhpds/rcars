@@ -49,15 +49,21 @@ def cli(verbose: bool):
 @click.option("--drop", is_flag=True, default=False, help="Drop all tables before creating schema")
 def init_db(drop: bool):
     """Initialize or reset the database schema."""
-    db = get_db()
     if drop:
+        settings = Settings()
+        if not settings.database_url:
+            console.print("[red]Error:[/red] RCARS_DATABASE_URL not set")
+            sys.exit(1)
+        db = Database(settings.database_url)
         console.print("[yellow]Dropping all tables...[/yellow]")
         db.drop_schema()
         db.create_schema()
         console.print("[green]Schema recreated.[/green]")
+        db.close()
     else:
+        db = get_db()
         console.print("[green]Schema is up to date.[/green]")
-    db.close()
+        db.close()
 
 
 @cli.command()
@@ -85,25 +91,25 @@ def refresh():
         sys.exit(1)
 
     _print(f"Retrieved {len(items)} catalog items. Upserting to database...")
-    refreshed_ci_names = set()
+    current_content_ids: set[str] = set()
     count_with_showroom = 0
     for i, item in enumerate(items, 1):
         workloads = item.pop("_workloads", [])
         acl_groups = item.pop("_acl_groups", [])
-        db.upsert_catalog_item(item)
+        content_id = db.upsert_babylon_catalog_item(item)
         db.log_action(item["ci_name"], "refresh")
-        refreshed_ci_names.add(item["ci_name"])
-        db.sync_workloads(item["ci_name"], workloads)
-        db.sync_acl_groups(item["ci_name"], acl_groups)
+        current_content_ids.add(content_id)
+        db.sync_workloads(content_id, workloads)
+        db.sync_acl_groups(content_id, acl_groups)
         if item.get("showroom_url"):
             count_with_showroom += 1
         if i % 25 == 0 or i == len(items):
             _print(f"  upserted {i}/{len(items)} items...")
 
-    retired = db.retire_removed_items(refreshed_ci_names)
+    retired = db.retire_removed_items(current_content_ids)
     if retired:
         for r in retired:
-            _print(f"  retired: {r['ci_name']} (stage={r.get('stage', '?')})")
+            _print(f"  retired: {r['content_id']} (stage={r.get('stage', '?')})")
 
     elapsed = time.monotonic() - t0
     _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(retired)} retired.")
@@ -183,16 +189,18 @@ def scan(max_analyze: int | None):
         futures = {executor.submit(process_item, item): item for item in items}
         for future in as_completed(futures):
             item = futures[future]
+            content_id = item["content_id"]
+            content_type = item.get("content_type", "lab")
             try:
                 result = future.result()
                 if result and "error" in result:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class=result["error"], error_message=result["message"])
+                    db.set_scan_status(content_id, "failed", error_class=result["error"], error_message=result["message"])
                     _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
                 elif result and "analysis" in result:
                     analysis = result["analysis"]
                     db.upsert_showroom_analysis({
-                        "ci_name": result["ci_name"],
+                        "content_id": content_id,
                         "content_type": analysis.get("content_type"),
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
@@ -210,25 +218,27 @@ def scan(max_analyze: int | None):
                         "is_stale": False,
                         "stale_commit": None,
                     })
-                    db.clear_embeddings(result["ci_name"])
+                    db.clear_embeddings(content_id)
                     db.store_embedding(
-                        ci_name=result["ci_name"], embed_type="ci_summary",
+                        content_id=content_id, content_type=content_type, source="babylon",
+                        embed_type="summary",
                         content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
                     )
                     for mod_emb in result.get("module_embeddings", []):
                         db.store_embedding(
-                            ci_name=result["ci_name"], embed_type="module",
+                            content_id=content_id, content_type=content_type, source="babylon",
+                            embed_type="module",
                             module_title=mod_emb["module_title"],
                             content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                         )
-                    db.set_scan_status(result["ci_name"], "success")
+                    db.set_scan_status(content_id, "success")
 
                     # Propagate to siblings with same (url, ref)
                     effective_url = item.get("showroom_url_override") or item["showroom_url"]
                     siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
-                    propagated_set = {result["ci_name"]}
+                    propagated_set = {content_id}
                     analysis_data = {
-                        "ci_name": None,
+                        "content_id": None,
                         "content_type": analysis.get("content_type"),
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
@@ -247,41 +257,43 @@ def scan(max_analyze: int | None):
                         "stale_commit": None,
                     }
 
-                    def _cli_propagate(sib_name):
+                    def _cli_propagate(sib_content_id, sib_content_type):
                         sib_data = dict(analysis_data)
-                        sib_data["ci_name"] = sib_name
+                        sib_data["content_id"] = sib_content_id
                         db.upsert_showroom_analysis(sib_data)
-                        db.clear_embeddings(sib_name)
+                        db.clear_embeddings(sib_content_id)
                         db.store_embedding(
-                            ci_name=sib_name, embed_type="ci_summary",
+                            content_id=sib_content_id, content_type=sib_content_type, source="babylon",
+                            embed_type="summary",
                             content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
                         )
                         for mod_emb in result.get("module_embeddings", []):
                             db.store_embedding(
-                                ci_name=sib_name, embed_type="module",
+                                content_id=sib_content_id, content_type=sib_content_type, source="babylon",
+                                embed_type="module",
                                 module_title=mod_emb["module_title"],
                                 content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
                             )
-                        db.set_scan_status(sib_name, "success")
+                        db.set_scan_status(sib_content_id, "success")
 
                     for sibling in siblings:
-                        if sibling["ci_name"] not in propagated_set:
-                            _cli_propagate(sibling["ci_name"])
-                            propagated_set.add(sibling["ci_name"])
+                        if sibling["content_id"] not in propagated_set:
+                            _cli_propagate(sibling["content_id"], sibling.get("content_type", "lab"))
+                            propagated_set.add(sibling["content_id"])
 
                     # Propagate to SHA siblings (different ref, same commit)
-                    sha_sibs = sha_siblings_map.get(item["ci_name"], [])
+                    sha_sibs = sha_siblings_map.get(content_id, [])
                     for sha_sib in sha_sibs:
-                        sib_name = sha_sib["ci_name"]
-                        if sib_name not in propagated_set:
-                            _cli_propagate(sib_name)
-                            propagated_set.add(sib_name)
-                            # Also propagate to this SHA sibling's ref-based siblings
+                        sib_cid = sha_sib["content_id"]
+                        sib_ctype = sha_sib.get("content_type", "lab")
+                        if sib_cid not in propagated_set:
+                            _cli_propagate(sib_cid, sib_ctype)
+                            propagated_set.add(sib_cid)
                             ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
                             for ref_sib in ref_sibs:
-                                if ref_sib["ci_name"] not in propagated_set:
-                                    _cli_propagate(ref_sib["ci_name"])
-                                    propagated_set.add(ref_sib["ci_name"])
+                                if ref_sib["content_id"] not in propagated_set:
+                                    _cli_propagate(ref_sib["content_id"], ref_sib.get("content_type", "lab"))
+                                    propagated_set.add(ref_sib["content_id"])
 
                     propagated = len(propagated_set) - 1
                     completed += 1
@@ -289,14 +301,14 @@ def scan(max_analyze: int | None):
                     _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
                 else:
                     errors += 1
-                    db.set_scan_status(item["ci_name"], "failed", error_class="no_result", error_message="Analysis returned no results")
+                    db.set_scan_status(content_id, "failed", error_class="no_result", error_message="Analysis returned no results")
                     _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
             except Exception as e:
                 error_class, error_msg = classify_scan_error(
                     e, url=item.get("showroom_url"), ref=item.get("showroom_ref"),
                     content_path=item.get("content_path"))
                 errors += 1
-                db.set_scan_status(item["ci_name"], "failed", error_class=error_class, error_message=error_msg)
+                db.set_scan_status(content_id, "failed", error_class=error_class, error_message=error_msg)
                 _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
 
     elapsed = time.monotonic() - t0
@@ -686,34 +698,47 @@ def reporting_db_status(ctx):
 
 
 @reporting_db_group.command("show")
-@click.argument("ci_name")
+@click.argument("identifier")
 @click.pass_context
-def reporting_db_show(ctx, ci_name: str):
-    """Show reporting metrics for a specific CI (accepts ci_name or base name)."""
+def reporting_db_show(ctx, identifier: str):
+    """Show performance metrics for a content entity (accepts ci_name, content_id, or base name)."""
     from rcars.services.reporting_sync import extract_base_name
 
     settings = Settings()
     db = Database(settings.database_url)
-    base_name = extract_base_name(ci_name)
-    metrics = db.get_reporting_metrics(base_name)
 
-    if not metrics:
-        _print(f"No reporting metrics found for: {base_name}")
+    if identifier.startswith("babylon:"):
+        content_id = identifier
+    else:
+        base_name = extract_base_name(identifier)
+        resolved = db.resolve_base_names_to_content_ids({base_name})
+        content_id = resolved.get(base_name)
+        if not content_id:
+            _print(f"No content entity found for: {base_name}")
+            return
+
+    channels = db.get_performance_channels(content_id)
+    score = db.get_performance_score(content_id)
+    rhdp = next((ch for ch in channels if ch["channel"] == "rhdp"), None) if channels else None
+
+    if not rhdp and not score:
+        _print(f"No performance data found for: {content_id}")
         return
 
-    _print(f"  Base name:         {metrics['catalog_base_name']}")
-    _print(f"  Display name:      {metrics['display_name']}")
-    _print(f"  Retirement score:  {metrics['retirement_score']}")
-    _print(f"  Provisions:        {metrics['provisions']} (quarter: {metrics['provisions_quarter']})")
-    _print(f"  Experiences:       {metrics['experiences']}")
-    _print(f"  Unique users:      {metrics['unique_users']}")
-    _print(f"  Touched amount:    ${metrics['touched_amount']:,.0f}")
-    _print(f"  Closed amount:     ${metrics['closed_amount']:,.0f}")
-    _print(f"  Total cost:        ${metrics['total_cost']:,.0f}")
-    _print(f"  Avg cost/prov:     ${metrics['avg_cost_per_provision']:,.2f}")
-    _print(f"  First provision:   {metrics['first_provision'] or 'N/A'}")
-    _print(f"  Last provision:    {metrics['last_provision'] or 'N/A'}")
-    _print(f"  Synced at:         {metrics['synced_at']}")
+    _print(f"  Content ID:        {content_id}")
+    if score:
+        _print(f"  Performance score: {score['performance_score']}")
+    if rhdp:
+        _print(f"  Provisions:        {rhdp.get('provisions', 0)}")
+        _print(f"  Completions:       {rhdp.get('completions', 0)}")
+        _print(f"  Unique users:      {rhdp.get('unique_users', 0)}")
+        _print(f"  Pipeline touched:  ${float(rhdp.get('pipeline_touched') or 0):,.0f}")
+        _print(f"  Closed amount:     ${float(rhdp.get('closed_amount') or 0):,.0f}")
+        _print(f"  Total cost:        ${float(rhdp.get('total_cost') or 0):,.0f}")
+        _print(f"  Avg cost/prov:     ${float(rhdp.get('avg_cost_per_provision') or 0):,.2f}")
+        _print(f"  First activity:    {rhdp.get('first_activity') or 'N/A'}")
+        _print(f"  Last activity:     {rhdp.get('last_activity') or 'N/A'}")
+        _print(f"  Synced at:         {rhdp.get('synced_at')}")
 
 
 # ── Server command ──

@@ -20,8 +20,8 @@ def sha_dedup_scan_items(
     """Further deduplicate ref-based scan items by resolving refs to commit SHAs.
 
     Returns (items_to_scan, sha_siblings_map).
-    sha_siblings_map keys are representative ci_names, values are lists of
-    skipped item dicts with keys: ci_name, effective_url, showroom_ref.
+    sha_siblings_map keys are representative content_ids, values are lists of
+    skipped item dicts with keys: content_id, ci_name, content_type, effective_url, showroom_ref.
     """
     log = logger.bind(action="sha_dedup")
 
@@ -61,11 +61,13 @@ def sha_dedup_scan_items(
             for item in group_items[1:]:
                 effective_url = item.get("showroom_url_override") or item["showroom_url"]
                 skipped.append({
+                    "content_id": item["content_id"],
                     "ci_name": item["ci_name"],
+                    "content_type": item.get("content_type"),
                     "effective_url": effective_url,
                     "showroom_ref": item.get("showroom_ref"),
                 })
-            sha_siblings_map[representative["ci_name"]] = skipped
+            sha_siblings_map[representative["content_id"]] = skipped
             refs_in_group = list({i.get("showroom_ref") for i in group_items})
             if len(refs_in_group) > 1:
                 log.info("sha_group_merged",
@@ -105,20 +107,20 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
                                phase="catalog_refresh", status="upserting",
                                message=f"Upserting {total} items...", total=total)
 
-        current_ci_names = set()
+        current_content_ids: set[str] = set()
         for i, item in enumerate(items, 1):
             workloads = item.pop("_workloads", [])
             acl_groups = item.pop("_acl_groups", [])
-            wctx.db.upsert_catalog_item(item)
-            current_ci_names.add(item["ci_name"])
-            wctx.db.sync_workloads(item["ci_name"], workloads)
-            wctx.db.sync_acl_groups(item["ci_name"], acl_groups)
+            content_id = wctx.db.upsert_babylon_catalog_item(item)
+            current_content_ids.add(content_id)
+            wctx.db.sync_workloads(content_id, workloads)
+            wctx.db.sync_acl_groups(content_id, acl_groups)
             if i % 100 == 0:
                 await publish_progress(wctx.relay, job_id, wctx.db,
                                        phase="catalog_refresh", status="upserting",
                                        message=f"Upserting... {i}/{total}", current=i, total=total)
 
-        retired = wctx.db.retire_removed_items(current_ci_names)
+        retired = wctx.db.retire_removed_items(current_content_ids)
 
         result = {"total_items": len(items), "retired_items": len(retired)}
         await publish_progress(wctx.relay, job_id, wctx.db,
@@ -145,8 +147,7 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
     wctx.db.update_job_status(job_id, "running")
 
     try:
-        items = wctx.db.list_catalog_items()
-        checkable = [i for i in items if i.get("showroom_url") and wctx.db.get_showroom_analysis(i["ci_name"])]
+        checkable = wctx.db.get_stale_check_candidates()
 
         # Deduplicate by (showroom_url, showroom_ref) — clone each unique repo once
         groups: dict[tuple[str, str | None], list[dict]] = {}
@@ -166,12 +167,12 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         changed = []
         skipped = 0
         for (url, ref), group_items in groups.items():
-            analysis = wctx.db.get_showroom_analysis(group_items[0]["ci_name"])
+            analysis = wctx.db.get_showroom_analysis(group_items[0]["content_id"])
             stored_sha = analysis.get("last_repo_commit")
             remote_sha = ls_remote_sha(url, ref)
             if remote_sha and stored_sha and remote_sha == stored_sha:
                 for item in group_items:
-                    wctx.db.clear_stale(item["ci_name"])
+                    wctx.db.clear_stale(item["content_id"])
                 skipped += 1
             else:
                 changed.append(((url, ref), group_items, analysis))
@@ -200,9 +201,9 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
                 stale_result = check_showroom_stale(clone_path, analysis.get("content_hash"))
                 for item in group_items:
                     if stale_result["is_stale"]:
-                        wctx.db.mark_stale(item["ci_name"], stale_result.get("head_sha"))
+                        wctx.db.mark_stale(item["content_id"], stale_result.get("head_sha"))
                     else:
-                        wctx.db.clear_stale(item["ci_name"])
+                        wctx.db.clear_stale(item["content_id"])
                 if stale_result["is_stale"]:
                     stale_count += 1
                     stale_cis += len(group_items)
@@ -305,8 +306,8 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             for item in scan_items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
                 await arq_redis.enqueue_job(
-                    "run_analysis", job_id=sub_job_id, ci_name=item["ci_name"],
-                    sha_siblings=sha_siblings_map.get(item["ci_name"]),
+                    "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
+                    sha_siblings=sha_siblings_map.get(item["content_id"]),
                     _queue_name="arq:queue:scan"
                 )
             analysis_enqueued = len(scan_items)
@@ -359,6 +360,36 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:workload_scan", status="failed", message=msg)
 
+    # Step 4b: Sandbox summary generation (after workload scan populates classifications)
+    sandbox_summary_result = None
+    try:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="running",
+                               message="Step 4b: Generating sandbox summaries from infrastructure metadata...")
+        sandbox_job_id = wctx.db.create_job(job_type="sandbox_summary", queue="ops", created_by="maintenance")
+        sandbox_summary_result = await run_sandbox_summary(ctx, sandbox_job_id)
+        generated = sandbox_summary_result.get("generated", 0)
+        total = sandbox_summary_result.get("total", 0)
+        errs = sandbox_summary_result.get("errors", 0)
+        if total == 0:
+            step4b_msg = "Step 4b complete: No sandboxes need summary generation"
+        else:
+            step4b_msg = f"Step 4b complete: {generated}/{total} sandbox summaries generated"
+            if errs:
+                step4b_msg += f" ({errs} errors)"
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="complete",
+                               message=step4b_msg)
+        log.info("pipeline_sandbox_summary_complete", action="pipeline_step_complete",
+                 step="sandbox_summary", **sandbox_summary_result)
+    except Exception as e:
+        msg = f"Step 4b failed (sandbox summary): {e}"
+        warnings.append(msg)
+        log.error("pipeline_sandbox_summary_failed", action="pipeline_step_failed",
+                  step="sandbox_summary", error=str(e), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:sandbox_summary", status="failed", message=msg)
+
     # Step 5: Reporting metrics sync (if configured)
     reporting_result = None
     if wctx.settings.reporting_mcp_url and wctx.settings.reporting_mcp_token:
@@ -410,6 +441,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "stale_check": stale_result,
         "analysis_enqueued": analysis_enqueued,
         "workload_scan": workload_scan_result,
+        "sandbox_summary": sandbox_summary_result,
         "reporting_sync": reporting_result,
         "warnings": warnings,
     }
@@ -478,6 +510,90 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
 
     except Exception as e:
         log.error("workload_scan_failed", action="job_failed", error=str(e))
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="failed", status="failed", message=str(e), error=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        raise
+
+
+async def run_sandbox_summary(ctx: dict, job_id: str) -> dict:
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("picked_up", action="picked_up", queue="ops")
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        from rcars.services.sandbox_summary import build_sandbox_summary
+
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="sandbox_summary", status="started",
+                               message="Generating sandbox summaries from infrastructure metadata...")
+
+        sandboxes = wctx.db.get_sandboxes_needing_summary()
+        total = len(sandboxes)
+        log.info("sandbox_summary_candidates", total=total)
+
+        if total == 0:
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="complete", status="complete",
+                                   message="No sandboxes need summary generation")
+            wctx.db.complete_job(job_id, result_json={"generated": 0, "total": 0})
+            return {"generated": 0, "total": 0}
+
+        generated = 0
+        errors = 0
+
+        for i, sandbox in enumerate(sandboxes, 1):
+            content_id = sandbox["content_id"]
+            try:
+                workload_products = wctx.db.get_workload_classifications(content_id)
+
+                result = build_sandbox_summary(
+                    display_name=sandbox.get("display_name", content_id),
+                    description=sandbox.get("description"),
+                    cloud_provider=sandbox.get("cloud_provider"),
+                    ocp_version=sandbox.get("ocp_version"),
+                    agd_config=sandbox.get("agd_config"),
+                    workload_products=workload_products,
+                )
+
+                wctx.db.update_content_entity_card(
+                    content_id,
+                    result["summary"],
+                    result["products_json"],
+                    result["topics_json"],
+                    audience_json=sandbox.get("audience_json"),
+                    difficulty=sandbox.get("difficulty"),
+                )
+
+                generated += 1
+                log.info("sandbox_summary_generated", content_id=content_id,
+                         products=len(result["products_json"]),
+                         topics=len(result["topics_json"]))
+            except Exception as e:
+                errors += 1
+                log.error("sandbox_summary_item_failed", content_id=content_id,
+                          error=str(e), traceback=traceback.format_exc())
+
+            if i % 25 == 0:
+                await publish_progress(wctx.relay, job_id, wctx.db,
+                                       phase="sandbox_summary", status="progress",
+                                       message=f"Sandbox summaries: {i}/{total} processed, {generated} generated...",
+                                       current=i, total=total)
+
+        result = {"generated": generated, "errors": errors, "total": total}
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="complete", status="complete",
+                               message=f"Sandbox summary complete: {generated} generated, {errors} errors out of {total}",
+                               **result)
+        wctx.db.complete_job(job_id, result_json=result)
+        log.info("sandbox_summary_complete", action="job_complete", **result)
+        return result
+
+    except Exception as e:
+        log.error("sandbox_summary_failed", action="job_failed", error=str(e),
+                  traceback=traceback.format_exc())
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="failed", status="failed", message=str(e), error=str(e))
         wctx.db.fail_job(job_id, error=str(e))

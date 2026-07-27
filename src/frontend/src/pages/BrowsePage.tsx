@@ -15,6 +15,8 @@ function safeHref(url: string | null): string {
 
 interface CatalogItem {
   ci_name: string
+  content_id?: string
+  content_type?: string
   display_name: string
   category: string
   stage: string
@@ -43,6 +45,8 @@ interface LearningObjectives {
 
 interface ItemDetail {
   ci_name: string
+  content_id?: string
+  content_type?: string
   display_name: string
   category: string
   stage: string

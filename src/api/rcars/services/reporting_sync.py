@@ -473,8 +473,8 @@ def _merge_published_base_pairs(
             continue
 
         for field in ("provisions", "provisions_quarter", "requests",
-                      "experiences", "unique_users",
-                      "touched_amount", "closed_amount", "total_cost"):
+                      "completions", "unique_users",
+                      "pipeline_touched", "closed_amount", "total_cost"):
             pub_row[field] += base_row[field]
 
         for field, fn in (("first_provision", min), ("last_provision", max)):
@@ -487,7 +487,7 @@ def _merge_published_base_pairs(
             if wk in base_wm:
                 pub_w = pub_wm.setdefault(wk, {})
                 for metric, value in base_wm[wk].items():
-                    if metric in ("retirement_score", "sales_impact", "avg_cost_per_provision", "success_ratio", "failure_ratio", "score_breakdown"):
+                    if metric in ("performance_score", "sales_impact", "avg_cost_per_provision", "success_ratio", "failure_ratio", "score_breakdown"):
                         continue
                     pub_w[metric] = pub_w.get(metric, 0) + value
         pub_row["windowed_metrics"] = json.dumps(pub_wm)
@@ -518,7 +518,7 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
             continue
 
         sorted_prov = sorted(w["provisions"] for _, _, w in items_with_window if w.get("provisions", 0) > 0)
-        sorted_touched = sorted(w["touched_amount"] for _, _, w in items_with_window if w.get("touched_amount", 0) > 0)
+        sorted_touched = sorted(w["pipeline_touched"] for _, _, w in items_with_window if w.get("pipeline_touched", 0) > 0)
         sorted_closed = sorted(w["closed_amount"] for _, _, w in items_with_window if w.get("closed_amount", 0) > 0)
         sorted_roi = sorted(
             w["closed_amount"] / w["total_cost"]
@@ -528,7 +528,7 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
 
         for row, wm, w in items_with_window:
             prov = w.get("provisions", 0)
-            touched = w.get("touched_amount", 0)
+            touched = w.get("pipeline_touched", 0)
             closed = w.get("closed_amount", 0)
             cost = w.get("total_cost", 0)
             has_roi = cost > 0 and closed > 0
@@ -549,7 +549,7 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
                 roi_zero=closed == 0 and cost > 0,
                 roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
-            w["retirement_score"] = compute_retirement_score(**score_args)
+            w["performance_score"] = compute_retirement_score(**score_args)
             w["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
             w["sales_impact"] = compute_sales_impact(closed)
             wm[wk] = w
@@ -613,12 +613,12 @@ def _build_windowed_metrics(
 
             entry = {
                 "provisions": provisions,
-                "experiences": int(p.get("experiences", 0)),
+                "completions": int(p.get("experiences", 0)),
                 "requests": int(p.get("requests", 0)),
                 "unique_users": uu_w.get(name, 0),
                 "success_ratio": float(p.get("success_ratio", 0) or 0),
                 "failure_ratio": float(p.get("failure_ratio", 0) or 0),
-                "touched_amount": touched,
+                "pipeline_touched": touched,
                 "closed_amount": closed,
                 "total_cost": cost,
                 "avg_cost_per_provision": round(cost / provisions, 2) if provisions > 0 else 0,
@@ -626,7 +626,7 @@ def _build_windowed_metrics(
             entries.append((name, entry))
 
         sorted_prov = sorted(e["provisions"] for _, e in entries if e["provisions"] > 0)
-        sorted_touched = sorted(e["touched_amount"] for _, e in entries if e["touched_amount"] > 0)
+        sorted_touched = sorted(e["pipeline_touched"] for _, e in entries if e["pipeline_touched"] > 0)
         sorted_closed = sorted(e["closed_amount"] for _, e in entries if e["closed_amount"] > 0)
         sorted_roi = sorted(
             e["closed_amount"] / e["total_cost"]
@@ -642,19 +642,19 @@ def _build_windowed_metrics(
             score_args = dict(
                 provisions_zero=entry["provisions"] == 0,
                 provisions_pct=_percentile_rank(entry["provisions"], sorted_prov),
-                touched_zero=entry["touched_amount"] == 0,
-                touched_pct=_percentile_rank(entry["touched_amount"], sorted_touched),
+                touched_zero=entry["pipeline_touched"] == 0,
+                touched_pct=_percentile_rank(entry["pipeline_touched"], sorted_touched),
                 closed_zero=entry["closed_amount"] == 0,
                 closed_pct=_percentile_rank(entry["closed_amount"], sorted_closed),
                 total_cost=cost,
                 closed_amount=closed,
                 first_provision=first_provisions.get(name) or "",
                 provisions_raw=entry["provisions"],
-                touched_raw=entry["touched_amount"],
+                touched_raw=entry["pipeline_touched"],
                 roi_zero=closed == 0 and cost > 0,
                 roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
-            entry["retirement_score"] = compute_retirement_score(**score_args)
+            entry["performance_score"] = compute_retirement_score(**score_args)
             entry["score_breakdown"] = compute_retirement_score_breakdown(**score_args)
             entry["sales_impact"] = compute_sales_impact(entry["closed_amount"])
             per_item.setdefault(name, {})[wk] = entry
@@ -726,6 +726,12 @@ def run_reporting_sync(db, settings) -> dict:
              retired_excluded=len(retired_names & all_names),
              filtered=len(filtered_names))
 
+    # Resolve catalog_base_name → content_id for the content model
+    name_to_content_id = db.resolve_base_names_to_content_ids(filtered_names)
+    log.info("resolved_content_ids", resolved=len(name_to_content_id),
+             total=len(filtered_names),
+             unresolved=len(filtered_names - set(name_to_content_id)))
+
     first_provisions = {
         name: (date_data.get(name, {}).get("first_provision", "") or "") or None
         for name in filtered_names
@@ -746,15 +752,16 @@ def run_reporting_sync(db, settings) -> dict:
 
         merged_rows.append({
             "catalog_base_name": name,
+            "content_id": name_to_content_id.get(name),
             "display_name": prov.get("display_name", "") or dates.get("display_name", "") or name,
             "provisions": provisions,
             "provisions_quarter": quarter_data.get(name, 0),
             "requests": int(prov.get("requests", 0)),
-            "experiences": int(prov.get("experiences", 0)),
+            "completions": int(prov.get("experiences", 0)),
             "unique_users": int(prov.get("unique_users", 0)),
             "success_ratio": float(prov.get("success_ratio", 0) or 0),
             "failure_ratio": float(prov.get("failure_ratio", 0) or 0),
-            "touched_amount": touched_data.get(name, 0.0),
+            "pipeline_touched": touched_data.get(name, 0.0),
             "closed_amount": closed_data.get(name, 0.0),
             "total_cost": total_cost,
             "avg_cost_per_provision": round(total_cost / provisions, 2) if provisions > 0 else 0,
@@ -772,18 +779,27 @@ def run_reporting_sync(db, settings) -> dict:
     log.info("backfilling_catalog", catalog_items=len(catalog_names),
              already_in_reporting=len(filtered_names & set(catalog_names)),
              missing=len(missing), published_bases_excluded=len(published_bases & set(catalog_names)))
+
+    # Resolve backfill names to content_ids
+    backfill_ids = db.resolve_base_names_to_content_ids(missing)
+    name_to_content_id.update(backfill_ids)
+    log.info("resolved_backfill_content_ids", resolved=len(backfill_ids),
+             total=len(missing),
+             unresolved=len(missing - set(backfill_ids)))
+
     for name in missing:
         merged_rows.append({
             "catalog_base_name": name,
+            "content_id": name_to_content_id.get(name),
             "display_name": catalog_names[name] or name,
             "provisions": 0,
             "provisions_quarter": 0,
             "requests": 0,
-            "experiences": 0,
+            "completions": 0,
             "unique_users": 0,
             "success_ratio": 0,
             "failure_ratio": 0,
-            "touched_amount": 0.0,
+            "pipeline_touched": 0.0,
             "closed_amount": 0.0,
             "total_cost": 0.0,
             "avg_cost_per_provision": 0.0,
@@ -798,7 +814,7 @@ def run_reporting_sync(db, settings) -> dict:
     _recompute_windowed_scores(merged_rows)
 
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
-    sorted_touched = sorted(r["touched_amount"] for r in merged_rows if r["touched_amount"] > 0)
+    sorted_touched = sorted(r["pipeline_touched"] for r in merged_rows if r["pipeline_touched"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
     sorted_roi = sorted(
         r["closed_amount"] / r["total_cost"]
@@ -811,11 +827,11 @@ def run_reporting_sync(db, settings) -> dict:
         closed = row["closed_amount"]
         has_roi = cost > 0 and closed > 0
         roi_val = closed / cost if has_roi else 0
-        row["retirement_score"] = compute_retirement_score(
+        row["performance_score"] = compute_retirement_score(
             provisions_zero=row["provisions"] == 0,
             provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
-            touched_zero=row["touched_amount"] == 0,
-            touched_pct=_percentile_rank(row["touched_amount"], sorted_touched),
+            touched_zero=row["pipeline_touched"] == 0,
+            touched_pct=_percentile_rank(row["pipeline_touched"], sorted_touched),
             closed_zero=row["closed_amount"] == 0,
             closed_pct=_percentile_rank(row["closed_amount"], sorted_closed),
             total_cost=cost,
@@ -825,13 +841,58 @@ def run_reporting_sync(db, settings) -> dict:
             roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
         )
 
-    upserted = db.upsert_reporting_metrics(merged_rows)
-    synced_names = {r["catalog_base_name"] for r in merged_rows}
-    orphans = db.delete_orphan_reporting_metrics(synced_names=synced_names)
+    # Filter out rows where content_id resolution failed
+    unresolved_rows = [r for r in merged_rows if not r.get("content_id")]
+    for r in unresolved_rows:
+        log.warning("skipping_unresolved_content_id",
+                     catalog_base_name=r["catalog_base_name"])
+    resolved_rows = [r for r in merged_rows if r.get("content_id")]
+    log.info("content_id_filter", total=len(merged_rows),
+             resolved=len(resolved_rows), unresolved=len(unresolved_rows))
+
+    # Build channel rows with renamed fields for performance_channels
+    channel_rows = []
+    for row in resolved_rows:
+        channel_rows.append({
+            "content_id": row["content_id"],
+            "channel": "rhdp",
+            "provisions": row["provisions"],
+            "unique_users": row["unique_users"],
+            "requests": row["requests"],
+            "completions": row["completions"],
+            "pipeline_touched": row["pipeline_touched"],
+            "closed_amount": row["closed_amount"],
+            "total_cost": row["total_cost"],
+            "avg_cost_per_provision": row["avg_cost_per_provision"],
+            "success_ratio": row["success_ratio"],
+            "first_activity": row["first_provision"],
+            "last_activity": row["last_provision"],
+            "windowed_metrics": row["windowed_metrics"],
+        })
+
+    upserted = db.upsert_performance_channels(channel_rows)
+
+    # Compute and upsert performance scores (one per content_id)
+    scores_upserted = 0
+    for row in resolved_rows:
+        wm = json.loads(row["windowed_metrics"]) if isinstance(row["windowed_metrics"], str) else row["windowed_metrics"]
+        breakdown_12m = wm.get("12m", {}).get("score_breakdown")
+        db.upsert_performance_score(
+            content_id=row["content_id"],
+            score=row["performance_score"],
+            breakdown=breakdown_12m,
+            channel_scores={"rhdp": {"score": row["performance_score"]}},
+        )
+        scores_upserted += 1
+
+    synced_content_ids = {r["content_id"] for r in resolved_rows}
+    orphans = db.delete_orphan_performance_data(synced_content_ids=synced_content_ids)
 
     summary = {
         "synced": upserted,
+        "scores_upserted": scores_upserted,
         "orphans_removed": orphans,
+        "unresolved": len(unresolved_rows),
         "catalog_backfilled": len(missing),
         "published_base_merged": merged_pairs,
         "provisions_rows": len(prov_data),

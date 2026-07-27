@@ -167,35 +167,6 @@
             command: rcars init-db
           register: schema_result
           changed_when: false
-
-        - name: Run alembic migrations (alter existing tables)
-          kubernetes.core.k8s_exec:
-            kubeconfig: "{{ kubeconfig }}"
-            namespace: "{{ target_namespace }}"
-            pod: "{{ migrate_pod }}"
-            command: alembic upgrade head
-          register: migrate_result
-          changed_when: "'Running upgrade' in (migrate_result.stdout | default(''))"
-
-        - name: Get expected alembic head from code
-          kubernetes.core.k8s_exec:
-            kubeconfig: "{{ kubeconfig }}"
-            namespace: "{{ target_namespace }}"
-            pod: "{{ migrate_pod }}"
-            command: alembic heads --resolve-dependencies
-          register: expected_version
-
-        - name: Get current alembic version from database
-          kubernetes.core.k8s_exec:
-            kubeconfig: "{{ kubeconfig }}"
-            namespace: "{{ target_namespace }}"
-            pod: "{{ migrate_pod }}"
-            command: alembic current
-          register: actual_version
-          until: expected_version.stdout | default('') | trim in (actual_version.stdout | default(''))
-          retries: 6
-          delay: 30
-          failed_when: expected_version.stdout | default('') | trim not in (actual_version.stdout | default(''))
       tags: [full, api]
 
     # ── Smoke test ──
