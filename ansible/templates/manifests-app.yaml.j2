@@ -86,7 +86,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -277,7 +277,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -440,7 +440,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -575,9 +575,9 @@ spec:
             - "/models"
           env:
             - name: HF_HUB_OFFLINE
-              value: "1"
+              value: "{{ embedding_offline | default('0') }}"
             - name: TRANSFORMERS_OFFLINE
-              value: "1"
+              value: "{{ embedding_offline | default('0') }}"
           ports:
             - containerPort: {{ embedding_port }}
           startupProbe:
