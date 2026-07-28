@@ -178,7 +178,7 @@ spec:
             matchLabels:
               network.openshift.io/policy-group: ingress
       ports:
-        - port: 4180
+        - port: {{ app_port }}
           protocol: TCP
 ---
 # ============================================================
