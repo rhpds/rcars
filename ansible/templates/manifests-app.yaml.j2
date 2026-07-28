@@ -86,7 +86,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -177,6 +177,9 @@ spec:
               mountPath: /tmp/rcars-clones
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -219,6 +222,9 @@ spec:
             sizeLimit: 10Gi
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
 ---
 # ── Scan Worker Deployment (analysis, catalog refresh, stale checks) ──
 apiVersion: apps/v1
@@ -271,7 +277,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -336,6 +342,9 @@ spec:
               mountPath: /tmp/rcars-clones
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             exec:
               command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
@@ -376,6 +385,9 @@ spec:
             sizeLimit: 10Gi
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
 ---
 # ── Recommend Worker Deployment (advisor queries, separate from scan to avoid starvation) ──
 apiVersion: apps/v1
@@ -428,7 +440,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-full&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -464,6 +476,9 @@ spec:
 {% endif %}
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             exec:
               command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
@@ -496,6 +511,9 @@ spec:
 {% endif %}
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
 ---
 # ── Embedding Server Service (internal — used by API and workers) ──
 apiVersion: v1
@@ -557,9 +575,9 @@ spec:
             - "/models"
           env:
             - name: HF_HUB_OFFLINE
-              value: "0"
+              value: "1"
             - name: TRANSFORMERS_OFFLINE
-              value: "0"
+              value: "1"
           ports:
             - containerPort: {{ embedding_port }}
           startupProbe:

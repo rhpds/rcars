@@ -2719,6 +2719,7 @@ class Database:
                    RETURNING id, key_hash, revoked_at""",
                 (key_id,),
             ).fetchone()
+            conn.commit()
             return dict(row) if row else None
 
     def touch_api_key(self, key_id: int) -> None:
@@ -2727,3 +2728,4 @@ class Database:
                 "UPDATE api_keys SET last_used_at = NOW() WHERE id = %s",
                 (key_id,),
             )
+            conn.commit()

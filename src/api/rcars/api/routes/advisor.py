@@ -171,5 +171,6 @@ async def select_recommendation(
         turn_index=body.turn_index,
         chosen_ci_name=body.ci_name,
         chosen_content_id=content_id,
+        user_email=user,
     )
     return {"status": "ok"}

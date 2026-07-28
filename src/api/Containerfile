@@ -4,8 +4,9 @@ FROM registry.access.redhat.com/ubi9/python-311 AS builder
 USER 0
 WORKDIR /opt/app-root/src
 
-COPY pyproject.toml ./
-RUN mkdir -p rcars && touch rcars/__init__.py && pip install --no-cache-dir . && rm -rf rcars
+COPY requirements.lock.txt pyproject.toml ./
+RUN pip install --no-cache-dir -r requirements.lock.txt \
+ && mkdir -p rcars && touch rcars/__init__.py && pip install --no-cache-dir --no-deps . && rm -rf rcars
 
 FROM registry.access.redhat.com/ubi9/python-311
 
