@@ -204,7 +204,7 @@ metadata:
 type: Opaque
 stringData:
   REDIS_PASSWORD: "{{ redis_password }}"
-  REDIS_URL: "rediss://:{{ redis_password | urlencode }}@{{ app_name }}-redis:6379?ssl_ca_certs=/etc/rcars/tls/service-ca.crt"
+  REDIS_URL: "redis://:{{ redis_password | urlencode }}@{{ app_name }}-redis:6379"
 ---
 # OAuth proxy credentials
 apiVersion: v1
@@ -464,8 +464,6 @@ metadata:
   labels:
     app: {{ app_name }}
     component: redis
-  annotations:
-    service.beta.openshift.io/serving-cert-secret-name: {{ app_name }}-redis-tls
 spec:
   selector:
     app: {{ app_name }}
@@ -503,24 +501,7 @@ spec:
       containers:
         - name: redis
           image: {{ redis_image }}
-          command:
-            - "redis-server"
-            - "--requirepass"
-            - "$(REDIS_PASSWORD)"
-            - "--dir"
-            - "/var/lib/redis/data"
-            - "--tls-port"
-            - "6379"
-            - "--port"
-            - "0"
-            - "--tls-cert-file"
-            - "/etc/redis/tls/tls.crt"
-            - "--tls-key-file"
-            - "/etc/redis/tls/tls.key"
-            - "--tls-ca-cert-file"
-            - "/etc/redis/tls/service-ca.crt"
-            - "--tls-auth-clients"
-            - "no"
+          command: ["redis-server", "--requirepass", "$(REDIS_PASSWORD)", "--dir", "/var/lib/redis/data"]
           env:
             - name: REDIS_PASSWORD
               valueFrom:
@@ -534,9 +515,6 @@ spec:
               mountPath: /var/lib/redis/data
             - name: tmp
               mountPath: /tmp
-            - name: tls
-              mountPath: /etc/redis/tls
-              readOnly: true
           livenessProbe:
             tcpSocket:
               port: 6379
@@ -567,16 +545,6 @@ spec:
             claimName: {{ app_name }}-redis-data
         - name: tmp
           emptyDir: {}
-        - name: tls
-          projected:
-            sources:
-              - secret:
-                  name: {{ app_name }}-redis-tls
-              - configMap:
-                  name: {{ app_name }}-service-ca
-                  items:
-                    - key: service-ca.crt
-                      path: service-ca.crt
 ---
 # API ImageStream
 apiVersion: image.openshift.io/v1
