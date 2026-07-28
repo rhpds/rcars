@@ -106,7 +106,29 @@ spec:
         - port: {{ embedding_port }}
           protocol: TCP
 ---
-# API: allow from OAuth proxy only
+# Frontend: allow from OAuth proxy (upstream) and OpenShift router
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ app_name }}-allow-frontend
+  labels:
+    app: {{ app_name }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ app_name }}
+      component: frontend
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: {{ app_name }}
+              component: oauth-proxy
+      ports:
+        - port: {{ app_port }}
+          protocol: TCP
+---
+# API: allow from frontend nginx (proxies /api) and OAuth proxy
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -124,6 +146,10 @@ spec:
             matchLabels:
               app: {{ app_name }}
               component: oauth-proxy
+        - podSelector:
+            matchLabels:
+              app: {{ app_name }}
+              component: frontend
       ports:
         - port: {{ app_port }}
           protocol: TCP
@@ -134,7 +160,7 @@ spec:
           protocol: TCP
 {% endif %}
 ---
-# Frontend + OAuth proxy: allow from OpenShift router (ingress)
+# OAuth proxy: allow from OpenShift router (ingress)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -145,14 +171,13 @@ spec:
   podSelector:
     matchLabels:
       app: {{ app_name }}
+      component: oauth-proxy
   ingress:
     - from:
         - namespaceSelector:
             matchLabels:
               network.openshift.io/policy-group: ingress
       ports:
-        - port: 3000
-          protocol: TCP
         - port: 4180
           protocol: TCP
 ---
