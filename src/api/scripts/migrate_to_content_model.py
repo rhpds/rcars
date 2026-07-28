@@ -286,6 +286,7 @@ def cmd_import_workflows(args):
         has_content_id_pk = _column_exists(conn, "retirement_workflow", "content_id")
 
         imported = 0
+        patched = 0
         skipped_no_match = 0
         skipped_exists = 0
 
@@ -303,13 +304,23 @@ def cmd_import_workflows(args):
                     skipped_no_match += 1
                     continue
 
-                # Check if already imported
+                # Check if already imported; patch jira_key if missing
                 cur = conn.execute(
-                    "SELECT 1 FROM retirement_workflow WHERE content_id = %s",
+                    "SELECT jira_key FROM retirement_workflow WHERE content_id = %s",
                     (content_id,),
                 )
-                if cur.fetchone():
-                    skipped_exists += 1
+                existing = cur.fetchone()
+                if existing:
+                    if row.get("jira_key") and not existing["jira_key"]:
+                        conn.execute(
+                            "UPDATE retirement_workflow "
+                            "SET jira_key = %s, jira_project = %s "
+                            "WHERE content_id = %s",
+                            (row["jira_key"], row.get("jira_project", "RHDPCD"), content_id),
+                        )
+                        patched += 1
+                    else:
+                        skipped_exists += 1
                     continue
 
                 conn.execute(
@@ -357,11 +368,21 @@ def cmd_import_workflows(args):
                 # Old-style schema still using catalog_base_name PK
                 # (shouldn't happen if migration ran, but handle gracefully)
                 cur = conn.execute(
-                    "SELECT 1 FROM retirement_workflow WHERE catalog_base_name = %s",
+                    "SELECT jira_key FROM retirement_workflow WHERE catalog_base_name = %s",
                     (base_name,),
                 )
-                if cur.fetchone():
-                    skipped_exists += 1
+                existing = cur.fetchone()
+                if existing:
+                    if row.get("jira_key") and not existing["jira_key"]:
+                        conn.execute(
+                            "UPDATE retirement_workflow "
+                            "SET jira_key = %s, jira_project = %s "
+                            "WHERE catalog_base_name = %s",
+                            (row["jira_key"], row.get("jira_project", "RHDPCD"), base_name),
+                        )
+                        patched += 1
+                    else:
+                        skipped_exists += 1
                     continue
 
                 # Re-insert as-is
@@ -410,7 +431,8 @@ def cmd_import_workflows(args):
         conn.commit()
 
     print(f"  Imported: {imported}")
-    print(f"  Skipped (already exists): {skipped_exists}")
+    print(f"  Patched jira_key on existing rows: {patched}")
+    print(f"  Skipped (already exists, no patch needed): {skipped_exists}")
     print(f"  Skipped (no content_entity match): {skipped_no_match}")
 
 
