@@ -121,7 +121,7 @@ def cmd_export(args):
         print("Exporting retirement_workflow (all rows)...")
         cur = conn.execute(
             "SELECT * FROM retirement_workflow "
-            "ORDER BY content_id"
+            "ORDER BY catalog_base_name"
         )
         workflows = [dict(row) for row in cur.fetchall()]
         print(f"  {len(workflows)} rows exported")
@@ -129,9 +129,9 @@ def cmd_export(args):
         # 3. Export curator notes from showroom_analysis
         print("Exporting curator notes from showroom_analysis...")
         cur = conn.execute(
-            "SELECT content_id, notes FROM showroom_analysis "
+            "SELECT ci_name, notes FROM showroom_analysis "
             "WHERE notes IS NOT NULL AND notes != '' "
-            "ORDER BY content_id"
+            "ORDER BY ci_name"
         )
         notes = [dict(row) for row in cur.fetchall()]
         print(f"  {len(notes)} rows exported")
