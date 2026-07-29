@@ -408,11 +408,6 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_session ON advisor_sessions(sess
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_email);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
 
--- ═══════════════════════════════════════════════════════════════════
--- Incremental column additions (safe on existing deployments)
--- ═══════════════════════════════════════════════════════════════════
-ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS relationship_type TEXT NOT NULL DEFAULT 'overlap';
-CREATE INDEX IF NOT EXISTS idx_content_similarity_reltype ON content_similarity(relationship_type);
 """
 
 
