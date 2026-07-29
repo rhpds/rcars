@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import structlog
-from fastapi import APIRouter, Depends, Request, Query
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from rcars.api.middleware.auth import require_admin
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
@@ -160,7 +160,7 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
 @router.get(
     "/queries",
     summary="Query history",
-    description="Returns all advisor query sessions with full turn details for analytics. Admin-only.",
+    description="Returns advisor query sessions for the list view. Excludes heavy results_json. Admin-only.",
     response_model=QueryHistoryResponse,
 )
 async def query_history(
@@ -170,16 +170,39 @@ async def query_history(
 ):
     db = request.app.state.db
     sessions = db.list_advisor_sessions(limit=limit)
-    results = []
-    for session in sessions:
-        turns = db.get_advisor_session(session["session_id"])
-        results.append({
-            "session_id": session["session_id"],
-            "started_at": session["started_at"],
-            "turn_count": session["turns"],
-            "turns": turns,
-        })
-    return {"items": results, "total": len(results)}
+    return {
+        "items": [
+            {
+                "session_id": s["session_id"],
+                "started_at": s["started_at"],
+                "query_text": s.get("query_text"),
+                "chosen_ci_name": s.get("chosen_ci_name"),
+                "opted_out": s.get("opted_out", False),
+            }
+            for s in sessions
+        ],
+        "total": len(sessions),
+    }
+
+
+@router.get(
+    "/queries/{session_id}",
+    summary="Query session detail",
+    description="Returns full turn details for a single advisor session, including results_json. Admin-only.",
+)
+async def query_session_detail(
+    request: Request,
+    session_id: str,
+    user: str = Depends(require_admin),
+):
+    db = request.app.state.db
+    turns = db.get_advisor_session(session_id)
+    if not turns:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "turns": turns,
+    }
 
 
 @router.post(

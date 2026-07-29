@@ -93,31 +93,56 @@ export function AdminTokensPage() {
 
 // ── Query History Page ──
 
-interface QuerySession {
+interface QuerySessionSummary {
   session_id: string
   started_at: string
-  turn_count: number
-  turns: Array<{
-    query_text: string | null
-    overall_assessment: string | null
-    results_json: unknown[] | null
-    chosen_ci_name: string | null
-    opted_out: boolean
-    created_at: string
-  }>
+  query_text: string | null
+  chosen_ci_name: string | null
+  opted_out: boolean
+}
+
+interface SessionTurn {
+  query_text: string | null
+  overall_assessment: string | null
+  results_json: unknown[] | null
+  chosen_ci_name: string | null
+  opted_out: boolean
+  created_at: string
 }
 
 export function AdminQueriesPage() {
-  const [sessions, setSessions] = useState<QuerySession[]>([])
+  const [sessions, setSessions] = useState<QuerySessionSummary[]>([])
   const [expandedSessions, setExpandedSessions] = useState<Set<string>>(new Set())
+  const [sessionDetails, setSessionDetails] = useState<Record<string, SessionTurn[]>>({})
+  const [loadingDetails, setLoadingDetails] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     api.getQueryHistory(50).then(data => {
-      setSessions((data as { items: QuerySession[] }).items)
+      setSessions((data as { items: QuerySessionSummary[] }).items)
       setLoading(false)
     })
   }, [])
+
+  const toggleSession = (sessionId: string) => {
+    setExpandedSessions(prev => {
+      const next = new Set(prev)
+      if (next.has(sessionId)) {
+        next.delete(sessionId)
+      } else {
+        next.add(sessionId)
+        if (!sessionDetails[sessionId] && !loadingDetails.has(sessionId)) {
+          setLoadingDetails(ld => new Set(ld).add(sessionId))
+          api.getQuerySessionDetail(sessionId).then(data => {
+            const detail = data as { session_id: string; turns: SessionTurn[] }
+            setSessionDetails(prev => ({ ...prev, [sessionId]: detail.turns }))
+            setLoadingDetails(ld => { const next = new Set(ld); next.delete(sessionId); return next })
+          })
+        }
+      }
+      return next
+    })
+  }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
@@ -142,69 +167,69 @@ export function AdminQueriesPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {sessions.map(session => {
-              const firstQuery = session.turns[0]?.query_text
               const isExpanded = expandedSessions.has(session.session_id)
+              const turns = sessionDetails[session.session_id]
+              const isLoadingDetail = loadingDetails.has(session.session_id)
               return (
                 <div key={session.session_id} style={{ background: 'var(--bg-card)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-default)' }}>
                   <div
                     style={{ padding: '10px 14px', cursor: 'pointer', display: 'flex', gap: '12px', alignItems: 'baseline' }}
-                    onClick={() => setExpandedSessions(prev => {
-                      const next = new Set(prev)
-                      if (next.has(session.session_id)) next.delete(session.session_id)
-                      else next.add(session.session_id)
-                      return next
-                    })}
+                    onClick={() => toggleSession(session.session_id)}
                   >
                     <span style={{ color: 'var(--text-muted)', fontSize: '12px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                       {isExpanded ? '▾' : '▸'} {shortTime(session.started_at)}
                     </span>
                     <span style={{ color: 'var(--text-secondary)', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {firstQuery || '(empty query)'}
+                      {session.query_text || '(empty query)'}
                     </span>
-                    {session.turns.some(t => t.chosen_ci_name) && (
+                    {session.chosen_ci_name && (
                       <span style={{ color: 'var(--score-green)', fontSize: '11px', flexShrink: 0 }}>has selection</span>
                     )}
                   </div>
-                  {isExpanded && session.turns.map((turn, ti) => (
-                    <div key={ti} style={{ padding: '10px 14px 14px', borderTop: '1px solid var(--border-default)' }}>
-                      {turn.opted_out ? (
-                        <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>Query redacted (user opted out)</div>
-                      ) : (
-                        <>
-                          {turn.query_text && (
-                            <div style={{ color: 'var(--score-amber)', fontSize: '13px', marginBottom: '8px', fontWeight: 500 }}>
-                              {turn.query_text}
-                            </div>
-                          )}
-                          {turn.overall_assessment && (
-                            <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                              {turn.overall_assessment.slice(0, 500)}{turn.overall_assessment.length > 500 ? '...' : ''}
-                            </div>
-                          )}
-                          {turn.results_json && Array.isArray(turn.results_json) && (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                              {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number; vector_similarity_pct?: number; stage?: string }>).map((r, ri) => (
-                                <div key={ri} style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                  <span style={{ color: tierColor(r.tier || 'white'), fontWeight: 600, width: '36px' }}>
-                                    {r.relevance_score ?? r.vector_similarity_pct ?? '?'}%
-                                  </span>
-                                  <span style={{ color: 'var(--text-secondary)' }}>{r.display_name || r.ci_name}</span>
-                                  {r.stage && r.stage !== 'prod' && (
-                                    <span style={{ color: 'var(--text-muted)', fontSize: '10px', border: '1px solid var(--border-default)', borderRadius: '3px', padding: '0 4px' }}>
-                                      {r.stage}
+                  {isExpanded && (
+                    isLoadingDetail ? (
+                      <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-default)', color: 'var(--text-muted)', fontSize: '13px' }}>Loading details...</div>
+                    ) : turns?.map((turn, ti) => (
+                      <div key={ti} style={{ padding: '10px 14px 14px', borderTop: '1px solid var(--border-default)' }}>
+                        {turn.opted_out ? (
+                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>Query redacted (user opted out)</div>
+                        ) : (
+                          <>
+                            {turn.query_text && (
+                              <div style={{ color: 'var(--score-amber)', fontSize: '13px', marginBottom: '8px', fontWeight: 500 }}>
+                                {turn.query_text}
+                              </div>
+                            )}
+                            {turn.overall_assessment && (
+                              <div style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '10px', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                                {turn.overall_assessment.slice(0, 500)}{turn.overall_assessment.length > 500 ? '...' : ''}
+                              </div>
+                            )}
+                            {turn.results_json && Array.isArray(turn.results_json) && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                {(turn.results_json as Array<{ ci_name?: string; display_name?: string; tier?: string; relevance_score?: number; vector_similarity_pct?: number; stage?: string }>).map((r, ri) => (
+                                  <div key={ri} style={{ fontSize: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                    <span style={{ color: tierColor(r.tier || 'white'), fontWeight: 600, width: '36px' }}>
+                                      {r.relevance_score ?? r.vector_similarity_pct ?? '?'}%
                                     </span>
-                                  )}
-                                  {turn.chosen_ci_name === r.ci_name && (
-                                    <span style={{ color: 'var(--score-green)', fontSize: '10px' }}>SELECTED</span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                                    <span style={{ color: 'var(--text-secondary)' }}>{r.display_name || r.ci_name}</span>
+                                    {r.stage && r.stage !== 'prod' && (
+                                      <span style={{ color: 'var(--text-muted)', fontSize: '10px', border: '1px solid var(--border-default)', borderRadius: '3px', padding: '0 4px' }}>
+                                        {r.stage}
+                                      </span>
+                                    )}
+                                    {turn.chosen_ci_name === r.ci_name && (
+                                      <span style={{ color: 'var(--score-green)', fontSize: '10px' }}>SELECTED</span>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               )
             })}

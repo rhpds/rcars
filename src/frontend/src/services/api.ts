@@ -127,6 +127,7 @@ export const api = {
   getJobStatus: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   getQueryHistory: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/queries?limit=${limit}`),
+  getQuerySessionDetail: (sessionId: string) => request<{ session_id: string; turns: unknown[] }>(`/admin/queries/${sessionId}`),
 
   // Scheduled maintenance
   getScheduleStatus: () => request<{
