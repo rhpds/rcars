@@ -446,6 +446,17 @@ export function SyncPage() {
       <RescanAllSection />
 
       <WorkloadScanSection />
+
+      <AdminAction
+        title="Refresh Similarity"
+        description="Recompute pairwise content similarity from current embeddings. Produces both overlap (same-source) and related (cross-source) pairs."
+        buttonLabel="Compute Similarity"
+        onRun={async (addLog) => {
+          addLog('Computing content similarity…')
+          const result = await api.computeSimilarity(0.75)
+          addLog(`Done: ${result.overlap_pairs} overlap pairs, ${result.related_pairs} related pairs (${result.pairs_stored} total)`)
+        }}
+      />
     </div>
   )
 }
