@@ -11,6 +11,7 @@ from rcars.api.schemas import (
     WorkloadMappingsResponse, UnmappedWorkloadsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
+from rcars.db.similarity import get_similar_items as db_get_similar_items
 
 router = APIRouter(prefix="/catalog")
 
@@ -237,7 +238,7 @@ async def get_similar_items(
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
     content_id = item["content_id"]
-    similar = db.get_similar_items(content_id, min_score=min_score)
+    similar = db_get_similar_items(db.pool, content_id, min_score=min_score)
     return {"ci_name": item.get("ci_name", identifier), "content_id": content_id,
             "similar": similar, "count": len(similar)}
 

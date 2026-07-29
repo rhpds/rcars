@@ -11,6 +11,10 @@ from rich.table import Table
 
 from rcars.config import Settings
 from rcars.db import Database
+from rcars.db.similarity import (
+    compute_content_similarity as db_compute_similarity,
+    get_similarity_stats as db_get_similarity_stats,
+)
 from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
@@ -361,10 +365,10 @@ def compute_similarity(threshold: float, stage: str):
     """Compute pairwise content similarity between catalog items in a stage."""
     db = get_db()
     _print(f"Computing content similarity (stage={stage}, threshold={threshold})...")
-    result = db.compute_content_similarity(threshold=threshold, stage=stage)
+    result = db_compute_similarity(db.pool, threshold=threshold, stage=stage)
     _print(f"Done. {result['pairs_stored']} pairs stored above {threshold} threshold.")
 
-    stats = db.get_similarity_stats()
+    stats = db_get_similarity_stats(db.pool)
     table = Table(title="Content Similarity")
     table.add_column("Metric", style="cyan")
     table.add_column("Count", justify="right")

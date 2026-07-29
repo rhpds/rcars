@@ -12,6 +12,7 @@ from rcars.api.schemas import (
     ReportingStatusResponse,
 )
 from rcars.config import Settings
+from rcars.db.similarity import compute_content_similarity, get_overlap_report, get_similarity_stats
 
 logger = structlog.get_logger()
 
@@ -277,8 +278,8 @@ async def overlap_report(
     stage: str | None = Query(None, description="Filter by stage: prod, event, or dev"),
 ):
     db = request.app.state.db
-    pairs = db.get_overlap_report(min_score=min_score, stage=stage)
-    stats = db.get_similarity_stats(stage=stage)
+    pairs = get_overlap_report(db.pool, min_score=min_score, stage=stage)
+    stats = get_similarity_stats(db.pool, stage=stage)
     settings = Settings()
     return {
         "pairs": pairs,
@@ -305,7 +306,7 @@ async def compute_similarity(
     db = request.app.state.db
     logger.info("compute_similarity_started", component="rcars", action="compute_similarity",
                 threshold=threshold, stage=stage, triggered_by=user)
-    result = db.compute_content_similarity(threshold=threshold, stage=stage)
+    result = compute_content_similarity(db.pool, threshold=threshold, stage=stage)
     return result
 
 
