@@ -104,3 +104,10 @@
       Check recommend-worker logs:
         oc logs deployment/{{ app_name }}-recommend-worker -n {{ target_namespace }} --tail=50
       {% endif %}
+
+- name: Fail on genuine advisor error
+  ansible.builtin.fail:
+    msg: >-
+      Smoke test failed with status={{ smoke_parsed.status | default('unknown') }}:
+      {{ smoke_parsed.error | default((smoke_parsed.result | default({})).error | default('none')) }}
+  when: smoke_parsed.status | default('') != 'complete'

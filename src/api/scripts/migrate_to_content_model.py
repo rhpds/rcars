@@ -546,40 +546,35 @@ def cmd_import_token_usage(args):
             sys.exit(1)
 
         existing_count = _row_count(conn, "token_usage")
+        print(f"  Table has {existing_count} existing rows. Merging {len(rows)} exported rows...")
 
-        if existing_count == 0:
-            print(f"  Table is empty, inserting {len(rows)} rows...")
-            for row in rows:
-                conn.execute(
-                    "INSERT INTO token_usage ("
-                    "  id, operation, model, ci_name, query_text, "
-                    "  input_tokens, output_tokens, provider, created_at"
-                    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                    "ON CONFLICT (id) DO NOTHING",
-                    (
-                        row.get("id"),
-                        row.get("operation"),
-                        row.get("model"),
-                        row.get("ci_name"),
-                        row.get("query_text"),
-                        row.get("input_tokens", 0),
-                        row.get("output_tokens", 0),
-                        row.get("provider", "anthropic"),
-                        row.get("created_at"),
-                    ),
-                )
-            conn.commit()
-            # Reset sequence to avoid PK conflicts on new rows
+        for row in rows:
             conn.execute(
-                "SELECT setval('token_usage_id_seq', "
-                "(SELECT MAX(id) FROM token_usage))"
+                "INSERT INTO token_usage ("
+                "  id, operation, model, ci_name, query_text, "
+                "  input_tokens, output_tokens, provider, created_at"
+                ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                "ON CONFLICT (id) DO NOTHING",
+                (
+                    row.get("id"),
+                    row.get("operation"),
+                    row.get("model"),
+                    row.get("ci_name"),
+                    row.get("query_text"),
+                    row.get("input_tokens", 0),
+                    row.get("output_tokens", 0),
+                    row.get("provider", "anthropic"),
+                    row.get("created_at"),
+                ),
             )
-            conn.commit()
-            final_count = _row_count(conn, "token_usage")
-            print(f"  Inserted rows. Table now has {final_count} rows.")
-        else:
-            print(f"  Table already has {existing_count} rows. Skipping import.")
-            print("  Run rcars init-db --drop to reset if a fresh import is needed.")
+        conn.commit()
+        conn.execute(
+            "SELECT setval('token_usage_id_seq', "
+            "(SELECT COALESCE(MAX(id), 1) FROM token_usage))"
+        )
+        conn.commit()
+        final_count = _row_count(conn, "token_usage")
+        print(f"  Done. Table now has {final_count} rows ({final_count - existing_count} new).")
 
 
 # ---------------------------------------------------------------------------
@@ -631,14 +626,15 @@ def cmd_migrate(args):
         print("  Aborting. Run individual import subcommands when ready.")
         return
 
-    # Phase 3: Import sessions
+    # Phase 3: Import sessions + token usage
     print()
     print("-" * 40)
-    print("PHASE 3: Import advisor_sessions")
+    print("PHASE 3: Import advisor_sessions + token_usage")
     print("-" * 40)
-    resp = input("  Import sessions? (Y/n): ").strip().lower()
+    resp = input("  Import sessions and token usage? (Y/n): ").strip().lower()
     if resp != "n":
         cmd_import_sessions(args)
+        cmd_import_token_usage(args)
     else:
         print("  Skipped.")
 

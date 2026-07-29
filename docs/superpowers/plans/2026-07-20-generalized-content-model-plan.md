@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
     embed_type      TEXT NOT NULL,        -- 'summary', 'module', 'section'
     module_title    TEXT,
     content_text    TEXT,
-    embedding       vector(384)
+    embedding       vector(768)
 );
 
 CREATE INDEX IF NOT EXISTS idx_emb_content_id ON embeddings(content_id);
