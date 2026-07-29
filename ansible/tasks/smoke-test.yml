@@ -23,6 +23,15 @@
       --timeout=120s
   changed_when: false
 
+- name: Wait for embedding pod to be ready
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-embedding
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=600s
+  changed_when: false
+
 - name: Find running API pod
   ansible.builtin.command:
     cmd: >-

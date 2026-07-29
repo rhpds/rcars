@@ -33,7 +33,7 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
-EXPORT_PATH = Path("/tmp/rcars-migration-export.json")
+DEFAULT_EXPORT_PATH = Path.home() / "devel" / "working" / "rcars-migration-export.json"
 
 # Stage suffixes to try when resolving a catalog_base_name to a content_id
 STAGE_SUFFIXES = [".prod", ".event", ".dev", ".test"]
@@ -87,13 +87,13 @@ def _row_count(conn: psycopg.Connection, table_name: str) -> int:
     return cur.fetchone()["cnt"]
 
 
-def _load_export() -> dict:
+def _load_export(export_path: Path) -> dict:
     """Load the export JSON file."""
-    if not EXPORT_PATH.exists():
-        print(f"ERROR: Export file not found at {EXPORT_PATH}")
+    if not export_path.exists():
+        print(f"ERROR: Export file not found at {export_path}")
         print("Run the 'export' subcommand first.")
         sys.exit(1)
-    with open(EXPORT_PATH) as f:
+    with open(export_path) as f:
         return json.load(f)
 
 
@@ -144,10 +144,12 @@ def cmd_export(args):
         "curator_notes": notes,
     }
 
-    with open(EXPORT_PATH, "w") as f:
+    export_path = Path(args.export_file)
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(export_path, "w") as f:
         json.dump(export_data, f, default=_json_serializer, indent=2)
 
-    print(f"\nExport written to {EXPORT_PATH}")
+    print(f"\nExport written to {export_path}")
     print(f"  advisor_sessions:    {len(sessions)} rows")
     print(f"  retirement_workflows: {len(workflows)} rows")
     print(f"  curator_notes:        {len(notes)} rows")
@@ -159,7 +161,7 @@ def cmd_export(args):
 
 def cmd_import_sessions(args):
     """Re-insert advisor_sessions and compute chosen_content_id."""
-    data = _load_export()
+    data = _load_export(Path(args.export_file))
     sessions = data.get("advisor_sessions", [])
     if not sessions:
         print("No advisor_sessions in export file. Nothing to import.")
@@ -258,7 +260,7 @@ def cmd_import_sessions(args):
 
 def cmd_import_workflows(args):
     """Import retirement_workflow rows, mapping catalog_base_name to content_id."""
-    data = _load_export()
+    data = _load_export(Path(args.export_file))
     workflows = data.get("retirement_workflows", [])
     if not workflows:
         print("No retirement_workflows in export file. Nothing to import.")
@@ -465,7 +467,7 @@ def _resolve_base_name_to_content_id(
 
 def cmd_import_notes(args):
     """Restore curator notes to showroom_analysis rows."""
-    data = _load_export()
+    data = _load_export(Path(args.export_file))
     notes = data.get("curator_notes", [])
     if not notes:
         print("No curator_notes in export file. Nothing to import.")
@@ -534,14 +536,15 @@ def cmd_migrate(args):
     print("-" * 40)
     print("PHASE 1: Export from old schema")
     print("-" * 40)
-    if EXPORT_PATH.exists():
-        print(f"  Export file already exists at {EXPORT_PATH}")
+    export_path = Path(args.export_file)
+    if export_path.exists():
+        print(f"  Export file already exists at {export_path}")
         resp = input("  Re-export? (y/N): ").strip().lower()
         if resp == "y":
             cmd_export(args)
         else:
             print("  Using existing export file.")
-            data = _load_export()
+            data = _load_export(export_path)
             print(f"  advisor_sessions:    {len(data.get('advisor_sessions', []))} rows")
             print(f"  retirement_workflows: {len(data.get('retirement_workflows', []))} rows")
             print(f"  curator_notes:        {len(data.get('curator_notes', []))} rows")
@@ -630,29 +633,37 @@ def main():
     subparsers = parser.add_subparsers(dest="command", help="Migration phase to run")
     subparsers.required = True
 
+    def _add_common(p):
+        p.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+        p.add_argument(
+            "--export-file",
+            default=str(DEFAULT_EXPORT_PATH),
+            help=f"Path to the export JSON file (default: {DEFAULT_EXPORT_PATH})",
+        )
+
     # export
     p_export = subparsers.add_parser("export", help="Export data from old schema")
-    p_export.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+    _add_common(p_export)
     p_export.set_defaults(func=cmd_export)
 
     # import-sessions
     p_sessions = subparsers.add_parser("import-sessions", help="Import advisor_sessions")
-    p_sessions.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+    _add_common(p_sessions)
     p_sessions.set_defaults(func=cmd_import_sessions)
 
     # import-workflows
     p_workflows = subparsers.add_parser("import-workflows", help="Import retirement_workflow")
-    p_workflows.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+    _add_common(p_workflows)
     p_workflows.set_defaults(func=cmd_import_workflows)
 
     # import-notes
     p_notes = subparsers.add_parser("import-notes", help="Import curator notes")
-    p_notes.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+    _add_common(p_notes)
     p_notes.set_defaults(func=cmd_import_notes)
 
     # migrate (interactive all-in-one)
     p_migrate = subparsers.add_parser("migrate", help="Interactive all-in-one migration")
-    p_migrate.add_argument("--db-url", required=True, help="PostgreSQL connection URL")
+    _add_common(p_migrate)
     p_migrate.set_defaults(func=cmd_migrate)
 
     args = parser.parse_args()
