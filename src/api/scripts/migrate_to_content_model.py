@@ -136,12 +136,19 @@ def cmd_export(args):
         notes = [dict(row) for row in cur.fetchall()]
         print(f"  {len(notes)} rows exported")
 
+        # 4. Export ALL token_usage rows
+        print("Exporting token_usage...")
+        cur = conn.execute("SELECT * FROM token_usage ORDER BY id")
+        token_usage = [dict(row) for row in cur.fetchall()]
+        print(f"  {len(token_usage)} rows exported")
+
     # Write the export file
     export_data = {
         "exported_at": datetime.utcnow().isoformat(),
         "advisor_sessions": sessions,
         "retirement_workflows": workflows,
         "curator_notes": notes,
+        "token_usage": token_usage,
     }
 
     export_path = Path(args.export_file)
@@ -150,9 +157,10 @@ def cmd_export(args):
         json.dump(export_data, f, default=_json_serializer, indent=2)
 
     print(f"\nExport written to {export_path}")
-    print(f"  advisor_sessions:    {len(sessions)} rows")
+    print(f"  advisor_sessions:     {len(sessions)} rows")
     print(f"  retirement_workflows: {len(workflows)} rows")
     print(f"  curator_notes:        {len(notes)} rows")
+    print(f"  token_usage:          {len(token_usage)} rows")
 
 
 # ---------------------------------------------------------------------------
@@ -519,6 +527,62 @@ def cmd_import_notes(args):
 
 
 # ---------------------------------------------------------------------------
+# Import: token_usage
+# ---------------------------------------------------------------------------
+
+def cmd_import_token_usage(args):
+    """Re-insert token_usage rows, preserving historical IDs."""
+    data = _load_export(Path(args.export_file))
+    rows = data.get("token_usage", [])
+    if not rows:
+        print("No token_usage in export file. Nothing to import.")
+        return
+
+    print(f"Importing {len(rows)} token_usage rows...")
+
+    with _connect(args.db_url) as conn:
+        if not _table_exists(conn, "token_usage"):
+            print("ERROR: token_usage table not found in new schema.")
+            sys.exit(1)
+
+        existing_count = _row_count(conn, "token_usage")
+
+        if existing_count == 0:
+            print(f"  Table is empty, inserting {len(rows)} rows...")
+            for row in rows:
+                conn.execute(
+                    "INSERT INTO token_usage ("
+                    "  id, operation, model, ci_name, query_text, "
+                    "  input_tokens, output_tokens, provider, created_at"
+                    ") VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+                    "ON CONFLICT (id) DO NOTHING",
+                    (
+                        row.get("id"),
+                        row.get("operation"),
+                        row.get("model"),
+                        row.get("ci_name"),
+                        row.get("query_text"),
+                        row.get("input_tokens", 0),
+                        row.get("output_tokens", 0),
+                        row.get("provider", "anthropic"),
+                        row.get("created_at"),
+                    ),
+                )
+            conn.commit()
+            # Reset sequence to avoid PK conflicts on new rows
+            conn.execute(
+                "SELECT setval('token_usage_id_seq', "
+                "(SELECT MAX(id) FROM token_usage))"
+            )
+            conn.commit()
+            final_count = _row_count(conn, "token_usage")
+            print(f"  Inserted rows. Table now has {final_count} rows.")
+        else:
+            print(f"  Table already has {existing_count} rows. Skipping import.")
+            print("  Run rcars init-db --drop to reset if a fresh import is needed.")
+
+
+# ---------------------------------------------------------------------------
 # Interactive all-in-one migration
 # ---------------------------------------------------------------------------
 
@@ -660,6 +724,11 @@ def main():
     p_notes = subparsers.add_parser("import-notes", help="Import curator notes")
     _add_common(p_notes)
     p_notes.set_defaults(func=cmd_import_notes)
+
+    # import-token-usage
+    p_tokens = subparsers.add_parser("import-token-usage", help="Import token_usage history")
+    _add_common(p_tokens)
+    p_tokens.set_defaults(func=cmd_import_token_usage)
 
     # migrate (interactive all-in-one)
     p_migrate = subparsers.add_parser("migrate", help="Interactive all-in-one migration")
