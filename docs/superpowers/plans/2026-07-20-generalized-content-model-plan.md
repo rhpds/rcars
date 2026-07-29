@@ -3210,19 +3210,47 @@ This task is the operational execution of the migration on the dev environment. 
 
 1. **SSH to dev environment** or use the dev kubeconfig to connect.
 
-2. **Run the export phase** (Task 2) against the dev database:
+2. **Full database dump — emergency rollback snapshot.** Before touching anything, take a complete `pg_dump` of the entire database. This is separate from the selective export and is the emergency rollback target if anything goes catastrophically wrong.
+
+   ```bash
+   # Run from local machine — streams directly to a local file
+   KUBECONFIG=~/devel/secrets/rcars-mgmt-dev.kubeconfig \
+     oc exec rcars-postgresql-0 -- \
+     pg_dump -U rcars -Fc rcars \
+     > /tmp/rcars-full-backup-$(date +%Y%m%d-%H%M%S).dump
+   ```
+
+   Verify it is non-empty:
+   ```bash
+   ls -lh /tmp/rcars-full-backup-*.dump
+   ```
+
+   **To roll back if the migration fails:** restore with `pg_restore`:
+   ```bash
+   # Drop the broken schema first
+   KUBECONFIG=... oc exec rcars-postgresql-0 -- \
+     psql -U rcars -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
+   # Restore from the dump
+   KUBECONFIG=... oc exec -i rcars-postgresql-0 -- \
+     pg_restore -U rcars -d rcars < /tmp/rcars-full-backup-YYYYMMDDHHMMSS.dump
+   ```
+
+   Then redeploy the old API image tag to re-attach to the restored schema.
+
+3. **Run the export phase** (Task 2) against the dev database:
    ```bash
    # From the API pod or local with port-forward to dev PostgreSQL
    python scripts/migrate_to_content_model.py export --db-url "$DATABASE_URL"
    ```
    This writes `/tmp/rcars-migration-export.json` with advisor_sessions, active retirement workflows, and curator notes.
 
-3. **Verify the export:**
+4. **Verify the export:**
    - `jq '.advisor_sessions | length' /tmp/rcars-migration-export.json` — should be > 0
    - `jq '.retirement_workflows | length' /tmp/rcars-migration-export.json` — active workflows
    - `jq '.curator_notes | length' /tmp/rcars-migration-export.json` — curator notes count
 
-4. **Back up the export file** to a safe location (e.g., `/tmp/` on your local machine via `oc cp`).
+5. **Back up the export file** to a safe location (e.g., `/tmp/` on your local machine via `oc cp`).
 
 #### 12b. Deploy new schema (dev environment)
 
