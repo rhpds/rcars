@@ -53,4 +53,5 @@ tsconfig.tsbuildinfo
 
 # Security audit reports (never commit — store in Jira)
 docs/admin/security-audit*.md
+docs/admin/data-model-migration.md
 docs/architecture/security-audit*.md
