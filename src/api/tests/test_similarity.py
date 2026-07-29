@@ -7,7 +7,7 @@ import pytest
 from rcars.db.database import Database
 from rcars.db.similarity import (
     compute_content_similarity,
-    get_overlap_report,
+    get_overlap_items,
     get_similar_items,
     get_similarity_stats,
 )
@@ -126,14 +126,6 @@ def test_get_similar_items_min_score_filters(db):
     assert len(high_items) <= len(all_items)
 
 
-def test_get_overlap_report_returns_pairs(db):
-    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
-    pairs = get_overlap_report(db.pool, min_score=0.75)
-    assert len(pairs) >= 1
-    for pair in pairs:
-        assert pair["similarity_score"] >= 0.75
-
-
 def test_get_similarity_stats_returns_counts(db):
     compute_content_similarity(db.pool, threshold=0.75, stage="prod")
     stats = get_similarity_stats(db.pool)
@@ -203,3 +195,48 @@ def test_stats_filters_by_relationship_type(db):
     compute_content_similarity(db.pool, threshold=0.75, stage="prod")
     overlap_stats = get_similarity_stats(db.pool, relationship_type="overlap")
     assert overlap_stats["total_pairs_stored"] >= 1
+
+
+def test_get_overlap_items_returns_item_centric_results(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    result = get_overlap_items(db.pool, min_score=0.75)
+    assert "items" in result
+    assert "total_items" in result
+    assert "page" in result
+    assert "page_size" in result
+
+    for item in result["items"]:
+        assert "content_id" in item
+        assert "display_name" in item
+        assert "max_score" in item
+        assert "neighbor_count" in item
+        assert "score_band" in item
+        assert "neighbors" in item
+        assert len(item["neighbors"]) == item["neighbor_count"]
+
+
+def test_get_overlap_items_sorted_by_max_score(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    result = get_overlap_items(db.pool, min_score=0.75)
+    scores = [item["max_score"] for item in result["items"]]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_get_overlap_items_min_score_filters(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    all_items = get_overlap_items(db.pool, min_score=0.75)
+    high_items = get_overlap_items(db.pool, min_score=0.90)
+    assert high_items["total_items"] <= all_items["total_items"]
+
+
+def test_get_overlap_items_search_filters_by_name(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    result = get_overlap_items(db.pool, min_score=0.75, search="Item A")
+    assert all("Item A" in item["display_name"] for item in result["items"])
+
+
+def test_get_overlap_items_pagination(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    page1 = get_overlap_items(db.pool, min_score=0.75, page=1, page_size=2)
+    assert page1["page"] == 1
+    assert page1["page_size"] == 2

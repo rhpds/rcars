@@ -295,9 +295,11 @@ class SimilarityThresholds(BaseModel):
     near_duplicate: float
 
 
-class OverlapResponse(BaseModel):
-    pairs: list[dict]
-    total: int
+class OverlapItemsResponse(BaseModel):
+    items: list[dict]
+    total_items: int
+    page: int
+    page_size: int
     stats: dict | None = None
     thresholds: SimilarityThresholds
 

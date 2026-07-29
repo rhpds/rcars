@@ -8,11 +8,11 @@ from rcars.api.middleware.auth import require_admin
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
-    OverlapResponse, ScheduleResponse, LlmProviderResponse,
+    OverlapItemsResponse, ScheduleResponse, LlmProviderResponse,
     ReportingStatusResponse,
 )
 from rcars.config import Settings
-from rcars.db.similarity import compute_content_similarity, get_overlap_report, get_similarity_stats
+from rcars.db.similarity import compute_content_similarity, get_overlap_items, get_similarity_stats
 
 logger = structlog.get_logger()
 
@@ -264,26 +264,42 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
 
 @router.get(
     "/overlap",
-    summary="Content overlap report",
+    summary="Content overlap report — item-centric, paginated",
     description=(
-        "Returns pairs of catalog items with high content similarity based on embedding cosine distance. "
-        "Useful for identifying duplicate or near-duplicate content. Admin-only."
+        "Returns catalog items grouped by their maximum similarity score, "
+        "with neighbor lists for each item. Supports filtering by score, stage, "
+        "content type, source, and search."
     ),
-    response_model=OverlapResponse,
+    response_model=OverlapItemsResponse,
 )
 async def overlap_report(
     request: Request,
     user: str = Depends(require_admin),
-    min_score: float = Query(0.75, ge=0.0, le=1.0),
-    stage: str | None = Query(None, description="Filter by stage: prod, event, or dev"),
+    min_score: float = Query(0.85, ge=0.0, le=1.0),
+    stage: str | None = Query(None, description="Filter by stage"),
+    content_type: str | None = Query(None, description="Filter by content type"),
+    source: str | None = Query(None, description="Filter by source"),
+    search: str | None = Query(None, description="Search by display name"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    relationship_type: str = Query("overlap", description="overlap or related"),
 ):
     db = request.app.state.db
-    pairs = get_overlap_report(db.pool, min_score=min_score, stage=stage)
-    stats = get_similarity_stats(db.pool, stage=stage)
+    result = get_overlap_items(
+        db.pool,
+        min_score=min_score,
+        stage=stage,
+        content_type=content_type,
+        source=source,
+        search=search,
+        page=page,
+        page_size=page_size,
+        relationship_type=relationship_type,
+    )
+    stats = get_similarity_stats(db.pool, stage=stage, relationship_type=relationship_type)
     settings = Settings()
     return {
-        "pairs": pairs,
-        "total": len(pairs),
+        **result,
         "stats": stats,
         "thresholds": {
             "display": settings.similarity_threshold,
