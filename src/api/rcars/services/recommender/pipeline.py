@@ -134,7 +134,7 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
         multiplier = max(floor, 1.0 - coeff * math.log(ratio))
         old_score = c.relevance_score
         c.relevance_score = max(0, min(100, round(old_score * multiplier)))
-        logger.debug("duration_penalty", ci_name=c.ci_name,
+        logger.debug("duration_penalty", content_id=c.content_id,
                      duration=c.duration_min, target=target_min,
                      ratio=round(ratio, 1), multiplier=round(multiplier, 2),
                      old_score=old_score, new_score=c.relevance_score)
@@ -143,18 +143,22 @@ def _apply_duration_penalty(candidates: list[Candidate], target_min: int, hard: 
 def _apply_usage_boost(candidates: list[Candidate], db) -> None:
     """Boost relevance scores for candidates with proven usage.
 
-    Looks up provisions_quarter from reporting_metrics and applies a
-    gentle multiplicative boost based on percentile rank among candidates
-    with non-zero provisions. Max boost is 12% — enough to swap adjacent
-    candidates but not enough to jump a tier.
+    Looks up provisions_quarter from performance_channels (RHDP channel)
+    and applies a gentle multiplicative boost based on percentile rank
+    among candidates with non-zero provisions. Max boost is 12% — enough
+    to swap adjacent candidates but not enough to jump a tier.
     """
     import bisect
-    from rcars.services.reporting_sync import extract_base_name
 
     for c in candidates:
-        base = extract_base_name(c.ci_name)
-        metrics = db.get_reporting_metrics(base)
-        c.provisions_quarter = metrics["provisions_quarter"] if metrics else None
+        channels = db.get_performance_channels(c.content_id)
+        rhdp = next((ch for ch in (channels or []) if ch.get("channel") == "rhdp"), None)
+        if rhdp:
+            wm = rhdp.get("windowed_metrics") or {}
+            q_data = wm.get("3m") or {}
+            c.provisions_quarter = q_data.get("provisions")
+        else:
+            c.provisions_quarter = None
 
     prov_values = [c.provisions_quarter for c in candidates if c.provisions_quarter and c.provisions_quarter > 0]
     if not prov_values:
@@ -175,7 +179,7 @@ def _apply_usage_boost(candidates: list[Candidate], db) -> None:
             multiplier = 1.03
         old_score = c.relevance_score
         c.relevance_score = max(0, min(100, round(old_score * multiplier)))
-        logger.debug("usage_boost", ci_name=c.ci_name,
+        logger.debug("usage_boost", content_id=c.content_id,
                      provisions_quarter=c.provisions_quarter, percentile=round(pct),
                      multiplier=multiplier, old_score=old_score, new_score=c.relevance_score)
 
@@ -226,8 +230,10 @@ async def run_query(
     def serialize_candidates(candidates):
         return [
             {
+                "content_id": c.content_id, "content_type": c.content_type,
                 "ci_name": c.ci_name, "display_name": c.display_name, "tier": c.tier,
                 "relevance_score": c.relevance_score, "vector_similarity_pct": c.vector_similarity_pct,
+                "best_match_type": c.best_match_type, "best_match_detail": c.best_match_detail,
                 "stage": c.stage, "catalog_namespace": c.catalog_namespace,
                 "duration_min": c.duration_min, "duration_source": c.duration_source,
                 "learning_objectives": c.learning_objectives,
@@ -298,7 +304,7 @@ async def run_query(
     # Assign green tier to the top N candidates by score (deterministic,
     # independent of whether the LLM generated why_it_fits for them)
     yellow_by_score = [c for c in state.candidates if c.tier == "yellow"]
-    yellow_by_score.sort(key=lambda c: (-(c.relevance_score or 0), c.ci_name))
+    yellow_by_score.sort(key=lambda c: (-(c.relevance_score or 0), c.content_id))
     for c in yellow_by_score[:top_n]:
         c.tier = "green"
 

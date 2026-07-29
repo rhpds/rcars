@@ -12,12 +12,12 @@ from rcars.db import Database
 log = structlog.get_logger()
 
 AGDV2_COLLECTIONS = [
-    {"name": "agnosticd.core_workloads", "url": "https://github.com/agnosticd/core_workloads.git"},
-    {"name": "agnosticd.ai_workloads", "url": "https://github.com/agnosticd/ai_workloads.git"},
-    {"name": "agnosticd.cloud_vm_workloads", "url": "https://github.com/agnosticd/cloud_vm_workloads.git"},
-    {"name": "agnosticd.namespaced_workloads", "url": "https://github.com/agnosticd/namespaced_workloads.git"},
-    {"name": "agnosticd.cnv_workloads", "url": "https://github.com/agnosticd/cnv_workloads.git"},
-    {"name": "agnosticd.showroom", "url": "https://github.com/agnosticd/showroom.git"},
+    {"name": "agnosticd.core_workloads", "url": "https://github.com/rhpds/core_workloads.git"},
+    {"name": "agnosticd.ai_workloads", "url": "https://github.com/rhpds/ai_workloads.git"},
+    {"name": "agnosticd.cloud_vm_workloads", "url": "https://github.com/rhpds/cloud_vm_workloads.git"},
+    {"name": "agnosticd.namespaced_workloads", "url": "https://github.com/rhpds/namespaced_workloads.git"},
+    {"name": "agnosticd.cnv_workloads", "url": "https://github.com/rhpds/cnv_workloads.git"},
+    {"name": "agnosticd.showroom", "url": "https://github.com/rhpds/showroom.git"},
 ]
 
 WORKLOAD_SYSTEM_PROMPT = """\

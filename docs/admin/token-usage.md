@@ -5,11 +5,11 @@ description: How RCARS tracks and reports Anthropic API token consumption
 
 # Token Usage Tracking
 
-RCARS logs every Anthropic API call to PostgreSQL so that operators can see cumulative costs, identify expensive queries, and understand model utilization over time. The data is surfaced in the admin view as a time-windowed summary table and a per-query breakdown.
+RCARS logs every LLM API call to PostgreSQL so that operators can see cumulative costs, identify expensive queries, and understand model utilization over time. The data is surfaced in the admin view as a time-windowed summary table and a per-query breakdown.
 
 ## What Is Tracked
 
-Four types of operations produce token usage records:
+Five types of operations produce token usage records:
 
 | Operation | Model | When it fires |
 |-----------|-------|---------------|
@@ -17,10 +17,11 @@ Four types of operations produce token usage records:
 | `triage` | claude-haiku-4-5 | Each advisor query (phase 2 — relevance scoring) |
 | `rationale` | claude-sonnet-4-6 | Each advisor query that produces results (phase 3 — rationale generation) |
 | `event_parse` | claude-sonnet-4-6 | When an advisor query contains a URL and event content is extracted |
+| `workload_scan` | claude-haiku-4-5 | Each workload role analyzed during the workload scanner |
 
 A single advisor query produces two to three records: one triage, one rationale (if matches found), and one event_parse (if the query contained a URL). A triage call that returns no matches still logs its tokens — the API was called and resources were consumed regardless of outcome.
 
-Catalog sync (`rcars refresh`) and stale checks (`rcars check-stale`) make no Anthropic API calls and produce no token records.
+Catalog sync (`rcars refresh`) and stale checks (`rcars check-stale`) make no LLM API calls and produce no token records.
 
 ## Database Schema
 
@@ -33,6 +34,7 @@ CREATE TABLE token_usage (
     query_text    TEXT,                 -- query ops: the user's question (≤200 chars)
     input_tokens  INTEGER NOT NULL DEFAULT 0,
     output_tokens INTEGER NOT NULL DEFAULT 0,
+    provider      TEXT DEFAULT 'anthropic',
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 ```

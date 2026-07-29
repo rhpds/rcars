@@ -101,7 +101,7 @@ rcars scan --max 5          # Limit to 5 items (useful for testing)
 3. Boilerplate pages are filtered out — login/credentials pages, environment setup pages, index pages, and navigation files are excluded so the AI focuses on actual lab content.
 4. The remaining content is assembled into a prompt alongside the catalog item's metadata and sent to Claude Sonnet.
 5. Sonnet returns a structured JSON analysis: content type, summary, products, audience, difficulty, duration, topics, learning objectives, module breakdown, use cases, and event fit assessments.
-6. A 384-dimensional vector embedding is generated from the analysis using a local sentence-transformers model (`all-MiniLM-L6-v2`). Module-level embeddings are generated separately.
+6. A 768-dimensional vector embedding is generated from the analysis using the nomic-embed-text-v1.5 model via the vLLM embedding server. Module-level embeddings are generated separately.
 7. The analysis and embeddings are written to the database. The temporary clone is deleted.
 
 **Parallelism:** Items are processed in parallel threads (default: 5, controlled by `RCARS_MAX_PARALLEL`). Reduce this if you hit API rate limits or memory pressure.

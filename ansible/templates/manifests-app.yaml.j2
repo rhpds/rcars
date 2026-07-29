@@ -86,7 +86,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -158,8 +158,8 @@ spec:
 {% endif %}
             - name: RCARS_DEV_USER
               value: ""
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -177,6 +177,9 @@ spec:
               mountPath: /tmp/rcars-clones
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -219,6 +222,9 @@ spec:
             sizeLimit: 10Gi
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
 ---
 # ── Scan Worker Deployment (analysis, catalog refresh, stale checks) ──
 apiVersion: apps/v1
@@ -271,7 +277,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -317,8 +323,8 @@ spec:
                   name: {{ app_name }}-reporting-mcp
                   key: token
 {% endif %}
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -336,6 +342,9 @@ spec:
               mountPath: /tmp/rcars-clones
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             exec:
               command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
@@ -376,6 +385,9 @@ spec:
             sizeLimit: 10Gi
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
 ---
 # ── Recommend Worker Deployment (advisor queries, separate from scan to avoid starvation) ──
 apiVersion: apps/v1
@@ -428,7 +440,7 @@ spec:
                   name: {{ app_name }}-postgresql
                   key: POSTGRESQL_DATABASE
             - name: RCARS_DATABASE_URL
-              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)"
+              value: "postgresql://$(PG_USER):$(PG_PASSWORD)@{{ app_name }}-postgresql:{{ pg_port }}/$(PG_DB)?sslmode=verify-ca&sslrootcert=/etc/rcars/tls/service-ca.crt"
             - name: RCARS_REDIS_URL
               valueFrom:
                 secretKeyRef:
@@ -453,8 +465,8 @@ spec:
 {% endif %}
             - name: RCARS_RECOMMEND_MAX_JOBS
               value: "{{ recommend_max_jobs | default('15') }}"
-            - name: HF_HOME
-              value: /opt/app-root/hf_cache
+            - name: RCARS_EMBEDDING_URL
+              value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials
@@ -464,6 +476,9 @@ spec:
 {% endif %}
             - name: tmp
               mountPath: /tmp
+            - name: service-ca
+              mountPath: /etc/rcars/tls
+              readOnly: true
           livenessProbe:
             exec:
               command: ["python", "-c", "import os; import redis; redis.from_url(os.environ['RCARS_REDIS_URL']).ping()"]
@@ -496,6 +511,111 @@ spec:
 {% endif %}
         - name: tmp
           emptyDir: {}
+        - name: service-ca
+          configMap:
+            name: {{ app_name }}-service-ca
+---
+# ── Embedding Server Service (internal — used by API and workers) ──
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app_name }}-embedding
+  labels:
+    app: {{ app_name }}
+    component: embedding
+spec:
+  selector:
+    app: {{ app_name }}
+    component: embedding
+  ports:
+    - port: {{ embedding_port }}
+      targetPort: {{ embedding_port }}
+  type: ClusterIP
+---
+# ── Embedding Server Deployment (vLLM serving nomic-embed-text) ──
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-embedding
+  labels:
+    app: {{ app_name }}
+    component: embedding
+spec:
+  replicas: {{ embedding_replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+      component: embedding
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+        component: embedding
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ app_name }}-embedding
+          image: {{ embedding_image }}
+          args:
+            - "--model"
+            - "{{ embedding_model }}"
+            - "--trust-remote-code"
+            - "--dtype"
+            - "float32"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "{{ embedding_port }}"
+            - "--download-dir"
+            - "/models"
+          env:
+            - name: HF_HUB_OFFLINE
+              value: "{{ embedding_offline | default('0') }}"
+            - name: TRANSFORMERS_OFFLINE
+              value: "{{ embedding_offline | default('0') }}"
+          ports:
+            - containerPort: {{ embedding_port }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: {{ embedding_port }}
+            failureThreshold: 60
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ embedding_port }}
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ embedding_port }}
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: {{ embedding_cpu_request }}
+              memory: {{ embedding_memory_request }}
+            limits:
+              cpu: "{{ embedding_cpu_limit }}"
+              memory: {{ embedding_memory_limit }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+      volumes:
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: {{ app_name }}-embedding-models
 ---
 # ── Frontend Deployment ──
 apiVersion: apps/v1

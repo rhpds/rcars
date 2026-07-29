@@ -12,11 +12,11 @@ Be strict: a partial topic overlap is not relevance. If the content does not mea
 
 ## Instructions
 
-For each candidate, evaluate whether its content directly addresses the request. Return ONLY valid JSON (no markdown fences, no explanation):
+For each candidate, evaluate whether its content directly addresses the request. Return ONLY valid JSON (no markdown fences, no explanation). Use the candidate's Content ID as the identifier:
 
 [
   {
-    "ci_name": "the-ci-name",
+    "content_id": "babylon:the-ci-name",
     "relevance_score": 85,
     "relevant": true,
     "one_line_reason": "Direct match — Ansible automation workshop with AAP 2.x hands-on labs"

@@ -41,7 +41,7 @@ def _get_label(metadata: dict, key: str, prefix: str = LABEL_PREFIX) -> str:
 def extract_catalog_item(crd: dict[str, Any]) -> dict[str, Any]:
     """Extract catalog metadata from a CatalogItem CRD.
 
-    Returns a dict suitable for db.upsert_catalog_item().
+    Returns a dict suitable for db.upsert_babylon_catalog_item().
     """
     metadata = crd.get("metadata", {})
     spec = crd.get("spec", {})
@@ -231,7 +231,7 @@ def extract_showroom_url(
     return None, None
 
 
-AGD_V2_SCM_URL = "https://github.com/agnosticd/agnosticd-v2"
+AGD_V2_SCM_URL = "https://github.com/rhpds/agnosticd-v2"
 
 VM_WORKLOAD_FIELDS = [
     "software_workloads",

@@ -16,7 +16,7 @@ def test_query_state_defaults():
 
 def test_candidate_tier_defaults():
     c = Candidate(
-        ci_name="test.item",
+        content_id="babylon:test.item",
         display_name="Test",
         category="Workshops",
         summary="A test item",
@@ -25,6 +25,7 @@ def test_candidate_tier_defaults():
         difficulty="beginner",
         duration_min=60,
         content_type="workshop",
+        ci_name="test.item",
     )
     assert c.tier == "white"
     assert c.relevance_score is None

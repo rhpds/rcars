@@ -12,8 +12,11 @@ set -euo pipefail
 
 PG_CONTAINER="rcars-postgres"
 REDIS_CONTAINER="rcars-redis"
+EMBEDDING_CONTAINER="rcars-embedding"
 PG_IMAGE="pgvector/pgvector:pg16"
 REDIS_IMAGE="redis:7"
+EMBEDDING_IMAGE="registry.redhat.io/rhaii/vllm-cpu-rhel9:3"
+EMBEDDING_MODEL="nomic-ai/nomic-embed-text-v1.5"
 VENV="${HOME}/.virtualenvs/rcars-v2"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 API_DIR="${PROJECT_DIR}/src/api"
@@ -24,6 +27,7 @@ export RCARS_REDIS_URL="redis://localhost:6379"
 export RCARS_DEV_USER="${RCARS_DEV_USER:-dev@redhat.com}"
 export RCARS_ADMIN_EMAILS_STR="${RCARS_ADMIN_EMAILS_STR:-dev@redhat.com}"
 export RCARS_CURATOR_EMAILS_STR="${RCARS_CURATOR_EMAILS_STR:-dev@redhat.com}"
+export RCARS_EMBEDDING_URL="http://localhost:8000/v1"
 
 start_postgres() {
     if podman ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
@@ -47,6 +51,25 @@ start_redis() {
         podman run -d --name "${REDIS_CONTAINER}" \
             -p 6379:6379 "${REDIS_IMAGE}" >/dev/null
     echo "  ✓  localhost:6379"
+}
+
+start_embedding() {
+    if podman ps --format '{{.Names}}' | grep -q "^${EMBEDDING_CONTAINER}$"; then
+        echo "  Embedding server already running"
+        return
+    fi
+    podman start "${EMBEDDING_CONTAINER}" 2>/dev/null || \
+        podman run -d --name "${EMBEDDING_CONTAINER}" \
+            -p 8000:8000 \
+            -v rcars-embedding-models:/models:Z \
+            "${EMBEDDING_IMAGE}" \
+            --model "${EMBEDDING_MODEL}" \
+            --task embed \
+            --trust-remote-code \
+            --dtype float32 \
+            --host 0.0.0.0 --port 8000 \
+            --download-dir /models >/dev/null
+    echo "  ✓  localhost:8000 (model downloads on first start)"
 }
 
 start_api() {
@@ -106,6 +129,8 @@ start() {
     start_postgres
     echo "Starting Redis (podman)..."
     start_redis
+    echo "Starting Embedding server (podman)..."
+    start_embedding
     echo "Initializing database..."
     init_db
     echo "Starting API (uvicorn --reload)..."
@@ -126,6 +151,7 @@ stop() {
     pkill -f "uvicorn rcars" 2>/dev/null || true
     pkill -f "arq rcars" 2>/dev/null || true
     pkill -f "vite.*3000" 2>/dev/null || true
+    podman stop "${EMBEDDING_CONTAINER}" 2>/dev/null || true
     podman stop "${REDIS_CONTAINER}" 2>/dev/null || true
     podman stop "${PG_CONTAINER}" 2>/dev/null || true
     echo "Stopped."
@@ -143,6 +169,11 @@ show_status() {
         echo "  Redis:       ✓ running (localhost:6379)"
     else
         echo "  Redis:       ✗ stopped"
+    fi
+    if podman ps --format '{{.Names}}' 2>/dev/null | grep -q "^${EMBEDDING_CONTAINER}$"; then
+        echo "  Embedding:   ✓ running (localhost:8000)"
+    else
+        echo "  Embedding:   ✗ stopped"
     fi
     if pgrep -f "uvicorn rcars" >/dev/null 2>&1; then
         echo "  API:         ✓ running (localhost:8080)"

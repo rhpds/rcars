@@ -113,13 +113,13 @@ Every tag (except `mgmt-rbac`) applies all manifests first — infra secrets, Bu
 
 | Tag | What it does | When to use |
 |---|---|---|
-| `full` | Apply manifests → build API → build frontend → migrate → smoke test | First-time deploy, full update, or when both API and frontend changed |
-| `api` | Apply manifests → build API → migrate → smoke test | Backend-only code changes |
+| `full` | Apply manifests → build API → build frontend → schema setup → smoke test | First-time deploy, full update, or when both API and frontend changed |
+| `api` | Apply manifests → build API → schema setup → smoke test | Backend-only code changes |
 | `frontend` | Apply manifests → build frontend → smoke test | Frontend-only code changes |
 | `apply-config` | Apply manifests only (no builds) | Config changes: user lists, env vars, secrets, resource limits |
 | `mgmt-rbac` | Create management SA, RBAC, kubeconfig | One-time per environment |
 
-Migrations run automatically after every API build. They execute on the new pod, so code and schema are always in sync.
+Schema setup (`rcars init-db`) runs automatically after every API build. It executes on the new pod, so code and schema are always in sync.
 
 ---
 
@@ -175,7 +175,7 @@ This does everything in the right order:
 2. Applies infra (Secrets, PostgreSQL, Redis, ImageStreams, BuildConfigs, OAuthClient)
 3. Applies app manifests (Deployments, Services, Routes, ConfigMaps)
 4. Builds API image (~5 min) and frontend image (~30s)
-5. Runs database schema setup and migrations
+5. Runs database schema setup (`rcars init-db`)
 6. Runs advisor smoke test to verify end-to-end functionality
 
 ### 4. Load initial data

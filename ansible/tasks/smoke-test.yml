@@ -23,6 +23,15 @@
       --timeout=120s
   changed_when: false
 
+- name: Wait for embedding pod to be ready
+  ansible.builtin.command:
+    cmd: >-
+      oc rollout status deployment/{{ app_name }}-embedding
+      -n {{ target_namespace }}
+      --kubeconfig={{ kubeconfig | expanduser }}
+      --timeout=600s
+  changed_when: false
+
 - name: Find running API pod
   ansible.builtin.command:
     cmd: >-
@@ -81,18 +90,24 @@
     smoke_parsed: "{{ smoke_result.stdout | from_json }}"
     smoke_candidates: "{{ (smoke_result.stdout | from_json).result.candidates | default([]) }}"
 
-- name: Verify advisor returned results
-  ansible.builtin.assert:
-    that:
-      - smoke_parsed.status == 'complete'
-      - smoke_candidates | length > 0
-    fail_msg: >-
-      Advisor smoke test FAILED.
-      Status: {{ smoke_parsed.status | default('unknown') }}.
-      Error: {{ smoke_parsed.error | default('none') }}.
-      Candidates: {{ smoke_candidates | length }}.
-      This usually means the LLM provider (LiteMaaS/Vertex) is unreachable or
-      returned an authentication error. Check recommend-worker logs:
+- name: Smoke test report
+  ansible.builtin.debug:
+    msg: >-
+      {% if smoke_parsed.status == 'complete' and smoke_candidates | length > 0 %}
+      SMOKE TEST PASSED — {{ smoke_candidates | length }} candidates returned.
+      {% elif smoke_parsed.status == 'complete' and smoke_candidates | length == 0 %}
+      SMOKE TEST WARNING — Query completed but returned 0 candidates.
+      Database may not be populated yet (run catalog refresh + analysis).
+      {% else %}
+      SMOKE TEST WARNING — Status: {{ smoke_parsed.status | default('unknown') }}.
+      Error: {{ smoke_parsed.error | default((smoke_parsed.result | default({})).error | default('none')) }}.
+      Check recommend-worker logs:
         oc logs deployment/{{ app_name }}-recommend-worker -n {{ target_namespace }} --tail=50
-    success_msg: >-
-      Advisor smoke test PASSED — {{ smoke_candidates | length }} candidates returned.
+      {% endif %}
+
+- name: Fail on genuine advisor error
+  ansible.builtin.fail:
+    msg: >-
+      Smoke test failed with status={{ smoke_parsed.status | default('unknown') }}:
+      {{ smoke_parsed.error | default((smoke_parsed.result | default({})).error | default('none')) }}
+  when: smoke_parsed.status | default('') != 'complete'
