@@ -120,28 +120,35 @@ export function AdminQueriesPage() {
   useEffect(() => {
     api.getQueryHistory(50).then(data => {
       setSessions((data as { items: QuerySessionSummary[] }).items)
+    }).catch(() => {
+      setSessions([])
+    }).finally(() => {
       setLoading(false)
     })
   }, [])
 
   const toggleSession = (sessionId: string) => {
+    const wasExpanded = expandedSessions.has(sessionId)
     setExpandedSessions(prev => {
       const next = new Set(prev)
-      if (next.has(sessionId)) {
-        next.delete(sessionId)
-      } else {
-        next.add(sessionId)
-        if (!sessionDetails[sessionId] && !loadingDetails.has(sessionId)) {
-          setLoadingDetails(ld => new Set(ld).add(sessionId))
-          api.getQuerySessionDetail(sessionId).then(data => {
-            const detail = data as { session_id: string; turns: SessionTurn[] }
-            setSessionDetails(prev => ({ ...prev, [sessionId]: detail.turns }))
-            setLoadingDetails(ld => { const next = new Set(ld); next.delete(sessionId); return next })
-          })
-        }
-      }
+      if (wasExpanded) next.delete(sessionId)
+      else next.add(sessionId)
       return next
     })
+    if (wasExpanded) return
+    if (sessionDetails[sessionId] || loadingDetails.has(sessionId)) return
+    setLoadingDetails(ld => new Set(ld).add(sessionId))
+    api.getQuerySessionDetail(sessionId)
+      .then(data => {
+        const detail = data as { session_id: string; turns: SessionTurn[] }
+        setSessionDetails(prev => ({ ...prev, [sessionId]: detail.turns }))
+      })
+      .catch(() => {
+        setSessionDetails(prev => ({ ...prev, [sessionId]: [] }))
+      })
+      .finally(() => {
+        setLoadingDetails(ld => { const next = new Set(ld); next.delete(sessionId); return next })
+      })
   }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })

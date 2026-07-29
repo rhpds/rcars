@@ -1952,8 +1952,9 @@ class Database:
             conn.commit()
 
     def list_advisor_sessions(self, user_email: str | None = None, limit: int = 50) -> list[dict]:
-        sql = """
-            SELECT session_id, created_at AS started_at,
+        inner = """
+            SELECT DISTINCT ON (session_id)
+                   session_id, created_at AS started_at,
                    query_text, chosen_ci_name, opted_out
             FROM advisor_sessions
         """
@@ -1963,8 +1964,9 @@ class Database:
             conditions.append("user_email = %s")
             params.append(user_email)
         if conditions:
-            sql += " WHERE " + " AND ".join(conditions)
-        sql += " ORDER BY created_at DESC LIMIT %s"
+            inner += " WHERE " + " AND ".join(conditions)
+        inner += " ORDER BY session_id, turn_index"
+        sql = f"SELECT * FROM ({inner}) s ORDER BY started_at DESC LIMIT %s"
         params.append(limit)
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)
