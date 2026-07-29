@@ -160,34 +160,45 @@ def search(
             promoted_rows.append(row)
         rows = promoted_rows
 
-    candidates = []
-    for row in rows:
-        content_id = row["content_id"]
-        content_type = row.get("content_type", "")
-        ci_name = row.get("ci_name")
-
-        # Base CI with a published counterpart: promote to the published CI.
-        # Embeddings live on the base CI (it owns the Showroom), but users
-        # can only order the published CI, so present that identity instead.
+    # Published CI promotion: base CI → published identity (users can only
+    # order the published CI, embeddings live on the base CI).
+    for i, row in enumerate(rows):
         if row.get("published_ci_name") and not row.get("is_published"):
             pub_content_id = f"babylon:{row['published_ci_name']}"
             published_item = db.get_babylon_item(pub_content_id)
             if published_item:
                 log.debug("vector search: promoting base CI %s → published %s",
-                          content_id, pub_content_id)
-                base_ci_name = ci_name
-                content_id = pub_content_id
-                ci_name = published_item.get("ci_name", row["published_ci_name"])
-                row = {**row,
-                       "content_id": content_id,
-                       "ci_name": ci_name,
-                       "display_name": published_item.get("display_name", ci_name),
-                       "category": published_item.get("category", row.get("category", "")),
-                       "is_published": True,
-                       "base_ci_name": base_ci_name}
+                          row["content_id"], pub_content_id)
+                rows[i] = {**row,
+                           "content_id": pub_content_id,
+                           "ci_name": published_item.get("ci_name", row["published_ci_name"]),
+                           "display_name": published_item.get("display_name", row["published_ci_name"]),
+                           "category": published_item.get("category", row.get("category", "")),
+                           "is_published": True,
+                           "base_ci_name": row.get("ci_name")}
             else:
                 log.debug("vector search: base CI %s has published_ci_name=%s but not in DB, keeping base",
-                          content_id, row["published_ci_name"])
+                          row["content_id"], row["published_ci_name"])
+
+    # Dedup by content_id after all promotions — keep the highest similarity
+    seen_ids: dict[str, int] = {}
+    deduped_rows: list[dict] = []
+    for row in rows:
+        cid = row["content_id"]
+        if cid in seen_ids:
+            existing_idx = seen_ids[cid]
+            if row["best_similarity"] > deduped_rows[existing_idx]["best_similarity"]:
+                deduped_rows[existing_idx] = row
+        else:
+            seen_ids[cid] = len(deduped_rows)
+            deduped_rows.append(row)
+    rows = deduped_rows
+
+    candidates = []
+    for row in rows:
+        content_id = row["content_id"]
+        content_type = row.get("content_type", "")
+        ci_name = row.get("ci_name")
 
         # Fetch analysis/card data based on content type
         if content_type in ("lab", "demo"):
