@@ -272,8 +272,9 @@ class ScanProgressResponse(BaseModel):
 class QueryHistorySession(BaseModel):
     session_id: str
     started_at: datetime
-    turn_count: int
-    turns: list[dict]
+    query_text: str | None = None
+    chosen_ci_name: str | None = None
+    opted_out: bool = False
 
 
 class QueryHistoryResponse(BaseModel):
