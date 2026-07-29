@@ -160,10 +160,10 @@ export const api = {
     return request<{ items: unknown[]; total: number }>(`/catalog/search/infrastructure?${qs}`);
   },
   getCatalogFacets: () => request<{
-    workloads: Array<{ product_name: string; category: string; ci_count: number }>;
-    configs: Array<{ agd_config: string; ci_count: number }>;
-    cloud_providers: Array<{ cloud_provider: string; ci_count: number }>;
-    os_images: Array<{ os_image: string; ci_count: number }>;
+    workloads: string[];
+    agd_configs: string[];
+    cloud_providers: string[];
+    os_images: string[];
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;
