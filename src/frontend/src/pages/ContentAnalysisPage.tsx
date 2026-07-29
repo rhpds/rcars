@@ -1,195 +1,256 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
+import { Badge, Button, SearchInput, FormSelect, FormSelectOption, Spinner } from '@patternfly/react-core'
 import { api } from '../services/api'
 
-// ── Content Overlap Page ──
-
-interface OverlapPair {
-  ci_name_a: string; ci_name_b: string; similarity_score: number; computed_at: string
-  display_name_a: string; category_a: string; stage_a: string; summary_a: string | null
-  display_name_b: string; category_b: string; stage_b: string; summary_b: string | null
+interface OverlapItem {
+  content_id: string
+  display_name: string
+  content_type: string
+  source: string
+  category: string | null
+  stage: string | null
+  max_score: number
+  neighbor_count: number
+  score_band: string
+  neighbors: Array<{
+    content_id: string
+    display_name: string
+    content_type: string
+    source: string
+    category: string | null
+    stage: string | null
+    similarity_score: number
+  }>
 }
 
 interface OverlapStats {
-  total_pairs: number; high_overlap: number; related: number; last_computed: string | null
+  near_duplicates: number
+  high_overlap: number
+  related_band: number
+  total_pairs_stored: number
+  last_computed: string | null
 }
 
 export function ContentOverlapPage() {
-  const [pairs, setPairs] = useState<OverlapPair[]>([])
+  const [items, setItems] = useState<OverlapItem[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
-  const [thresholds, setThresholds] = useState<{ related: number; high_overlap: number }>({ related: 0.75, high_overlap: 0.85 })
+  const [thresholds, setThresholds] = useState({ display: 0.85, near_duplicate: 0.95 })
   const [loading, setLoading] = useState(true)
   const [computing, setComputing] = useState(false)
-  const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set())
-  const [filterLevel, setFilterLevel] = useState<'all' | 'high'>('all')
-  const [stage, setStage] = useState<'prod' | 'event' | 'dev'>('prod')
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [minScore, setMinScore] = useState(0.85)
+  const [stage, setStage] = useState<string>('')
   const [search, setSearch] = useState('')
 
   const loadData = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await api.getOverlapReport(thresholds.related, stage)
-      setPairs(data.pairs)
+      const data = await api.getOverlapReport(
+        minScore,
+        stage || undefined,
+        search || undefined,
+      )
+      setItems(data.items)
       setStats(data.stats)
       setThresholds(data.thresholds)
-    } catch { /* ignore */ }
-    setLoading(false)
-  }, [thresholds.related, stage])
+    } finally {
+      setLoading(false)
+    }
+  }, [minScore, stage, search])
 
   useEffect(() => { loadData() }, [loadData])
 
   const handleCompute = async () => {
     setComputing(true)
     try {
-      await api.computeSimilarity(thresholds.related, stage)
-      loadData()
-    } catch (err) {
-      console.error('Compute similarity failed:', err)
+      await api.computeSimilarity(0.75, stage || undefined)
+      await loadData()
+    } finally {
+      setComputing(false)
     }
-    setComputing(false)
   }
 
-  const pairKey = (p: OverlapPair) => `${p.ci_name_a}::${p.ci_name_b}`
+  const toggleExpand = (contentId: string) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev)
+      if (next.has(contentId)) next.delete(contentId)
+      else next.add(contentId)
+      return next
+    })
+  }
 
-  const filteredPairs = pairs.filter(p => {
-    if (filterLevel === 'high' && p.similarity_score < thresholds.high_overlap) return false
-    if (search) {
-      const q = search.toLowerCase()
-      return (p.display_name_a || p.ci_name_a).toLowerCase().includes(q)
-        || (p.display_name_b || p.ci_name_b).toLowerCase().includes(q)
-        || p.ci_name_a.toLowerCase().includes(q)
-        || p.ci_name_b.toLowerCase().includes(q)
-    }
-    return true
-  })
-
-  const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-
-  const scoreColor = (score: number) => score >= thresholds.high_overlap ? 'var(--score-red)' : 'var(--score-amber)'
-  const scoreBg = (score: number) => score >= thresholds.high_overlap ? 'var(--score-red-bg)' : 'var(--score-amber-bg)'
+  const scoreColor = (score: number) =>
+    score >= thresholds.near_duplicate ? 'var(--score-red)' : 'var(--score-amber)'
+  const scoreBg = (score: number) =>
+    score >= thresholds.near_duplicate ? 'var(--score-red-bg)' : 'var(--score-amber-bg)'
   const scorePct = (score: number) => `${Math.round(score * 100)}%`
+
+  const bandItems = (band: string) => items.filter(i => i.score_band === band)
+  const nearDupes = bandItems('near_duplicate')
+  const highOverlap = bandItems('high_overlap')
+  const relatedBand = bandItems('related')
 
   return (
     <div className="ca-page">
       <div className="ca-header">
-        <h3>Content Overlap Detection</h3>
-        {stats?.last_computed && <span className="ca-subtitle" style={{ marginBottom: 0 }}>Last computed: {shortTime(stats.last_computed)}</span>}
+        <h1>Content Overlap Detection</h1>
+        <p className="ca-subtitle">
+          {stats?.last_computed
+            ? `Last computed ${new Date(stats.last_computed).toLocaleString()}`
+            : 'Not yet computed'}
+          {' · '}Items with similarity ≥ {scorePct(minScore)}
+        </p>
       </div>
-      <p className="ca-subtitle">
-        Pairwise cosine similarity between CI summary embeddings. High overlap ({'≥'}{Math.round(thresholds.high_overlap * 100)}%) suggests near-duplicate content.
-      </p>
 
+      {/* Stats grid */}
       {stats && (
         <div className="ca-stats-grid">
-          <div className="ca-stat-card">
-            <div className="ca-stat-label">Total Pairs</div>
-            <div className="ca-stat-value ca-color-blue">{stats.total_pairs}</div>
+          <div className="ca-stat-card ca-stat-red">
+            <div className="ca-stat-value">{stats.near_duplicates}</div>
+            <div className="ca-stat-label">Near-Duplicates</div>
+            <div className="ca-stat-desc">≥ {scorePct(thresholds.near_duplicate)}</div>
           </div>
-          <div className="ca-stat-card">
+          <div className="ca-stat-card ca-stat-amber">
+            <div className="ca-stat-value">{stats.high_overlap}</div>
             <div className="ca-stat-label">High Overlap</div>
-            <div className="ca-stat-value ca-color-red">{stats.high_overlap}</div>
+            <div className="ca-stat-desc">{scorePct(thresholds.display)}–{scorePct(thresholds.near_duplicate - 0.01)}</div>
           </div>
-          <div className="ca-stat-card">
-            <div className="ca-stat-label">Related</div>
-            <div className="ca-stat-value ca-color-orange">{stats.related}</div>
+          <div className="ca-stat-card ca-stat-blue">
+            <div className="ca-stat-value">{stats.total_pairs_stored}</div>
+            <div className="ca-stat-label">Total Pairs Stored</div>
+            <div className="ca-stat-desc">≥ 75%</div>
           </div>
         </div>
       )}
 
+      {/* Controls */}
       <div className="ca-controls">
-        <select className="ca-select" value={stage}
-          onChange={(e) => setStage(e.target.value as 'prod' | 'event' | 'dev')}>
-          <option value="prod">Production</option>
-          <option value="event">Event</option>
-          <option value="dev">Dev</option>
-        </select>
-        <button className="ca-compute-btn" onClick={handleCompute} disabled={computing}>
-          {computing ? 'Computing...' : 'Compute Similarity'}
-        </button>
-        <select className="ca-select" value={filterLevel}
-          onChange={(e) => setFilterLevel(e.target.value as 'all' | 'high')}>
-          <option value="all">All pairs ({pairs.length})</option>
-          <option value="high">High overlap only ({pairs.filter(p => p.similarity_score >= thresholds.high_overlap).length})</option>
-        </select>
-        <input
-          type="text" placeholder="Search by name..."
-          value={search} onChange={e => setSearch(e.target.value)}
-          className="ca-search"
+        <FormSelect value={stage} onChange={(_e, v) => setStage(v)} aria-label="Stage filter">
+          <FormSelectOption value="" label="All stages" />
+          <FormSelectOption value="prod" label="prod" />
+          <FormSelectOption value="event" label="event" />
+          <FormSelectOption value="dev" label="dev" />
+        </FormSelect>
+
+        <FormSelect
+          value={String(minScore)}
+          onChange={(_e, v) => setMinScore(parseFloat(v))}
+          aria-label="Min score"
+        >
+          <FormSelectOption value="0.95" label="≥ 95% (near-duplicates)" />
+          <FormSelectOption value="0.85" label="≥ 85% (high overlap)" />
+          <FormSelectOption value="0.75" label="≥ 75% (all stored)" />
+        </FormSelect>
+
+        <SearchInput
+          placeholder="Search by name…"
+          value={search}
+          onChange={(_e, v) => setSearch(v)}
+          onClear={() => setSearch('')}
         />
+
+        <Button
+          variant="secondary"
+          size="sm"
+          isLoading={computing}
+          onClick={handleCompute}
+        >
+          {computing ? 'Computing…' : 'Refresh Similarity'}
+        </Button>
       </div>
 
       {loading ? (
-        <p className="ca-color-muted">Loading...</p>
-      ) : filteredPairs.length === 0 ? (
-        <p className="ca-color-muted">
-          {stats?.total_pairs === 0
-            ? 'No similarity data computed yet. Click "Compute Similarity" to analyze content overlap.'
-            : 'No pairs match the current filter.'}
-        </p>
+        <div className="ca-loading"><Spinner size="lg" /> Loading overlap data…</div>
       ) : (
-        <>
-          <div className="ca-row-count">{filteredPairs.length} of {pairs.length} pairs</div>
-          <div className="ca-table-wrap">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
-              {filteredPairs.map(pair => {
-                const key = pairKey(pair)
-                const isExpanded = expandedPairs.has(key)
-                const isHigh = pair.similarity_score >= thresholds.high_overlap
-                return (
-                  <div key={key} className={`ca-pair-card${isHigh ? ' ca-pair-card--high' : ''}`}>
-                    <div
-                      className="ca-pair-header"
-                      onClick={() => setExpandedPairs(prev => {
-                        const next = new Set(prev)
-                        if (next.has(key)) next.delete(key); else next.add(key)
-                        return next
-                      })}
-                    >
-                      <span className="ca-score-badge" style={{ background: scoreBg(pair.similarity_score), color: scoreColor(pair.similarity_score), flexShrink: 0 }}>
-                        {scorePct(pair.similarity_score)}
-                      </span>
-                      <span style={{ color: 'var(--text-primary)', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {pair.display_name_a || pair.ci_name_a}
-                      </span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', flexShrink: 0 }}>{'↔'}</span>
-                      <span style={{ color: 'var(--text-primary)', fontSize: '0.8rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {pair.display_name_b || pair.ci_name_b}
-                      </span>
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.7rem', flexShrink: 0 }}>
-                        {isExpanded ? '▾' : '▸'}
-                      </span>
-                    </div>
-                    {isExpanded && (
-                      <div className="ca-pair-detail">
-                        {[
-                          { name: pair.ci_name_a, display: pair.display_name_a, category: pair.category_a, stage: pair.stage_a, summary: pair.summary_a },
-                          { name: pair.ci_name_b, display: pair.display_name_b, category: pair.category_b, stage: pair.stage_b, summary: pair.summary_b },
-                        ].map((item, i) => (
-                          <div key={i} className="ca-pair-detail-item">
-                            <a href={`/browse?search=${encodeURIComponent(item.name)}`} target="_blank" rel="noreferrer"
-                               onClick={e => e.stopPropagation()}>
-                              {item.display || item.name}
-                            </a>
-                            <div className="ca-pair-detail-meta">
-                              {item.name} · {item.category}
-                              {item.stage !== 'prod' && (
-                                <span className={`ca-env-tag ${item.stage === 'dev' ? 'ca-env-dev' : 'ca-env-event'}`} style={{ marginLeft: '6px' }}>{item.stage}</span>
-                              )}
-                            </div>
-                            {item.summary && (
-                              <div className="ca-pair-detail-summary">
-                                {item.summary}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+        <div className="ca-band-sections">
+          {/* Near-Duplicates */}
+          {nearDupes.length > 0 && (
+            <details open className="ca-band-section">
+              <summary className="ca-band-header ca-band-red">
+                Near-Duplicates ({nearDupes.length}) · ≥ {scorePct(thresholds.near_duplicate)}
+              </summary>
+              {nearDupes.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+            </details>
+          )}
+
+          {/* High Overlap */}
+          {highOverlap.length > 0 && (
+            <details open className="ca-band-section">
+              <summary className="ca-band-header ca-band-amber">
+                High Overlap ({highOverlap.length}) · {scorePct(thresholds.display)}–{scorePct(thresholds.near_duplicate - 0.01)}
+              </summary>
+              {highOverlap.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+            </details>
+          )}
+
+          {/* Related band — only when threshold < 0.85 */}
+          {relatedBand.length > 0 && (
+            <details className="ca-band-section">
+              <summary className="ca-band-header ca-band-muted">
+                Related ({relatedBand.length}) · 75%–84%
+              </summary>
+              {relatedBand.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+            </details>
+          )}
+
+          {items.length === 0 && (
+            <div className="ca-empty">No items found above {scorePct(minScore)} similarity.</div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderItem(
+  item: OverlapItem,
+  expandedItems: Set<string>,
+  toggleExpand: (id: string) => void,
+  scoreColor: (s: number) => string,
+  scoreBg: (s: number) => string,
+  scorePct: (s: number) => string,
+) {
+  const expanded = expandedItems.has(item.content_id)
+  return (
+    <div key={item.content_id} className={`ca-item-card ${expanded ? 'expanded' : ''}`}>
+      <div className="ca-item-header" onClick={() => toggleExpand(item.content_id)}>
+        <span className="ca-item-name">{item.display_name}</span>
+        <Badge className="badge-type">{item.content_type}</Badge>
+        {item.category && <span className="ca-item-cat">{item.category}</span>}
+        {item.stage && item.stage !== 'prod' && (
+          <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{item.stage}</Badge>
+        )}
+        <span className="ca-item-spacer" />
+        <Badge className="badge-count">{item.neighbor_count} similar</Badge>
+        <span
+          className="ca-score-badge"
+          style={{ color: scoreColor(item.max_score), backgroundColor: scoreBg(item.max_score) }}
+        >
+          {scorePct(item.max_score)}
+        </span>
+        <span className="ca-expand-icon">{expanded ? '▾' : '▸'}</span>
+      </div>
+      {expanded && (
+        <div className="ca-item-neighbors">
+          {item.neighbors.map(n => (
+            <div key={n.content_id} className="ca-neighbor-row">
+              <span
+                className="ca-score-badge"
+                style={{ color: scoreColor(n.similarity_score), backgroundColor: scoreBg(n.similarity_score) }}
+              >
+                {scorePct(n.similarity_score)}
+              </span>
+              <a href={`/browse?search=${encodeURIComponent(n.display_name)}`} className="ca-neighbor-name">
+                {n.display_name}
+              </a>
+              <Badge className="badge-type">{n.content_type}</Badge>
+              {n.category && <span className="ca-neighbor-cat">{n.category}</span>}
+              {n.stage && n.stage !== 'prod' && (
+                <Badge className={n.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{n.stage}</Badge>
+              )}
             </div>
-          </div>
-        </>
+          ))}
+        </div>
       )}
     </div>
   )

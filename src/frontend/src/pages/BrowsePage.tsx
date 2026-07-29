@@ -401,8 +401,10 @@ export function BrowsePage() {
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
   const [objectivesExpanded, setObjectivesExpanded] = useState<Set<string>>(new Set())
   const [similarItems, setSimilarItems] = useState<Record<string, Array<{
-    ci_name: string; display_name: string; category: string; stage: string
-    summary: string | null; similarity_score: number
+    content_id: string; ci_name: string | null; display_name: string
+    content_type: string; source: string; category: string; stage: string
+    summary: string | null; similarity_score: number; computed_at: string
+    relationship_type?: string
   }>>>({})
   const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
@@ -933,7 +935,7 @@ export function BrowsePage() {
                               </span>
                               <span
                                 className="browse-similar-name"
-                                onClick={() => { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) }}
+                                onClick={() => { if (sim.ci_name) { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) } }}
                               >
                                 {sim.display_name || sim.ci_name}
                               </span>
