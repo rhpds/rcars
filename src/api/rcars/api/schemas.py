@@ -142,6 +142,7 @@ class SimilarItem(BaseModel):
 
 class SimilarItemsResponse(BaseModel):
     ci_name: str
+    content_id: str
     similar: list[dict]
     count: int
 

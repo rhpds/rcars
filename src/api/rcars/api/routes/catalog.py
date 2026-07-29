@@ -231,14 +231,15 @@ async def get_similar_items(
     identifier: str,
     request: Request,
     user: str = Depends(require_auth),
-    min_score: float = Query(0.75, ge=0.0, le=1.0),
+    min_score: float = Query(0.85, ge=0.0, le=1.0),
+    relationship_type: str = Query("overlap", description="overlap, related, or all"),
 ):
     db = request.app.state.db
     item = _resolve_item(identifier, db)
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
     content_id = item["content_id"]
-    similar = db_get_similar_items(db.pool, content_id, min_score=min_score)
+    similar = db_get_similar_items(db.pool, content_id, min_score=min_score, relationship_type=relationship_type)
     return {"ci_name": item.get("ci_name", identifier), "content_id": content_id,
             "similar": similar, "count": len(similar)}
 

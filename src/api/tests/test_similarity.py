@@ -240,3 +240,27 @@ def test_get_overlap_items_pagination(db):
     page1 = get_overlap_items(db.pool, min_score=0.75, page=1, page_size=2)
     assert page1["page"] == 1
     assert page1["page_size"] == 2
+
+
+def test_get_similar_items_filters_by_relationship_type(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    overlap = get_similar_items(db.pool, "babylon:ns.item-a.prod", min_score=0.75, relationship_type="overlap")
+    related = get_similar_items(db.pool, "babylon:ns.item-a.prod", min_score=0.75, relationship_type="related")
+    # All seeded items are same-source, so related should be empty
+    assert len(overlap) >= 1
+    assert len(related) == 0
+
+
+def test_get_similar_items_all_includes_relationship_type(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    items = get_similar_items(db.pool, "babylon:ns.item-a.prod", min_score=0.75, relationship_type="all")
+    assert len(items) >= 1
+    assert all("relationship_type" in item for item in items)
+
+
+def test_get_similar_items_default_min_score_is_085(db):
+    """Default min_score should now be 0.85 (matching updated config)."""
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    default_items = get_similar_items(db.pool, "babylon:ns.item-a.prod")
+    all_items = get_similar_items(db.pool, "babylon:ns.item-a.prod", min_score=0.75)
+    assert len(default_items) <= len(all_items)

@@ -127,12 +127,23 @@ def compute_content_similarity(
 def get_similar_items(
     pool: ConnectionPool,
     content_id: str,
-    min_score: float = 0.75,
+    min_score: float = 0.85,
+    relationship_type: str = "overlap",
 ) -> list[dict[str, Any]]:
-    """Return items similar to content_id, ordered by similarity_score DESC."""
-    sql = """
+    """Return items similar to content_id, ordered by similarity_score DESC.
+
+    relationship_type: 'overlap' (default), 'related', or 'all'.
+    When 'all', each result includes 'relationship_type' field.
+    """
+    rel_filter = ""
+    if relationship_type != "all":
+        rel_filter = "AND cs.relationship_type = %(relationship_type)s"
+
+    sql = f"""
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score, cs.computed_at,
-               ce.display_name, bi.category, bi.stage, bi.ci_name, sa.summary
+               cs.relationship_type,
+               ce.display_name, ce.content_type, ce.source,
+               bi.category, bi.stage, bi.ci_name, sa.summary
         FROM content_similarity cs
         JOIN content_entities ce ON ce.content_id = CASE
             WHEN cs.content_id_a = %(content_id)s THEN cs.content_id_b
@@ -141,25 +152,33 @@ def get_similar_items(
         LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
         WHERE (cs.content_id_a = %(content_id)s OR cs.content_id_b = %(content_id)s)
           AND cs.similarity_score >= %(min_score)s
+          {rel_filter}
         ORDER BY cs.similarity_score DESC
     """
+    params = {"content_id": content_id, "min_score": min_score, "relationship_type": relationship_type}
+
     with pool.connection() as conn:
-        cur = conn.execute(sql, {"content_id": content_id, "min_score": min_score})
+        cur = conn.execute(sql, params)
         rows = cur.fetchall()
 
     results = []
     for row in rows:
         other_id = row["content_id_b"] if row["content_id_a"] == content_id else row["content_id_a"]
-        results.append({
+        item = {
             "content_id": other_id,
             "ci_name": row.get("ci_name"),
             "display_name": row["display_name"],
+            "content_type": row.get("content_type"),
+            "source": row.get("source"),
             "category": row.get("category"),
             "stage": row.get("stage"),
             "summary": row.get("summary"),
             "similarity_score": round(row["similarity_score"], 4),
             "computed_at": row["computed_at"],
-        })
+        }
+        if relationship_type == "all":
+            item["relationship_type"] = row["relationship_type"]
+        results.append(item)
     return results
 
 
