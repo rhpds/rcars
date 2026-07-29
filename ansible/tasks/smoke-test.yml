@@ -76,7 +76,7 @@
     command: >-
       sh -c 'curl -sf --max-time 30 http://localhost:{{ app_port }}/api/v1/advisor/query/{{ smoke_job_id }}/result
       -H "X-Forwarded-Email: smoke-test@redhat.com"
-      -H "X-Proxy-Secret: $RCARS_PROXY_VERIFIED_SECRET"'
+      -H "X-Proxy-Secret: $RCARS_PROXY_VERIFICATION_SECRET"'
   no_log: true
   register: smoke_result
   until: >-
