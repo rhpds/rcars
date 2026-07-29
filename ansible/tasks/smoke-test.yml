@@ -100,7 +100,7 @@
       Database may not be populated yet (run catalog refresh + analysis).
       {% else %}
       SMOKE TEST WARNING — Status: {{ smoke_parsed.status | default('unknown') }}.
-      Error: {{ smoke_parsed.result.error | default('none') }}.
+      Error: {{ smoke_parsed.error | default((smoke_parsed.result | default({})).error | default('none')) }}.
       Check recommend-worker logs:
         oc logs deployment/{{ app_name }}-recommend-worker -n {{ target_namespace }} --tail=50
       {% endif %}
