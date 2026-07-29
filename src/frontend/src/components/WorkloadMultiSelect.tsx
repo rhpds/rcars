@@ -1,12 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 
-interface WorkloadOption {
-  product_name: string
-  category: string
-}
-
 interface WorkloadMultiSelectProps {
-  options: WorkloadOption[]
+  options: string[]
   selected: string[]
   onChange: (selected: string[]) => void
 }
@@ -38,7 +33,7 @@ export function WorkloadMultiSelect({ options, selected, onChange }: WorkloadMul
     }
   }
 
-  const sorted = [...options].sort((a, b) => a.product_name.localeCompare(b.product_name))
+  const sorted = [...options].sort((a, b) => a.localeCompare(b))
   const hasSelection = selected.length > 0
   const label = hasSelection ? `${selected.length} selected` : 'Select workloads...'
 
@@ -53,13 +48,13 @@ export function WorkloadMultiSelect({ options, selected, onChange }: WorkloadMul
       {isOpen && (
         <div className="wl-multiselect-panel">
           {sorted.map(opt => (
-            <label key={opt.product_name} className="wl-multiselect-option">
+            <label key={opt} className="wl-multiselect-option">
               <input
                 type="checkbox"
-                checked={selected.includes(opt.product_name)}
-                onChange={() => toggle(opt.product_name)}
+                checked={selected.includes(opt)}
+                onChange={() => toggle(opt)}
               />
-              <span>{opt.product_name}</span>
+              <span>{opt}</span>
             </label>
           ))}
           {sorted.length === 0 && (

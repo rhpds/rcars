@@ -86,9 +86,10 @@ interface ItemDetail {
 }
 
 interface Facets {
-  workloads: Array<{ product_name: string; category: string; ci_count: number }>
-  configs: Array<{ agd_config: string; ci_count: number }>
-  cloud_providers: Array<{ cloud_provider: string; ci_count: number }>
+  workloads: string[]
+  agd_configs: string[]
+  cloud_providers: string[]
+  os_images: string[]
 }
 
 type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
@@ -667,7 +668,7 @@ export function BrowsePage() {
             >
               <option value="">All cloud providers</option>
               {facets?.cloud_providers.map(cp => (
-                <option key={cp.cloud_provider} value={cp.cloud_provider}>{cp.cloud_provider}</option>
+                <option key={cp} value={cp}>{cp}</option>
               ))}
             </select>
             <WorkloadMultiSelect
@@ -681,8 +682,8 @@ export function BrowsePage() {
               onChange={(e) => setAgdConfig(e.target.value)}
             >
               <option value="">All configs</option>
-              {facets?.configs.map(c => (
-                <option key={c.agd_config} value={c.agd_config}>{c.agd_config}</option>
+              {facets?.agd_configs?.map(c => (
+                <option key={c} value={c}>{c}</option>
               ))}
             </select>
           </div>
