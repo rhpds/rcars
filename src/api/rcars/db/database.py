@@ -1247,14 +1247,14 @@ class Database:
             )
             return cur.fetchall()
 
-    def get_acl_groups(self, content_id: str) -> list[str]:
+    def get_acl_groups(self, content_id: str) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute(
                 "SELECT group_name FROM babylon_item_acl_groups "
                 "WHERE content_id = %s ORDER BY group_name",
                 (content_id,),
             )
-            return [row["group_name"] for row in cur.fetchall()]
+            return [{"group_name": row["group_name"]} for row in cur.fetchall()]
 
     def get_workload_classifications(self, content_id: str) -> list[dict]:
         sql = """
