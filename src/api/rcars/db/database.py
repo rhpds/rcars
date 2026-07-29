@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS content_similarity (
 CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(content_id_a);
 CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(content_id_b);
 CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
+ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS relationship_type TEXT NOT NULL DEFAULT 'overlap';
 CREATE INDEX IF NOT EXISTS idx_content_similarity_reltype ON content_similarity(relationship_type);
 
 -- ═══════════════════════════════════════════════════════════════════
