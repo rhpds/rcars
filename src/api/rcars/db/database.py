@@ -1421,10 +1421,10 @@ class Database:
             os_images = cur.fetchall()
 
         return {
-            "workloads": workloads,
-            "configs": configs,
-            "cloud_providers": cloud_providers,
-            "os_images": os_images,
+            "workloads": [row["product_name"] for row in workloads],
+            "agd_configs": [row["agd_config"] for row in configs],
+            "cloud_providers": [row["cloud_provider"] for row in cloud_providers],
+            "os_images": [row["os_image"] for row in os_images],
         }
 
     def search_by_infrastructure(
