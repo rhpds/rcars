@@ -311,13 +311,13 @@ async def overlap_report(
 @router.post(
     "/compute-similarity",
     summary="Compute content similarity",
-    description="Computes pairwise content embedding similarity for all items in a stage. Admin-only.",
+    description="Computes pairwise content embedding similarity across all stages (or filter to one stage). Admin-only.",
 )
 async def compute_similarity(
     request: Request,
     user: str = Depends(require_admin),
     threshold: float = Query(0.75, ge=0.0, le=1.0),
-    stage: str = Query("prod", description="Stage to compare: prod, event, or dev"),
+    stage: str | None = Query(None, description="Stage filter (optional, omit for all stages)"),
 ):
     db = request.app.state.db
     logger.info("compute_similarity_started", component="rcars", action="compute_similarity",

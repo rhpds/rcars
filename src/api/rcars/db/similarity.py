@@ -281,15 +281,18 @@ def get_overlap_items(
     content_ids = [row["content_id"] for row in item_rows]
 
     # Step 2: Get all neighbors for items on this page
+    # Fetch metadata for BOTH sides so we can build neighbor lists bidirectionally
     neighbors_sql = """
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score,
-               ce.display_name, ce.content_type, ce.source,
-               bi.category, bi.stage
+               ce_a.display_name AS display_name_a, ce_a.content_type AS content_type_a,
+               ce_a.source AS source_a, bi_a.category AS category_a, bi_a.stage AS stage_a,
+               ce_b.display_name AS display_name_b, ce_b.content_type AS content_type_b,
+               ce_b.source AS source_b, bi_b.category AS category_b, bi_b.stage AS stage_b
         FROM content_similarity cs
-        JOIN content_entities ce ON ce.content_id = CASE
-            WHEN cs.content_id_a = ANY(%(content_ids)s) THEN cs.content_id_b
-            ELSE cs.content_id_a END
-        LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+        JOIN content_entities ce_a ON ce_a.content_id = cs.content_id_a
+        JOIN content_entities ce_b ON ce_b.content_id = cs.content_id_b
+        LEFT JOIN babylon_items bi_a ON bi_a.content_id = cs.content_id_a
+        LEFT JOIN babylon_items bi_b ON bi_b.content_id = cs.content_id_b
         WHERE (cs.content_id_a = ANY(%(content_ids)s) OR cs.content_id_b = ANY(%(content_ids)s))
           AND cs.similarity_score >= %(min_score)s
           AND cs.relationship_type = %(relationship_type)s
@@ -302,24 +305,35 @@ def get_overlap_items(
         )
         neighbor_rows = cur.fetchall()
 
-    # Group neighbors by item
+    # Group neighbors by item — handle both directions when both sides are on the page
     neighbors_by_item: dict[str, list[dict]] = {cid: [] for cid in content_ids}
     for row in neighbor_rows:
-        if row["content_id_a"] in neighbors_by_item:
-            item_id = row["content_id_a"]
-            other_id = row["content_id_b"]
-        else:
-            item_id = row["content_id_b"]
-            other_id = row["content_id_a"]
-        neighbors_by_item[item_id].append({
-            "content_id": other_id,
-            "display_name": row["display_name"],
-            "content_type": row["content_type"],
-            "source": row["source"],
-            "category": row.get("category"),
-            "stage": row.get("stage"),
-            "similarity_score": round(row["similarity_score"], 4),
-        })
+        a_id, b_id = row["content_id_a"], row["content_id_b"]
+        score = round(row["similarity_score"], 4)
+
+        # If A is on this page, add B as its neighbor
+        if a_id in neighbors_by_item:
+            neighbors_by_item[a_id].append({
+                "content_id": b_id,
+                "display_name": row["display_name_b"],
+                "content_type": row["content_type_b"],
+                "source": row["source_b"],
+                "category": row.get("category_b"),
+                "stage": row.get("stage_b"),
+                "similarity_score": score,
+            })
+
+        # If B is on this page, add A as its neighbor
+        if b_id in neighbors_by_item:
+            neighbors_by_item[b_id].append({
+                "content_id": a_id,
+                "display_name": row["display_name_a"],
+                "content_type": row["content_type_a"],
+                "source": row["source_a"],
+                "category": row.get("category_a"),
+                "stage": row.get("stage_a"),
+                "similarity_score": score,
+            })
 
     items = []
     for row in item_rows:
