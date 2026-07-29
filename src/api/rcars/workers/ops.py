@@ -7,6 +7,7 @@ import traceback
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
+from rcars.db.similarity import compute_content_similarity
 import structlog
 
 from rcars.config import STAGE_PRIORITY
@@ -435,6 +436,34 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         log.warning("pipeline_api_keys_prune_failed", action="pipeline_step_failed",
                     step="prune_api_keys", error=str(exc))
 
+    # ── Step 6: Compute content similarity ──
+    similarity_result = {"status": "skipped"}
+    try:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:similarity", status="running",
+                               message="Step 6: Computing content similarity...")
+        import asyncio
+        similarity_result = await asyncio.to_thread(
+            compute_content_similarity,
+            wctx.db.pool,
+            threshold=0.75,
+        )
+        similarity_result["status"] = "complete"
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:similarity", status="complete",
+                               message=f"Step 6 complete: {similarity_result.get('pairs_stored', 0)} pairs stored")
+        log.info("pipeline_similarity_complete", action="pipeline_step_complete",
+                 step="similarity", **similarity_result)
+    except Exception as exc:
+        msg = f"Step 6 failed (content similarity): {exc}"
+        warnings.append(msg)
+        log.error("pipeline_similarity_failed", action="pipeline_step_failed", step="similarity",
+                  error=str(exc), traceback=traceback.format_exc())
+        similarity_result = {"status": "error", "error": str(exc)}
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:similarity", status="failed",
+                               message="Step 6 failed: Content similarity computation failed (non-fatal)")
+
     # Complete pipeline
     result = {
         "refresh": refresh_result,
@@ -443,6 +472,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "workload_scan": workload_scan_result,
         "sandbox_summary": sandbox_summary_result,
         "reporting_sync": reporting_result,
+        "similarity": similarity_result,
         "warnings": warnings,
     }
 

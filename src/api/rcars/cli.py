@@ -360,22 +360,26 @@ def status(failures: bool):
 
 @cli.command("compute-similarity")
 @click.option("--threshold", "-t", default=0.75, type=float, help="Minimum similarity score to store")
-@click.option("--stage", "-s", default="prod", type=click.Choice(["prod", "event", "dev"]), help="Stage to compare")
-def compute_similarity(threshold: float, stage: str):
-    """Compute pairwise content similarity between catalog items in a stage."""
+@click.option("--stage", "-s", default=None, type=click.Choice(["prod", "event", "dev"]), help="Stage filter (Babylon only). Omit for all stages.")
+def compute_similarity_cmd(threshold: float, stage: str | None):
+    """Compute pairwise content similarity (overlap + related pairs)."""
     db = get_db()
-    _print(f"Computing content similarity (stage={stage}, threshold={threshold})...")
     result = db_compute_similarity(db.pool, threshold=threshold, stage=stage)
-    _print(f"Done. {result['pairs_stored']} pairs stored above {threshold} threshold.")
+
+    click.echo(f"\nComputed similarity (threshold={threshold}, stage={stage or 'all'}):")
+    click.echo(f"  Overlap pairs:  {result['overlap_pairs']}")
+    click.echo(f"  Related pairs:  {result['related_pairs']}")
+    click.echo(f"  Total stored:   {result['pairs_stored']}")
 
     stats = db_get_similarity_stats(db.pool)
-    table = Table(title="Content Similarity")
-    table.add_column("Metric", style="cyan")
-    table.add_column("Count", justify="right")
-    table.add_row("Total pairs", str(stats["total_pairs"]))
-    table.add_row("High overlap (≥0.85)", str(stats["high_overlap"]))
-    table.add_row("Related (0.75–0.85)", str(stats["related"]))
-    console.print(table)
+    click.echo(f"\nScore band breakdown:")
+    click.echo(f"  Near-duplicates (>=0.95):  {stats['near_duplicates']}")
+    click.echo(f"  High overlap (0.85-0.94):  {stats['high_overlap']}")
+    click.echo(f"  Related band (0.75-0.84):  {stats['related_band']}")
+    click.echo(f"  Total pairs stored:        {stats['total_pairs_stored']}")
+    if stats['last_computed']:
+        click.echo(f"  Last computed:             {stats['last_computed']}")
+
     db.close()
 
 
