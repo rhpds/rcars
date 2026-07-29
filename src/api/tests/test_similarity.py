@@ -137,7 +137,69 @@ def test_get_overlap_report_returns_pairs(db):
 def test_get_similarity_stats_returns_counts(db):
     compute_content_similarity(db.pool, threshold=0.75, stage="prod")
     stats = get_similarity_stats(db.pool)
-    assert stats["total_pairs"] >= 1
+    assert stats["total_pairs_stored"] >= 1
     assert "high_overlap" in stats
-    assert "related" in stats
+    assert "related_band" in stats
+    assert "near_duplicates" in stats
     assert stats["last_computed"] is not None
+
+
+def test_compute_marks_same_source_as_overlap(db):
+    """All seeded items are source='babylon' — pairs should be relationship_type='overlap'."""
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    with db.pool.connection() as conn:
+        cur = conn.execute("SELECT DISTINCT relationship_type FROM content_similarity")
+        types = {row["relationship_type"] for row in cur.fetchall()}
+    assert types == {"overlap"}
+
+
+def test_compute_returns_overlap_and_related_counts(db):
+    result = compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    assert "overlap_pairs" in result
+    assert "related_pairs" in result
+    assert result["overlap_pairs"] >= 1
+    assert result["related_pairs"] == 0  # no cross-source items seeded
+
+
+def test_compute_cross_source_marked_as_related(db):
+    """Insert a non-Babylon item with a similar embedding — should produce 'related' pairs."""
+    with db.pool.connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """INSERT INTO content_entities
+                   (content_id, source, content_type, is_hands_on, display_name)
+                   VALUES ('pa:999', 'portfolio_arch', 'architecture', FALSE, 'Test Architecture')"""
+            )
+            cur.execute(
+                """INSERT INTO embeddings
+                   (content_id, content_type, source, embed_type, content_text, embedding)
+                   VALUES ('pa:999', 'architecture', 'portfolio_arch', 'summary', 'test', %s::vector)""",
+                (VECTOR_88,),
+            )
+        conn.commit()
+
+    result = compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    assert result["related_pairs"] >= 1
+
+    with db.pool.connection() as conn:
+        cur = conn.execute(
+            "SELECT relationship_type FROM content_similarity WHERE content_id_a = 'pa:999' OR content_id_b = 'pa:999'"
+        )
+        types = {row["relationship_type"] for row in cur.fetchall()}
+    assert types == {"related"}
+
+
+def test_stats_returns_band_breakdowns(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    stats = get_similarity_stats(db.pool)
+    assert "near_duplicates" in stats
+    assert "high_overlap" in stats
+    assert "related_band" in stats
+    assert "total_pairs_stored" in stats
+    assert stats["last_computed"] is not None
+
+
+def test_stats_filters_by_relationship_type(db):
+    compute_content_similarity(db.pool, threshold=0.75, stage="prod")
+    overlap_stats = get_similarity_stats(db.pool, relationship_type="overlap")
+    assert overlap_stats["total_pairs_stored"] >= 1

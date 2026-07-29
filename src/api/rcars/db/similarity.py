@@ -17,61 +17,111 @@ logger = structlog.get_logger(component="similarity")
 def compute_content_similarity(
     pool: ConnectionPool,
     threshold: float = 0.75,
-    stage: str = "prod",
+    stage: str | None = None,
 ) -> dict[str, Any]:
     """Compute pairwise content similarity from summary embeddings.
 
-    All pairs are stored as relationship_type='overlap' (same-source).
-    Cross-source 'related' pairs will be added when generalized in Task 2.
+    - Overlap pairs: same source (e.g., Babylon↔Babylon)
+    - Related pairs: different sources (e.g., Babylon↔portfolio_arch)
     """
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(
-                """
-                DELETE FROM content_similarity
-                WHERE content_id_a IN (
-                    SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s
+            # Clear existing pairs. If stage is specified, only clear Babylon items
+            # in that stage. Otherwise clear all.
+            if stage:
+                cur.execute(
+                    """
+                    DELETE FROM content_similarity
+                    WHERE content_id_a IN (
+                        SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s
+                    ) OR content_id_b IN (
+                        SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s
+                    )
+                    """,
+                    {"stage": stage},
                 )
-                """,
-                {"stage": stage},
-            )
+            else:
+                cur.execute("DELETE FROM content_similarity")
+
+            # Overlap pairs — same source
+            babylon_stage_filter = ""
+            if stage:
+                babylon_stage_filter = """
+                    AND (bi_a.content_id IS NULL OR bi_a.stage = %(stage)s)
+                    AND (bi_b.content_id IS NULL OR bi_b.stage = %(stage)s)
+                """
 
             cur.execute(
-                """
+                f"""
                 INSERT INTO content_similarity
                     (content_id_a, content_id_b, similarity_score, relationship_type, computed_at)
                 SELECT a.content_id, b.content_id,
-                       1.0 - (a.embedding <=> b.embedding) AS similarity,
+                       1.0 - (a.embedding <=> b.embedding),
                        'overlap',
                        NOW()
                 FROM embeddings a
                 JOIN embeddings b ON a.content_id < b.content_id
                 JOIN content_entities ce_a ON ce_a.content_id = a.content_id
                 JOIN content_entities ce_b ON ce_b.content_id = b.content_id
-                JOIN babylon_items bi_a ON bi_a.content_id = a.content_id
-                JOIN babylon_items bi_b ON bi_b.content_id = b.content_id
+                LEFT JOIN babylon_items bi_a ON bi_a.content_id = a.content_id
+                LEFT JOIN babylon_items bi_b ON bi_b.content_id = b.content_id
                 WHERE a.embed_type = 'summary'
                   AND b.embed_type = 'summary'
+                  AND ce_a.source = ce_b.source
                   AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
-                  AND bi_a.stage = %(stage)s
-                  AND bi_b.stage = %(stage)s
-                  AND (bi_a.is_published IS NULL OR bi_a.is_published = FALSE)
-                  AND (bi_b.is_published IS NULL OR bi_b.is_published = FALSE)
                   AND ce_a.retired_at IS NULL
                   AND ce_b.retired_at IS NULL
+                  AND (bi_a.content_id IS NULL OR (bi_a.is_published IS NULL OR bi_a.is_published = FALSE))
+                  AND (bi_b.content_id IS NULL OR (bi_b.is_published IS NULL OR bi_b.is_published = FALSE))
+                  {babylon_stage_filter}
                 """,
                 {"threshold": threshold, "stage": stage},
             )
-            inserted = cur.rowcount
+            overlap_count = cur.rowcount
+
+            # Related pairs — different sources
+            cur.execute(
+                """
+                INSERT INTO content_similarity
+                    (content_id_a, content_id_b, similarity_score, relationship_type, computed_at)
+                SELECT a.content_id, b.content_id,
+                       1.0 - (a.embedding <=> b.embedding),
+                       'related',
+                       NOW()
+                FROM embeddings a
+                JOIN embeddings b ON a.content_id < b.content_id
+                JOIN content_entities ce_a ON ce_a.content_id = a.content_id
+                JOIN content_entities ce_b ON ce_b.content_id = b.content_id
+                WHERE a.embed_type = 'summary'
+                  AND b.embed_type = 'summary'
+                  AND ce_a.source != ce_b.source
+                  AND 1.0 - (a.embedding <=> b.embedding) >= %(threshold)s
+                  AND ce_a.retired_at IS NULL
+                  AND ce_b.retired_at IS NULL
+                ON CONFLICT (content_id_a, content_id_b) DO UPDATE
+                  SET similarity_score = EXCLUDED.similarity_score,
+                      relationship_type = EXCLUDED.relationship_type,
+                      computed_at = EXCLUDED.computed_at
+                """,
+                {"threshold": threshold},
+            )
+            related_count = cur.rowcount
         conn.commit()
 
     logger.info(
         "content_similarity_computed",
-        pairs_stored=inserted,
+        overlap_pairs=overlap_count,
+        related_pairs=related_count,
         threshold=threshold,
         stage=stage,
     )
-    return {"pairs_stored": inserted, "threshold": threshold, "stage": stage}
+    return {
+        "overlap_pairs": overlap_count,
+        "related_pairs": related_count,
+        "pairs_stored": overlap_count + related_count,
+        "threshold": threshold,
+        "stage": stage,
+    }
 
 
 def get_similar_items(
@@ -147,29 +197,67 @@ def get_overlap_report(
 def get_similarity_stats(
     pool: ConnectionPool,
     stage: str | None = None,
+    relationship_type: str | None = None,
 ) -> dict[str, Any]:
-    """Return aggregate similarity stats, optionally filtered by stage."""
-    stage_filter = ""
+    """Return aggregate similarity stats with score-band breakdowns."""
+    filters = ["1=1"]
     params: dict[str, Any] = {}
+
     if stage:
-        stage_filter = """
-            AND cs.content_id_a IN (SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s)
-            AND cs.content_id_b IN (SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s)
-        """
+        filters.append(
+            "cs.content_id_a IN (SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s)"
+        )
+        filters.append(
+            "cs.content_id_b IN (SELECT bi.content_id FROM babylon_items bi WHERE bi.stage = %(stage)s)"
+        )
         params["stage"] = stage
+
+    if relationship_type:
+        filters.append("cs.relationship_type = %(relationship_type)s")
+        params["relationship_type"] = relationship_type
+
+    where = " AND ".join(filters)
+
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
-            cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE 1=1 {stage_filter}", params)
-            total_pairs = cur.fetchone()["count"]
-            cur.execute(f"SELECT MAX(cs.computed_at) AS last_computed FROM content_similarity cs WHERE 1=1 {stage_filter}", params)
+            cur.execute(
+                f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE {where}",
+                params,
+            )
+            total = cur.fetchone()["count"]
+
+            cur.execute(
+                f"SELECT MAX(cs.computed_at) AS last_computed FROM content_similarity cs WHERE {where}",
+                params,
+            )
             last = cur.fetchone()["last_computed"]
-            cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE cs.similarity_score >= 0.85 {stage_filter}", params)
+
+            cur.execute(
+                f"""SELECT COUNT(*) AS count FROM content_similarity cs
+                    WHERE {where} AND cs.relationship_type = 'overlap' AND cs.similarity_score >= 0.95""",
+                params,
+            )
+            near_duplicates = cur.fetchone()["count"]
+
+            cur.execute(
+                f"""SELECT COUNT(*) AS count FROM content_similarity cs
+                    WHERE {where} AND cs.relationship_type = 'overlap'
+                    AND cs.similarity_score >= 0.85 AND cs.similarity_score < 0.95""",
+                params,
+            )
             high_overlap = cur.fetchone()["count"]
-            cur.execute(f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE cs.similarity_score >= 0.75 AND cs.similarity_score < 0.85 {stage_filter}", params)
-            related = cur.fetchone()["count"]
+
+            cur.execute(
+                f"""SELECT COUNT(*) AS count FROM content_similarity cs
+                    WHERE {where} AND cs.similarity_score >= 0.75 AND cs.similarity_score < 0.85""",
+                params,
+            )
+            related_band = cur.fetchone()["count"]
+
     return {
-        "total_pairs": total_pairs,
+        "near_duplicates": near_duplicates,
         "high_overlap": high_overlap,
-        "related": related,
+        "related_band": related_band,
+        "total_pairs_stored": total,
         "last_computed": last,
     }

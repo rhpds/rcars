@@ -291,8 +291,8 @@ class OverlapPair(BaseModel):
 
 
 class SimilarityThresholds(BaseModel):
-    related: float
-    high_overlap: float
+    display: float
+    near_duplicate: float
 
 
 class OverlapResponse(BaseModel):

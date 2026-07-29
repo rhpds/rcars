@@ -286,8 +286,8 @@ async def overlap_report(
         "total": len(pairs),
         "stats": stats,
         "thresholds": {
-            "related": settings.similarity_threshold,
-            "high_overlap": settings.similarity_high_threshold,
+            "display": settings.similarity_threshold,
+            "near_duplicate": settings.similarity_high_threshold,
         },
     }
 
