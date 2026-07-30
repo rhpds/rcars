@@ -804,6 +804,28 @@ details.ca-band-section:not([open]) > .ca-band-header {
   padding: 8px 16px 8px 36px;
 }
 
+/* Comparison drawer */
+.ca-compare-drawer { width: 520px !important; }
+.ca-compare-section {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border-default);
+}
+.ca-compare-section:last-child { border-bottom: none; }
+.ca-compare-name {
+  font-family: var(--ff-display);
+  font-weight: 600;
+  font-size: 15px;
+  margin: 4px 0;
+}
+.ca-compare-summary {
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 8px 0;
+  color: var(--text-primary);
+}
+.ca-compare-tags { margin-top: 8px; }
+.ca-score-clickable:hover { filter: brightness(1.2); }
+
 /* ══════════════════════════════════════════════════════════════════
    Browse Page
    ══════════════════════════════════════════════════════════════════ */

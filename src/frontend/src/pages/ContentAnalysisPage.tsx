@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { Badge, Button, SearchInput, FormSelect, FormSelectOption, Spinner } from '@patternfly/react-core'
 import { api } from '../services/api'
 
@@ -13,16 +13,18 @@ interface OverlapItem {
   max_score: number
   neighbor_count: number
   score_band: string
-  neighbors: Array<{
-    content_id: string
-    display_name: string
-    content_type: string
-    source: string
-    ci_name: string | null
-    category: string | null
-    stage: string | null
-    similarity_score: number
-  }>
+  neighbors: Array<NeighborItem>
+}
+
+interface NeighborItem {
+  content_id: string
+  display_name: string
+  content_type: string
+  source: string
+  ci_name: string | null
+  category: string | null
+  stage: string | null
+  similarity_score: number
 }
 
 interface OverlapStats {
@@ -31,6 +33,37 @@ interface OverlapStats {
   related_band: number
   total_pairs_stored: number
   last_computed: string | null
+}
+
+interface ItemSummary {
+  display_name: string
+  ci_name: string
+  summary: string | null
+  products: string[]
+  topics: string[]
+}
+
+interface DrawerPair {
+  item: OverlapItem
+  neighbor: NeighborItem
+  itemSummary: ItemSummary | null
+  neighborSummary: ItemSummary | null
+  loading: boolean
+}
+
+function extractSummary(detail: Record<string, unknown>): ItemSummary {
+  const analysis = (detail.analysis || {}) as Record<string, unknown>
+  const products = analysis.products_json as Array<{ name?: string }> | string[] | null
+  const topics = analysis.topics_json as string[] | null
+  return {
+    display_name: (detail.display_name as string) || '',
+    ci_name: (detail.ci_name as string) || '',
+    summary: (analysis.summary as string) || null,
+    products: products
+      ? products.map(p => typeof p === 'string' ? p : (p.name || ''))
+      : [],
+    topics: topics || [],
+  }
 }
 
 export function ContentOverlapPage() {
@@ -43,6 +76,8 @@ export function ContentOverlapPage() {
   const [minScore, setMinScore] = useState(0.85)
   const [stage, setStage] = useState<string>('prod')
   const [search, setSearch] = useState('')
+  const [drawer, setDrawer] = useState<DrawerPair | null>(null)
+  const detailCache = useRef<Record<string, ItemSummary>>({})
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -81,6 +116,28 @@ export function ContentOverlapPage() {
     })
   }
 
+  const openDrawer = async (item: OverlapItem, neighbor: NeighborItem) => {
+    setDrawer({ item, neighbor, itemSummary: null, neighborSummary: null, loading: true })
+
+    const fetchSummary = async (contentId: string): Promise<ItemSummary> => {
+      if (detailCache.current[contentId]) return detailCache.current[contentId]
+      const detail = await api.getCatalogItem(contentId) as Record<string, unknown>
+      const summary = extractSummary(detail)
+      detailCache.current[contentId] = summary
+      return summary
+    }
+
+    try {
+      const [itemSummary, neighborSummary] = await Promise.all([
+        fetchSummary(item.content_id),
+        fetchSummary(neighbor.content_id),
+      ])
+      setDrawer(prev => prev ? { ...prev, itemSummary, neighborSummary, loading: false } : null)
+    } catch {
+      setDrawer(prev => prev ? { ...prev, loading: false } : null)
+    }
+  }
+
   const scoreColor = (score: number) =>
     score >= thresholds.near_duplicate ? 'var(--score-red)' : 'var(--score-amber)'
   const scoreBg = (score: number) =>
@@ -104,7 +161,6 @@ export function ContentOverlapPage() {
         </p>
       </div>
 
-      {/* Stats grid */}
       {stats && (
         <div className="ca-stats-grid">
           <div className="ca-stat-card ca-stat-red">
@@ -125,7 +181,6 @@ export function ContentOverlapPage() {
         </div>
       )}
 
-      {/* Controls */}
       <div className="ca-controls">
         <FormSelect value={stage} onChange={(_e, v) => setStage(v)} aria-label="Stage filter">
           <FormSelectOption value="prod" label="prod" />
@@ -163,33 +218,63 @@ export function ContentOverlapPage() {
         <div className="browse-loading"><Spinner size="lg" /> Loading overlap data…</div>
       ) : (
         <div className="ca-band-sections">
-          {/* Near-Duplicates */}
           {nearDupes.length > 0 && (
             <details open className="ca-band-section">
               <summary className="ca-band-header ca-band-red">
                 Near-Duplicates ({nearDupes.length}) · ≥ {scorePct(thresholds.near_duplicate)}
               </summary>
-              {nearDupes.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+              {nearDupes.map(item => (
+                <OverlapItemRow
+                  key={item.content_id}
+                  item={item}
+                  expanded={expandedItems.has(item.content_id)}
+                  onToggle={toggleExpand}
+                  onCompare={openDrawer}
+                  scoreColor={scoreColor}
+                  scoreBg={scoreBg}
+                  scorePct={scorePct}
+                />
+              ))}
             </details>
           )}
 
-          {/* High Overlap */}
           {highOverlap.length > 0 && (
             <details open className="ca-band-section">
               <summary className="ca-band-header ca-band-amber">
                 High Overlap ({highOverlap.length}) · {scorePct(thresholds.display)}–{scorePct(thresholds.near_duplicate - 0.01)}
               </summary>
-              {highOverlap.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+              {highOverlap.map(item => (
+                <OverlapItemRow
+                  key={item.content_id}
+                  item={item}
+                  expanded={expandedItems.has(item.content_id)}
+                  onToggle={toggleExpand}
+                  onCompare={openDrawer}
+                  scoreColor={scoreColor}
+                  scoreBg={scoreBg}
+                  scorePct={scorePct}
+                />
+              ))}
             </details>
           )}
 
-          {/* Related band — only when threshold < 0.85 */}
           {relatedBand.length > 0 && (
             <details className="ca-band-section">
               <summary className="ca-band-header ca-band-muted">
                 Related ({relatedBand.length}) · 75%–84%
               </summary>
-              {relatedBand.map(item => renderItem(item, expandedItems, toggleExpand, scoreColor, scoreBg, scorePct))}
+              {relatedBand.map(item => (
+                <OverlapItemRow
+                  key={item.content_id}
+                  item={item}
+                  expanded={expandedItems.has(item.content_id)}
+                  onToggle={toggleExpand}
+                  onCompare={openDrawer}
+                  scoreColor={scoreColor}
+                  scoreBg={scoreBg}
+                  scorePct={scorePct}
+                />
+              ))}
             </details>
           )}
 
@@ -198,22 +283,28 @@ export function ContentOverlapPage() {
           )}
         </div>
       )}
+
+      {drawer && (
+        <ComparisonDrawer drawer={drawer} onClose={() => setDrawer(null)} scorePct={scorePct} scoreColor={scoreColor} scoreBg={scoreBg} />
+      )}
     </div>
   )
 }
 
-function renderItem(
-  item: OverlapItem,
-  expandedItems: Set<string>,
-  toggleExpand: (id: string) => void,
-  scoreColor: (s: number) => string,
-  scoreBg: (s: number) => string,
-  scorePct: (s: number) => string,
-) {
-  const expanded = expandedItems.has(item.content_id)
+function OverlapItemRow({
+  item, expanded, onToggle, onCompare, scoreColor, scoreBg, scorePct,
+}: {
+  item: OverlapItem
+  expanded: boolean
+  onToggle: (id: string) => void
+  onCompare: (item: OverlapItem, neighbor: NeighborItem) => void
+  scoreColor: (s: number) => string
+  scoreBg: (s: number) => string
+  scorePct: (s: number) => string
+}) {
   return (
-    <div key={item.content_id} className={`browse-item ${expanded ? 'expanded' : ''}`}>
-      <div className="browse-item-header" onClick={() => toggleExpand(item.content_id)}>
+    <div className={`browse-item ${expanded ? 'expanded' : ''}`}>
+      <div className="browse-item-header" onClick={() => onToggle(item.content_id)}>
         <div style={{ minWidth: 0, flex: 1 }}>
           <span className="browse-item-title">{item.display_name}</span>
           {item.ci_name && <div className="browse-item-ci">{item.ci_name}</div>}
@@ -237,8 +328,10 @@ function renderItem(
           {item.neighbors.map(n => (
             <div key={n.content_id} className="browse-similar-row">
               <span
-                className="ca-score-badge"
-                style={{ color: scoreColor(n.similarity_score), backgroundColor: scoreBg(n.similarity_score) }}
+                className="ca-score-badge ca-score-clickable"
+                style={{ color: scoreColor(n.similarity_score), backgroundColor: scoreBg(n.similarity_score), cursor: 'pointer' }}
+                onClick={(e) => { e.stopPropagation(); onCompare(item, n) }}
+                title="Compare summaries"
               >
                 {scorePct(n.similarity_score)}
               </span>
@@ -252,6 +345,97 @@ function renderItem(
               </a>
             </div>
           ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ComparisonDrawer({
+  drawer, onClose, scorePct, scoreColor, scoreBg,
+}: {
+  drawer: DrawerPair
+  onClose: () => void
+  scorePct: (s: number) => string
+  scoreColor: (s: number) => string
+  scoreBg: (s: number) => string
+}) {
+  const score = drawer.neighbor.similarity_score
+  return (
+    <>
+      <div className="browse-drawer-overlay" onClick={onClose} />
+      <div className="browse-drawer ca-compare-drawer">
+        <div className="browse-drawer-header">
+          <div className="browse-drawer-title">
+            <span
+              className="ca-score-badge"
+              style={{ color: scoreColor(score), backgroundColor: scoreBg(score), marginRight: '8px' }}
+            >
+              {scorePct(score)}
+            </span>
+            Similarity Comparison
+          </div>
+          <button className="browse-drawer-close" onClick={onClose} aria-label="Close drawer">&times;</button>
+        </div>
+        <div className="browse-drawer-body">
+          {drawer.loading ? (
+            <div className="browse-loading"><Spinner size="md" /> Loading summaries…</div>
+          ) : (
+            <>
+              <SummarySection
+                label="This item"
+                name={drawer.item.display_name}
+                ciName={drawer.item.ci_name}
+                summary={drawer.itemSummary}
+              />
+              <SummarySection
+                label="Compared to"
+                name={drawer.neighbor.display_name}
+                ciName={drawer.neighbor.ci_name}
+                summary={drawer.neighborSummary}
+              />
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function SummarySection({ label, name, ciName, summary }: {
+  label: string
+  name: string
+  ciName: string | null
+  summary: ItemSummary | null
+}) {
+  return (
+    <div className="ca-compare-section">
+      <div className="browse-drawer-label">{label}</div>
+      <div className="ca-compare-name">{name}</div>
+      {ciName && <div className="browse-item-ci">{ciName}</div>}
+      {summary?.summary ? (
+        <p className="ca-compare-summary">{summary.summary}</p>
+      ) : (
+        <p className="ca-compare-summary" style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>No summary available</p>
+      )}
+      {summary && summary.products.length > 0 && (
+        <div className="ca-compare-tags">
+          <span className="browse-drawer-label">Products</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+            {summary.products.map(p => (
+              <Badge key={p} className="browse-badge">{p}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+      {summary && summary.topics.length > 0 && (
+        <div className="ca-compare-tags">
+          <span className="browse-drawer-label">Topics</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
+            {summary.topics.map(t => (
+              <Badge key={t} className="browse-badge">{t}</Badge>
+            ))}
+          </div>
         </div>
       )}
     </div>
