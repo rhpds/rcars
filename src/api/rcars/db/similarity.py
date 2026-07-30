@@ -281,15 +281,9 @@ def get_overlap_items(
     content_ids = [row["content_id"] for row in item_rows]
 
     # Step 2: Get all neighbors for items on this page
-    # Fetch metadata for BOTH sides so we can build neighbor lists bidirectionally
-    neighbor_stage_filter = ""
-    if stage:
-        neighbor_stage_filter = """
-            AND (bi_a.stage = %(stage)s OR bi_a.content_id IS NULL)
-            AND (bi_b.stage = %(stage)s OR bi_b.content_id IS NULL)
-        """
-
-    neighbors_sql = f"""
+    # Neighbors are NOT stage-filtered — a prod item needs to see dev/event overlaps
+    # (the top-level items are stage-filtered, but neighbors show the full picture)
+    neighbors_sql = """
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score,
                ce_a.display_name AS display_name_a, ce_a.content_type AS content_type_a,
                ce_a.source AS source_a, bi_a.ci_name AS ci_name_a, bi_a.category AS category_a, bi_a.stage AS stage_a,
@@ -303,19 +297,14 @@ def get_overlap_items(
         WHERE (cs.content_id_a = ANY(%(content_ids)s) OR cs.content_id_b = ANY(%(content_ids)s))
           AND cs.similarity_score >= %(min_score)s
           AND cs.relationship_type = %(relationship_type)s
-          {neighbor_stage_filter}
         ORDER BY cs.similarity_score DESC
     """
-    neighbor_params: dict[str, Any] = {
-        "content_ids": content_ids,
-        "min_score": min_score,
-        "relationship_type": relationship_type,
-    }
-    if stage:
-        neighbor_params["stage"] = stage
 
     with pool.connection() as conn:
-        cur = conn.execute(neighbors_sql, neighbor_params)
+        cur = conn.execute(
+            neighbors_sql,
+            {"content_ids": content_ids, "min_score": min_score, "relationship_type": relationship_type},
+        )
         neighbor_rows = cur.fetchall()
 
     # Group neighbors by item — handle both directions when both sides are on the page

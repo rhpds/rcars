@@ -343,6 +343,9 @@ function OverlapItemRow({
               >
                 {n.display_name}
               </a>
+              {n.stage && n.stage !== 'prod' && (
+                <Badge className={n.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{n.stage}</Badge>
+              )}
             </div>
           ))}
         </div>
