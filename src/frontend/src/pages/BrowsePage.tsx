@@ -937,12 +937,14 @@ export function BrowsePage() {
                                 <span className={`browse-similar-score ${sim.similarity_score >= 0.95 ? 'high' : 'medium'}`}>
                                   {Math.round(sim.similarity_score * 100)}%
                                 </span>
-                                <span
+                                <a
                                   className="browse-similar-name"
-                                  onClick={() => { handleSearchChange(sim.ci_name || sim.display_name); window.scrollTo({ top: 0 }) }}
+                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                 >
                                   {sim.display_name || sim.ci_name}
-                                </span>
+                                </a>
                                 <span className="browse-similar-cat">{sim.category}</span>
                                 {sim.stage !== 'prod' && (
                                   <Badge className={sim.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
@@ -979,12 +981,14 @@ export function BrowsePage() {
                                 <span className={`browse-similar-score medium`}>
                                   {Math.round(sim.similarity_score * 100)}%
                                 </span>
-                                <span
+                                <a
                                   className="browse-similar-name"
-                                  onClick={() => { handleSearchChange(sim.ci_name || sim.display_name); window.scrollTo({ top: 0 }) }}
+                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                 >
                                   {sim.display_name || sim.ci_name}
-                                </span>
+                                </a>
                                 <Badge className="badge-type">{sim.content_type}</Badge>
                                 <span className="browse-similar-cat">{sim.category}</span>
                               </div>

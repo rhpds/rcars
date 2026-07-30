@@ -147,7 +147,7 @@ def get_similar_items(
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score, cs.computed_at,
                cs.relationship_type,
                ce.display_name, ce.content_type, ce.source,
-               bi.category, bi.stage, bi.ci_name, sa.summary
+               bi.category, bi.stage, bi.ci_name, bi.showroom_url, sa.summary
         FROM content_similarity cs
         JOIN content_entities ce ON ce.content_id = CASE
             WHEN cs.content_id_a = %(content_id)s THEN cs.content_id_b
@@ -161,29 +161,55 @@ def get_similar_items(
     """
     params = {"content_id": content_id, "min_score": min_score, "relationship_type": relationship_type}
 
+    # Look up the queried item's showroom_url for stage-variant dedup
     with pool.connection() as conn:
+        cur = conn.execute(
+            "SELECT bi.showroom_url FROM babylon_items bi WHERE bi.content_id = %s",
+            (content_id,),
+        )
+        self_row = cur.fetchone()
+        self_url = self_row["showroom_url"] if self_row else None
+
         cur = conn.execute(sql, params)
         rows = cur.fetchall()
 
+    # Deduplicate stage variants by showroom_url, prefer prod
+    seen_urls: dict[str, int] = {}
     results = []
     for row in rows:
         other_id = row["content_id_b"] if row["content_id_a"] == content_id else row["content_id_a"]
-        item = {
-            "content_id": other_id,
-            "ci_name": row.get("ci_name"),
-            "display_name": row["display_name"],
-            "content_type": row.get("content_type"),
-            "source": row.get("source"),
-            "category": row.get("category"),
-            "stage": row.get("stage"),
-            "summary": row.get("summary"),
-            "similarity_score": round(row["similarity_score"], 4),
-            "computed_at": row["computed_at"],
-        }
-        if relationship_type == "all":
-            item["relationship_type"] = row["relationship_type"]
-        results.append(item)
+        neighbor_url = row.get("showroom_url")
+
+        if self_url and neighbor_url and self_url == neighbor_url:
+            continue
+        if neighbor_url:
+            if neighbor_url in seen_urls:
+                existing_idx = seen_urls[neighbor_url]
+                if row.get("stage") == "prod" and results[existing_idx].get("stage") != "prod":
+                    results[existing_idx] = _build_similar_item(row, other_id, relationship_type)
+                continue
+            seen_urls[neighbor_url] = len(results)
+
+        results.append(_build_similar_item(row, other_id, relationship_type))
     return results
+
+
+def _build_similar_item(row: dict, other_id: str, relationship_type: str) -> dict[str, Any]:
+    item = {
+        "content_id": other_id,
+        "ci_name": row.get("ci_name"),
+        "display_name": row["display_name"],
+        "content_type": row.get("content_type"),
+        "source": row.get("source"),
+        "category": row.get("category"),
+        "stage": row.get("stage"),
+        "summary": row.get("summary"),
+        "similarity_score": round(row["similarity_score"], 4),
+        "computed_at": row["computed_at"],
+    }
+    if relationship_type == "all":
+        item["relationship_type"] = row["relationship_type"]
+    return item
 
 
 def _score_band(score: float, near_dup: float = 0.95, high: float = 0.85) -> str:
