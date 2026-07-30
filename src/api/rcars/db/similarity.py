@@ -257,7 +257,7 @@ def get_overlap_items(
         SELECT COUNT(*) OVER() AS total_count,
                isc.content_id, isc.max_score, isc.neighbor_count,
                ce.display_name, ce.content_type, ce.source,
-               bi.category, bi.stage
+               bi.ci_name, bi.category, bi.stage
         FROM item_scores isc
         JOIN content_entities ce ON ce.content_id = isc.content_id
         LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
@@ -292,9 +292,9 @@ def get_overlap_items(
     neighbors_sql = f"""
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score,
                ce_a.display_name AS display_name_a, ce_a.content_type AS content_type_a,
-               ce_a.source AS source_a, bi_a.category AS category_a, bi_a.stage AS stage_a,
+               ce_a.source AS source_a, bi_a.ci_name AS ci_name_a, bi_a.category AS category_a, bi_a.stage AS stage_a,
                ce_b.display_name AS display_name_b, ce_b.content_type AS content_type_b,
-               ce_b.source AS source_b, bi_b.category AS category_b, bi_b.stage AS stage_b
+               ce_b.source AS source_b, bi_b.ci_name AS ci_name_b, bi_b.category AS category_b, bi_b.stage AS stage_b
         FROM content_similarity cs
         JOIN content_entities ce_a ON ce_a.content_id = cs.content_id_a
         JOIN content_entities ce_b ON ce_b.content_id = cs.content_id_b
@@ -331,6 +331,7 @@ def get_overlap_items(
                 "display_name": row["display_name_b"],
                 "content_type": row["content_type_b"],
                 "source": row["source_b"],
+                "ci_name": row.get("ci_name_b"),
                 "category": row.get("category_b"),
                 "stage": row.get("stage_b"),
                 "similarity_score": score,
@@ -343,6 +344,7 @@ def get_overlap_items(
                 "display_name": row["display_name_a"],
                 "content_type": row["content_type_a"],
                 "source": row["source_a"],
+                "ci_name": row.get("ci_name_a"),
                 "category": row.get("category_a"),
                 "stage": row.get("stage_a"),
                 "similarity_score": score,
@@ -356,6 +358,7 @@ def get_overlap_items(
             "display_name": row["display_name"],
             "content_type": row["content_type"],
             "source": row["source"],
+            "ci_name": row.get("ci_name"),
             "category": row.get("category"),
             "stage": row.get("stage"),
             "max_score": round(row["max_score"], 4),

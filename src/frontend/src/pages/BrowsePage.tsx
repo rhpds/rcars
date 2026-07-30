@@ -921,17 +921,18 @@ export function BrowsePage() {
                         </CollapsibleSection>
                       )}
 
-                      {/* 6a. Overlapping Content (same source) */}
-                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type).length > 0 && (
-                        <CollapsibleSection
-                          label="Overlapping Content"
-                          color="red"
-                          count={similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type).length}
-                        >
-                          <p className="browse-similar-desc">These items cover very similar ground.</p>
-                          {similarItems[item.ci_name]
-                            .filter(s => s.relationship_type === 'overlap' || !s.relationship_type)
-                            .map(sim => (
+                      {/* 6a. Similar Content (same source) */}
+                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type).length > 0 && (() => {
+                        const overlapItems = similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type)
+                        const top5 = overlapItems.slice(0, 5)
+                        const remaining = overlapItems.length - top5.length
+                        return (
+                          <CollapsibleSection
+                            label="Similar Content"
+                            color="amber"
+                            count={overlapItems.length}
+                          >
+                            {top5.map(sim => (
                               <div key={sim.content_id || sim.ci_name} className="browse-similar-row">
                                 <span className={`browse-similar-score ${sim.similarity_score >= 0.95 ? 'high' : 'medium'}`}>
                                   {Math.round(sim.similarity_score * 100)}%
@@ -950,8 +951,20 @@ export function BrowsePage() {
                                 )}
                               </div>
                             ))}
-                        </CollapsibleSection>
-                      )}
+                            {remaining > 0 && (
+                              <a
+                                href={`/analysis/overlap?search=${encodeURIComponent(item.display_name)}&min_score=0.85`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="browse-similar-name"
+                                style={{ fontSize: '12px', paddingTop: '4px', display: 'block' }}
+                              >
+                                +{remaining} more — view in overlap report
+                              </a>
+                            )}
+                          </CollapsibleSection>
+                        )
+                      })()}
 
                       {/* 6b. Related Content (cross-source) */}
                       {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'related').length > 0 && (

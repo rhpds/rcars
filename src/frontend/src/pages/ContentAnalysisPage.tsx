@@ -7,6 +7,7 @@ interface OverlapItem {
   display_name: string
   content_type: string
   source: string
+  ci_name: string | null
   category: string | null
   stage: string | null
   max_score: number
@@ -17,6 +18,7 @@ interface OverlapItem {
     display_name: string
     content_type: string
     source: string
+    ci_name: string | null
     category: string | null
     stage: string | null
     similarity_score: number
@@ -212,13 +214,15 @@ function renderItem(
   return (
     <div key={item.content_id} className={`browse-item ${expanded ? 'expanded' : ''}`}>
       <div className="browse-item-header" onClick={() => toggleExpand(item.content_id)}>
-        <span className="browse-item-title">{item.display_name}</span>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <span className="browse-item-title">{item.display_name}</span>
+          {item.ci_name && <div className="browse-item-ci">{item.ci_name}</div>}
+        </div>
         <Badge className="browse-badge">{item.content_type}</Badge>
         {item.category && <span className="browse-similar-cat">{item.category}</span>}
         {item.stage && item.stage !== 'prod' && (
           <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{item.stage}</Badge>
         )}
-        <span style={{ flex: 1 }} />
         <Badge className="browse-badge">{item.neighbor_count} similar</Badge>
         <span
           className="ca-score-badge"
@@ -238,14 +242,17 @@ function renderItem(
               >
                 {scorePct(n.similarity_score)}
               </span>
-              <a href={`/browse?search=${encodeURIComponent(n.display_name)}`} className="browse-similar-name">
+              <a
+                href={`/browse?search=${encodeURIComponent(n.ci_name || n.display_name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="browse-similar-name"
+              >
                 {n.display_name}
               </a>
+              {n.ci_name && <span className="browse-similar-cat">{n.ci_name}</span>}
               <Badge className="browse-badge">{n.content_type}</Badge>
               {n.category && <span className="browse-similar-cat">{n.category}</span>}
-              {n.stage && n.stage !== 'prod' && (
-                <Badge className={n.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{n.stage}</Badge>
-              )}
             </div>
           ))}
         </div>

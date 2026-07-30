@@ -204,12 +204,12 @@ export const api = {
     request<{
       items: Array<{
         content_id: string; display_name: string; content_type: string; source: string
-        category: string | null; stage: string | null; max_score: number
-        neighbor_count: number; score_band: string
+        ci_name: string | null; category: string | null; stage: string | null
+        max_score: number; neighbor_count: number; score_band: string
         neighbors: Array<{
           content_id: string; display_name: string; content_type: string
-          source: string; category: string | null; stage: string | null
-          similarity_score: number
+          source: string; ci_name: string | null; category: string | null
+          stage: string | null; similarity_score: number
         }>
       }>
       total_items: number; page: number; page_size: number
