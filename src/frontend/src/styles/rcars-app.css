@@ -740,6 +740,71 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Stat card color accents */
+.ca-stat-red  { border-left: 3px solid var(--score-red); }
+.ca-stat-red  .ca-stat-value { color: var(--score-red); }
+.ca-stat-amber { border-left: 3px solid var(--score-amber); }
+.ca-stat-amber .ca-stat-value { color: var(--score-amber); }
+.ca-stat-blue  { border-left: 3px solid var(--text-link); }
+.ca-stat-blue  .ca-stat-value { color: var(--text-link); }
+.ca-stat-desc {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Score-band sections (collapsible <details>) */
+.ca-band-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.ca-band-section {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.ca-band-header {
+  padding: 10px 16px;
+  cursor: pointer;
+  font-family: var(--ff-display);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  user-select: none;
+  list-style: none;
+}
+.ca-band-header::-webkit-details-marker { display: none; }
+.ca-band-red {
+  color: var(--score-red);
+  background: var(--score-red-bg);
+  border-bottom: 2px solid var(--score-red-border);
+}
+.ca-band-amber {
+  color: var(--score-amber);
+  background: var(--score-amber-bg);
+  border-bottom: 2px solid var(--score-amber-border);
+}
+.ca-band-muted {
+  color: var(--text-muted);
+  background: var(--bg-section);
+  border-bottom: 1px solid var(--border-section);
+}
+details.ca-band-section:not([open]) > .ca-band-header {
+  border-bottom: none;
+}
+
+/* Neighbor rows (expanded item detail) */
+.ca-item-neighbors {
+  background: var(--bg-section);
+  border-top: 1px solid var(--border-section);
+  padding: 8px 16px 8px 36px;
+}
+
 /* ══════════════════════════════════════════════════════════════════
    Browse Page
    ══════════════════════════════════════════════════════════════════ */

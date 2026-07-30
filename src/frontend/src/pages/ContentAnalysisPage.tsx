@@ -39,7 +39,7 @@ export function ContentOverlapPage() {
   const [computing, setComputing] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [minScore, setMinScore] = useState(0.85)
-  const [stage, setStage] = useState<string>('')
+  const [stage, setStage] = useState<string>('prod')
   const [search, setSearch] = useState('')
 
   const loadData = useCallback(async () => {
@@ -126,9 +126,7 @@ export function ContentOverlapPage() {
       {/* Controls */}
       <div className="ca-controls">
         <FormSelect value={stage} onChange={(_e, v) => setStage(v)} aria-label="Stage filter">
-          <FormSelectOption value="" label="All stages" />
           <FormSelectOption value="prod" label="prod" />
-          <FormSelectOption value="event" label="event" />
           <FormSelectOption value="dev" label="dev" />
         </FormSelect>
 
@@ -160,7 +158,7 @@ export function ContentOverlapPage() {
       </div>
 
       {loading ? (
-        <div className="ca-loading"><Spinner size="lg" /> Loading overlap data…</div>
+        <div className="browse-loading"><Spinner size="lg" /> Loading overlap data…</div>
       ) : (
         <div className="ca-band-sections">
           {/* Near-Duplicates */}
@@ -194,7 +192,7 @@ export function ContentOverlapPage() {
           )}
 
           {items.length === 0 && (
-            <div className="ca-empty">No items found above {scorePct(minScore)} similarity.</div>
+            <div className="browse-loading">No items found above {scorePct(minScore)} similarity.</div>
           )}
         </div>
       )}
@@ -212,39 +210,39 @@ function renderItem(
 ) {
   const expanded = expandedItems.has(item.content_id)
   return (
-    <div key={item.content_id} className={`ca-item-card ${expanded ? 'expanded' : ''}`}>
-      <div className="ca-item-header" onClick={() => toggleExpand(item.content_id)}>
-        <span className="ca-item-name">{item.display_name}</span>
-        <Badge className="badge-type">{item.content_type}</Badge>
-        {item.category && <span className="ca-item-cat">{item.category}</span>}
+    <div key={item.content_id} className={`browse-item ${expanded ? 'expanded' : ''}`}>
+      <div className="browse-item-header" onClick={() => toggleExpand(item.content_id)}>
+        <span className="browse-item-title">{item.display_name}</span>
+        <Badge className="browse-badge">{item.content_type}</Badge>
+        {item.category && <span className="browse-similar-cat">{item.category}</span>}
         {item.stage && item.stage !== 'prod' && (
           <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{item.stage}</Badge>
         )}
-        <span className="ca-item-spacer" />
-        <Badge className="badge-count">{item.neighbor_count} similar</Badge>
+        <span style={{ flex: 1 }} />
+        <Badge className="browse-badge">{item.neighbor_count} similar</Badge>
         <span
           className="ca-score-badge"
           style={{ color: scoreColor(item.max_score), backgroundColor: scoreBg(item.max_score) }}
         >
           {scorePct(item.max_score)}
         </span>
-        <span className="ca-expand-icon">{expanded ? '▾' : '▸'}</span>
+        <span className="browse-expand-icon">{expanded ? '▾' : '▸'}</span>
       </div>
       {expanded && (
         <div className="ca-item-neighbors">
           {item.neighbors.map(n => (
-            <div key={n.content_id} className="ca-neighbor-row">
+            <div key={n.content_id} className="browse-similar-row">
               <span
                 className="ca-score-badge"
                 style={{ color: scoreColor(n.similarity_score), backgroundColor: scoreBg(n.similarity_score) }}
               >
                 {scorePct(n.similarity_score)}
               </span>
-              <a href={`/browse?search=${encodeURIComponent(n.display_name)}`} className="ca-neighbor-name">
+              <a href={`/browse?search=${encodeURIComponent(n.display_name)}`} className="browse-similar-name">
                 {n.display_name}
               </a>
-              <Badge className="badge-type">{n.content_type}</Badge>
-              {n.category && <span className="ca-neighbor-cat">{n.category}</span>}
+              <Badge className="browse-badge">{n.content_type}</Badge>
+              {n.category && <span className="browse-similar-cat">{n.category}</span>}
               {n.stage && n.stage !== 'prod' && (
                 <Badge className={n.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{n.stage}</Badge>
               )}
