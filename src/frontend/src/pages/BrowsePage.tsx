@@ -401,8 +401,10 @@ export function BrowsePage() {
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
   const [objectivesExpanded, setObjectivesExpanded] = useState<Set<string>>(new Set())
   const [similarItems, setSimilarItems] = useState<Record<string, Array<{
-    ci_name: string; display_name: string; category: string; stage: string
-    summary: string | null; similarity_score: number
+    content_id: string; ci_name: string | null; display_name: string
+    content_type: string; source: string; category: string; stage: string
+    summary: string | null; similarity_score: number; computed_at: string
+    relationship_type?: string
   }>>>({})
   const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
@@ -538,7 +540,7 @@ export function BrowsePage() {
     }
     if (similarItems[ciName] === undefined && !similarLoading.has(ciName)) {
       setSimilarLoading(prev => new Set(prev).add(ciName))
-      api.getSimilarItems(ciName).then(data => {
+      api.getSimilarItems(ciName, 0.85, 'all').then(data => {
         setSimilarItems(prev => ({ ...prev, [ciName]: data.similar }))
         setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
       }).catch(() => {
@@ -919,34 +921,81 @@ export function BrowsePage() {
                         </CollapsibleSection>
                       )}
 
-                      {/* 6. Similar Content (collapsible) */}
-                      {similarItems[item.ci_name] && similarItems[item.ci_name].length > 0 && (
+                      {/* 6a. Similar Content (same source) */}
+                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type).length > 0 && (() => {
+                        const overlapItems = similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type)
+                        const top5 = overlapItems.slice(0, 5)
+                        const remaining = overlapItems.length - top5.length
+                        return (
+                          <CollapsibleSection
+                            label="Similar Content"
+                            color="amber"
+                            count={overlapItems.length}
+                          >
+                            {top5.map(sim => (
+                              <div key={sim.content_id || sim.ci_name} className="browse-similar-row">
+                                <span className={`browse-similar-score ${sim.similarity_score >= 0.95 ? 'high' : 'medium'}`}>
+                                  {Math.round(sim.similarity_score * 100)}%
+                                </span>
+                                <a
+                                  className="browse-similar-name"
+                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {sim.display_name || sim.ci_name}
+                                </a>
+                                <span className="browse-similar-cat">{sim.category}</span>
+                                {sim.stage !== 'prod' && (
+                                  <Badge className={sim.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
+                                    {sim.stage}
+                                  </Badge>
+                                )}
+                              </div>
+                            ))}
+                            <a
+                              href={`/analysis/overlap?search=${encodeURIComponent(item.display_name)}&min_score=0.85`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="browse-similar-name"
+                              style={{ fontSize: '12px', paddingTop: '4px', display: 'block' }}
+                            >
+                              {remaining > 0 ? `+${remaining} more — ` : ''}View in overlap report
+                            </a>
+                          </CollapsibleSection>
+                        )
+                      })()}
+
+                      {/* 6b. Related Content (cross-source) */}
+                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'related').length > 0 && (
                         <CollapsibleSection
-                          label="Similar Content"
-                          color="amber"
-                          count={similarItems[item.ci_name].length}
+                          label="Related Content"
+                          color="blue"
+                          count={similarItems[item.ci_name].filter(s => s.relationship_type === 'related').length}
                         >
-                          {similarItems[item.ci_name].map(sim => (
-                            <div key={sim.ci_name} className="browse-similar-row">
-                              <span className={`browse-similar-score ${sim.similarity_score >= 0.85 ? 'high' : 'medium'}`}>
-                                {Math.round(sim.similarity_score * 100)}%
-                              </span>
-                              <span
-                                className="browse-similar-name"
-                                onClick={() => { handleSearchChange(sim.ci_name); window.scrollTo({ top: 0 }) }}
-                              >
-                                {sim.display_name || sim.ci_name}
-                              </span>
-                              <span className="browse-similar-cat">{sim.category}</span>
-                              {sim.stage !== 'prod' && (
-                                <Badge className={sim.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
-                                  {sim.stage}
-                                </Badge>
-                              )}
-                            </div>
-                          ))}
+                          <p className="browse-similar-desc">Related content from other types.</p>
+                          {similarItems[item.ci_name]
+                            .filter(s => s.relationship_type === 'related')
+                            .map(sim => (
+                              <div key={sim.content_id || sim.ci_name} className="browse-similar-row">
+                                <span className={`browse-similar-score medium`}>
+                                  {Math.round(sim.similarity_score * 100)}%
+                                </span>
+                                <a
+                                  className="browse-similar-name"
+                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  {sim.display_name || sim.ci_name}
+                                </a>
+                                <Badge className="badge-type">{sim.content_type}</Badge>
+                                <span className="browse-similar-cat">{sim.category}</span>
+                              </div>
+                            ))}
                         </CollapsibleSection>
                       )}
+
                       {similarLoading.has(item.ci_name) && (
                         <div className="browse-loading-inline">Loading similar content...</div>
                       )}

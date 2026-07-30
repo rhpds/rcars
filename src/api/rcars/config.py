@@ -83,8 +83,9 @@ class Settings(BaseSettings):
     oauth_client_secret: str = ""
 
     # Content overlap
-    similarity_threshold: float = 0.75
-    similarity_high_threshold: float = 0.85
+    similarity_threshold: float = 0.85
+    similarity_high_threshold: float = 0.95
+    similarity_storage_threshold: float = 0.75
 
     # Ops
     stale_days: int = 3

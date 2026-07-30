@@ -142,6 +142,7 @@ class SimilarItem(BaseModel):
 
 class SimilarItemsResponse(BaseModel):
     ci_name: str
+    content_id: str
     similar: list[dict]
     count: int
 
@@ -291,13 +292,15 @@ class OverlapPair(BaseModel):
 
 
 class SimilarityThresholds(BaseModel):
-    related: float
-    high_overlap: float
+    display: float
+    near_duplicate: float
 
 
-class OverlapResponse(BaseModel):
-    pairs: list[dict]
-    total: int
+class OverlapItemsResponse(BaseModel):
+    items: list[dict]
+    total_items: int
+    page: int
+    page_size: int
     stats: dict | None = None
     thresholds: SimilarityThresholds
 

@@ -187,28 +187,42 @@ export const api = {
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
   // Content similarity / overlap
-  getSimilarItems: (ciName: string, minScore = 0.75) =>
+  getSimilarItems: (identifier: string, minScore = 0.85, relationshipType = 'overlap') =>
     request<{
       ci_name: string
+      content_id: string
       similar: Array<{
-        ci_name: string; display_name: string; category: string; stage: string
+        content_id: string; ci_name: string | null; display_name: string
+        content_type: string; source: string; category: string; stage: string
         summary: string | null; similarity_score: number; computed_at: string
+        relationship_type?: string
       }>
       count: number
-    }>(`/catalog/${encodeURIComponent(ciName)}/similar?min_score=${minScore}`),
-  getOverlapReport: (minScore = 0.75, stage?: string) =>
+    }>(`/catalog/${encodeURIComponent(identifier)}/similar?min_score=${minScore}&relationship_type=${relationshipType}`),
+
+  getOverlapReport: (minScore = 0.85, stage?: string, search?: string, relationshipType = 'overlap') =>
     request<{
-      pairs: Array<{
-        ci_name_a: string; ci_name_b: string; similarity_score: number; computed_at: string
-        display_name_a: string; category_a: string; stage_a: string; summary_a: string | null
-        display_name_b: string; category_b: string; stage_b: string; summary_b: string | null
+      items: Array<{
+        content_id: string; display_name: string; content_type: string; source: string
+        ci_name: string | null; category: string | null; stage: string | null
+        max_score: number; neighbor_count: number; score_band: string
+        neighbors: Array<{
+          content_id: string; display_name: string; content_type: string
+          source: string; ci_name: string | null; category: string | null
+          stage: string | null; similarity_score: number
+        }>
       }>
-      total: number
-      stats: { total_pairs: number; high_overlap: number; related: number; last_computed: string | null }
-      thresholds: { related: number; high_overlap: number }
-    }>(`/admin/overlap?min_score=${minScore}${stage ? `&stage=${stage}` : ''}`),
-  computeSimilarity: (threshold = 0.75, stage = 'prod') =>
-    request<{ pairs_stored: number; threshold: number; stage: string }>(`/admin/compute-similarity?threshold=${threshold}&stage=${stage}`, { method: 'POST' }),
+      total_items: number; page: number; page_size: number
+      stats: {
+        near_duplicates: number; high_overlap: number; related_band: number
+        total_pairs_stored: number; last_computed: string | null
+      }
+      thresholds: { display: number; near_duplicate: number }
+    }>(`/admin/overlap?min_score=${minScore}${stage ? `&stage=${stage}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}&relationship_type=${relationshipType}`),
+
+  computeSimilarity: (threshold = 0.75, stage?: string) =>
+    request<{ overlap_pairs: number; related_pairs: number; pairs_stored: number; threshold: number; stage: string }>(
+      `/admin/compute-similarity?threshold=${threshold}${stage ? `&stage=${stage}` : ''}`, { method: 'POST' }),
 
   // Retirement analysis
   getRetirementDashboard: (params?: {
