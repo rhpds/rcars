@@ -1836,7 +1836,8 @@ class Database:
         inner = """
             SELECT DISTINCT ON (session_id)
                    session_id, created_at AS started_at,
-                   query_text, chosen_ci_name, opted_out
+                   query_text, chosen_ci_name, opted_out,
+                   COUNT(*) OVER (PARTITION BY session_id) AS turns
             FROM advisor_sessions
         """
         conditions = []
