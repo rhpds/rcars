@@ -371,8 +371,8 @@ def compute_similarity_cmd(threshold: float, stage: str | None):
     click.echo(f"  Related pairs:  {result['related_pairs']}")
     click.echo(f"  Total stored:   {result['pairs_stored']}")
 
-    stats = db_get_similarity_stats(db.pool)
-    click.echo(f"\nScore band breakdown:")
+    stats = db_get_similarity_stats(db.pool, stage=stage)
+    click.echo("\nScore band breakdown:")
     click.echo(f"  Near-duplicates (>=0.95):  {stats['near_duplicates']}")
     click.echo(f"  High overlap (0.85-0.94):  {stats['high_overlap']}")
     click.echo(f"  Related band (0.75-0.84):  {stats['related_band']}")

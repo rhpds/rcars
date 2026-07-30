@@ -74,6 +74,10 @@ def compute_content_similarity(
                   AND (bi_a.content_id IS NULL OR (bi_a.is_published IS NULL OR bi_a.is_published = FALSE))
                   AND (bi_b.content_id IS NULL OR (bi_b.is_published IS NULL OR bi_b.is_published = FALSE))
                   {babylon_stage_filter}
+                ON CONFLICT (content_id_a, content_id_b) DO UPDATE
+                  SET similarity_score = EXCLUDED.similarity_score,
+                      relationship_type = EXCLUDED.relationship_type,
+                      computed_at = EXCLUDED.computed_at
                 """,
                 {"threshold": threshold, "stage": stage},
             )
@@ -182,10 +186,10 @@ def get_similar_items(
     return results
 
 
-def _score_band(score: float) -> str:
-    if score >= 0.95:
+def _score_band(score: float, near_dup: float = 0.95, high: float = 0.85) -> str:
+    if score >= near_dup:
         return "near_duplicate"
-    elif score >= 0.85:
+    elif score >= high:
         return "high_overlap"
     else:
         return "related"
@@ -201,6 +205,8 @@ def get_overlap_items(
     page: int = 1,
     page_size: int = 100,
     relationship_type: str = "overlap",
+    near_dup_threshold: float = 0.95,
+    display_threshold: float = 0.85,
 ) -> dict[str, Any]:
     """Return item-centric overlap data, grouped by score bands.
 
@@ -360,6 +366,10 @@ def get_overlap_items(
     items = []
     for row in item_rows:
         cid = row["content_id"]
+        deduped = neighbors_by_item.get(cid, [])
+        if not deduped:
+            continue
+        item_max = max(n["similarity_score"] for n in deduped)
         items.append({
             "content_id": cid,
             "display_name": row["display_name"],
@@ -368,10 +378,10 @@ def get_overlap_items(
             "ci_name": row.get("ci_name"),
             "category": row.get("category"),
             "stage": row.get("stage"),
-            "max_score": round(row["max_score"], 4),
-            "neighbor_count": len(neighbors_by_item.get(cid, [])),
-            "score_band": _score_band(row["max_score"]),
-            "neighbors": neighbors_by_item.get(cid, []),
+            "max_score": item_max,
+            "neighbor_count": len(deduped),
+            "score_band": _score_band(item_max, near_dup=near_dup_threshold, high=display_threshold),
+            "neighbors": deduped,
         })
 
     return {
@@ -386,10 +396,17 @@ def get_similarity_stats(
     pool: ConnectionPool,
     stage: str | None = None,
     relationship_type: str | None = None,
+    near_dup_threshold: float = 0.95,
+    display_threshold: float = 0.85,
+    storage_threshold: float = 0.75,
 ) -> dict[str, Any]:
     """Return aggregate similarity stats with score-band breakdowns."""
     filters = ["1=1"]
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = {
+        "near_dup": near_dup_threshold,
+        "display": display_threshold,
+        "storage": storage_threshold,
+    }
 
     if stage:
         filters.append(
@@ -409,43 +426,22 @@ def get_similarity_stats(
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
-                f"SELECT COUNT(*) AS count FROM content_similarity cs WHERE {where}",
+                f"""SELECT
+                        COUNT(*) AS total,
+                        MAX(cs.computed_at) AS last_computed,
+                        COUNT(*) FILTER (WHERE cs.similarity_score >= %(near_dup)s) AS near_duplicates,
+                        COUNT(*) FILTER (WHERE cs.similarity_score >= %(display)s AND cs.similarity_score < %(near_dup)s) AS high_overlap,
+                        COUNT(*) FILTER (WHERE cs.similarity_score >= %(storage)s AND cs.similarity_score < %(display)s) AS related_band
+                    FROM content_similarity cs
+                    WHERE {where}""",
                 params,
             )
-            total = cur.fetchone()["count"]
-
-            cur.execute(
-                f"SELECT MAX(cs.computed_at) AS last_computed FROM content_similarity cs WHERE {where}",
-                params,
-            )
-            last = cur.fetchone()["last_computed"]
-
-            cur.execute(
-                f"""SELECT COUNT(*) AS count FROM content_similarity cs
-                    WHERE {where} AND cs.relationship_type = 'overlap' AND cs.similarity_score >= 0.95""",
-                params,
-            )
-            near_duplicates = cur.fetchone()["count"]
-
-            cur.execute(
-                f"""SELECT COUNT(*) AS count FROM content_similarity cs
-                    WHERE {where} AND cs.relationship_type = 'overlap'
-                    AND cs.similarity_score >= 0.85 AND cs.similarity_score < 0.95""",
-                params,
-            )
-            high_overlap = cur.fetchone()["count"]
-
-            cur.execute(
-                f"""SELECT COUNT(*) AS count FROM content_similarity cs
-                    WHERE {where} AND cs.similarity_score >= 0.75 AND cs.similarity_score < 0.85""",
-                params,
-            )
-            related_band = cur.fetchone()["count"]
+            row = cur.fetchone()
 
     return {
-        "near_duplicates": near_duplicates,
-        "high_overlap": high_overlap,
-        "related_band": related_band,
-        "total_pairs_stored": total,
-        "last_computed": last,
+        "near_duplicates": row["near_duplicates"],
+        "high_overlap": row["high_overlap"],
+        "related_band": row["related_band"],
+        "total_pairs_stored": row["total"],
+        "last_computed": row["last_computed"],
     }

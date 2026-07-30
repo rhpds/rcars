@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Badge, Button, SearchInput, FormSelect, FormSelectOption, Spinner } from '@patternfly/react-core'
 import { api } from '../services/api'
 
@@ -67,15 +68,16 @@ function extractSummary(detail: Record<string, unknown>): ItemSummary {
 }
 
 export function ContentOverlapPage() {
+  const [searchParams] = useSearchParams()
   const [items, setItems] = useState<OverlapItem[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
   const [thresholds, setThresholds] = useState({ display: 0.85, near_duplicate: 0.95 })
   const [loading, setLoading] = useState(true)
   const [computing, setComputing] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
-  const [minScore, setMinScore] = useState(0.85)
-  const [stage, setStage] = useState<string>('prod')
-  const [search, setSearch] = useState('')
+  const [minScore, setMinScore] = useState(Number(searchParams.get('min_score')) || 0.85)
+  const [stage, setStage] = useState<string>(searchParams.get('stage') || 'prod')
+  const [search, setSearch] = useState(searchParams.get('search') || '')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
   const detailCache = useRef<Record<string, ItemSummary>>({})
 
@@ -100,7 +102,7 @@ export function ContentOverlapPage() {
   const handleCompute = async () => {
     setComputing(true)
     try {
-      await api.computeSimilarity(0.75, stage || undefined)
+      await api.computeSimilarity(undefined, stage || undefined)
       await loadData()
     } finally {
       setComputing(false)

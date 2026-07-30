@@ -453,7 +453,7 @@ export function SyncPage() {
         buttonLabel="Compute Similarity"
         onRun={async (addLog) => {
           addLog('Computing content similarity…')
-          const result = await api.computeSimilarity(0.75)
+          const result = await api.computeSimilarity()
           addLog(`Done: ${result.overlap_pairs} overlap pairs, ${result.related_pairs} related pairs (${result.pairs_stored} total)`)
         }}
       />

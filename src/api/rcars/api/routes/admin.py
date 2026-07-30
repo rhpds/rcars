@@ -285,6 +285,7 @@ async def overlap_report(
     relationship_type: str = Query("overlap", description="overlap or related"),
 ):
     db = request.app.state.db
+    settings = Settings()
     result = get_overlap_items(
         db.pool,
         min_score=min_score,
@@ -295,9 +296,17 @@ async def overlap_report(
         page=page,
         page_size=page_size,
         relationship_type=relationship_type,
+        near_dup_threshold=settings.similarity_high_threshold,
+        display_threshold=settings.similarity_threshold,
     )
-    stats = get_similarity_stats(db.pool, stage=stage, relationship_type=relationship_type)
-    settings = Settings()
+    stats = get_similarity_stats(
+        db.pool,
+        stage=stage,
+        relationship_type=relationship_type,
+        near_dup_threshold=settings.similarity_high_threshold,
+        display_threshold=settings.similarity_threshold,
+        storage_threshold=settings.similarity_storage_threshold,
+    )
     return {
         **result,
         "stats": stats,

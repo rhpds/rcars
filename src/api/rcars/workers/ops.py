@@ -446,7 +446,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         similarity_result = await asyncio.to_thread(
             compute_content_similarity,
             wctx.db.pool,
-            threshold=0.75,
+            threshold=wctx.settings.similarity_storage_threshold,
         )
         similarity_result["status"] = "complete"
         await publish_progress(wctx.relay, job_id, wctx.db,
