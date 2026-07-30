@@ -766,7 +766,6 @@ body {
 .ca-band-section {
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  overflow: hidden;
 }
 .ca-band-header {
   padding: 10px 16px;
