@@ -257,7 +257,7 @@ def get_overlap_items(
         SELECT COUNT(*) OVER() AS total_count,
                isc.content_id, isc.max_score, isc.neighbor_count,
                ce.display_name, ce.content_type, ce.source,
-               bi.ci_name, bi.category, bi.stage
+               bi.ci_name, bi.category, bi.stage, bi.showroom_url
         FROM item_scores isc
         JOIN content_entities ce ON ce.content_id = isc.content_id
         LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
@@ -280,15 +280,20 @@ def get_overlap_items(
     total_items = item_rows[0]["total_count"]
     content_ids = [row["content_id"] for row in item_rows]
 
+    # Build showroom_url lookup for deduplicating stage variants
+    item_showroom_urls: dict[str, str | None] = {
+        row["content_id"]: row.get("showroom_url") for row in item_rows
+    }
+
     # Step 2: Get all neighbors for items on this page
     # Neighbors are NOT stage-filtered — a prod item needs to see dev/event overlaps
     # (the top-level items are stage-filtered, but neighbors show the full picture)
     neighbors_sql = """
         SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score,
                ce_a.display_name AS display_name_a, ce_a.content_type AS content_type_a,
-               ce_a.source AS source_a, bi_a.ci_name AS ci_name_a, bi_a.category AS category_a, bi_a.stage AS stage_a,
+               ce_a.source AS source_a, bi_a.ci_name AS ci_name_a, bi_a.category AS category_a, bi_a.stage AS stage_a, bi_a.showroom_url AS showroom_url_a,
                ce_b.display_name AS display_name_b, ce_b.content_type AS content_type_b,
-               ce_b.source AS source_b, bi_b.ci_name AS ci_name_b, bi_b.category AS category_b, bi_b.stage AS stage_b
+               ce_b.source AS source_b, bi_b.ci_name AS ci_name_b, bi_b.category AS category_b, bi_b.stage AS stage_b, bi_b.showroom_url AS showroom_url_b
         FROM content_similarity cs
         JOIN content_entities ce_a ON ce_a.content_id = cs.content_id_a
         JOIN content_entities ce_b ON ce_b.content_id = cs.content_id_b
@@ -307,15 +312,29 @@ def get_overlap_items(
         )
         neighbor_rows = cur.fetchall()
 
-    # Group neighbors by item — handle both directions when both sides are on the page
+    # Group neighbors by item — handle both directions when both sides are on the page.
+    # Deduplicate stage variants: if a neighbor shares the same showroom_url as the
+    # top-level item, it's the same content in a different stage (expected, not overlap).
+    # Among remaining neighbors, keep only the best-scoring entry per showroom_url.
     neighbors_by_item: dict[str, list[dict]] = {cid: [] for cid in content_ids}
+    seen_urls_by_item: dict[str, set[str]] = {cid: set() for cid in content_ids}
+
+    def _add_neighbor(item_id: str, neighbor: dict, neighbor_url: str | None) -> None:
+        item_url = item_showroom_urls.get(item_id)
+        if item_url and neighbor_url and item_url == neighbor_url:
+            return
+        if neighbor_url:
+            if neighbor_url in seen_urls_by_item[item_id]:
+                return
+            seen_urls_by_item[item_id].add(neighbor_url)
+        neighbors_by_item[item_id].append(neighbor)
+
     for row in neighbor_rows:
         a_id, b_id = row["content_id_a"], row["content_id_b"]
         score = round(row["similarity_score"], 4)
 
-        # If A is on this page, add B as its neighbor
         if a_id in neighbors_by_item:
-            neighbors_by_item[a_id].append({
+            _add_neighbor(a_id, {
                 "content_id": b_id,
                 "display_name": row["display_name_b"],
                 "content_type": row["content_type_b"],
@@ -324,11 +343,10 @@ def get_overlap_items(
                 "category": row.get("category_b"),
                 "stage": row.get("stage_b"),
                 "similarity_score": score,
-            })
+            }, row.get("showroom_url_b"))
 
-        # If B is on this page, add A as its neighbor
         if b_id in neighbors_by_item:
-            neighbors_by_item[b_id].append({
+            _add_neighbor(b_id, {
                 "content_id": a_id,
                 "display_name": row["display_name_a"],
                 "content_type": row["content_type_a"],
@@ -337,7 +355,7 @@ def get_overlap_items(
                 "category": row.get("category_a"),
                 "stage": row.get("stage_a"),
                 "similarity_score": score,
-            })
+            }, row.get("showroom_url_a"))
 
     items = []
     for row in item_rows:
