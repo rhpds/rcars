@@ -951,17 +951,15 @@ export function BrowsePage() {
                                 )}
                               </div>
                             ))}
-                            {remaining > 0 && (
-                              <a
-                                href={`/analysis/overlap?search=${encodeURIComponent(item.display_name)}&min_score=0.85`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="browse-similar-name"
-                                style={{ fontSize: '12px', paddingTop: '4px', display: 'block' }}
-                              >
-                                +{remaining} more — view in overlap report
-                              </a>
-                            )}
+                            <a
+                              href={`/analysis/overlap?search=${encodeURIComponent(item.display_name)}&min_score=0.85`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="browse-similar-name"
+                              style={{ fontSize: '12px', paddingTop: '4px', display: 'block' }}
+                            >
+                              {remaining > 0 ? `+${remaining} more — ` : ''}View in overlap report
+                            </a>
                           </CollapsibleSection>
                         )
                       })()}
