@@ -435,7 +435,7 @@ body {
   height: 100%;
   display: flex;
   flex-direction: column;
-  overflow-y: auto;
+  overflow: hidden;
   font-family: var(--ff-body);
 }
 
@@ -759,6 +759,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--sp-md);
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 .ca-band-section {
   border: 1px solid var(--border-default);

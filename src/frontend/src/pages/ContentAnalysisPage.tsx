@@ -250,7 +250,6 @@ function renderItem(
               >
                 {n.display_name}
               </a>
-              {n.category && <span className="browse-similar-cat">{n.category}</span>}
             </div>
           ))}
         </div>
