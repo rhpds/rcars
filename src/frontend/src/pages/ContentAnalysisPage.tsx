@@ -250,8 +250,6 @@ function renderItem(
               >
                 {n.display_name}
               </a>
-              {n.ci_name && <span className="browse-similar-cat">{n.ci_name}</span>}
-              <Badge className="browse-badge">{n.content_type}</Badge>
               {n.category && <span className="browse-similar-cat">{n.category}</span>}
             </div>
           ))}

@@ -759,9 +759,6 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--sp-md);
-  flex: 1;
-  overflow-y: auto;
-  min-height: 0;
 }
 .ca-band-section {
   border: 1px solid var(--border-default);
