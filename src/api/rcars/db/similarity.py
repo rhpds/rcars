@@ -321,9 +321,10 @@ def get_overlap_items(
     # Group neighbors by item — handle both directions when both sides are on the page.
     # Deduplicate stage variants: if a neighbor shares the same showroom_url as the
     # top-level item, it's the same content in a different stage (expected, not overlap).
-    # Among remaining neighbors, keep only the best-scoring entry per showroom_url.
+    # Among remaining neighbors, keep only one entry per showroom_url — prefer prod
+    # over dev/event so curators see the production version of similar content.
     neighbors_by_item: dict[str, list[dict]] = {cid: [] for cid in content_ids}
-    seen_urls_by_item: dict[str, set[str]] = {cid: set() for cid in content_ids}
+    seen_urls_by_item: dict[str, dict[str, int]] = {cid: {} for cid in content_ids}
 
     def _add_neighbor(item_id: str, neighbor: dict, neighbor_url: str | None) -> None:
         item_url = item_showroom_urls.get(item_id)
@@ -331,8 +332,12 @@ def get_overlap_items(
             return
         if neighbor_url:
             if neighbor_url in seen_urls_by_item[item_id]:
+                existing_idx = seen_urls_by_item[item_id][neighbor_url]
+                existing = neighbors_by_item[item_id][existing_idx]
+                if neighbor.get("stage") == "prod" and existing.get("stage") != "prod":
+                    neighbors_by_item[item_id][existing_idx] = neighbor
                 return
-            seen_urls_by_item[item_id].add(neighbor_url)
+            seen_urls_by_item[item_id][neighbor_url] = len(neighbors_by_item[item_id])
         neighbors_by_item[item_id].append(neighbor)
 
     for row in neighbor_rows:
