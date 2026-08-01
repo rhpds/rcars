@@ -1,3 +1,9 @@
+> [!WARNING]
+> **ARCHIVED — NO LONGER USED**
+> Jira ([RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25)) is the source of truth for current work and backlog. This file is retained for historical reference only.
+
+---
+
 # RCARS Worklog
 
 Session handoff notes between developers. Read before starting work. Write before ending a session.

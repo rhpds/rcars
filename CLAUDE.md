@@ -177,5 +177,14 @@ Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain sec
 
 ## Collaboration
 
-- **Jira Epic [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25)** — Active backlog. Source of truth for prioritization and tracking. `BACKLOG.md` retains completed item history only.
-- **WORKLOG.md** — Session handoff notes. Before ending a session, document what was done, what's in progress, and what's next. Read this before starting work.
+- **Jira Epic [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25)** — Source of truth for the backlog and all current work. Keep Jira issues updated as work progresses (see Jira Issue Maintenance rules in global CLAUDE.md). `BACKLOG.md` retains completed item history only. `WORKLOG.md` is no longer used.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
