@@ -1,1 +1,0 @@
-{"nodes": [{"id": "ansible_requirements_collections", "label": "Ansible Galaxy Requirements (kubernetes.core)", "file_type": "code", "source_file": "ansible/requirements.yml", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}

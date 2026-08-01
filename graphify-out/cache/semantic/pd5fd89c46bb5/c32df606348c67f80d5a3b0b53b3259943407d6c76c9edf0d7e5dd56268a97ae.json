@@ -1,1 +1,0 @@
-{"nodes": [{"id": "ansible_tasks_build_frontend_task", "label": "Build Frontend Task", "file_type": "code", "source_file": "ansible/tasks/build-frontend.yml", "source_location": null, "source_url": null, "captured_at": null, "author": null, "contributor": null}], "edges": [], "hyperedges": []}
