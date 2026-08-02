@@ -350,3 +350,10 @@ No new deployments, queues, or services. `workers/chat.py` registers on the exis
 3. **Declarative planner (Approach 3)** — only if usage logs show chained single-message questions.
 4. **New content sources** (Portfolio Architectures, Interactive Demos) — ingestion work; chat consumes them via `content_type` with zero redesign.
 5. **Open-source model adoption** — per-call-site settings + golden eval as the acceptance gate, starting with `chat_router_model`.
+
+## Standing Principles for Future LLM Work
+
+These apply beyond this feature — to any RCARS work that adds or changes LLM calls. They exist so the reasoning behind this design isn't lost when the next feature is designed.
+
+1. **Deterministic guardrails around every LLM decision.** For each LLM call site, the design must enumerate exactly which decisions the LLM makes versus code, constrain LLM output to closed enums/schemas with Pydantic validation, give every decision a validation + deterministic-fallback ladder, and state the worst-case behavior explicitly (target: worst case = existing product behavior, never fabrication). LLM output selects code paths; it never determines data content. Symbolic references (scopes, item refs) are resolved by code, not trusted from the model. No agent-style runtime tool loops.
+2. **Every LLM call site gets its own model setting.** Never hardcode a model name; each call site gets a dedicated `RCARS_`-prefixed `Settings` field (pattern: `triage_model`, `rationale_model`, `chat_router_model`). This is the enabler for moving basic tasks (closed-schema classification, bounded structured comparison) to open-source models. Every swappable call site needs an eval acceptance gate (pattern: the `llm_eval` golden-set marker) so a model change is validated by test results, not vibes.
