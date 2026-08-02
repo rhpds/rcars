@@ -500,9 +500,9 @@
     "semantic_hash": "b88985869da951f98785d1e19535a2fd"
   },
   "CLAUDE.md": {
-    "mtime": 1785525195.427557,
-    "ast_hash": "0466be1bb439db5960144632a7cb9374",
-    "semantic_hash": "0466be1bb439db5960144632a7cb9374"
+    "mtime": 1785659303.68961,
+    "ast_hash": "abcec92d4cde9a72ad97e72515c353fb",
+    "semantic_hash": ""
   },
   "README.md": {
     "mtime": 1785525195.4276164,
@@ -908,5 +908,10 @@
     "mtime": 1785525195.4451606,
     "ast_hash": "4659e97f50ca305a2d51bf0e2ef681ab",
     "semantic_hash": "4659e97f50ca305a2d51bf0e2ef681ab"
+  },
+  "docs/superpowers/specs/2026-08-02-advisor-chat-design.md": {
+    "mtime": 1785679769.2093682,
+    "ast_hash": "dfe0e5445963d01bedd2d43af0ec855a",
+    "semantic_hash": ""
   }
 }

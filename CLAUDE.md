@@ -51,7 +51,6 @@ rcars-advisory/
 │   └── vars/                 # common.yml, dev.yml (gitignored), prod.yml (gitignored)
 ├── docs/                     # MkDocs Material → https://rhpds.github.io/rcars/
 ├── BACKLOG.md                # Historical backlog — active items tracked in Jira (RHDPCD-25)
-├── WORKLOG.md                # Session handoff notes between developers
 ├── dev-services.sh           # Local development launcher
 └── pyproject.toml            # Python project config (rcars package)
 ```
