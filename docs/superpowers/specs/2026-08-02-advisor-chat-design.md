@@ -27,7 +27,7 @@ Core properties:
 
 - Portfolio/gaps intent (fast-follow; see Follow-On Work).
 - Microsoft GraphRAG, Neo4j, or any second knowledge-graph pipeline.
-- Agentic tool-calling loops (LLM choosing tools iteratively).
+- Agent-style tool loops, where the LLM is given the whole toolbox and iteratively decides the next tool call at runtime based on prior results (the pattern LangGraph / Pydantic AI agent mode provide). In this design the LLM decides once — the intent — and code runs a fixed tool plan; the LLM never sees tool results and picks a next step. Rejected as Approach 2 for determinism and testability (see Approach Decision); the escape hatch for genuinely composite questions is the declarative planner in Follow-On Work.
 - Write actions (Jira, retire) — explicit later design + HITL.
 - Replacing Curator/Overlap/Retirement pages — chat complements and deep-links into them.
 - New content-source ingestion (e.g. Portfolio Architectures) — the design accommodates mixed content types structurally, but ingestion is separate work.
