@@ -408,6 +408,11 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_session ON advisor_sessions(sess
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_email);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
 
+-- Advisor chat (multi-intent) — RHDPCD-599
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS intent TEXT;
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS envelope_json JSONB;
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
+
 """
 
 
