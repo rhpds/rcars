@@ -467,6 +467,10 @@ spec:
               value: "{{ recommend_max_jobs | default('15') }}"
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
+            - name: RCARS_CURATOR_EMAILS_STR
+              value: "{{ curator_emails | join(',') }}"
+            - name: RCARS_ADMIN_EMAILS_STR
+              value: "{{ admin_emails | join(',') }}"
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials
