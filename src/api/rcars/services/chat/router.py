@@ -1,13 +1,15 @@
 """Routing: pattern check, router LLM call (Task 9), resolve & verify ladder."""
 from __future__ import annotations
 
+import json as _json
 import re
 from dataclasses import dataclass, field
 from typing import Literal
 
 import structlog
+from pydantic import ValidationError
 
-from rcars.config import Settings
+from rcars.config import Settings, call_llm
 from rcars.db.database import Database
 from rcars.services.analyzer import generate_embedding
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
@@ -144,3 +146,38 @@ def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
 
     return Resolution(kind="execute", output=output, scope_ids=scope_ids,
                       scope_turn=scope_turn, items=items)
+
+
+def _extract_json(text: str) -> dict:
+    """Strip code fences / leading prose, then parse. Raises on failure."""
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.split("```")[1].removeprefix("json").strip()
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("no JSON object in router output")
+    return _json.loads(text[start:text.rfind("}") + 1])
+
+
+def route(message: str, context: list[dict], settings: Settings,
+          llm_call=call_llm) -> tuple[RouterOutput, bool, dict | None]:
+    patt = pattern_check(message)
+    if patt is not None:
+        return patt, False, None
+
+    from rcars.services.chat.registry import build_router_prompt
+    system, user_template = build_router_prompt(context)
+    usage: dict | None = None
+    for attempt in (1, 2):
+        try:
+            result = llm_call(settings, settings.chat_router_model,
+                              [{"role": "user", "content": user_template.format(message=message)}],
+                              max_tokens=500, temperature=0, system=system)
+            usage = {"input": result.input_tokens, "output": result.output_tokens,
+                     "provider": result.provider}
+            return RouterOutput.model_validate(_extract_json(result.text)), False, usage
+        except (ValidationError, ValueError, _json.JSONDecodeError, Exception) as e:
+            logger.warning("chat_router_attempt_failed", component="chat",
+                           attempt=attempt, error=str(e)[:300])
+    return (RouterOutput(intent="recommend", args={"search_query": message}, confidence=0.0),
+            True, usage)
