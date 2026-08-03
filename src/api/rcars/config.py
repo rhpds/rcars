@@ -50,6 +50,13 @@ class Settings(BaseSettings):
     rationale_model: str = "claude-sonnet-4-6"
     rationale_top_n: int = 5
 
+    # Advisor chat (multi-intent)
+    chat_router_model: str = ""          # empty → defaults to triage_model
+    chat_answer_model: str = ""          # empty → defaults to rationale_model
+    chat_intent_roles_str: str = "performance:curator"
+    chat_router_confidence_threshold: float = 0.6
+    chat_context_turns: int = 5
+
     # Babylon K8s
     kubeconfig_path: str = ""
     agnosticv_component_namespace: str = "babylon-config"
@@ -125,6 +132,19 @@ class Settings(BaseSettings):
         if self.workload_scan_interval_days < 1:
             raise ValueError(f"workload_scan_interval_days must be positive, got {self.workload_scan_interval_days}")
 
+        if not self.chat_router_model:
+            self.chat_router_model = self.triage_model
+        if not self.chat_answer_model:
+            self.chat_answer_model = self.rationale_model
+        if not (0 <= self.chat_router_confidence_threshold <= 1):
+            raise ValueError(f"chat_router_confidence_threshold must be in [0, 1], got {self.chat_router_confidence_threshold}")
+        if self.chat_context_turns < 1:
+            raise ValueError(f"chat_context_turns must be >= 1, got {self.chat_context_turns}")
+        for part in _parse_csv(self.chat_intent_roles_str):
+            intent, sep, role = part.partition(":")
+            if not sep or role.strip() not in ("any", "curator", "admin"):
+                raise ValueError(f"chat_intent_roles entries must be 'intent:any|curator|admin', got {part!r}")
+
     @property
     def curator_emails(self) -> list[str]:
         return _parse_csv(self.curator_emails_str)
@@ -136,6 +156,14 @@ class Settings(BaseSettings):
     @property
     def sa_allowlist(self) -> list[str]:
         return _parse_csv(self.sa_allowlist_str)
+
+    @property
+    def chat_intent_roles(self) -> dict[str, str]:
+        roles: dict[str, str] = {}
+        for part in _parse_csv(self.chat_intent_roles_str):
+            intent, _, role = part.partition(":")
+            roles[intent.strip()] = role.strip()
+        return roles
 
     @property
     def use_vertex(self) -> bool:

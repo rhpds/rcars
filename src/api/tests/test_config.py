@@ -44,3 +44,36 @@ def test_use_vertex():
         redis_url="redis://localhost:6379",
     )
     assert s2.use_vertex is False
+
+
+def test_chat_model_defaults_follow_triage_and_rationale():
+    s = Settings(database_url="postgresql://x/x",
+                 triage_model="m-triage", rationale_model="m-rationale")
+    assert s.chat_router_model == "m-triage"
+    assert s.chat_answer_model == "m-rationale"
+
+
+def test_chat_models_explicit_override():
+    s = Settings(database_url="postgresql://x/x",
+                 chat_router_model="open-model", chat_answer_model="other")
+    assert s.chat_router_model == "open-model"
+    assert s.chat_answer_model == "other"
+
+
+def test_chat_intent_roles_parse():
+    s = Settings(database_url="postgresql://x/x",
+                 chat_intent_roles_str="performance:curator, item_facts:any")
+    assert s.chat_intent_roles == {"performance": "curator", "item_facts": "any"}
+    assert Settings(database_url="postgresql://x/x").chat_intent_roles == {"performance": "curator"}
+
+
+def test_chat_intent_roles_invalid_role_rejected():
+    import pytest
+    with pytest.raises(ValueError):
+        Settings(database_url="postgresql://x/x", chat_intent_roles_str="performance:sudo")
+
+
+def test_chat_router_threshold_validated():
+    import pytest
+    with pytest.raises(ValueError):
+        Settings(database_url="postgresql://x/x", chat_router_confidence_threshold=1.5)
