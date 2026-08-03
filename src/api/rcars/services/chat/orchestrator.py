@@ -78,7 +78,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                                 answer=res.redirect_message,
                                 blocks=[Block(type="notice", data={"kind": "role_redirect"})])
         else:
-            await on_progress({"phase": "fetching", "status": "started"})
+            await on_progress({"phase": "fetching", "status": "started", "intent": output.intent})
             handler = INTENTS[output.intent].handler
             hres = await handler(res, db, settings, stages, include_zt, on_progress)
             pack = build_evidence_pack(db, hres.anchor_ids)

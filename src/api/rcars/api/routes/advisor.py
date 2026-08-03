@@ -150,7 +150,7 @@ async def stream_query(job_id: str, request: Request, user: str = Depends(requir
     if not job or (job["created_by"] != user and not settings.is_admin(user)):
         raise HTTPException(status_code=404, detail="Job not found")
     relay = JobProgressRelay(request.app.state.redis)
-    return create_sse_response(relay, job_id)
+    return create_sse_response(relay, job_id, job_status=job["status"])
 
 
 @router.get(
