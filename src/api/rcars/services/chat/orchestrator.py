@@ -48,6 +48,9 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
     if routed is not None:  # pre-routed chip: zero router involvement
         output = RouterOutput.model_validate(routed)
         output.confidence = 1.0
+        # Clarify chips carry item_ref in args — promote to item_refs for resolution
+        if not output.item_refs and output.args.get("item_ref"):
+            output.item_refs = [output.args["item_ref"]]
     else:
         output, fallback, usage = route(message, context, settings, llm_call=llm_call)
         if usage:
