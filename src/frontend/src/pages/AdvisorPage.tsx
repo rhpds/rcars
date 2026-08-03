@@ -5,18 +5,14 @@ import { useJobStream, StreamCandidate } from '../hooks/useJobStream'
 import { useAuth } from '../hooks/useAuth'
 import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCardList } from '../components/advisor/RecCardList'
+import { ChatEnvelope, ChatChip } from '../components/advisor/chatTypes'
+import { resolveBlockRenderer } from '../components/advisor/blocks/registry'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   jobId?: string
-}
-
-interface TurnResults {
-  candidates: StreamCandidate[]
-  overall_assessment: string | null
-  content_gaps: string[] | null
-  sessionId?: string
+  envelope?: ChatEnvelope
 }
 
 function renderMarkdown(text: string) {
@@ -64,11 +60,6 @@ function renderMarkdown(text: string) {
   return <>{elements}</>
 }
 
-function cleanAssessment(text: string): string {
-  let cleaned = text.replace(/^\*?\*?Response:\*?\*?\s*/i, '')
-  cleaned = cleaned.replace(/^\*?\*?Practical Notes:\*?\*?\s*/im, '\n**Practical Notes:**\n')
-  return cleaned
-}
 
 function RcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
   return (
@@ -97,7 +88,8 @@ export function AdvisorPage() {
   const [showEvent, setShowEvent] = useState(false)
   const showZt = true
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
-  const [turns, setTurns] = useState<TurnResults[]>([])
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [turns, setTurns] = useState<ChatEnvelope[]>([])
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
@@ -141,6 +133,7 @@ export function AdvisorPage() {
 
   const resetSession = () => {
     setLoadedSessionId(null)
+    setSessionId(null)
     setMessages([])
     setTurns([])
     setActiveTurn(0)
@@ -166,26 +159,32 @@ export function AdvisorPage() {
     }
     if (sid !== loadedSessionId) {
       setLoadedSessionId(sid)
+      setSessionId(sid)
       api.getSession(sid).then(data => {
-        const sessionTurns = (data as { turns: Array<{ query_text: string | null; overall_assessment: string | null; results_json: StreamCandidate[] | null; content_gaps?: string[] | null }> }).turns
+        const sessionTurns = (data as { turns: Array<{ query_text: string | null; overall_assessment: string | null; results_json: StreamCandidate[] | null; content_gaps?: string[] | null; envelope_json?: ChatEnvelope | null }> }).turns
         const newMessages: ChatMessage[] = []
-        const newTurns: TurnResults[] = []
+        const newTurns: ChatEnvelope[] = []
         for (const turn of sessionTurns) {
           if (turn.query_text) {
             newMessages.push({ role: 'user', content: turn.query_text })
           }
-          let text = cleanAssessment(turn.overall_assessment || '')
-          if (turn.content_gaps && turn.content_gaps.length > 0) {
-            text += '\n\n**Content gaps:**'
-            for (const gap of turn.content_gaps) text += `\n- ${gap}`
-          }
-          if (text) newMessages.push({ role: 'assistant', content: text })
-          if (turn.results_json) {
-            newTurns.push({
-              candidates: turn.results_json,
-              overall_assessment: turn.overall_assessment,
-              content_gaps: (turn as Record<string, unknown>).content_gaps as string[] | null || null,
-            })
+          // New chat turns: envelope_json exists
+          if (turn.envelope_json) {
+            const env = turn.envelope_json
+            newMessages.push({ role: 'assistant', content: env.answer, envelope: env })
+            newTurns.push(env)
+          } else {
+            // Legacy single-turn recommend sessions: results_json only
+            let text = turn.overall_assessment || ''
+            if (turn.content_gaps && turn.content_gaps.length > 0) {
+              text += '\n\n**Content gaps:**'
+              for (const gap of turn.content_gaps) text += `\n- ${gap}`
+            }
+            if (text) newMessages.push({ role: 'assistant', content: text })
+            if (turn.results_json) {
+              // Legacy turn — no envelope, keep in TurnResults format for compatibility
+              // Don't push to newTurns since it's now ChatEnvelope[] only
+            }
           }
         }
         setMessages(newMessages)
@@ -198,18 +197,11 @@ export function AdvisorPage() {
   useEffect(() => {
     if (stream.isComplete && activeJobId) {
       api.getQueryResult(activeJobId).then(data => {
-        if (data.result && typeof data.result === 'object') {
-          const result = { ...(data.result as TurnResults), sessionId: activeJobId }
-          setTurns(prev => [...prev, result])
+        const env = data.result as ChatEnvelope
+        if (env && env.intent) {
+          setTurns(prev => [...prev, env])
           setActiveTurn(turns.length)
-
-          let text = cleanAssessment(result.overall_assessment || '')
-          if (result.content_gaps && result.content_gaps.length > 0) {
-            text += '\n\n**Content gaps:**'
-            for (const gap of result.content_gaps) text += `\n- ${gap}`
-          }
-          if (!text) text = 'I help with content recommendations, but I couldn\'t find a match with the detail provided. Try adding more detail — describe the topic, audience, product area, or format you need.\n\nI currently know about all RHDP items that have demo or lab guides.'
-          setMessages(prev => [...prev, { role: 'assistant', content: text, jobId: activeJobId }])
+          setMessages(prev => [...prev, { role: 'assistant', content: env.answer, envelope: env, jobId: activeJobId }])
         }
         setActiveJobId(null)
         setSending(false)
@@ -229,20 +221,38 @@ export function AdvisorPage() {
     setInput('')
     setMessages(prev => [...prev, { role: 'user', content: query }])
 
-    // For follow-up queries, prepend context from the original query
-    let searchQuery = query
-    if (turns.length > 0) {
-      const originalQuery = messages.find(m => m.role === 'user')?.content
-      if (originalQuery) {
-        searchQuery = `${originalQuery}\n\nAdditional context: ${query}`
-      }
+    try {
+      const stages = ['prod']
+      if (showDev) stages.push('dev')
+      if (showEvent) stages.push('event')
+      const { job_id, session_id } = await api.submitChat(query, sessionId, stages, showZt)
+      setSessionId(session_id)
+      setActiveJobId(job_id)
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
+      setSending(false)
     }
+  }
+
+  const handleChip = async (chip: ChatChip) => {
+    if (sending) return
+
+    setSending(true)
+    setInput('')
+    setMessages(prev => [...prev, { role: 'user', content: chip.label }])
 
     try {
       const stages = ['prod']
       if (showDev) stages.push('dev')
       if (showEvent) stages.push('event')
-      const { job_id } = await api.submitQuery(searchQuery, stages, showZt)
+      const { job_id, session_id } = await api.submitChat(
+        chip.label,
+        sessionId,
+        stages,
+        showZt,
+        { intent: chip.intent, args: chip.args, scope: chip.scope }
+      )
+      setSessionId(session_id)
       setActiveJobId(job_id)
     } catch (err) {
       setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${err}` }])
@@ -275,29 +285,58 @@ export function AdvisorPage() {
                 This is a beta release and we are regularly adding features.
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS has cataloged all RHDP assets with Showroom lab or demo guides and searches across all of these to find what fits your needs. It uses AI to match your request against analyzed content, scoring relevance and generating detailed recommendations. This goes far deeper than keyword matching against a description.
+                RCARS knows about all RHDP content with Showroom guides. Ask it to:
               </p>
-              <p className="hint" style={{ marginBottom: '12px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>How to get the best results:</strong><br/>
-                Be specific about your audience, activity, the topic or product area, the format you need (hands-on lab, presentation, demonstration, etc.), and how much time you have. The more detail you provide, the better the match.
+              <p className="hint" style={{ marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
               </p>
-              <p className="hint" style={{ marginBottom: '12px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Refine as you go:</strong><br/>
-                Results appear in the panel on the right. Ask follow-up questions to narrow down — for example, "focus on beginner-level content" or "show me something shorter than 30 minutes." Each turn produces a new set of recommendations you can compare.
+              <p className="hint" style={{ marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Check overlap</strong> — "What overlaps with LB2144?"
+              </p>
+              <p className="hint" style={{ marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "Which of these performed best?" (after a search)
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Event matching:</strong><br/>
-                Paste an event URL (conference site, call for papers, etc.) and RCARS will analyze the event themes and suggest content that fits the tracks and audience.
+                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the SAP HANA demo about?"
               </p>
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
-                Try: "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization and migration from VMware"
+                Be specific about audience, topic, format, and time. Follow-up questions refine results.
               </p>
             </div>
           )}
           {messages.map((msg, i) => (
             <div key={i} className={msg.role === 'user' ? 'chat-turn-user' : 'chat-turn-assistant'}>
               {msg.role === 'assistant' ? (
-                <div className="assistant-content">{renderMarkdown(msg.content)}</div>
+                <>
+                  {msg.envelope && (
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontStyle: 'italic', marginBottom: 6 }}>
+                      {msg.envelope.scope_echo}
+                    </div>
+                  )}
+                  <div className="assistant-content">{renderMarkdown(msg.content)}</div>
+                  {msg.envelope && msg.envelope.suggested_followups.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                      {msg.envelope.suggested_followups.map((chip, ci) => (
+                        <button
+                          key={ci}
+                          onClick={() => handleChip(chip)}
+                          disabled={sending}
+                          style={{
+                            border: '1px solid var(--border-default)',
+                            background: 'transparent',
+                            color: 'var(--text-link)',
+                            borderRadius: 12,
+                            padding: '3px 10px',
+                            fontSize: 12,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {chip.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 msg.content
               )}
@@ -370,6 +409,11 @@ export function AdvisorPage() {
             Send
           </button>
         </div>
+        {turns.length > 5 && (
+          <div style={{ fontSize: 12, color: 'var(--text-muted)', padding: '4px 2px' }}>
+            Long session — references only reach the last 5 turns. Fresh often works better (use New Session).
+          </div>
+        )}
       </div>
 
       {/* Resize handle */}
@@ -391,10 +435,10 @@ export function AdvisorPage() {
         onMouseDown={handleResizeStart}
       />
 
-      {/* Recommendations panel */}
+      {/* Evidence panel */}
       <div className="rec-pane" style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="pane-label">Recommendations</div>
+          <div className="pane-label">Evidence</div>
           {turns.length > 1 && (
             <div style={{ display: 'flex', gap: '6px', fontSize: '12px' }}>
               {turns.map((_, i) => (
@@ -411,7 +455,7 @@ export function AdvisorPage() {
                     fontSize: '12px',
                   }}
                 >
-                  {i === turns.length - 1 ? 'Current' : `Rec ${i + 1}`}
+                  {i === turns.length - 1 ? 'Current' : `Turn ${i + 1}`}
                 </button>
               ))}
             </div>
@@ -421,12 +465,17 @@ export function AdvisorPage() {
         {streamingCandidates ? (
           <RecCardList candidates={streamingCandidates} isComplete={false} streamPhase={stream.phase} />
         ) : currentResults ? (
-          <RecCardList candidates={currentResults.candidates} isComplete={true} sessionId={currentResults.sessionId} />
+          <>
+            {currentResults.blocks.map((b, i) => {
+              const Renderer = resolveBlockRenderer(b.type)
+              return <Renderer key={i} block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
+            })}
+          </>
         ) : sending ? (
           <div className="rec-pane-loading">Waiting for results...</div>
         ) : (
           <div style={{ color: 'var(--text-muted)', fontSize: '15px', padding: '20px 0' }}>
-            Submit a query to see recommendations.
+            Submit a query to see evidence.
           </div>
         )}
       </div>
