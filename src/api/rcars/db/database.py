@@ -1073,6 +1073,7 @@ class Database:
         include_zt: bool = True,
         quality_threshold: float = 0.45,
         retrieval_window: int = 200,
+        scope_content_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         zt_filter = ""
         if not include_zt:
@@ -1099,6 +1100,12 @@ class Database:
             ct_filter = f"AND e.content_type IN ({ct_placeholders})"
             ct_params = list(content_types)
 
+        scope_filter = ""
+        scope_params: list = []
+        if scope_content_ids:
+            scope_filter = "AND e.content_id = ANY(%s)"
+            scope_params = [scope_content_ids]
+
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
 
         sql = f"""
@@ -1111,6 +1118,7 @@ class Database:
                   {ct_filter}
                   {stage_filter}
                   {zt_filter}
+                  {scope_filter}
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
             ),
@@ -1136,7 +1144,7 @@ class Database:
             LEFT JOIN showroom_analysis sa ON sa.content_id = g.content_id
             ORDER BY g.best_similarity DESC
         """
-        params = [vec_str, *ct_params, *stage_params, vec_str, retrieval_window,
+        params = [vec_str, *ct_params, *stage_params, *scope_params, vec_str, retrieval_window,
                   quality_threshold, limit]
 
         with self._pool.connection() as conn:

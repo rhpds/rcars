@@ -91,6 +91,7 @@ def search(
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
     content_types: list[str] | None = None,
+    scope_content_ids: list[str] | None = None,
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply quality threshold.
 
@@ -110,9 +111,10 @@ def search(
         include_zt=include_zt,
         content_types=content_types,
         quality_threshold=quality_threshold,
+        scope_content_ids=scope_content_ids,
     )
 
-    ci_ref_rows = _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
+    ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
     if ci_ref_rows:
         log.info("ci_resolve: adding %d neighbor results from CI references", len(ci_ref_rows))
         seen = {r["content_id"] for r in rows}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, Field
+from typing import Literal
 from rcars.api.middleware.auth import require_auth, require_admin
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
@@ -22,6 +23,7 @@ class QueryRequest(BaseModel):
     stages: list[str] = ["prod"]
     include_zt: bool = True
     opted_out: bool = False
+    depth: Literal["low", "medium", "high"] = "high"
 
 
 class SelectRequest(BaseModel):
@@ -67,6 +69,7 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         job_id=job_id,
         query=body.query,
         stages=stages,
+        depth=body.depth,
         include_zt=body.include_zt,
         user_email=user,
         opted_out=body.opted_out,
