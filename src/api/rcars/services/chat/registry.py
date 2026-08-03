@@ -126,7 +126,7 @@ def build_router_prompt(context: list[dict]) -> tuple[str, str]:
         "item mentions in item_refs — never invent catalog names. confidence is 0-1. If unsure, "
         "set clarify to {question, options} and lower confidence.\n"
         f"Examples:\n{shots}")
-    ctx = json.dumps(context, default=str)
+    ctx = json.dumps(context, default=str).replace('{', '{{').replace('}', '}}')
     user = ("Session context (prior turns, oldest first; 'n' is the turn number):\n"
             f"{ctx}\n\nUser message: {{message}}\n\nJSON:")
     return system, user
