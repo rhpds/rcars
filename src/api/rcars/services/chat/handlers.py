@@ -60,13 +60,28 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                             scope_content_ids=res.scope_ids or None)
     cards = candidates_with_performance(state, db)
     green = [c for c in cards if c["tier"] == "green"]
+
+    blocks: list[Block] = []
+    scoped = bool(res.scope_ids)
+    if scoped and not green:
+        state = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
+                                on_progress=_relay, depth="high",
+                                scope_content_ids=None)
+        cards = candidates_with_performance(state, db)
+        green = [c for c in cards if c["tier"] == "green"]
+        scoped = False
+        blocks.append(Block(type="notice", data={
+            "kind": "scope_expanded",
+            "message": "No strong matches in your prior results. Expanded to the full catalog."}))
+
+    blocks.append(Block(type="rec_cards", data={"candidates": cards,
+                                                "content_gaps": state.content_gaps}))
     return HandlerResult(
-        blocks=[Block(type="rec_cards", data={"candidates": cards,
-                                              "content_gaps": state.content_gaps})],
+        blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
                         "assessment": state.overall_assessment,
                         "top": [c["display_name"] for c in (green or cards)[:3]],
-                        "scoped": bool(res.scope_ids)},
+                        "scoped": scoped},
         anchor_ids=[c["content_id"] for c in (green or cards)[:5]],
         session_results=cards)
 

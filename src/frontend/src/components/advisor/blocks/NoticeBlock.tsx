@@ -13,9 +13,11 @@ export function NoticeBlock({ block }: NoticeBlockProps) {
     out_of_scope: { label: 'Out of scope', icon: '⚠' },
     role_redirect: { label: 'Restricted', icon: '🔒' },
     clarify: { label: 'Needs clarification', icon: '❓' },
+    scope_expanded: { label: 'Expanded search', icon: '🔎' },
   }
 
   const kindInfo = kind ? kindLabels[kind] : { label: 'Notice', icon: 'ℹ' }
+  const message = block.data.message as string | undefined
 
   return (
     <div style={{
@@ -31,6 +33,7 @@ export function NoticeBlock({ block }: NoticeBlockProps) {
     }}>
       <span style={{ fontSize: '16px' }}>{kindInfo.icon}</span>
       <span style={{ fontWeight: 600 }}>{kindInfo.label}</span>
+      {message && <span>{message}</span>}
     </div>
   )
 }
