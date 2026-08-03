@@ -16,9 +16,14 @@ _SCAFFOLDS = {
                             + (" within your prior results." if f.get("scoped") else ".")),
     "overlap": lambda f: (f"{f.get('anchor', 'This item')} has {f.get('neighbor_count', 0)} "
                           f"related items (top similarity {f.get('top_similarity')}%)."),
-    "performance": lambda f: (f"Usage for {f.get('item_count', 0)} items over the last "
-                              f"{f.get('window', '3m')}; {f.get('best', '—')} leads with "
-                              f"{f.get('best_provisions', 0)} provisions."),
+    "performance": lambda f: (
+        f"{f.get('best', '—')} recorded {f.get('best_provisions', 0)} provisions "
+        f"over the last {f.get('window', '3m')}."
+        if f.get("single") else
+        f"Usage for {f.get('item_count', 0)} items over the last "
+        f"{f.get('window', '3m')}; {f.get('best', '—')} leads with "
+        f"{f.get('best_provisions', 0)} provisions."
+    ),
     "item_facts": lambda f: (f"{f.get('display_name', 'Item')} ({f.get('stage', '?')}) — "
                              f"{f.get('neighbor_count', 0)} related items in the catalog."),
 }

@@ -121,18 +121,25 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
         if isinstance(wm, str):
             wm = json.loads(wm)
         w = wm.get(args.window) or {}
+        last_activity = rhdp.get("last_activity")
+        if last_activity and not isinstance(last_activity, str):
+            last_activity = str(last_activity)
         rows.append({"content_id": cid, "display_name": entity.get("display_name", cid),
                      "provisions": w.get("provisions", 0),
+                     "unique_users": w.get("unique_users", rhdp.get("unique_users", 0)),
+                     "last_activity": last_activity,
                      "cost_per_provision": float(rhdp.get("avg_cost_per_provision") or 0) or None,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
                      "score": scores.get(cid)})
     rows.sort(key=lambda r: -(r["provisions"] or 0))
+    single = len(rows) == 1
     return HandlerResult(
         blocks=[Block(type="performance_table",
                       data={"window": args.window, "rows": rows,
                             "retirement_flavored": args.retirement_flavored})],
         scaffold_facts={"item_count": len(rows), "window": args.window,
+                        "single": single,
                         "best": rows[0]["display_name"] if rows else None,
                         "best_provisions": rows[0]["provisions"] if rows else None},
         anchor_ids=ids[:5],

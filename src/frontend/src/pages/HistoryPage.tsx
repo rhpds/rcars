@@ -15,6 +15,7 @@ interface SessionTurn {
   overall_assessment: string | null
   results_json: StreamCandidate[] | null
   chosen_ci_name: string | null
+  envelope_json?: { intent: string; scope_echo: string; answer: string } | null
 }
 
 interface SessionDetail {
@@ -110,7 +111,28 @@ export function HistoryPage() {
           </div>
         ) : detailLoading ? (
           <div className="history-empty-detail">Loading...</div>
-        ) : !detail || candidates.length === 0 ? (
+        ) : !detail ? (
+          <div className="history-empty-detail">Session not found.</div>
+        ) : activeTurn?.envelope_json ? (
+          <>
+            {activeTurn.query_text && (
+              <div className="history-query-banner">
+                {activeTurn.query_text}
+              </div>
+            )}
+            <div style={{ padding: '12px 0', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+              {activeTurn.envelope_json.intent.replace('_', ' ')}
+            </div>
+            <div className="history-assessment">
+              {activeTurn.envelope_json.answer}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <a href={`/advisor?session=${detail.session_id}`} style={{ color: 'var(--text-link)', fontSize: '13px' }}>
+                Open in Advisor →
+              </a>
+            </div>
+          </>
+        ) : candidates.length === 0 ? (
           <div className="history-empty-detail">No recommendations in this session.</div>
         ) : (
           <>

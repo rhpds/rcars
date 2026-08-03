@@ -9,8 +9,9 @@ interface PerformanceTableBlockProps {
 interface PerformanceRow {
   content_id?: string
   display_name: string
-  ci_name?: string
   provisions: number
+  unique_users?: number
+  last_activity?: string | null
   cost_per_provision: number | null
   sales_impact?: string
   score?: number
@@ -61,6 +62,8 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
             <tr>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Item</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Provisions</th>
+              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Unique Users</th>
+              <th style={{ padding: '8px 12px', textAlign: 'left' }}>Last Provisioned</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Cost/Provision</th>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Sales Impact</th>
               {retirementFlavored && <th style={{ padding: '8px 12px', textAlign: 'center' }}>Score</th>}
@@ -72,6 +75,12 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
                 <td style={{ padding: '10px 12px' }}>{row.display_name}</td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                   {row.provisions.toLocaleString()}
+                </td>
+                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
+                  {row.unique_users != null ? row.unique_users.toLocaleString() : '—'}
+                </td>
+                <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
+                  {row.last_activity || '—'}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                   {row.cost_per_provision != null ? `$${row.cost_per_provision.toFixed(2)}` : '—'}
