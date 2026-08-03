@@ -7,7 +7,7 @@ description: RCARS system overview, data sources, schema, worker architecture, f
 
 ## System Overview
 
-RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pulls from the RHDP catalog, analyzes lab content with an LLM, stores results in PostgreSQL with pgvector, and answers recommendation queries using vector similarity search and LLM ranking.
+RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pulls from the RHDP catalog, analyzes lab content with an LLM, stores results in PostgreSQL with pgvector, and answers recommendation queries using vector similarity search and LLM ranking. The Advisor provides a multi-intent chat interface for catalog questions, performance metrics, and content overlap analysis.
 
 ### Deployments
 
@@ -15,7 +15,7 @@ RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pul
 |---|---|---|---|
 | `rcars-api` | `rcars-api:latest` | — | FastAPI JSON API, serves `/api/v1/*` |
 | `rcars-scan-worker` | `rcars-api:latest` | `arq:queue:scan` | Analysis, catalog refresh, stale checks |
-| `rcars-recommend-worker` | `rcars-api:latest` | `arq:queue:recommend` | Advisor recommendation queries |
+| `rcars-recommend-worker` | `rcars-api:latest` | `arq:queue:recommend` | Advisor recommendation queries + chat turns |
 | `rcars-frontend` | `rcars-frontend:latest` | — | React SPA (nginx), proxies `/api/*` to API |
 
 Workers are split into two deployments so bulk scans never block user-facing advisor queries. Both workers use the same container image with different arq entrypoints.
@@ -188,7 +188,7 @@ Workers are split into two separate deployments:
 - Reporting sync (MCP server data import)
 - Nightly pipeline (chains all of the above sequentially)
 
-**`rcars-recommend-worker`** — listens on `arq:queue:recommend`. Handles advisor recommendation queries only. These are user-facing and must respond in 30–60 seconds.
+**`rcars-recommend-worker`** — listens on `arq:queue:recommend`. Handles advisor recommendation queries and multi-intent chat turns (via the `run_chat_turn` task). These are user-facing and must respond in 30–60 seconds. See [Advisor Chat](advisor-chat.md) for the chat architecture.
 
 The split exists because of a starvation problem: with a single worker, a bulk scan (400+ items at ~1 minute each) would monopolize all slots for hours, making the advisor completely unresponsive.
 
@@ -233,7 +233,7 @@ RCARS supports two LLM providers with automatic failover:
 
 The unified `call_llm()` function routes each call to the appropriate provider. If LiteMaaS is available and has the requested model, it is used; otherwise the call falls back to Vertex AI automatically. Provider is tracked per LLM call in the `token_usage` table.
 
-Three models are used: Sonnet for content analysis and rationale generation, Haiku for triage and workload scanning.
+Three models are used: Sonnet for content analysis, rationale generation, and chat answers; Haiku for triage, workload scanning, and chat routing.
 
 ---
 
@@ -243,7 +243,7 @@ The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 c
 
 ### Pages
 
-- **Advisor** — Two-pane layout: chat on the left, recommendation cards on the right. Queries are submitted via POST, progress is streamed via SSE from Redis pub/sub, and results render as scored recommendation cards grouped by tier.
+- **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details) with typed envelope responses, follow-up chips, and session continuity.
 - **Browse** — Filterable catalog view with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration, and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
 - **Content Analysis** — Overlap (pairwise similarity within a stage) and Retirement (scored dashboard with Prod/Without Prod tabs).
 - **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs), Workloads (workload scan, mapping management).

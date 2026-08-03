@@ -9,6 +9,9 @@ The recommendation engine is the core of the RCARS Advisor. When a user asks a q
 
 The engine uses a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results as they become available.
 
+!!! note "Chat Integration"
+    The recommendation pipeline is also invoked by the [Advisor Chat](advisor-chat.md) `handle_recommend` handler. Chat queries support two additional parameters: `depth` (low/medium/high — controls how far through the pipeline to run) and `scope_content_ids` (restricts vector search to a working set from prior turns). When `depth` is omitted, the full three-phase pipeline runs unchanged.
+
 ```mermaid
 flowchart TD
     Q[User Query] --> Acronym[Expand Acronyms<br/>AAP → Ansible Automation Platform]
