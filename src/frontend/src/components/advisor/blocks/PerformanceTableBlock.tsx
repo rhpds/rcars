@@ -7,7 +7,9 @@ interface PerformanceTableBlockProps {
 }
 
 interface PerformanceRow {
+  content_id?: string
   display_name: string
+  ci_name?: string
   provisions: number
   cost_per_provision: number | null
   sales_impact?: string
@@ -106,7 +108,14 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
         borderTop: '1px solid var(--border-subtle)',
         fontSize: '12px',
       }}>
-        <a href="/analysis/retirement" style={{ color: 'var(--text-link)' }}>
+        <a
+          href={rows.length === 1
+            ? `/analysis/retirement?search=${encodeURIComponent(rows[0].display_name)}`
+            : '/analysis/retirement'}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: 'var(--text-link)' }}
+        >
           Open Retirement Analysis
         </a>
       </div>

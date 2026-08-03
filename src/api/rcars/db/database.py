@@ -603,7 +603,8 @@ class Database:
                     f"JOIN babylon_items bi ON bi.content_id = ce.content_id "
                     f"WHERE ce.display_name ILIKE %s "
                     f"AND bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL "
-                    f"ORDER BY CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END "
+                    f"ORDER BY bi.is_published DESC NULLS LAST, "
+                    f"CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END "
                     f"LIMIT 1",
                     (pattern, *stage_list),
                 )
@@ -630,7 +631,7 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage "
+                    f"SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage, bi.is_published "
                     f"FROM content_entities ce "
                     f"JOIN babylon_items bi ON bi.content_id = ce.content_id "
                     f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
@@ -641,7 +642,8 @@ class Database:
                 for row in cur.fetchall():
                     name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"] or "")}
                     overlap = len(keywords & name_words)
-                    if overlap >= min_overlap and overlap > best_overlap:
+                    if overlap >= min_overlap and (overlap > best_overlap or
+                            (overlap == best_overlap and row.get("is_published"))):
                         best_overlap = overlap
                         best_item = row
                 if best_item:
