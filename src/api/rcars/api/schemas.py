@@ -64,6 +64,11 @@ class QuerySubmitResponse(BaseModel):
     job_id: str = Field(description="Job ID; poll via /advisor/query/{job_id}/result or stream via /advisor/query/{job_id}/stream")
 
 
+class ChatSubmitResponse(BaseModel):
+    job_id: str
+    session_id: str
+
+
 class QueryResultResponse(BaseModel):
     status: str = Field(description="Job status: queued, running, complete, failed")
     result: dict | None = Field(default=None, description="Recommendation results when status=complete")

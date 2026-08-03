@@ -77,6 +77,15 @@ def translate_to_user_message(msg: dict) -> str:
         if status == "complete":
             return f"Found {msg.get('candidates', 0)} candidates"
 
+    if phase == "routing":
+        return "Understanding your question..."
+
+    if phase == "fetching":
+        return "Fetching data..."
+
+    if phase == "composing":
+        return "Writing the answer..."
+
     if phase == "triage":
         if status == "started":
             return f"Evaluating relevance of {msg.get('total', '?')} candidates..."
