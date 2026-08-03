@@ -86,15 +86,16 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 - **Progress streaming** via Redis pub/sub → SSE. API relays messages; it never processes LLM calls itself.
 - **Auth model:** Three modes checked in order: (1) dev bypass via `RCARS_DEV_USER`, (2) K8s ServiceAccount bearer tokens validated via TokenReview API against SA allowlist, (3) OAuth proxy headers (`X-Forwarded-Email`).
 - **Role enforcement:** `require_auth` (any authenticated user), `require_curator` (curator or admin), `require_admin` (admin only). Roles derived from `RCARS_CURATOR_EMAILS` and `RCARS_ADMIN_EMAILS` config.
+- **Chat routing:** LLM router output selects deterministic handlers; see `services/chat/registry.py` to add intents.
 - **Logging:** structlog JSON with `component`, `job_id`, `action` fields on every line. Verbose logging is preferred — too much is better than too little.
 - **Sibling propagation:** When multiple CIs share the same Showroom (same URL+ref), scan once and propagate analysis + embeddings to all siblings.
 - **Scan deduplication:** Refs are resolved to commit SHAs via batch `git ls-remote`. CIs sharing the same effective URL + SHA are scanned once and propagated. Falls back to ref-based grouping on resolution failure.
 - **CI name resolution:** Vector search detects references to catalog items in queries (LB numbers via regex, display names via keyword overlap) and searches by the referenced item's stored embedding. This handles "what's similar to LB2144?" queries that would otherwise return 0 results because lab numbers and event context dilute the query embedding.
-- **Environment variables:** All prefixed with `RCARS_` (case-insensitive via Pydantic Settings). See `src/api/rcars/config.py` for full list.
+- **Environment variables:** All prefixed with `RCARS_` (case-insensitive via Pydantic Settings). Five `chat_*` settings control routing models, context window, and role gates; see `src/api/rcars/config.py` for full list.
 
 ## API Reference
 
-45 endpoints across 6 route modules (advisor, catalog, analysis, admin, auth, health). All prefixed with `/api/v1`. Interactive docs at `/api/v1/docs` when running. Route files: `src/api/rcars/api/routes/`.
+46 endpoints across 6 route modules (advisor, catalog, analysis, admin, auth, health). All prefixed with `/api/v1`. Interactive docs at `/api/v1/docs` when running. Route files: `src/api/rcars/api/routes/`.
 
 ## Database
 
