@@ -8,6 +8,8 @@ interface ProgressMessage {
 
 export interface StreamCandidate {
   ci_name: string
+  content_id?: string
+  content_type?: string
   display_name: string
   tier: string
   relevance_score: number | null
@@ -22,6 +24,10 @@ export interface StreamCandidate {
   caveats: string | null
   duration_min: number | null
   duration_source: string | null
+  best_match_type?: string
+  best_match_detail?: string | null
+  provisions_quarter?: number | null
+  sales_impact?: string | null
 }
 
 interface StreamState {

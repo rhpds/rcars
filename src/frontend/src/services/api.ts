@@ -26,6 +26,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ query, stages, include_zt: includeZt }),
     }),
+  submitChat: (message: string, sessionId?: string | null, stages: string[] = ['prod'],
+               includeZt = true, routed?: Record<string, unknown>) =>
+    request<{ job_id: string; session_id: string }>('/advisor/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, session_id: sessionId ?? null, stages,
+                             include_zt: includeZt, routed: routed ?? null }),
+    }),
   getQueryResult: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   listSessions: () => request<{ items: unknown[]; total: number }>('/advisor/sessions'),
