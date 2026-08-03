@@ -5,6 +5,7 @@ import json as _json
 import re
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import parse_qs, urlparse
 
 import structlog
 from pydantic import ValidationError
@@ -19,12 +20,33 @@ from rcars.services.recommender.vector_search import STOP_WORDS
 logger = structlog.get_logger(component="chat")
 
 _LB_RE = re.compile(r"\bLB(\d{3,4})\b", re.IGNORECASE)
+_SIMILARITY_RE = re.compile(r"\b(similar|overlap|like this|compare|versus)\b", re.IGNORECASE)
+
+
+def _parse_catalog_url(url: str) -> str | None:
+    """Extract ci_name from a demo.redhat.com catalog URL, or None."""
+    parsed = urlparse(url)
+    if not parsed.hostname or not parsed.hostname.endswith("demo.redhat.com"):
+        return None
+    item = parse_qs(parsed.query).get("item", [None])[0]
+    if not item:
+        return None
+    # ?item=namespace/ci_name — strip the namespace
+    return item.split("/", 1)[-1] if "/" in item else item
 
 
 def pattern_check(message: str) -> RouterOutput | None:
     """Deterministic pre-router. Narrow by design — the LLM router is the main path."""
-    urls, _ = extract_urls(message)
+    urls, remaining = extract_urls(message)
     if urls:
+        ci_name = _parse_catalog_url(urls[0])
+        if ci_name:
+            ref = f"content_id:babylon:{ci_name}"
+            if _SIMILARITY_RE.search(remaining):
+                return RouterOutput(intent="overlap", args={"item_ref": ref},
+                                    item_refs=[ref], confidence=1.0)
+            return RouterOutput(intent="item_facts", args={"item_ref": ref},
+                                item_refs=[ref], confidence=1.0)
         return RouterOutput(intent="recommend", args={"search_query": message}, confidence=1.0)
     m = _LB_RE.search(message)
     if m and len(message.split()) <= 4 and "?" not in message:
