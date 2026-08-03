@@ -46,8 +46,17 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
     query = args.search_query or " ".join(str(v) for v in args.constraints.values())
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
     depth = "medium" if res.scope_ids else "high"
+
+    async def _relay(data: dict):
+        # run_query emits phase:"complete" when the pipeline finishes, but the
+        # chat turn isn't done yet (answer composition follows). Suppress it so
+        # only the chat worker's final "complete" closes the SSE stream.
+        if data.get("phase") == "complete":
+            return
+        await on_progress(data)
+
     state = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
-                            on_progress=on_progress, depth=depth,
+                            on_progress=_relay, depth=depth,
                             scope_content_ids=res.scope_ids or None)
     cards = candidates_with_performance(state, db)
     green = [c for c in cards if c["tier"] == "green"]
