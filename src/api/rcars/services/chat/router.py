@@ -21,6 +21,7 @@ logger = structlog.get_logger(component="chat")
 
 _LB_RE = re.compile(r"\bLB(\d{3,4})\b", re.IGNORECASE)
 _SIMILARITY_RE = re.compile(r"\b(similar|overlap|like this|compare|versus)\b", re.IGNORECASE)
+_PERFORMANCE_RE = re.compile(r"\b(performance|provisions?|usage|sales|cost|retirement|how is .+ doing)\b", re.IGNORECASE)
 
 
 def _parse_catalog_url(url: str) -> str | None:
@@ -44,6 +45,10 @@ def pattern_check(message: str) -> RouterOutput | None:
             ref = f"content_id:babylon:{ci_name}"
             if _SIMILARITY_RE.search(remaining):
                 return RouterOutput(intent="overlap", args={"item_ref": ref},
+                                    item_refs=[ref], confidence=1.0)
+            if _PERFORMANCE_RE.search(remaining):
+                return RouterOutput(intent="performance",
+                                    args={"item_refs": [ref]},
                                     item_refs=[ref], confidence=1.0)
             return RouterOutput(intent="item_facts", args={"item_ref": ref},
                                 item_refs=[ref], confidence=1.0)

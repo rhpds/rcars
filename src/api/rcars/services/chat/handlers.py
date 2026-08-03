@@ -104,7 +104,8 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     for n in raw:
         n_products = set((db.get_showroom_analysis(n["content_id"]) or {}).get("products_json") or [])
         neighbors.append({
-            "content_id": n["content_id"], "display_name": n["display_name"],
+            "content_id": n["content_id"], "ci_name": n.get("ci_name"),
+            "display_name": n["display_name"],
             "stage": n.get("stage"), "similarity_pct": round(n["similarity_score"] * 100),
             "relationship_type": n.get("relationship_type", "overlap"),
             "shared_products": sorted(anchor_products & n_products),

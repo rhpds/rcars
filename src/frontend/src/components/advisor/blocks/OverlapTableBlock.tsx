@@ -8,11 +8,17 @@ interface OverlapTableBlockProps {
 
 interface OverlapNeighbor {
   display_name: string
+  ci_name?: string
   similarity_pct: number
   relationship_type?: string
   stage?: string
   shared_products?: string[]
   why?: string
+}
+
+function catalogUrl(ciName: string, namespace: string): string {
+  const ns = namespace || 'babylon-catalog-prod'
+  return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
 }
 
 export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
@@ -64,7 +70,15 @@ export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
               const badgeStyle = relationshipBadgeStyle(n.relationship_type)
               return (
                 <tr key={i} style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined }}>
-                  <td style={{ padding: '10px 12px' }}>{n.display_name}</td>
+                  <td style={{ padding: '10px 12px' }}>
+                    {n.ci_name ? (
+                      <a href={catalogUrl(n.ci_name, n.stage === 'dev' ? 'babylon-catalog-dev' : 'babylon-catalog-prod')}
+                         target="_blank" rel="noopener noreferrer"
+                         style={{ color: 'var(--text-link)', textDecoration: 'none' }}>
+                        {n.display_name}
+                      </a>
+                    ) : n.display_name}
+                  </td>
                   <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
                     {n.similarity_pct}%
                   </td>
