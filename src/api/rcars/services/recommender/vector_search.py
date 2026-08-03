@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 _CI_REF_PATTERN = re.compile(r'\bLB(\d{3,4})\b', re.IGNORECASE)
 
-_STOP_WORDS = frozenset({
+STOP_WORDS = frozenset({
     "a", "an", "the", "is", "it", "to", "for", "of", "and", "or", "in", "on",
     "with", "that", "this", "be", "are", "was", "i", "we", "my", "our", "me",
     "do", "does", "not", "no", "but", "have", "has", "had", "can", "could",
@@ -49,7 +49,7 @@ def _resolve_ci_references(
 
     # Strategy 2: keyword overlap against display_names (only if no LB match)
     if not resolved_items:
-        query_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', query)} - _STOP_WORDS
+        query_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', query)} - STOP_WORDS
         if len(query_words) >= 2:
             item = db.find_catalog_item_by_keyword_overlap(query_words, stages=stages, min_overlap=3)
             if item:

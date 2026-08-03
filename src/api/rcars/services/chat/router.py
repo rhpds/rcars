@@ -13,8 +13,8 @@ from rcars.config import Settings, call_llm
 from rcars.db.database import Database
 from rcars.services.analyzer import generate_embedding
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
-from rcars.services.recommender.pipeline import _extract_urls
-from rcars.services.recommender.vector_search import _STOP_WORDS
+from rcars.services.recommender.pipeline import extract_urls
+from rcars.services.recommender.vector_search import STOP_WORDS
 
 logger = structlog.get_logger(component="chat")
 
@@ -23,7 +23,7 @@ _LB_RE = re.compile(r"\bLB(\d{3,4})\b", re.IGNORECASE)
 
 def pattern_check(message: str) -> RouterOutput | None:
     """Deterministic pre-router. Narrow by design — the LLM router is the main path."""
-    urls, _ = _extract_urls(message)
+    urls, _ = extract_urls(message)
     if urls:
         return RouterOutput(intent="recommend", args={"search_query": message}, confidence=1.0)
     m = _LB_RE.search(message)
@@ -48,7 +48,7 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
         item = db.find_catalog_item_by_display_name_prefix(f"LB{m.group(1)}%", stages=stages)
         if item:
             return {"item": item}
-    words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - _STOP_WORDS
+    words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
         if item:

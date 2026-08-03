@@ -64,6 +64,10 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
 
 async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                          stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     anchors = res.items or [db.get_babylon_item(cid) or {"content_id": cid, "display_name": cid}
                             for cid in res.scope_ids]
     anchor = anchors[0]
@@ -129,6 +133,10 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
 
 async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
                             stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     item = res.items[0]
     card = _item_card(db, item)
     card["neighbors"] = [

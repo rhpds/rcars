@@ -8,8 +8,9 @@ FACTS = {"result_count": 8, "green_count": 3, "top": ["A", "B"], "scoped": False
 def test_scaffold_deterministic():
     line = build_scaffold("recommend", FACTS)
     assert "3" in line and "8" in line
-    assert build_scaffold("performance", {"item_count": 2, "window": "3m", "best": "A",
+    line = build_scaffold("performance", {"item_count": 2, "window": "3m", "best": "A",
                                           "best_provisions": 40})
+    assert "2" in line and "3m" in line
 
 
 def test_compose_prepends_scaffold():

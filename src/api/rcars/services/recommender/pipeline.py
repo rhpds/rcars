@@ -75,7 +75,7 @@ def _expand_query_terms(query: str) -> str:
 _URL_RE = re.compile(r'(?:https?://\S+|www\.\S+\.\S+)', re.IGNORECASE)
 
 
-def _extract_urls(query: str) -> tuple[list[str], str]:
+def extract_urls(query: str) -> tuple[list[str], str]:
     """Extract URLs from query, return (urls, remaining_text).
 
     Finds full URLs (http/https) and bare www. domains anywhere in the text.
@@ -200,7 +200,7 @@ async def run_query(
 
     t0 = time.monotonic()
 
-    urls, remaining_text = _extract_urls(query)
+    urls, remaining_text = extract_urls(query)
     if urls:
         url = urls[0]
         logger.info("query_has_url", url=url[:200], has_text=bool(remaining_text))

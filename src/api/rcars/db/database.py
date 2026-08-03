@@ -413,6 +413,10 @@ ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS intent TEXT;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS envelope_json JSONB;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
 
+-- Chat turn index uniqueness — RHDPCD-599
+CREATE UNIQUE INDEX IF NOT EXISTS idx_advisor_sessions_session_turn
+    ON advisor_sessions (session_id, turn_index);
+
 """
 
 
