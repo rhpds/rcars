@@ -18,7 +18,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
 export const api = {
   // Auth
-  getMe: () => request<{ email: string; roles: string[] }>('/auth/me'),
+  getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
 
   // Advisor
   submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true) =>
@@ -231,11 +231,10 @@ export const api = {
     request<{ overlap_pairs: number; related_pairs: number; pairs_stored: number; threshold: number; stage: string }>(
       `/admin/compute-similarity?threshold=${threshold}${stage ? `&stage=${stage}` : ''}`, { method: 'POST' }),
 
-  // Retirement analysis
-  getRetirementDashboard: (params?: {
+  // Performance analysis
+  getPerformanceDashboard: (params?: {
     sort_by?: string; sort_dir?: string; min_score?: number;
-    category?: string; has_prod?: boolean; search?: string;
-    window?: string; workflow_status?: string;
+    search?: string; window?: string; channel?: string; workflow_status?: string;
   }) => {
     const qs = new URLSearchParams()
     if (params) {
@@ -244,51 +243,51 @@ export const api = {
       })
     }
     const query = qs.toString()
-    return request<RetirementDashboardResponse>(`/analysis/retirement${query ? '?' + query : ''}`)
+    return request<PerformanceDashboardResponse>(`/analysis/performance${query ? '?' + query : ''}`)
   },
 
   // Retirement workflows
   getRetirementWorkflow: (baseName: string) =>
-    request<{ workflow: RetirementWorkflow | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
+    request<{ workflow: RetirementWorkflow | null }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}`),
 
   reviewRetirementItem: (baseName: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
 
   approveRetirementItem: (baseName: string, reason: string, replacementCi?: string, replacementName?: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/approve`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/approve`, {
       method: 'PUT',
       body: JSON.stringify({ reason, replacement_ci: replacementCi || null, replacement_name: replacementName || null }),
     }),
 
   notifyRetirementOwner: (baseName: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notify`, { method: 'PUT' }),
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/notify`, { method: 'PUT' }),
 
   startRetirement: (baseName: string, targetDays?: number, jiraProject?: string) =>
-    request<{ status: string; workflow: RetirementWorkflow; jira_key: string }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/start`, {
+    request<{ status: string; workflow: RetirementWorkflow; jira_key: string }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/start`, {
       method: 'PUT',
       body: JSON.stringify({ target_days: targetDays ?? 30, jira_project: jiraProject ?? 'RHDPCD' }),
     }),
 
   updateRetirementNotes: (baseName: string, notes: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notes`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/notes`, {
       method: 'PUT',
       body: JSON.stringify({ notes }),
     }),
 
   linkRetirementJira: (baseName: string, jiraKey: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/link-jira`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/link-jira`, {
       method: 'PUT',
       body: JSON.stringify({ jira_key: jiraKey }),
     }),
 
   cancelRetirementWorkflow: (baseName: string) =>
-    request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+    request<{ status: string; deleted: boolean }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
-  ignoreRetirementItem: (baseName: string) =>
-    request<{ status: string; ignored_until: string }>(`/analysis/retirement/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
+  ignoreItem: (baseName: string) =>
+    request<{ status: string; ignored_until: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
 
-  unignoreRetirementItem: (baseName: string) =>
-    request<{ status: string }>(`/analysis/retirement/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+  unignoreItem: (baseName: string) =>
+    request<{ status: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
@@ -343,33 +342,40 @@ export interface ScoreBreakdownFactor {
 export interface ScoreBreakdown {
   score: number
   factors: ScoreBreakdownFactor[]
-  age_discount: number
   summary: string
 }
 
-export interface ReportingMetricsItem {
-  catalog_base_name: string
-  content_id?: string
-  content_type?: string
-  display_name: string
+export interface MarketingMetrics {
   provisions: number
-  provisions_quarter: number
+  unique_users: number
+  completions: number
+  page_views: number
+  score: number | null
+}
+
+export interface PerformanceItem {
+  content_id: string
+  catalog_base_name: string
+  display_name: string
+  ci_name?: string | null
+  category: string | null
+  performance_score: number
+  score_breakdown?: ScoreBreakdown | null
+  channel_scores?: Record<string, { score?: number }> | null
+  channels_present: string[]
+  marketing: MarketingMetrics | null
+  provisions: number
+  completions: number
   requests: number
-  experiences: number
   unique_users: number
   success_ratio: number
   failure_ratio: number
-  touched_amount: number
+  pipeline_touched: number
   closed_amount: number
   total_cost: number
   avg_cost_per_provision: number
-  first_provision: string | null
-  last_provision: string | null
-  retirement_score: number
-  synced_at: string
-  category: string | null
-  product: string | null
-  product_family: string | null
+  first_activity: string | null
+  last_activity: string | null
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
   owners: Array<{ name: string; email: string }>
@@ -378,13 +384,14 @@ export interface ReportingMetricsItem {
   workflow_status?: string | null
   jira_key?: string | null
   retirement_target_date?: string | null
-  score_breakdown?: ScoreBreakdown | null
   ignored_until?: string | null
 }
 
-export interface RetirementDashboardResponse {
-  items: ReportingMetricsItem[]
+export interface PerformanceDashboardResponse {
+  items: PerformanceItem[]
   total: number
   synced_at: string | null
-  summary: { total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null } | null
+  summary: { total: number; last_synced: string | null } | null
+  window: string
+  channel: string
 }

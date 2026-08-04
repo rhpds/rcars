@@ -11,7 +11,7 @@ import { WorkloadsPage } from './pages/WorkloadsPage'
 import { AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
 import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
-import { RetirementPage } from './pages/RetirementPage'
+import { PerformancePage } from './pages/PerformancePage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
 import { RecentJobsPage } from './pages/RecentJobsPage'
@@ -54,8 +54,10 @@ export default function App() {
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                       <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
-                      <Route path="/analysis/retirement" element={<RetirementPage />} />
                     </>
+                  )}
+                  {auth.canViewPerformance && (
+                    <Route path="/analysis/performance" element={<PerformancePage />} />
                   )}
                   {auth.isAdmin && (
                     <>

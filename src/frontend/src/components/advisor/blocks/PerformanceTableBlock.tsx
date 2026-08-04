@@ -20,18 +20,17 @@ interface PerformanceRow {
 export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
   const window = block.data.window as string | undefined
   const rows = (block.data.rows || []) as PerformanceRow[]
-  const retirementFlavored = block.data.retirement_flavored === true
 
   const scoreColor = (score: number) => {
-    if (score >= 55) return 'var(--score-red)'
+    if (score >= 55) return 'var(--score-green)'
     if (score >= 35) return 'var(--score-amber)'
-    return 'var(--score-green)'
+    return 'var(--score-red)'
   }
 
   const scoreBg = (score: number) => {
-    if (score >= 55) return 'var(--score-red-bg)'
+    if (score >= 55) return 'var(--score-green-bg)'
     if (score >= 35) return 'var(--score-amber-bg)'
-    return 'var(--score-green-bg)'
+    return 'var(--score-red-bg)'
   }
 
   return (
@@ -66,7 +65,7 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Last Provisioned</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Cost/Provision</th>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Sales Impact</th>
-              {retirementFlavored && <th style={{ padding: '8px 12px', textAlign: 'center' }}>Score</th>}
+              <th style={{ padding: '8px 12px', textAlign: 'center' }}>Score</th>
             </tr>
           </thead>
           <tbody>
@@ -88,23 +87,21 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
                 <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
                   {row.sales_impact || '—'}
                 </td>
-                {retirementFlavored && (
-                  <td style={{ padding: '10px 12px', textAlign: 'center' }}>
-                    {row.score != null ? (
-                      <span style={{
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        fontSize: '12px',
-                        fontWeight: 600,
-                        fontFamily: 'var(--ff-mono)',
-                        background: scoreBg(row.score),
-                        color: scoreColor(row.score),
-                      }}>
-                        {row.score}
-                      </span>
-                    ) : '—'}
-                  </td>
-                )}
+                <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                  {row.score != null ? (
+                    <span style={{
+                      padding: '3px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      fontFamily: 'var(--ff-mono)',
+                      background: scoreBg(row.score),
+                      color: scoreColor(row.score),
+                    }}>
+                      {row.score}
+                    </span>
+                  ) : '—'}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -119,13 +116,13 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
       }}>
         <a
           href={rows.length === 1
-            ? `/analysis/retirement?search=${encodeURIComponent(rows[0].display_name)}`
-            : '/analysis/retirement'}
+            ? `/analysis/performance?search=${encodeURIComponent(rows[0].display_name)}`
+            : '/analysis/performance'}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: 'var(--text-link)' }}
         >
-          Open Retirement Analysis
+          Open Performance Analysis
         </a>
       </div>
     </div>
