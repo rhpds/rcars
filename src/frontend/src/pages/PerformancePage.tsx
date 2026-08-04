@@ -462,7 +462,7 @@ export function PerformancePage() {
             <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '1000px' }}>
               <thead>
                 <tr>
-                  <th className="clickable" onClick={() => toggleSort('display_name')}>
+                  <th className="clickable" style={{ maxWidth: '300px' }} onClick={() => toggleSort('display_name')}>
                     Name {sortBy === 'display_name' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('performance_score')}>
@@ -497,8 +497,8 @@ export function PerformancePage() {
                     <Fragment key={item.catalog_base_name}>
                       <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}
                         style={muted ? { opacity: 0.45 } : undefined}>
-                        <td className="name" title={item.display_name}>
-                          <div>
+                        <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.display_name}
                             {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
                             {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
