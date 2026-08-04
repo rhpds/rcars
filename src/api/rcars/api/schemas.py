@@ -188,12 +188,13 @@ class ContentPathResponse(BaseModel):
 
 # ── Analysis ────────────────────────────────────────────────────────
 
-class RetirementDashboardResponse(BaseModel):
-    items: list[dict] = Field(description="Retirement-scored catalog items with reporting metrics")
+class PerformanceDashboardResponse(BaseModel):
+    items: list[dict] = Field(description="Performance-scored catalog items with reporting metrics")
     total: int
     synced_at: str | None = None
     summary: dict | None = None
     window: str
+    channel: str
 
 
 class WorkflowResponse(BaseModel):
