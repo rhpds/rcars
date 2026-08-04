@@ -3049,20 +3049,20 @@ details.ca-band-section:not([open]) > .ca-band-header {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 16px;
+  padding: 5px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   font-family: var(--ff-body);
   cursor: pointer;
   transition: all var(--transition-fast);
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--text-muted);
   background: var(--bg-card);
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 .ret-action-btn:hover {
-  border-color: var(--text-muted);
-  color: var(--text-primary);
+  border-color: var(--text-secondary);
+  background: var(--nav-hover-bg);
 }
 
 .ret-action-btn--primary {

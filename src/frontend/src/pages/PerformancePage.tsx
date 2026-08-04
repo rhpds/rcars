@@ -651,9 +651,6 @@ export function PerformancePage() {
                                     Mute 30d
                                   </button>
                                 )}
-                                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                                  Retirement Workflow: {item.workflow_status || 'No action'}
-                                </span>
                                 <button className="ret-action-btn ret-action-btn--primary" onClick={(e) => { e.stopPropagation(); setDrawerItem(item) }}>
                                   Retirement Workflow
                                 </button>
