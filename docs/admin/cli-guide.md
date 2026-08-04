@@ -259,11 +259,11 @@ Lists all current workload mappings with their product name, category, and verif
 
 ### Reporting Commands
 
-These commands manage the integration with the RHDP reporting database for retirement analysis. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured.
+These commands manage the integration with the RHDP reporting database for performance analysis. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured.
 
 #### `rcars reporting-db sync`
 
-Syncs reporting metrics (provisions, sales, cost) from the RHDP MCP server, computes retirement scores, and upserts to the local database.
+Syncs reporting metrics (provisions, sales, cost) from the RHDP MCP server, computes performance scores, and upserts to the local database.
 
 ```bash
 rcars reporting-db sync
@@ -271,7 +271,7 @@ rcars reporting-db sync
 
 #### `rcars reporting-db status`
 
-Shows reporting sync status: last synced timestamp and score distribution (high/review/keepers).
+Shows reporting sync status: last synced timestamp and score distribution (strong/moderate/low).
 
 ```bash
 rcars reporting-db status

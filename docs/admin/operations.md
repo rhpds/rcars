@@ -79,7 +79,7 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 4. **Workload Repo Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses Claude Haiku to determine what product each role installs. Updates the workload mapping table with verified product names. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
-5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes retirement scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Retirement Analysis](../architecture/retirement-analysis.md) for details.
+5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
 
 Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking or workload scanning.
 

@@ -19,7 +19,7 @@ The Red Hat Demo Platform catalog contains hundreds of demos and workshop labs a
 
 **Duplicate content** accumulates as different teams build labs that cover the same material under different names and structures. Without a way to detect semantic overlap, the catalog grows without bounds.
 
-**Stale content** lingers after products evolve. Items that were once popular may no longer reflect current products or drive meaningful sales. Without data-driven retirement analysis, these items consume infrastructure resources and confuse content selectors.
+**Stale content** lingers after products evolve. Items that were once popular may no longer reflect current products or drive meaningful sales. Without data-driven performance analysis, these items consume infrastructure resources and confuse content selectors.
 
 RCARS addresses all three by reading the actual lab content — not just titles and descriptions — and combining that understanding with usage, sales, and infrastructure data from the broader RHDP ecosystem.
 
@@ -45,11 +45,11 @@ The pipeline supports event URL parsing (paste a conference URL, get matched con
 
 RCARS compares lab embeddings against each other to find catalog items that teach substantially the same material. This is a curator tool for identifying duplicates — items with 85%+ cosine similarity are flagged as near-duplicates, and 75-84% as related content worth reviewing. Comparisons are scoped by stage (prod vs prod only).
 
-### Retirement Analysis
+### Performance Analysis
 
-RCARS imports provision counts, sales pipeline data, closed revenue, and infrastructure cost from the RHDP reporting database (the same source as the SuperSet management dashboard). It uses this data to score each production item for retirement on a percentile basis — items in the bottom tier for usage, pipeline, and revenue relative to their peers score highest.
+RCARS imports provision counts, sales pipeline data, closed revenue, and infrastructure cost from the RHDP reporting database (the same source as the SuperSet management dashboard). It uses this data to score each production item for performance on a percentile basis — items in the top tier for usage, pipeline, and revenue relative to their peers score highest.
 
-The retirement dashboard has two views: **Prod Retirements** (scored table for items with production deployments) and **Without Prod** (age-based list of dev/event-only items that haven't been promoted).
+The performance dashboard has two views: **Prod Performance** (scored table for items with production deployments) and **Without Prod** (age-based list of dev/event-only items that haven't been promoted). Low-performing items can be flagged for retirement through an integrated workflow.
 
 ### Catalog Preservation (Soft-Delete)
 
@@ -65,7 +65,7 @@ A nightly pipeline runs at 04:00 UTC and chains five steps: catalog refresh, sta
 
 **Field teams and event staff** use the Advisor to find content for events, booths, and customer conversations. The interface is a two-pane layout: conversation on the left, recommendation cards on the right. Follow-up queries refine results. No training required.
 
-**Content curators** use Browse to review catalog items, tag content, set duration estimates, and mark best-fit recommendations. Content Analysis provides overlap detection (which labs duplicate each other?) and retirement scoring (which items should we sunset?).
+**Content curators** use Browse to review catalog items, tag content, set duration estimates, and mark best-fit recommendations. Content Analysis provides overlap detection (which labs duplicate each other?) and performance scoring (which items are driving impact, and which should we sunset?).
 
 **Platform admins** use the Admin pages and CLI to monitor catalog health, trigger scans, manage workload mappings, track LLM token usage, and review query history.
 

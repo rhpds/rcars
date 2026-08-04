@@ -103,7 +103,7 @@ For content analysis and recommendations, what matters is whether a CI has a Sho
 
 ### RHDP Reporting Database
 
-RCARS imports usage, sales, and cost data from the RHDP reporting database via an MCP server. This is the same data source that powers the SuperSet management dashboard. See [Retirement Analysis](retirement-analysis.md) for full details on the data import, scoring methodology, and join approach.
+RCARS imports usage, sales, and cost data from the RHDP reporting database via an MCP server. This is the same data source that powers the SuperSet management dashboard. See [Performance Analysis](performance-analysis.md) for full details on the data import, scoring methodology, and join approach.
 
 ---
 
@@ -154,7 +154,7 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed via `SCHEMA_SQL` in `database.py` — `CREATE TABLE IF NOT EXISTS` for fresh installs, `ALTER TABLE ADD COLUMN IF NOT EXISTS` for additions. No Alembic. For the full table list and column-level details, see the [Data Design](data-design.md).
 
-Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings, reporting metrics) is preserved. Active-item queries filter on `retired_at IS NULL`. See [Retirement Analysis — Soft-Delete](retirement-analysis.md#soft-delete--preserving-retired-items) for details.
+Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings, reporting metrics) is preserved. Active-item queries filter on `retired_at IS NULL`. See [Performance Analysis — Soft-Delete](performance-analysis.md#soft-delete--preserving-retired-items) for details.
 
 The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 768 numbers produced by `nomic-embed-text-v1.5`, served by a dedicated vLLM embedding server. These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
@@ -245,7 +245,7 @@ The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 c
 
 - **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details) with typed envelope responses, follow-up chips, and session continuity.
 - **Browse** — Filterable catalog view with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration, and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
-- **Content Analysis** — Overlap (pairwise similarity within a stage) and Retirement (scored dashboard with Prod/Without Prod tabs).
+- **Content Analysis** — Overlap (pairwise similarity within a stage) and Performance (scored dashboard with Prod/Without Prod tabs, retirement workflow for low performers).
 - **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs), Workloads (workload scan, mapping management).
 
 ### Authentication and Roles

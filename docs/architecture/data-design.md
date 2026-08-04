@@ -81,7 +81,7 @@ Nomic requires task prefixes: `search_document:` when indexing content, `search_
 Performance metrics flow from the **RHDP Reporting MCP Server** into two tables:
 
 - **`performance_channels`**: Raw metrics per (content_id, channel). One row per content entity per data channel (e.g., `rhdp` for provisioning data). Stores provisions, unique users, cost, pipeline touched/closed amounts, success ratios, and `windowed_metrics` (JSONB with time-bucketed snapshots for 3m/6m/9m/12m views).
-- **`performance_scores`**: Computed retirement score per content entity. Stores the overall `performance_score` (0-100 percentile), `score_breakdown` (JSONB with component scores), and `ignored_until` (curator mute).
+- **`performance_scores`**: Computed performance score per content entity. Stores the overall `performance_score` (0-100 percentile, higher = better), `score_breakdown` (JSONB with component scores), and `ignored_until` (curator mute).
 
 This replaces the old monolithic `reporting_metrics` table, separating raw channel data from computed scores.
 

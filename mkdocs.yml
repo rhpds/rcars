@@ -38,7 +38,7 @@ nav:
       - Recommendation Engine: architecture/recommendation-engine.md
       - Advisor Chat: architecture/advisor-chat.md
       - Content Overlap: architecture/content-overlap.md
-      - Retirement Analysis: architecture/retirement-analysis.md
+      - Performance Analysis: architecture/performance-analysis.md
       - Data Design: architecture/data-design.md
   - User Guides:
       - Web UI Guide: user/web-guide.md

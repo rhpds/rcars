@@ -6,7 +6,7 @@ RCARS exposes a REST API under `/api/v1/` that serves the React frontend and is 
 
 - **API-first architecture** — The frontend communicates with the backend exclusively through REST API calls. There is no server-side rendering, no direct database access from the frontend, and no shared file state. Any client that can make HTTP requests and handle JSON can use the same API the frontend uses.
 - **Async job pattern** — Long-running operations (analysis scans, catalog refresh, recommendation queries) return a `job_id` immediately. Poll the result endpoint or connect to the SSE stream for real-time progress.
-- **Role-based access** — Three roles control access: `user` (read-only browsing and advisor queries), `curator` (curation tools, content analysis, retirement workflow), and `admin` (full system access including scans, config, and maintenance).
+- **Role-based access** — Three roles control access: `user` (read-only browsing and advisor queries), `curator` (curation tools, content analysis, performance workflow), and `admin` (full system access including scans, config, and maintenance).
 
 ## Interactive API Documentation
 
@@ -29,7 +29,7 @@ These docs are always in sync with the deployed code — they're generated from 
 | **Advisor** | `/api/v1/advisor` | User | Recommendation queries, sessions, and selections |
 | **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, workload mappings |
 | **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, stale checks, single-item analysis |
-| **Retirement** | `/api/v1/analysis/retirement` | Curator+ | Retirement scoring, workflow (review → approve → notify → start) |
+| **Performance** | `/api/v1/analysis/performance` | User+ (public) / Curator+ (if restricted) | Performance scoring, retirement workflow (approve → notify → start) |
 | **Administration** | `/api/v1/admin` | Admin | Jobs, workers, maintenance, token usage, overlap |
 
 ## Authentication
