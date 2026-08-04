@@ -380,7 +380,7 @@ export function PerformancePage() {
         </div>
       </div>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'auto', padding: '12px' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '12px', overflow: 'auto', padding: '12px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>Performance</h3>
           <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Synced {syncAge}</span>
