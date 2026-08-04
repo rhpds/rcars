@@ -299,7 +299,7 @@ export function PerformancePage() {
       <div className="browse-filter-sidebar">
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Performance</div>
-          <div className="ret-filter-group" style={{ flexWrap: 'wrap' }}>
+          <div className="ret-filter-group">
             <button onClick={() => setPerfFilter('all')}
               className={`ret-filter-group__btn${perfFilter === 'all' ? ' active' : ''}`}>
               All ({nsActiveItems.length})
@@ -378,7 +378,7 @@ export function PerformancePage() {
         {isCurator && (
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Retirement Status</div>
-            <div className="ret-filter-group" style={{ flexWrap: 'wrap' }}>
+            <div className="ret-filter-group">
               {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['muted', `Muted${ignoredCount > 0 ? ` (${ignoredCount})` : ''}`]] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>

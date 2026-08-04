@@ -2655,42 +2655,37 @@ details.ca-band-section:not([open]) > .ca-band-header {
 
 /* ── Segmented Filter Groups ── */
 .ret-filter-group {
-  display: inline-flex;
-  background: var(--bg-card);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   flex-shrink: 0;
 }
 
 .ret-filter-group__btn {
-  padding: 6px 14px;
+  padding: 5px 12px;
   font-size: 12px;
   font-family: var(--ff-body);
-  border: none;
-  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-card);
   color: var(--text-muted);
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--transition-fast);
-  border-right: 1px solid var(--border-default);
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.ret-filter-group__btn:last-child {
-  border-right: none;
-}
-
 .ret-filter-group__btn:hover {
   color: var(--text-secondary);
-  background: var(--nav-hover-bg);
+  border-color: var(--text-muted);
 }
 
 .ret-filter-group__btn.active {
   color: var(--text-primary);
   background: var(--nav-active-bg);
+  border-color: var(--nav-active-bg);
 }
 
 .ret-filter-group__dot {
@@ -3055,13 +3050,19 @@ details.ca-band-section:not([open]) > .ca-band-header {
   align-items: center;
   gap: 6px;
   padding: 7px 16px;
-  border-radius: var(--radius-sm);
+  border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
   font-family: var(--ff-body);
   cursor: pointer;
   transition: all var(--transition-fast);
-  border: 1px solid;
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+.ret-action-btn:hover {
+  border-color: var(--text-muted);
+  color: var(--text-primary);
 }
 
 .ret-action-btn--primary {
