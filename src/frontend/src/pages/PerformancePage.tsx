@@ -80,6 +80,22 @@ export function PerformancePage() {
 
   useEffect(() => { loadData() }, [loadData])
 
+  // Reset all filters when navigating to clean /analysis/performance (no params)
+  useEffect(() => {
+    if (searchParams.toString() === '') {
+      setSearch('')
+      setChannel('sales')
+      setWindow('12m')
+      setPerfFilter('all')
+      setStatusFilter('all')
+      setSelectedNamespaces(new Set())
+      setSortBy('performance_score')
+      setSortDir('desc')
+      setRangeInputs(emptyRanges)
+      setAppliedRanges(emptyRanges)
+    }
+  }, [searchParams])
+
   // URL sync effect (write only non-defaults)
   useEffect(() => {
     const params: Record<string, string> = {}
