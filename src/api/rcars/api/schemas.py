@@ -46,6 +46,7 @@ class ReadinessResponse(BaseModel):
 class AuthMeResponse(BaseModel):
     email: str = Field(description="Authenticated user's email address")
     roles: list[str] = Field(description="Granted roles: user, curator, admin")
+    performance_public: bool = True
 
 
 class TokenExchangeRequest(BaseModel):

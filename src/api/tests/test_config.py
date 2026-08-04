@@ -64,7 +64,7 @@ def test_chat_intent_roles_parse():
     s = Settings(database_url="postgresql://x/x",
                  chat_intent_roles_str="performance:curator, item_facts:any")
     assert s.chat_intent_roles == {"performance": "curator", "item_facts": "any"}
-    assert Settings(database_url="postgresql://x/x").chat_intent_roles == {"performance": "curator"}
+    assert Settings(database_url="postgresql://x/x").chat_intent_roles == {}
 
 
 def test_chat_intent_roles_invalid_role_rejected():

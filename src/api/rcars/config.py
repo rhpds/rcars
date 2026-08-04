@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     # Advisor chat (multi-intent)
     chat_router_model: str = ""          # empty → defaults to triage_model
     chat_answer_model: str = ""          # empty → defaults to rationale_model
-    chat_intent_roles_str: str = "performance:curator"
+    chat_intent_roles_str: str = ""
     chat_router_confidence_threshold: float = 0.6
     chat_context_turns: int = 5
 
@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     oauth_server_url: str = ""
     oauth_client_id: str = "rcars-api"
     oauth_client_secret: str = ""
+    performance_public: bool = True
 
     # Content overlap
     similarity_threshold: float = 0.85

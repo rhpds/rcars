@@ -57,7 +57,7 @@ async def auth_me(request: Request, user: str = Depends(require_auth)):
         roles.append("curator")
     if settings.is_admin(user):
         roles.append("admin")
-    return {"email": user, "roles": roles}
+    return {"email": user, "roles": roles, "performance_public": settings.performance_public}
 
 
 @router.post(
