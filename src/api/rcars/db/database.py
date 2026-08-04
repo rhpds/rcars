@@ -184,7 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_pc_content_id ON performance_channels(content_id)
 CREATE INDEX IF NOT EXISTS idx_pc_channel ON performance_channels(channel);
 
 -- ═══════════════════════════════════════════════════════════════════
--- performance_scores — replaces retirement_score on reporting_metrics
+-- performance_scores — per-item scores and windowed metrics
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS performance_scores (
     content_id      TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,

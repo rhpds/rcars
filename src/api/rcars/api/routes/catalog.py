@@ -285,7 +285,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
                 "success_ratio": rhdp.get("success_ratio", 0),
             })
         if performance_score:
-            reporting["retirement_score"] = performance_score.get("performance_score", 0)
+            reporting["performance_score"] = performance_score.get("performance_score", 0)
             reporting["score_breakdown"] = performance_score.get("score_breakdown")
         from rcars.services.reporting_sync import compute_sales_impact
         reporting["sales_impact"] = compute_sales_impact(float(reporting.get("closed_amount", 0) or 0))
