@@ -126,6 +126,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
 async def handle_performance(res: Resolution, db: Database, settings: Settings,
                              stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = PerformanceArgs.model_validate(res.output.args)
+    window = args.window or "3m"
     triaged = [i for i in res.items if i.get("tier") in ("green", "yellow")]
     ids = res.scope_ids or [i["content_id"] for i in (triaged or res.items)]
     scores = get_performance_scores(db.pool, ids)
@@ -137,7 +138,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
         wm = rhdp.get("windowed_metrics") or {}
         if isinstance(wm, str):
             wm = json.loads(wm)
-        w = wm.get(args.window) or {}
+        w = wm.get(window) or {}
         last_activity = rhdp.get("last_activity")
         if last_activity and not isinstance(last_activity, str):
             last_activity = str(last_activity)
@@ -153,8 +154,8 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
     single = len(rows) == 1
     return HandlerResult(
         blocks=[Block(type="performance_table",
-                      data={"window": args.window, "rows": rows})],
-        scaffold_facts={"item_count": len(rows), "window": args.window,
+                      data={"window": window, "rows": rows})],
+        scaffold_facts={"item_count": len(rows), "window": window,
                         "single": single,
                         "best": rows[0]["display_name"] if rows else None,
                         "best_provisions": rows[0]["provisions"] if rows else None},
