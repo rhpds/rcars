@@ -459,7 +459,7 @@ export function PerformancePage() {
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="ca-table">
+            <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '1000px' }}>
               <thead>
                 <tr>
                   <th className="clickable" onClick={() => toggleSort('display_name')}>
