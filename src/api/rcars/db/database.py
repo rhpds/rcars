@@ -2383,9 +2383,9 @@ class Database:
                 COUNT(*) FILTER (WHERE pc.provisions > 0) AS with_provisions,
                 COUNT(*) FILTER (WHERE pc.total_cost > 0) AS with_cost,
                 COUNT(*) FILTER (WHERE pc.closed_amount > 0) AS with_sales,
-                COUNT(*) FILTER (WHERE ps.performance_score >= 55) AS high,
-                COUNT(*) FILTER (WHERE ps.performance_score >= 35 AND ps.performance_score < 55) AS review,
-                COUNT(*) FILTER (WHERE ps.performance_score < 35) AS keepers,
+                COUNT(*) FILTER (WHERE ps.performance_score >= 55) AS strong,
+                COUNT(*) FILTER (WHERE ps.performance_score >= 35 AND ps.performance_score < 55) AS moderate,
+                COUNT(*) FILTER (WHERE ps.performance_score < 35) AS low,
                 MAX(pc.synced_at) AS last_synced
             FROM performance_scores ps
             LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = 'rhdp'
