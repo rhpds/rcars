@@ -52,7 +52,7 @@ def test_performance_handler_rows_match_scope(db):
     assert [row["content_id"] for row in rows] == scope
     assert rows[0]["provisions"] == 40
     assert r.blocks[0].data["window"] == "3m"
-    assert rows[0]["score"] is None               # not retirement-flavored
+    assert rows[0]["score"] is None               # no performance_scores seeded
 
 
 def test_item_facts_handler(db):

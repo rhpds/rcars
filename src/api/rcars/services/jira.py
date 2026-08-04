@@ -83,7 +83,9 @@ def _base_name_from_content_id(content_id: str) -> str:
 
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
     """Build the Jira ticket description in Jira wiki markup."""
-    base_name = _base_name_from_content_id(workflow.get("content_id", "")) or "unknown"
+    base_name = (_base_name_from_content_id(workflow.get("content_id", ""))
+                 or workflow.get("catalog_base_name")
+                 or "unknown")
     display_name = metrics.get("display_name", base_name)
     reason = workflow.get("approval_reason", "No reason provided")
     notes = workflow.get("curator_notes")
@@ -113,14 +115,14 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     # Metrics snapshot
     raw_snapshot = workflow.get("approval_snapshot", {})
     snapshot = raw_snapshot.get("sales", raw_snapshot)
-    score = snapshot.get("score", "N/A")
+    score = snapshot.get("score") or snapshot.get("retirement_score", "N/A")
     provisions = snapshot.get("provisions", "N/A")
-    completions = snapshot.get("completions", "N/A")
+    completions = snapshot.get("completions") or snapshot.get("experiences", "N/A")
     unique_users = snapshot.get("unique_users", "N/A")
-    touched = snapshot.get("pipeline_touched", "N/A")
+    touched = snapshot.get("pipeline_touched") or snapshot.get("touched_amount", "N/A")
     closed = snapshot.get("closed_amount", "N/A")
     cost = snapshot.get("total_cost", "N/A")
-    snapshot_date = raw_snapshot.get("snapshot_at", "N/A")
+    snapshot_date = raw_snapshot.get("snapshot_at") or raw_snapshot.get("snapshot_date", "N/A")
 
     def fmt_dollar(val):
         if isinstance(val, (int, float)):

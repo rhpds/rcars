@@ -56,7 +56,7 @@ Reporting data is imported during the nightly maintenance pipeline (step 5 of 5,
 
 The sync runs ten queries against the reporting MCP server. Usage, sales, and date queries are scoped to **PROD environment** and **real users only** (user groups "Only Regular Users" and "Red Hat Console"). Cost queries intentionally include **all environments** (see Cost Methodology below).
 
-1. **Provisions** — per catalog item: provision count, request count, experiences, unique users, success/failure ratios. Filtered to trailing year (`reporting_sales_days`, default 365). PROD + real users only.
+1. **Provisions** — per catalog item: provision count, request count, completions, unique users, success/failure ratios. Filtered to trailing year (`reporting_sales_days`, default 365). PROD + real users only.
 
 2. **Provisions (quarter)** — same as above but filtered to trailing quarter (`reporting_provisions_days`, default 90). Used for trend detection.
 
@@ -327,11 +327,12 @@ The `approval_snapshot` JSONB field stores channel-keyed performance metrics at 
     "score": 18,
     "score_breakdown": {...},
     "provisions": 53,
-    "touched_amount": 604000,
+    "pipeline_touched": 604000,
     "closed_amount": 0,
     "total_cost": 5800,
     "unique_users": 12,
-    "experiences": 15
+    "completions": 15,
+    "page_views": 0
   }
 }
 ```
@@ -403,7 +404,7 @@ Shows scored items that have a production deployment. This is the primary perfor
 - **Search** — filter by display name
 - **Sortable table** — name, score, provisions, touched, T-ROI, closed, C-ROI, cost, data source tag (S/M/S+M)
 - **Score breakdown popover** — clicking a score badge opens a popover explaining why the score is what it is. Shows a one-line summary (e.g., "Strong usage and sales with solid pipeline"), then per-factor breakdowns with points, progress bars, and plain-English reasons including actual values and percentile rankings (e.g., "6,106 provisions — top tier (percentile 95 of items with activity)"). Click anywhere outside or on the badge again to dismiss.
-- **Expandable rows** — environments (with links to Browse for items with Showroom content, or to demo.redhat.com catalog for items without), unique users, experiences, cost/provision, success/failure ratio, first/last provision, category, and action buttons
+- **Expandable rows** — environments (with links to Browse for items with Showroom content, or to demo.redhat.com catalog for items without), unique users, completions, cost/provision, success/failure ratio, first/last provision, category, and action buttons
 - **Mute button** — "Mute 30d" in the expanded row marks an item as ignored for 30 days. Muted items appear at reduced opacity with a "muted" badge when viewing via the Muted status filter. Click "Unmute" to remove the mute early. Useful for infrastructure items (e.g., shared pool clusters) whose usage is reflected in other items.
 - Items without Showroom content in RCARS show a gray "catalog" badge instead of colored stage badges
 

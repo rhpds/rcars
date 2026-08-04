@@ -337,7 +337,7 @@ Shows items that only exist in dev and/or event stages — never promoted to pro
 
 **Age color coding** — age > 365 days in red, > 180 days in orange.
 
-**Expanded rows** — click to see: environments (with Browse links), catalog name, unique users, experiences, total cost, and category.
+**Expanded rows** — click to see: environments (with Browse links), catalog name, unique users, completions, total cost, and category.
 
 Items more than a year old without a prod deployment are strong candidates for either promotion or retirement.
 
@@ -345,7 +345,7 @@ Items more than a year old without a prod deployment are strong candidates for e
 
 Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a four-step workflow.
 
-**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, experiences, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
+**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, completions, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
 
 **Workflow Steps:**
 
