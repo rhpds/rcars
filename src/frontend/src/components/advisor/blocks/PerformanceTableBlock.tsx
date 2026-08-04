@@ -63,7 +63,6 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Provisions</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Unique Users</th>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Last Provisioned</th>
-              <th style={{ padding: '8px 12px', textAlign: 'right' }}>Cost/Provision</th>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Sales Impact</th>
               <th style={{ padding: '8px 12px', textAlign: 'center' }}>Score</th>
             </tr>
@@ -81,25 +80,30 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
                 <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
                   {row.last_activity || '—'}
                 </td>
-                <td style={{ padding: '10px 12px', textAlign: 'right', fontFamily: 'var(--ff-mono)' }}>
-                  {row.cost_per_provision != null ? `$${row.cost_per_provision.toFixed(2)}` : '—'}
-                </td>
                 <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>
                   {row.sales_impact || '—'}
                 </td>
                 <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                   {row.score != null ? (
-                    <span style={{
-                      padding: '3px 8px',
-                      borderRadius: '4px',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      fontFamily: 'var(--ff-mono)',
-                      background: scoreBg(row.score),
-                      color: scoreColor(row.score),
-                    }}>
-                      {row.score}
-                    </span>
+                    <a
+                      href={`/analysis/performance?search=${encodeURIComponent(row.display_name)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ textDecoration: 'none' }}
+                    >
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        fontFamily: 'var(--ff-mono)',
+                        background: scoreBg(row.score),
+                        color: scoreColor(row.score),
+                        cursor: 'pointer',
+                      }}>
+                        {row.score}
+                      </span>
+                    </a>
                   ) : '—'}
                 </td>
               </tr>
