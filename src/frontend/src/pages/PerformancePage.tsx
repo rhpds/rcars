@@ -278,6 +278,7 @@ export function PerformancePage() {
 
   return (
     <div className="browse-layout">
+      <div className="browse-content">
       <div className="browse-filter-sidebar">
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Performance</div>
@@ -653,6 +654,7 @@ export function PerformancePage() {
         )}
       </div>
 
+      </div>{/* end browse-content */}
       {drawerItem && <WorkflowDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
