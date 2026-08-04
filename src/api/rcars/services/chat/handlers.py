@@ -127,7 +127,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                              stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = PerformanceArgs.model_validate(res.output.args)
     ids = res.scope_ids or [i["content_id"] for i in res.items]
-    scores = get_performance_scores(db.pool, ids) if args.retirement_flavored else {}
+    scores = get_performance_scores(db.pool, ids)
     rows = []
     for cid in ids:
         entity = db.get_content_entity(cid) or {}
@@ -152,8 +152,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
     single = len(rows) == 1
     return HandlerResult(
         blocks=[Block(type="performance_table",
-                      data={"window": args.window, "rows": rows,
-                            "retirement_flavored": args.retirement_flavored})],
+                      data={"window": args.window, "rows": rows})],
         scaffold_facts={"item_count": len(rows), "window": args.window,
                         "single": single,
                         "best": rows[0]["display_name"] if rows else None,

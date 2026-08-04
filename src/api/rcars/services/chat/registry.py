@@ -69,8 +69,7 @@ INTENTS: dict[str, IntentSpec] = {
         block_types=("performance_table",),
         followups=({"label": "Recommend from these", "intent": "recommend", "scope_from": "results"},
                    {"label": "About the top item", "intent": "item_facts", "scope_from": "ordinal1"}),
-        prompt_fragment=("performance: usage/provisions/cost/sales questions. Set "
-                         "retirement_flavored=true only when the user mentions retirement."),
+        prompt_fragment="performance: usage/provisions/cost/sales questions. Set window from any time expression.",
         examples=(
             {"message": "which of these performed best?",
              "output": {"intent": "performance", "args": {}, "scope": {"type": "prior_results", "turn": 0},
