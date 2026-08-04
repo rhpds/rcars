@@ -117,6 +117,8 @@ spec:
               value: "{{ curator_emails | join(',') }}"
             - name: RCARS_ADMIN_EMAILS_STR
               value: "{{ admin_emails | join(',') }}"
+            - name: RCARS_PERFORMANCE_PUBLIC
+              value: "{{ performance_public | default(true) | lower }}"
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
             - name: RCARS_SA_ALLOWLIST_STR
@@ -471,6 +473,8 @@ spec:
               value: "{{ curator_emails | join(',') }}"
             - name: RCARS_ADMIN_EMAILS_STR
               value: "{{ admin_emails | join(',') }}"
+            - name: RCARS_PERFORMANCE_PUBLIC
+              value: "{{ performance_public | default(true) | lower }}"
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials
