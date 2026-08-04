@@ -365,8 +365,8 @@ export function BrowsePage() {
 
   // Filter state
   const [search, setSearch] = useState(searchParams.get('search') || '')
-  const [showDev, setShowDev] = useState(searchParams.get('stage')?.includes('dev') || false)
-  const [showEvent, setShowEvent] = useState(searchParams.get('stage')?.includes('event') || false)
+  const [showDev, setShowDev] = useState(auth.isCurator && (searchParams.get('stage')?.includes('dev') || false))
+  const [showEvent, setShowEvent] = useState(auth.isCurator && (searchParams.get('stage')?.includes('event') || false))
   const [cloudProvider, setCloudProvider] = useState(searchParams.get('cloud_provider') || '')
   const [agdConfig, setAgdConfig] = useState(searchParams.get('agd_config') || '')
   const [selectedWorkloads, setSelectedWorkloads] = useState<string[]>(
@@ -634,8 +634,8 @@ export function BrowsePage() {
           onChange={(e) => handleSearchChange(e.target.value)}
         />
         <div className="browse-toolbar-divider" />
-        <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
-        <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+        {auth.isCurator && <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
+        {auth.isCurator && <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />}
 
         {/* Active filter chips */}
         {activeFilters.length > 0 && (

@@ -354,14 +354,14 @@ export function AdvisorPage() {
           )}
           <div ref={chatEndRef} />
         </div>
-        {showSettings && (
+        {showSettings && auth.isCurator && (
           <div style={{
             display: 'flex', gap: '12px', padding: '8px 12px', alignItems: 'center',
             background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)',
             border: '1px solid var(--border-subtle)', marginBottom: '8px',
           }}>
             <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Include:</span>
-            {auth.isCurator && <RcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
+            <RcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
             <RcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
           </div>
         )}
