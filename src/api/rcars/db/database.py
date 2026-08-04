@@ -2088,6 +2088,19 @@ class Database:
             )
             return cur.fetchall()
 
+    def get_channel_metrics_map(self, content_ids: list[str], channel: str) -> dict[str, dict]:
+        """Return {content_id: performance_channels row} for one channel."""
+        if not content_ids:
+            return {}
+        sql = """
+            SELECT * FROM performance_channels
+            WHERE channel = %s AND content_id = ANY(%s)
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, (channel, content_ids))
+                return {r["content_id"]: r for r in cur.fetchall()}
+
     def get_performance_score(self, content_id: str) -> dict | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
@@ -2223,6 +2236,7 @@ class Database:
         has_prod: bool | None = None,
         search: str | None = None,
         workflow_status: str | None = None,
+        channel: str = "rhdp",
     ) -> list[dict]:
         allowed_sorts = {
             "performance_score", "provisions", "total_cost",
@@ -2235,6 +2249,7 @@ class Database:
 
         conditions = ["ce.retired_at IS NULL"]
         params: dict = {}
+        params["channel"] = channel
 
         if min_score is not None:
             conditions.append("ps.performance_score >= %(min_score)s")
@@ -2298,12 +2313,15 @@ class Database:
                    pc.avg_cost_per_provision, pc.success_ratio,
                    pc.first_activity, pc.last_activity,
                    pc.windowed_metrics, pc.synced_at,
+                   (SELECT COALESCE(array_agg(DISTINCT pc2.channel), '{{}}')
+                      FROM performance_channels pc2
+                     WHERE pc2.content_id = ps.content_id) AS channels_present,
                    CASE WHEN rw.step_approved_at IS NOT NULL THEN rw.status END AS workflow_status,
                    rw.jira_key, rw.retirement_target_date
             FROM performance_scores ps
             JOIN content_entities ce ON ce.content_id = ps.content_id
             LEFT JOIN babylon_items bi ON bi.content_id = ps.content_id
-            LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = 'rhdp'
+            LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = %(channel)s
             LEFT JOIN retirement_workflow rw ON rw.content_id = ps.content_id
             {where}
             ORDER BY {order_expr} {direction} NULLS LAST

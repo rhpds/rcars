@@ -287,3 +287,46 @@ def test_filtered_catalog_pagination(db):
     assert len(page2["items"]) >= 1
     assert page1["total"] == page2["total"]
     assert page1["items"][0]["ci_name"] != page2["items"][0]["ci_name"]
+
+
+# ── Performance data tests ──
+
+
+@pytest.fixture
+def db_with_perf_data(db):
+    """Seed performance data for testing."""
+    db.upsert_babylon_catalog_item({
+        "ci_name": "test.perf-item.prod",
+        "display_name": "Test Perf Item",
+        "stage": "prod",
+        "category": "Demos",
+        "is_prod": True,
+    })
+    content_id = "babylon:test.perf-item.prod"
+
+    with db.pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO performance_channels (content_id, channel, provisions, total_cost, pipeline_touched, closed_amount) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (content_id, "rhdp", 100, 500.0, 10000.0, 5000.0),
+        )
+        conn.execute(
+            "INSERT INTO performance_scores (content_id, performance_score) VALUES (%s, %s)",
+            (content_id, 50),
+        )
+        conn.commit()
+
+    yield db
+
+
+def test_list_performance_data_includes_channels_present(db_with_perf_data):
+    rows = db_with_perf_data.list_performance_data()
+    assert rows, "seeded item expected"
+    assert "channels_present" in rows[0]
+    assert "rhdp" in rows[0]["channels_present"]
+
+
+def test_get_channel_metrics_map_empty_for_missing_channel(db_with_perf_data):
+    ids = [r["content_id"] for r in db_with_perf_data.list_performance_data()]
+    result = db_with_perf_data.get_channel_metrics_map(ids, "interactive_labs")
+    assert result == {}
