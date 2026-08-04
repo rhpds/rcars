@@ -60,15 +60,3 @@ def test_context_builder_shape_and_window(db):
     assert [t["n"] for t in ctx] == [2, 3, 4, 5, 6]          # window, oldest→newest
     assert ctx[-1]["results"] == [{"id": "babylon:c6", "name": "C6"}]
     assert ctx[-1]["query"] == "q6"
-
-
-def test_opted_out_scrubs_envelope(db):
-    chat_sessions.log_chat_turn(
-        db.pool, session_id="s2", turn_index=0, user_email="u@x.com",
-        query_text="secret", results=[{"content_id": "x"}], overall_assessment="a",
-        intent="recommend", envelope={"answer": "secret"}, scope={"type": "prior_results"},
-        opted_out=True)
-    with db.pool.connection() as conn:
-        row = conn.execute("SELECT * FROM advisor_sessions WHERE session_id = 's2'").fetchone()
-    assert row["query_text"] is None and row["envelope_json"] is None and row["scope_json"] is None
-    assert row["user_email"] != "u@x.com"

@@ -13,7 +13,7 @@ async def run_chat_turn(
     ctx: dict, job_id: str, message: str, session_id: str,
     stages: list[str] | None = None, include_zt: bool = True,
     user_email: str | None = None, is_admin: bool = False,
-    routed: dict | None = None, opted_out: bool = False,
+    routed: dict | None = None,
 ) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id, component="chat")
@@ -26,7 +26,7 @@ async def run_chat_turn(
         envelope = await process_turn(
             message=message, session_id=session_id, user_email=user_email,
             is_admin=is_admin, stages=stages, include_zt=include_zt,
-            routed=routed, opted_out=opted_out,
+            routed=routed,
             db=wctx.db, settings=wctx.settings, on_progress=on_progress)
         result = {**envelope, "session_id": session_id}
         wctx.db.complete_job(job_id, result_json=result)

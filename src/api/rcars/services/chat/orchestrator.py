@@ -37,7 +37,7 @@ def _scope_echo(output: RouterOutput, res: Resolution, message: str) -> str:
 async def process_turn(*, message: str, session_id: str, user_email: str,
                        is_admin: bool = False, stages: list[str] | None = None,
                        include_zt: bool = True, routed: dict | None = None,
-                       opted_out: bool = False, db: Database, settings: Settings,
+                       db: Database, settings: Settings,
                        on_progress, llm_call=call_llm) -> dict:
     stages = stages or ["prod"]
     await on_progress({"phase": "routing", "status": "started"})
@@ -52,11 +52,12 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
         if not output.item_refs and output.args.get("item_ref"):
             output.item_refs = [output.args["item_ref"]]
     else:
-        output, fallback, usage = route(message, context, settings, llm_call=llm_call)
+        output, fallback, usage = await asyncio.to_thread(
+            route, message, context, settings, llm_call=llm_call)
         if usage:
             db.log_token_usage("chat_router", settings.chat_router_model,
                                usage["input"], usage["output"], query_text=message,
-                               provider=usage.get("provider", "anthropic"), opted_out=opted_out)
+                               provider=usage.get("provider", "anthropic"))
 
     turn_index = chat_sessions.next_turn_index(db.pool, session_id)
     intent_for_log = output.intent
@@ -92,8 +93,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
             if ausage:
                 db.log_token_usage("chat_answer", settings.chat_answer_model,
                                    ausage["input"], ausage["output"], query_text=message,
-                                   provider=ausage.get("provider", "anthropic"),
-                                   opted_out=opted_out)
+                                   provider=ausage.get("provider", "anthropic"))
             anchor = (hres.session_results or [None])[0]
             envelope = Envelope(intent=output.intent,
                                 scope_echo=_scope_echo(output, res, message),
@@ -107,8 +107,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
         db.pool, session_id=session_id, turn_index=turn_index, user_email=user_email,
         query_text=message, results=session_results or None,
         overall_assessment=assessment or envelope.answer[:500],
-        intent=intent_for_log, envelope=envelope.model_dump(), scope=scope_dump,
-        opted_out=opted_out)
+        intent=intent_for_log, envelope=envelope.model_dump(), scope=scope_dump)
     logger.info("chat_turn", component="chat", session_id=session_id, turn=turn_index,
                 intent=intent_for_log, confidence=output.confidence,
                 scope_type=output.scope.type if output.scope else None,

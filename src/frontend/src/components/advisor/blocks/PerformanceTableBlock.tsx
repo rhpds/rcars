@@ -86,7 +86,7 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
                 <td style={{ padding: '10px 12px', textAlign: 'center' }}>
                   {row.score != null ? (
                     <a
-                      href={`/analysis/performance?search=${encodeURIComponent(row.display_name)}`}
+                      href={`/analysis/performance?search=${encodeURIComponent(row.display_name)}${window ? `&window=${window}` : ''}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       style={{ textDecoration: 'none' }}
@@ -120,8 +120,8 @@ export function PerformanceTableBlock({ block }: PerformanceTableBlockProps) {
       }}>
         <a
           href={rows.length === 1
-            ? `/analysis/performance?search=${encodeURIComponent(rows[0].display_name)}`
-            : '/analysis/performance'}
+            ? `/analysis/performance?search=${encodeURIComponent(rows[0].display_name)}${window ? `&window=${window}` : ''}`
+            : `/analysis/performance${window ? `?window=${window}` : ''}`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: 'var(--text-link)' }}

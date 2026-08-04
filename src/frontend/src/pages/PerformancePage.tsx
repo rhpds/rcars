@@ -156,11 +156,12 @@ export function PerformancePage() {
     }
   }
 
+  const [searchDisplay, setSearchDisplay] = useState(search)
   const handleSearchChange = (value: string) => {
-    setSearch(value)
+    setSearchDisplay(value)
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     searchTimerRef.current = setTimeout(() => {
-      loadData()
+      setSearch(value)
     }, 300)
   }
 
@@ -435,7 +436,7 @@ export function PerformancePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
           <input
             type="text" placeholder="Search by name..."
-            value={search} onChange={e => handleSearchChange(e.target.value)}
+            value={searchDisplay} onChange={e => handleSearchChange(e.target.value)}
             className="ca-search"
           />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>

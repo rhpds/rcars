@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Page } from '@patternfly/react-core'
 import { AuthContext, useAuthProvider } from './hooks/useAuth'
-import { PrivateModeContext, usePrivateModeProvider } from './hooks/usePrivateMode'
 import { ThemeContext, useThemeProvider } from './hooks/useTheme'
 import { RcarsMasthead } from './components/RcarsMasthead'
 import { RcarsSidebar } from './components/RcarsSidebar'
@@ -20,7 +19,6 @@ import './styles/rcars-app.css'
 
 export default function App() {
   const auth = useAuthProvider()
-  const privateMode = usePrivateModeProvider()
   const themeState = useThemeProvider()
 
   if (auth.isLoading) {
@@ -33,7 +31,6 @@ export default function App() {
 
   return (
     <AuthContext.Provider value={auth}>
-      <PrivateModeContext.Provider value={privateMode}>
         <ThemeContext.Provider value={themeState}>
           <BrowserRouter>
             <Page
@@ -79,7 +76,6 @@ export default function App() {
             </Page>
           </BrowserRouter>
         </ThemeContext.Provider>
-      </PrivateModeContext.Provider>
     </AuthContext.Provider>
   )
 }

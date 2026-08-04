@@ -353,6 +353,17 @@ export interface MarketingMetrics {
   score: number | null
 }
 
+export interface SalesMetrics {
+  provisions: number
+  unique_users: number
+  completions: number
+  page_views: number
+  pipeline_touched: number
+  closed_amount: number
+  total_cost: number
+  score: number | null
+}
+
 export interface PerformanceItem {
   content_id: string
   catalog_base_name: string
@@ -363,7 +374,8 @@ export interface PerformanceItem {
   score_breakdown?: ScoreBreakdown | null
   channel_scores?: Record<string, { score?: number }> | null
   channels_present: string[]
-  marketing: MarketingMetrics | null
+  marketing?: MarketingMetrics | null
+  sales?: SalesMetrics | null
   provisions: number
   completions: number
   requests: number

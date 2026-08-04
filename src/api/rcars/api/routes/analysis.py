@@ -96,7 +96,7 @@ async def performance_dashboard(
 
     items = db.list_performance_data(
         sort_by=sort_by, sort_dir=sort_dir,
-        min_score=min_score, category=category,
+        category=category,
         has_prod=has_prod, search=search,
         workflow_status=workflow_status,
         channel=source,
@@ -114,6 +114,7 @@ async def performance_dashboard(
                 wm = _json.loads(wm)
             except (ValueError, TypeError):
                 wm = {}
+        item["windowed_metrics"] = wm
         w = wm.get(window, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
@@ -128,12 +129,22 @@ async def performance_dashboard(
             item["avg_cost_per_provision"] = w.get("avg_cost_per_provision", 0)
             item["performance_score"] = w.get("performance_score", 0)
             item["sales_impact"] = w.get("sales_impact", "low")
+        else:
+            item["provisions"] = 0
+            item["completions"] = 0
+            item["requests"] = 0
+            item["unique_users"] = 0
+            item["success_ratio"] = 0
+            item["failure_ratio"] = 0
+            item["pipeline_touched"] = 0
+            item["closed_amount"] = 0
+            item["total_cost"] = 0
+            item["avg_cost_per_provision"] = 0
+            item["performance_score"] = 0
+            item["sales_impact"] = "low"
 
-        # When viewing marketing channel, override score with channel-specific score
         if channel != "sales":
-            channel_scores = item.get("channel_scores") or {}
-            ch_score = (channel_scores.get(source) or {}).get("score", 0)
-            item["performance_score"] = ch_score
+            item["performance_score"] = w.get("performance_score", 0)
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
@@ -164,6 +175,9 @@ async def performance_dashboard(
         else:
             items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
 
+    if min_score is not None:
+        items = [i for i in items if (i.get("performance_score") or 0) >= min_score]
+
     from datetime import date as _date
     today = _date.today()
     for item in items:
@@ -190,12 +204,19 @@ async def performance_dashboard(
             mrow = marketing_map.get(item["content_id"])
             item["marketing"] = None
             if mrow:
+                mrow_wm = mrow.get("windowed_metrics") or {}
+                if isinstance(mrow_wm, str):
+                    try:
+                        mrow_wm = _json.loads(mrow_wm)
+                    except (ValueError, TypeError):
+                        mrow_wm = {}
+                mw = mrow_wm.get(window, {})
                 item["marketing"] = {
-                    "provisions": mrow.get("provisions", 0),
-                    "unique_users": mrow.get("unique_users", 0),
-                    "completions": mrow.get("completions", 0),
+                    "provisions": mw.get("provisions", mrow.get("provisions", 0)),
+                    "unique_users": mw.get("unique_users", mrow.get("unique_users", 0)),
+                    "completions": mw.get("completions", mrow.get("completions", 0)),
                     "page_views": mrow.get("page_views", 0),
-                    "score": (item.get("channel_scores") or {}).get("interactive_labs", {}).get("score"),
+                    "score": mw.get("performance_score"),
                 }
     else:
         # When viewing marketing channel, add sales metrics if available
@@ -206,15 +227,22 @@ async def performance_dashboard(
             srow = sales_map.get(item["content_id"])
             item["sales"] = None
             if srow:
+                srow_wm = srow.get("windowed_metrics") or {}
+                if isinstance(srow_wm, str):
+                    try:
+                        srow_wm = _json.loads(srow_wm)
+                    except (ValueError, TypeError):
+                        srow_wm = {}
+                sw = srow_wm.get(window, {})
                 item["sales"] = {
-                    "provisions": srow.get("provisions", 0),
-                    "unique_users": srow.get("unique_users", 0),
-                    "completions": srow.get("completions", 0),
+                    "provisions": sw.get("provisions", srow.get("provisions", 0)),
+                    "unique_users": sw.get("unique_users", srow.get("unique_users", 0)),
+                    "completions": sw.get("completions", srow.get("completions", 0)),
                     "page_views": srow.get("page_views", 0),
-                    "pipeline_touched": float(srow.get("pipeline_touched") or 0),
-                    "closed_amount": float(srow.get("closed_amount") or 0),
-                    "total_cost": float(srow.get("total_cost") or 0),
-                    "score": (item.get("channel_scores") or {}).get("rhdp", {}).get("score"),
+                    "pipeline_touched": float(sw.get("pipeline_touched") or 0),
+                    "closed_amount": float(sw.get("closed_amount") or 0),
+                    "total_cost": float(sw.get("total_cost") or 0),
+                    "score": sw.get("performance_score"),
                 }
 
     sync_status = db.get_reporting_sync_status()

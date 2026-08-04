@@ -25,7 +25,6 @@ class QueryRequest(BaseModel):
     event_url: str | None = None
     stages: list[str] = ["prod"]
     include_zt: bool = True
-    opted_out: bool = False
     depth: Literal["low", "medium", "high"] = "high"
 
 
@@ -41,7 +40,6 @@ class ChatRequest(BaseModel):
     stages: list[str] = ["prod"]
     include_zt: bool = True
     routed: dict | None = None
-    opted_out: bool = False
 
 
 def _advisor_limit() -> str:
@@ -68,7 +66,7 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
     settings: Settings = request.app.state.settings
 
     if not settings.is_curator(user) and not settings.is_admin(user):
-        if db.has_active_recommend_job(user):
+        if db.has_active_advisor_job(user):
             raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
 
     stages = body.stages
@@ -84,7 +82,6 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         depth=body.depth,
         include_zt=body.include_zt,
         user_email=user,
-        opted_out=body.opted_out,
         _queue_name="arq:queue:recommend",
     )
     return {"job_id": job_id}
@@ -117,7 +114,7 @@ async def submit_chat(body: ChatRequest, request: Request, user: str = Depends(r
         session_id = str(uuid.uuid4())
 
     if not settings.is_curator(user) and not is_admin:
-        if db.has_active_recommend_job(user):
+        if db.has_active_advisor_job(user):
             raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
 
     stages = body.stages
@@ -128,7 +125,7 @@ async def submit_chat(body: ChatRequest, request: Request, user: str = Depends(r
     await arq_redis.enqueue_job(
         "run_chat_turn", job_id=job_id, message=body.message, session_id=session_id,
         stages=stages, include_zt=body.include_zt, user_email=user, is_admin=is_admin,
-        routed=body.routed, opted_out=body.opted_out,
+        routed=body.routed,
         _queue_name="arq:queue:recommend")
     return {"job_id": job_id, "session_id": session_id}
 

@@ -44,6 +44,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                            stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = RecommendArgs.model_validate(res.output.args)
     query = args.search_query or " ".join(str(v) for v in args.constraints.values())
+    if not query and res.scope_ids:
+        query = " ".join(i.get("display_name", "") for i in (res.items or []) if i.get("display_name")) or "recommend similar content"
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
     depth = "medium" if res.scope_ids else "high"
 
@@ -99,7 +101,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     anchor_products = set(anchor_analysis.get("products_json") or [])
     raw = get_similar_items(db.pool, anchor["content_id"],
                             min_score=settings.similarity_storage_threshold,
-                            relationship_type="all")
+                            relationship_type="all")[:10]
     neighbors = []
     for n in raw:
         n_products = set((db.get_showroom_analysis(n["content_id"]) or {}).get("products_json") or [])

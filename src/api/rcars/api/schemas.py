@@ -282,7 +282,6 @@ class QueryHistorySession(BaseModel):
     started_at: datetime
     query_text: str | None = None
     chosen_ci_name: str | None = None
-    opted_out: bool = False
 
 
 class QueryHistoryResponse(BaseModel):

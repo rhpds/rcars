@@ -178,7 +178,6 @@ async def query_history(
                 "started_at": s["started_at"],
                 "query_text": s.get("query_text"),
                 "chosen_ci_name": s.get("chosen_ci_name"),
-                "opted_out": s.get("opted_out", False),
             }
             for s in sessions
         ],

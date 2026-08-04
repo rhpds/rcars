@@ -5,7 +5,6 @@ Hard rule: the chat layer adds zero methods to database.py.
 """
 from __future__ import annotations
 
-import hashlib
 from typing import Any
 
 from psycopg.types.json import Jsonb
@@ -34,29 +33,19 @@ def log_chat_turn(
     pool, *, session_id: str, turn_index: int, user_email: str | None,
     query_text: str | None, results: list[dict] | None,
     overall_assessment: str | None, intent: str | None,
-    envelope: dict | None, scope: dict | None, opted_out: bool = False,
+    envelope: dict | None, scope: dict | None,
 ) -> int:
-    # Privacy handling mirrors Database.log_advisor_session (database.py:1796)
-    if opted_out:
-        query_text = None
-        results = None
-        overall_assessment = None
-        envelope = None
-        scope = None
-        if user_email:
-            user_email = hashlib.sha256(user_email.encode()).hexdigest()[:16]
     with pool.connection() as conn:
         cur = conn.execute(
             """INSERT INTO advisor_sessions
                (session_id, turn_index, user_email, query_text, results_json,
-                overall_assessment, intent, envelope_json, scope_json, opted_out)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                overall_assessment, intent, envelope_json, scope_json)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (session_id, turn_index, user_email, query_text,
              Jsonb(results) if results is not None else None,
              overall_assessment, intent,
              Jsonb(envelope) if envelope is not None else None,
-             Jsonb(scope) if scope is not None else None,
-             opted_out))
+             Jsonb(scope) if scope is not None else None))
         row_id = cur.fetchone()["id"]
         conn.commit()
     return row_id

@@ -1543,11 +1543,8 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
-        provider: str = "anthropic", opted_out: bool = False,
+        provider: str = "anthropic",
     ) -> None:
-        if opted_out:
-            query_text = None
-            ci_name = None
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
@@ -1816,21 +1813,13 @@ class Database:
         self, session_id: str, turn_index: int, user_email: str | None,
         query_text: str | None, event_url: str | None,
         results: list[dict], overall_assessment: str | None,
-        opted_out: bool = False,
     ) -> int:
-        if opted_out:
-            query_text = None
-            results = None
-            overall_assessment = None
-            event_url = None
-            if user_email:
-                user_email = hashlib.sha256(user_email.encode()).hexdigest()[:16]
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment, opted_out)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, (session_id, turn_index, user_email, query_text, event_url,
-                  Jsonb(results) if results is not None else None, overall_assessment, opted_out))
+                  Jsonb(results) if results is not None else None, overall_assessment))
             row_id = cur.fetchone()["id"]
             conn.commit()
         return row_id
@@ -1855,7 +1844,7 @@ class Database:
         inner = """
             SELECT DISTINCT ON (session_id)
                    session_id, created_at AS started_at,
-                   query_text, chosen_ci_name, opted_out,
+                   query_text, chosen_ci_name,
                    COUNT(*) OVER (PARTITION BY session_id) AS turns
             FROM advisor_sessions
         """
@@ -1896,10 +1885,10 @@ class Database:
 
     # ── Jobs ──
 
-    def has_active_recommend_job(self, user_email: str) -> bool:
+    def has_active_advisor_job(self, user_email: str) -> bool:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT 1 FROM jobs WHERE job_type = 'recommend' AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
+                "SELECT 1 FROM jobs WHERE job_type IN ('recommend', 'chat') AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
                 (user_email,),
             )
             return cur.fetchone() is not None
@@ -2231,7 +2220,6 @@ class Database:
         self,
         sort_by: str = "performance_score",
         sort_dir: str = "desc",
-        min_score: int | None = None,
         category: str | None = None,
         has_prod: bool | None = None,
         search: str | None = None,
@@ -2251,9 +2239,6 @@ class Database:
         params: dict = {}
         params["channel"] = channel
 
-        if min_score is not None:
-            conditions.append("ps.performance_score >= %(min_score)s")
-            params["min_score"] = min_score
 
         if search:
             words = search.strip().split()
@@ -2583,11 +2568,11 @@ class Database:
             return row["id"]
 
     def revoke_user_cli_keys(self, user_email: str) -> int:
-        """Revoke all active CLI session keys for a user (role='user' with expiry)."""
+        """Revoke all active CLI session keys for a user."""
         with self.pool.connection() as conn:
             rows = conn.execute(
                 """UPDATE api_keys SET revoked_at = NOW()
-                   WHERE created_by = %s AND role = 'user'
+                   WHERE created_by = %s
                      AND expires_at IS NOT NULL
                      AND revoked_at IS NULL
                      AND expires_at > NOW()

@@ -7,9 +7,10 @@ interface RecCardListProps {
   isComplete: boolean
   streamPhase?: string
   sessionId?: string
+  turnIndex?: number
 }
 
-export function RecCardList({ candidates, isComplete, streamPhase, sessionId }: RecCardListProps) {
+export function RecCardList({ candidates, isComplete, streamPhase, sessionId, turnIndex }: RecCardListProps) {
   const green = candidates.filter(c => c.tier === 'green')
   const yellow = candidates.filter(c => c.tier === 'yellow')
   const white = candidates.filter(c => c.tier === 'white' || c.tier === 'pending')
@@ -46,24 +47,25 @@ export function RecCardList({ candidates, isComplete, streamPhase, sessionId }: 
       {green.length > 0 && (
         <div style={{ fontSize: '12px', color: 'var(--score-green)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
       )}
-      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={0} />)}
+      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
 
       {yellow.length > 0 && (
-        <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} sessionId={sessionId} />
+        <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />
       )}
 
       {white.length > 0 && (
-        <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={isComplete} sessionId={sessionId} />
+        <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />
       )}
     </>
   )
 }
 
-function CollapsibleTier({ label, candidates, isComplete, sessionId }: {
+function CollapsibleTier({ label, candidates, isComplete, sessionId, turnIndex }: {
   label: string
   candidates: StreamCandidate[]
   isComplete: boolean
   sessionId?: string
+  turnIndex?: number
 }) {
   const [open, setOpen] = useState(false)
   return (
@@ -77,7 +79,7 @@ function CollapsibleTier({ label, candidates, isComplete, sessionId }: {
       >
         {open ? '▾' : '▸'} {label}
       </button>
-      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={0} />)}
+      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
     </div>
   )
 }

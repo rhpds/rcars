@@ -13,7 +13,7 @@ logger = structlog.get_logger()
 async def run_recommendation(
     ctx: dict, job_id: str, query: str, stages: list[str] | None = None,
     prod_only: bool = True, include_zt: bool = True,
-    user_email: str | None = None, opted_out: bool = False,
+    user_email: str | None = None,
     depth: str = "high",
 ) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
@@ -56,7 +56,8 @@ async def run_recommendation(
             event_url=None,
             results=candidates_json,
             overall_assessment=state.overall_assessment,
-            opted_out=opted_out,
+
+
         )
 
         log.info("job_complete", action="job_complete", results=len(state.candidates))

@@ -11,6 +11,7 @@ from rcars.api.schemas import (
     WorkloadMappingsResponse, UnmappedWorkloadsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
+from rcars.config import Settings
 from rcars.db.similarity import get_similar_items as db_get_similar_items
 
 router = APIRouter(prefix="/catalog")
@@ -61,7 +62,15 @@ async def list_catalog(
     offset: int = Query(0, ge=0),
 ):
     db = request.app.state.db
-    stage_list = [s.strip() for s in stage.split(",")] if stage else None
+    settings: Settings = request.app.state.settings
+    if stage:
+        stage_list = [s.strip() for s in stage.split(",")]
+        if not settings.is_curator(user) and not settings.is_admin(user):
+            stage_list = [s for s in stage_list if s == "prod"]
+            if not stage_list:
+                stage_list = ["prod"]
+    else:
+        stage_list = None
     workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
     content_type_list = [t.strip() for t in content_type.split(",")] if content_type else None
 

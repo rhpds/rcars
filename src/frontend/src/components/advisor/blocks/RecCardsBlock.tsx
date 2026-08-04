@@ -8,7 +8,7 @@ interface RecCardsBlockProps {
   turnIndex: number
 }
 
-export function RecCardsBlock({ block, sessionId }: RecCardsBlockProps) {
+export function RecCardsBlock({ block, sessionId, turnIndex }: RecCardsBlockProps) {
   const candidates = (block.data.candidates || []) as StreamCandidate[]
   const contentGaps = (block.data.content_gaps || []) as string[]
 
@@ -22,14 +22,14 @@ export function RecCardsBlock({ block, sessionId }: RecCardsBlockProps) {
 
   return (
     <div>
-      <RecCardList candidates={primaryCandidates} isComplete sessionId={sessionId} />
+      <RecCardList candidates={primaryCandidates} isComplete sessionId={sessionId} turnIndex={turnIndex} />
 
       {secondaryCandidates.length > 0 && (
         <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '8px' }}>
             Also similar, though not labs:
           </div>
-          <RecCardList candidates={secondaryCandidates} isComplete sessionId={sessionId} />
+          <RecCardList candidates={secondaryCandidates} isComplete sessionId={sessionId} turnIndex={turnIndex} />
         </div>
       )}
 

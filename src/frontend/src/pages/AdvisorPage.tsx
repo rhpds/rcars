@@ -205,6 +205,9 @@ export function AdvisorPage() {
         }
         setActiveJobId(null)
         setSending(false)
+      }).catch(() => {
+        setActiveJobId(null)
+        setSending(false)
       })
     }
   }, [stream.isComplete])

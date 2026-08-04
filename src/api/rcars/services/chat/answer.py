@@ -14,15 +14,19 @@ _SCAFFOLDS = {
     "recommend": lambda f: (f"Found {f.get('green_count', 0)} strong matches out of "
                             f"{f.get('result_count', 0)} candidates"
                             + (" within your prior results." if f.get("scoped") else ".")),
-    "overlap": lambda f: (f"{f.get('anchor', 'This item')} has {f.get('neighbor_count', 0)} "
-                          f"related items (top similarity {f.get('top_similarity')}%)."),
+    "overlap": lambda f: (
+        f"{f.get('anchor') or 'This item'} has {f.get('neighbor_count', 0)} "
+        "related items"
+        + (f" (top similarity {f['top_similarity']}%)." if f.get('top_similarity') is not None else ".")),
     "performance": lambda f: (
-        f"{f.get('best', '—')} recorded {f.get('best_provisions', 0)} provisions "
-        f"over the last {f.get('window', '3m')}."
-        if f.get("single") else
-        f"Usage for {f.get('item_count', 0)} items over the last "
-        f"{f.get('window', '3m')}; {f.get('best', '—')} leads with "
-        f"{f.get('best_provisions', 0)} provisions."
+        "No usage data for the selected items."
+        if not f.get("best") else
+        (f"{f['best']} recorded {f.get('best_provisions') or 0} provisions "
+         f"over the last {f.get('window') or '3m'}."
+         if f.get("single") else
+         f"Usage for {f.get('item_count', 0)} items over the last "
+         f"{f.get('window') or '3m'}; {f['best']} leads with "
+         f"{f.get('best_provisions') or 0} provisions.")
     ),
     "item_facts": lambda f: (f"{f.get('display_name', 'Item')} ({f.get('stage', '?')}) — "
                              f"{f.get('neighbor_count', 0)} related items in the catalog."),
