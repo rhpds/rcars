@@ -140,7 +140,9 @@ def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
             scope_ids = [r["id"] for r in turn["results"]]
 
     # Ladder 3: item refs → catalog resolution ("did you mean…" on miss)
-    for ref in output.item_refs:
+    # Skip when scope already resolved content_ids — re-resolving by name is
+    # lossy and can pick the wrong variant (e.g. "Roadshow" vs "Roadshow (2026)").
+    for ref in (output.item_refs if not scope_ids else []):
         resolved = resolve_item(ref, db)
         if "item" in resolved:
             items.append(resolved["item"])
