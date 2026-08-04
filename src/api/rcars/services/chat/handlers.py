@@ -126,7 +126,8 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
 async def handle_performance(res: Resolution, db: Database, settings: Settings,
                              stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = PerformanceArgs.model_validate(res.output.args)
-    ids = res.scope_ids or [i["content_id"] for i in res.items]
+    triaged = [i for i in res.items if i.get("tier") in ("green", "yellow")]
+    ids = res.scope_ids or [i["content_id"] for i in (triaged or res.items)]
     scores = get_performance_scores(db.pool, ids)
     rows = []
     for cid in ids:
