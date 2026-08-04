@@ -227,7 +227,7 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
         key_prefix=key_prefix,
         name=f"CLI session {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}",
         created_by=user_email,
-        role="user",
+        role=_user_max_role(settings, user_email),
         expires_at=expires_at,
     )
 
