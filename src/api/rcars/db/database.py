@@ -417,6 +417,17 @@ ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_advisor_sessions_session_turn
     ON advisor_sessions (session_id, turn_index);
 
+-- Role assignments — RHDPCD-176
+CREATE TABLE IF NOT EXISTS role_assignments (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(10) NOT NULL CHECK (type IN ('user', 'group')),
+    value VARCHAR(255) NOT NULL,
+    role VARCHAR(10) NOT NULL CHECK (role IN ('curator', 'admin')),
+    added_by VARCHAR(255) NOT NULL,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(type, value)
+);
+
 """
 
 
@@ -469,7 +480,7 @@ class Database:
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys",
+            "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "workload_mapping", "workload_scan_state",
             "babylon_items", "content_entities",
@@ -2648,3 +2659,34 @@ class Database:
                 (key_id,),
             )
             conn.commit()
+
+    # ── Role assignments ──
+
+    def get_role_assignments(self) -> list[dict]:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, type, value, role, added_by, added_at FROM role_assignments ORDER BY added_at DESC"
+                )
+                return cur.fetchall()
+
+    def add_role_assignment(self, type: str, value: str, role: str, added_by: str) -> dict:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO role_assignments (type, value, role, added_by)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, type, value, role, added_by, added_at
+                    """,
+                    (type, value, role, added_by),
+                )
+                conn.commit()
+                return cur.fetchone()
+
+    def delete_role_assignment(self, id: int) -> bool:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM role_assignments WHERE id = %s", (id,))
+                conn.commit()
+                return cur.rowcount > 0

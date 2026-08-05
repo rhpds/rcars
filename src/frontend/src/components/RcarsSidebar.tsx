@@ -120,6 +120,13 @@ export function RcarsSidebar() {
               >
                 API Keys
               </NavLink>
+
+              <NavLink
+                to="/system/roles"
+                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+              >
+                Access Control
+              </NavLink>
             </>
           )}
         </nav>

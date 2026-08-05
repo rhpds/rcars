@@ -7,7 +7,7 @@ import { RcarsSidebar } from './components/RcarsSidebar'
 import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { WorkloadsPage } from './pages/WorkloadsPage'
-import { AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
+import { AdminTokensPage, AdminQueriesPage, AdminRolesPage } from './pages/AdminPage'
 import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import { PerformancePage } from './pages/PerformancePage'
@@ -64,6 +64,7 @@ export default function App() {
                       <Route path="/system/tokens" element={<AdminTokensPage />} />
                       <Route path="/system/queries" element={<AdminQueriesPage />} />
                       <Route path="/system/api-keys" element={<ApiKeysPanel />} />
+                      <Route path="/system/roles" element={<AdminRolesPage />} />
                       {/* Legacy routes redirect */}
                       <Route path="/admin" element={<Navigate to="/system/status" replace />} />
                       <Route path="/admin/catalog" element={<Navigate to="/system/status" replace />} />

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from pathlib import Path
 
@@ -21,6 +22,16 @@ _TOKEN_REVIEW_URL = (
 # In-memory cache: key_hash → (user_email, role, expires_at_ts, cached_at)
 _api_key_cache: dict[str, tuple[str, str, float | None, float]] = {}
 _CACHE_TTL = 10.0
+
+# Group membership cache: group_name → (members_set, fetched_at)
+_GROUPS_CACHE: dict[str, tuple[set[str], float]] = {}
+_GROUPS_CACHE_TTL = 60.0
+_K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+_K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
+
+# DB role assignments cache: (entries, fetched_at) or None
+_role_assignments_cache: tuple[list[dict], float] | None = None
+_ROLE_ASSIGNMENTS_CACHE_TTL = 30.0
 
 
 def _log_auth_decision(
@@ -117,6 +128,71 @@ def invalidate_api_key_cache(key_hash: str) -> None:
     _api_key_cache.pop(key_hash, None)
 
 
+def invalidate_role_assignments_cache() -> None:
+    global _role_assignments_cache
+    _role_assignments_cache = None
+
+
+async def _get_cached_role_assignments(db) -> list[dict]:
+    global _role_assignments_cache
+    now = time.monotonic()
+    if _role_assignments_cache:
+        entries, fetched_at = _role_assignments_cache
+        if now - fetched_at < _ROLE_ASSIGNMENTS_CACHE_TTL:
+            return entries
+    entries = db.get_role_assignments()
+    _role_assignments_cache = (entries, now)
+    return entries
+
+
+async def _user_has_db_role(db, email: str, required_roles: set[str]) -> bool:
+    assignments = await _get_cached_role_assignments(db)
+    for entry in assignments:
+        if entry["role"] not in required_roles:
+            continue
+        if entry["type"] == "user" and entry["value"].lower() == email.lower():
+            return True
+        if entry["type"] == "group" and email in await _fetch_group_members(entry["value"]):
+            return True
+    return False
+
+
+async def _fetch_group_members(group_name: str) -> set[str]:
+    now = time.monotonic()
+    cached = _GROUPS_CACHE.get(group_name)
+    if cached:
+        members, fetched_at = cached
+        if now - fetched_at < _GROUPS_CACHE_TTL:
+            return members
+
+    if not _K8S_HOST:
+        return set()
+
+    try:
+        if not _K8S_CA_PATH.exists():
+            return cached[0] if cached else set()
+        token = _K8S_TOKEN_PATH.read_text().strip()
+        url = f"https://{_K8S_HOST}:{_K8S_PORT}/apis/user.openshift.io/v1/groups/{group_name}"
+        async with httpx.AsyncClient(verify=str(_K8S_CA_PATH), timeout=5.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+        members = set(resp.json().get("users") or [])
+        _GROUPS_CACHE[group_name] = (members, now)
+        return members
+    except Exception:
+        logger.warning("group_fetch_failed", group=group_name, exc_info=True)
+        return cached[0] if cached else set()
+
+
+async def _user_in_groups(email: str, groups: list[str]) -> bool:
+    if not groups or not email:
+        return False
+    for group in groups:
+        if email in await _fetch_group_members(group):
+            return True
+    return False
+
+
 async def get_current_user(request: Request) -> str | None:
     settings: Settings = request.app.state.settings
     request.state.auth_method = None
@@ -204,9 +280,12 @@ async def require_curator(request: Request) -> str:
     user = await require_auth(request)
     _check_api_key_role_ceiling(request, "curator")
     settings: Settings = request.app.state.settings
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Curator role required")
-    return user
+    if settings.is_curator(user) or settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"curator", "admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Curator role required")
 
 
 async def require_performance_view(request: Request) -> str:
@@ -216,15 +295,21 @@ async def require_performance_view(request: Request) -> str:
     if settings.performance_public:
         return user
     _check_api_key_role_ceiling(request, "curator")
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Curator role required")
-    return user
+    if settings.is_curator(user) or settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"curator", "admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Curator role required")
 
 
 async def require_admin(request: Request) -> str:
     user = await require_auth(request)
     _check_api_key_role_ceiling(request, "admin")
     settings: Settings = request.app.state.settings
-    if not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin role required")
-    return user
+    if settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Admin role required")
