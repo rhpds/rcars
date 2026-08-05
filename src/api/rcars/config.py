@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     chat_router_confidence_threshold: float = 0.6
     chat_context_turns: int = 5
 
+    # CLI token exchange
+    cli_token_expiry_hours: int = 24
+
     # Babylon K8s
     kubeconfig_path: str = ""
     agnosticv_component_namespace: str = "babylon-config"

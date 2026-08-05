@@ -220,7 +220,7 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
 
     # Create 24h API key
     raw_key, key_hash, key_prefix = _generate_api_key()
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.cli_token_expiry_hours)
 
     db.create_api_key(
         key_hash=key_hash,
