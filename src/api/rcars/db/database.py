@@ -1885,17 +1885,17 @@ class Database:
 
     # ── Jobs ──
 
-    def has_active_advisor_job(self, user_email: str) -> bool:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT 1 FROM jobs WHERE job_type IN ('recommend', 'chat') AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
-                (user_email,),
-            )
-            return cur.fetchone() is not None
-
-    def create_job(self, job_type: str, queue: str, created_by: str | None = None) -> str:
+    def create_job(self, job_type: str, queue: str, created_by: str | None = None,
+                   limit_active: bool = False) -> str | None:
         job_id = str(uuid.uuid4())
         with self._pool.connection() as conn:
+            if limit_active and created_by:
+                cur = conn.execute(
+                    "SELECT 1 FROM jobs WHERE job_type IN ('recommend', 'chat') "
+                    "AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
+                    (created_by,))
+                if cur.fetchone() is not None:
+                    return None
             conn.execute(
                 "INSERT INTO jobs (id, job_type, status, queue, created_by, created_at) VALUES (%s, %s, 'queued', %s, %s, %s)",
                 (job_id, job_type, queue, created_by, datetime.now(timezone.utc)),

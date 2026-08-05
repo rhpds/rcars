@@ -65,15 +65,15 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
     arq_redis = request.app.state.arq_redis
     settings: Settings = request.app.state.settings
 
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        if db.has_active_advisor_job(user):
-            raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
+    is_limited = not settings.is_curator(user) and not settings.is_admin(user)
 
     stages = body.stages
-    if "dev" in stages and not settings.is_curator(user) and not settings.is_admin(user):
+    if "dev" in stages and is_limited:
         stages = [s for s in stages if s != "dev"]
 
-    job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user)
+    job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user, limit_active=is_limited)
+    if job_id is None:
+        raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
     await arq_redis.enqueue_job(
         "run_recommendation",
         job_id=job_id,
@@ -113,15 +113,15 @@ async def submit_chat(body: ChatRequest, request: Request, user: str = Depends(r
     else:
         session_id = str(uuid.uuid4())
 
-    if not settings.is_curator(user) and not is_admin:
-        if db.has_active_advisor_job(user):
-            raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
+    is_limited = not settings.is_curator(user) and not is_admin
 
     stages = body.stages
-    if "dev" in stages and not settings.is_curator(user) and not is_admin:
+    if "dev" in stages and is_limited:
         stages = [s for s in stages if s != "dev"]
 
-    job_id = db.create_job(job_type="chat", queue="recommend", created_by=user)
+    job_id = db.create_job(job_type="chat", queue="recommend", created_by=user, limit_active=is_limited)
+    if job_id is None:
+        raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
     await arq_redis.enqueue_job(
         "run_chat_turn", job_id=job_id, message=body.message, session_id=session_id,
         stages=stages, include_zt=body.include_zt, user_email=user, is_admin=is_admin,

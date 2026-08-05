@@ -172,7 +172,9 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
         return HandlerResult(
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
-    item = res.items[0]
+    item = (res.items[0] if res.items
+            else (db.get_babylon_item(res.scope_ids[0])
+                  or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
     card["neighbors"] = [
         {"content_id": n["content_id"], "display_name": n["display_name"],
