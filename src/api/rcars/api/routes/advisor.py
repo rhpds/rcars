@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, Field
+from typing import Literal
 from rcars.api.middleware.auth import require_auth, require_admin
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
-    QuerySubmitResponse, QueryResultResponse,
+    QuerySubmitResponse, QueryResultResponse, ChatSubmitResponse,
     SessionListResponse, SessionDetailResponse, StatusResponse,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.config import Settings
+from rcars.db import chat_sessions
 
 router = APIRouter(prefix="/advisor")
 
@@ -21,13 +25,21 @@ class QueryRequest(BaseModel):
     event_url: str | None = None
     stages: list[str] = ["prod"]
     include_zt: bool = True
-    opted_out: bool = False
+    depth: Literal["low", "medium", "high"] = "high"
 
 
 class SelectRequest(BaseModel):
     turn_index: int
     ci_name: str | None = None
     content_id: str | None = None
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(max_length=2000)
+    session_id: str | None = None
+    stages: list[str] = ["prod"]
+    include_zt: bool = True
+    routed: dict | None = None
 
 
 def _advisor_limit() -> str:
@@ -53,26 +65,69 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
     arq_redis = request.app.state.arq_redis
     settings: Settings = request.app.state.settings
 
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        if db.has_active_recommend_job(user):
-            raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
+    is_limited = not settings.is_curator(user) and not settings.is_admin(user)
 
     stages = body.stages
-    if "dev" in stages and not settings.is_curator(user) and not settings.is_admin(user):
+    if "dev" in stages and is_limited:
         stages = [s for s in stages if s != "dev"]
 
-    job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user)
+    job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user, limit_active=is_limited)
+    if job_id is None:
+        raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
     await arq_redis.enqueue_job(
         "run_recommendation",
         job_id=job_id,
         query=body.query,
         stages=stages,
+        depth=body.depth,
         include_zt=body.include_zt,
         user_email=user,
-        opted_out=body.opted_out,
         _queue_name="arq:queue:recommend",
     )
     return {"job_id": job_id}
+
+
+@router.post(
+    "/chat",
+    summary="Submit a chat message (multi-intent advisor)",
+    description=(
+        "Routes a natural-language message to a deterministic intent handler. "
+        "Returns a job_id (use the existing stream/result endpoints) and the "
+        "session_id for follow-up turns. Rate-limited per user with /advisor/query."
+    ),
+    response_model=ChatSubmitResponse,
+    responses={404: {"description": "session_id not found or not owned by user"},
+               429: {"description": "Rate limit exceeded or query already running"}},
+)
+@limiter.limit(_advisor_limit)
+async def submit_chat(body: ChatRequest, request: Request, user: str = Depends(require_auth)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    settings: Settings = request.app.state.settings
+
+    is_admin = settings.is_admin(user)
+    session_id = body.session_id
+    if session_id:
+        if not chat_sessions.session_owner_ok(db.pool, session_id, user, is_admin=is_admin):
+            raise HTTPException(status_code=404, detail="Session not found")
+    else:
+        session_id = str(uuid.uuid4())
+
+    is_limited = not settings.is_curator(user) and not is_admin
+
+    stages = body.stages
+    if "dev" in stages and is_limited:
+        stages = [s for s in stages if s != "dev"]
+
+    job_id = db.create_job(job_type="chat", queue="recommend", created_by=user, limit_active=is_limited)
+    if job_id is None:
+        raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
+    await arq_redis.enqueue_job(
+        "run_chat_turn", job_id=job_id, message=body.message, session_id=session_id,
+        stages=stages, include_zt=body.include_zt, user_email=user, is_admin=is_admin,
+        routed=body.routed,
+        _queue_name="arq:queue:recommend")
+    return {"job_id": job_id, "session_id": session_id}
 
 
 @router.get(
@@ -92,7 +147,7 @@ async def stream_query(job_id: str, request: Request, user: str = Depends(requir
     if not job or (job["created_by"] != user and not settings.is_admin(user)):
         raise HTTPException(status_code=404, detail="Job not found")
     relay = JobProgressRelay(request.app.state.redis)
-    return create_sse_response(relay, job_id)
+    return create_sse_response(relay, job_id, job_status=job["status"])
 
 
 @router.get(

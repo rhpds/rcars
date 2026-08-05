@@ -75,7 +75,7 @@ def _expand_query_terms(query: str) -> str:
 _URL_RE = re.compile(r'(?:https?://\S+|www\.\S+\.\S+)', re.IGNORECASE)
 
 
-def _extract_urls(query: str) -> tuple[list[str], str]:
+def extract_urls(query: str) -> tuple[list[str], str]:
     """Extract URLs from query, return (urls, remaining_text).
 
     Finds full URLs (http/https) and bare www. domains anywhere in the text.
@@ -191,6 +191,8 @@ async def run_query(
     stages: list[str] | None = None,
     include_zt: bool = True,
     on_progress: Callable[[dict], Awaitable[None]] | None = None,
+    depth: str = "high",
+    scope_content_ids: list[str] | None = None,
 ) -> QueryState:
     async def emit(data: dict):
         if on_progress:
@@ -198,7 +200,7 @@ async def run_query(
 
     t0 = time.monotonic()
 
-    urls, remaining_text = _extract_urls(query)
+    urls, remaining_text = extract_urls(query)
     if urls:
         url = urls[0]
         logger.info("query_has_url", url=url[:200], has_text=bool(remaining_text))
@@ -251,9 +253,13 @@ async def run_query(
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt)
+    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt, scope_content_ids=scope_content_ids)
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
+
+    if depth == "low":
+        await emit({"phase": "complete", "results": len(state.candidates)})
+        return state
 
     if state.phase == "NO_MATCHES":
         state.overall_assessment = NO_MATCH_GUIDANCE
@@ -278,6 +284,11 @@ async def run_query(
         state.overall_assessment = NO_MATCH_GUIDANCE
         state.content_gaps = content_gaps
         await emit({"phase": "complete", "results": 0})
+        return state
+
+    if depth == "medium":
+        await emit({"phase": "complete",
+                    "results": len([c for c in state.candidates if c.tier in ("yellow", "green")])})
         return state
 
     # Usage boost (between triage and rationale)

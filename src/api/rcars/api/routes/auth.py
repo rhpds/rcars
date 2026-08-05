@@ -57,7 +57,7 @@ async def auth_me(request: Request, user: str = Depends(require_auth)):
         roles.append("curator")
     if settings.is_admin(user):
         roles.append("admin")
-    return {"email": user, "roles": roles}
+    return {"email": user, "roles": roles, "performance_public": settings.performance_public}
 
 
 @router.post(
@@ -227,7 +227,7 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
         key_prefix=key_prefix,
         name=f"CLI session {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}",
         created_by=user_email,
-        role="user",
+        role=_user_max_role(settings, user_email),
         expires_at=expires_at,
     )
 

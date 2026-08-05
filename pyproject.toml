@@ -47,4 +47,5 @@ where = ["src"]
 [tool.pytest.ini_options]
 markers = [
     "integration: tests requiring live Babylon cluster (deselect with '-m not integration')",
+    "llm_eval: live-LLM routing eval — the acceptance gate for prompt/model changes",
 ]

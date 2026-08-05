@@ -15,6 +15,7 @@ from rcars.api.middleware.auth import (
     require_auth,
     require_curator,
     require_admin,
+    require_performance_view,
 )
 
 
@@ -349,3 +350,34 @@ class TestApiKeyRoleCeiling:
         with pytest.raises(HTTPException) as exc_info:
             await require_curator(request)
         assert exc_info.value.status_code == 403
+
+
+class TestRequirePerformanceView:
+    async def test_performance_view_allows_regular_user_when_public(self):
+        request = _make_request(
+            headers={"X-Forwarded-Email": "user@redhat.com", "X-Proxy-Secret": "secret"},
+            proxy_verification_secret="secret",
+        )
+        request.app.state.settings.performance_public = True
+        result = await require_performance_view(request)
+        assert result == "user@redhat.com"
+
+    async def test_performance_view_blocks_regular_user_when_private(self):
+        request = _make_request(
+            headers={"X-Forwarded-Email": "user@redhat.com", "X-Proxy-Secret": "secret"},
+            proxy_verification_secret="secret",
+        )
+        request.app.state.settings.performance_public = False
+        with pytest.raises(HTTPException) as exc_info:
+            await require_performance_view(request)
+        assert exc_info.value.status_code == 403
+
+    async def test_performance_view_allows_curator_when_private(self):
+        request = _make_request(
+            headers={"X-Forwarded-Email": "curator@redhat.com", "X-Proxy-Secret": "secret"},
+            proxy_verification_secret="secret",
+        )
+        request.app.state.settings.performance_public = False
+        request.app.state.settings.is_curator.return_value = True
+        result = await require_performance_view(request)
+        assert result == "curator@redhat.com"

@@ -1,7 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Page } from '@patternfly/react-core'
 import { AuthContext, useAuthProvider } from './hooks/useAuth'
-import { PrivateModeContext, usePrivateModeProvider } from './hooks/usePrivateMode'
 import { ThemeContext, useThemeProvider } from './hooks/useTheme'
 import { RcarsMasthead } from './components/RcarsMasthead'
 import { RcarsSidebar } from './components/RcarsSidebar'
@@ -11,7 +10,7 @@ import { WorkloadsPage } from './pages/WorkloadsPage'
 import { AdminTokensPage, AdminQueriesPage } from './pages/AdminPage'
 import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
-import { RetirementPage } from './pages/RetirementPage'
+import { PerformancePage } from './pages/PerformancePage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
 import { RecentJobsPage } from './pages/RecentJobsPage'
@@ -20,7 +19,6 @@ import './styles/rcars-app.css'
 
 export default function App() {
   const auth = useAuthProvider()
-  const privateMode = usePrivateModeProvider()
   const themeState = useThemeProvider()
 
   if (auth.isLoading) {
@@ -33,7 +31,6 @@ export default function App() {
 
   return (
     <AuthContext.Provider value={auth}>
-      <PrivateModeContext.Provider value={privateMode}>
         <ThemeContext.Provider value={themeState}>
           <BrowserRouter>
             <Page
@@ -54,8 +51,10 @@ export default function App() {
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                       <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
-                      <Route path="/analysis/retirement" element={<RetirementPage />} />
                     </>
+                  )}
+                  {auth.canViewPerformance && (
+                    <Route path="/analysis/performance" element={<PerformancePage />} />
                   )}
                   {auth.isAdmin && (
                     <>
@@ -77,7 +76,6 @@ export default function App() {
             </Page>
           </BrowserRouter>
         </ThemeContext.Provider>
-      </PrivateModeContext.Provider>
     </AuthContext.Provider>
   )
 }

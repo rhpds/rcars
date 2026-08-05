@@ -12,7 +12,7 @@ log = logging.getLogger(__name__)
 
 _CI_REF_PATTERN = re.compile(r'\bLB(\d{3,4})\b', re.IGNORECASE)
 
-_STOP_WORDS = frozenset({
+STOP_WORDS = frozenset({
     "a", "an", "the", "is", "it", "to", "for", "of", "and", "or", "in", "on",
     "with", "that", "this", "be", "are", "was", "i", "we", "my", "our", "me",
     "do", "does", "not", "no", "but", "have", "has", "had", "can", "could",
@@ -49,7 +49,7 @@ def _resolve_ci_references(
 
     # Strategy 2: keyword overlap against display_names (only if no LB match)
     if not resolved_items:
-        query_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', query)} - _STOP_WORDS
+        query_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', query)} - STOP_WORDS
         if len(query_words) >= 2:
             item = db.find_catalog_item_by_keyword_overlap(query_words, stages=stages, min_overlap=3)
             if item:
@@ -91,6 +91,7 @@ def search(
     distance_cutoff: float = 0.55,
     include_zt: bool = True,
     content_types: list[str] | None = None,
+    scope_content_ids: list[str] | None = None,
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply quality threshold.
 
@@ -110,9 +111,10 @@ def search(
         include_zt=include_zt,
         content_types=content_types,
         quality_threshold=quality_threshold,
+        scope_content_ids=scope_content_ids,
     )
 
-    ci_ref_rows = _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
+    ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
     if ci_ref_rows:
         log.info("ci_resolve: adding %d neighbor results from CI references", len(ci_ref_rows))
         seen = {r["content_id"] for r in rows}

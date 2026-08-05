@@ -83,7 +83,9 @@ def _base_name_from_content_id(content_id: str) -> str:
 
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
     """Build the Jira ticket description in Jira wiki markup."""
-    base_name = _base_name_from_content_id(workflow.get("content_id", "")) or "unknown"
+    base_name = (_base_name_from_content_id(workflow.get("content_id", ""))
+                 or workflow.get("catalog_base_name")
+                 or "unknown")
     display_name = metrics.get("display_name", base_name)
     reason = workflow.get("approval_reason", "No reason provided")
     notes = workflow.get("curator_notes")
@@ -111,15 +113,22 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
                 notes_lines.append(f"* {line.strip()}")
 
     # Metrics snapshot
-    snapshot = workflow.get("approval_snapshot", {})
-    score = snapshot.get("retirement_score", "N/A")
+    raw_snapshot = workflow.get("approval_snapshot", {})
+    snapshot = raw_snapshot.get("sales", raw_snapshot)
+    score = snapshot.get("score")
+    if score is None:
+        score = snapshot.get("retirement_score", "N/A")
     provisions = snapshot.get("provisions", "N/A")
-    experiences = snapshot.get("experiences", "N/A")
+    completions = snapshot.get("completions")
+    if completions is None:
+        completions = snapshot.get("experiences", "N/A")
     unique_users = snapshot.get("unique_users", "N/A")
-    touched = snapshot.get("touched_amount", "N/A")
+    touched = snapshot.get("pipeline_touched")
+    if touched is None:
+        touched = snapshot.get("touched_amount", "N/A")
     closed = snapshot.get("closed_amount", "N/A")
     cost = snapshot.get("total_cost", "N/A")
-    snapshot_date = snapshot.get("snapshot_date", "N/A")
+    snapshot_date = raw_snapshot.get("snapshot_at") or raw_snapshot.get("snapshot_date", "N/A")
 
     def fmt_dollar(val):
         if isinstance(val, (int, float)):
@@ -159,11 +168,11 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         f"{chr(10).join(notes_lines)}\n\n"
         f"*Metrics at approval (snapshot {snapshot_date}):*\n\n"
         f"||Metric||Value||\n"
-        f"|Retirement Score|{score}|\n"
+        f"|Performance Score|{score}|\n"
         f"|Provisions|{provisions}|\n"
-        f"|Experiences|{experiences}|\n"
+        f"|Completions|{completions}|\n"
         f"|Unique Users|{unique_users}|\n"
-        f"|Touched Amount|{fmt_dollar(touched)}|\n"
+        f"|Pipeline Touched|{fmt_dollar(touched)}|\n"
         f"|Closed Amount|{fmt_dollar(closed)}|\n"
         f"|Total Cost|{fmt_dollar(cost)}|\n\n"
         f"----\n\n"

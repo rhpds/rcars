@@ -76,7 +76,7 @@ LiteMaaS is the preferred LLM provider for local development. It provides an Ope
 
 **Reporting metrics (required for `rcars reporting-db sync`):**
 
-These are only needed for the retirement dashboard and sales impact data. Not required for basic development.
+These are only needed for the performance dashboard and sales impact data. Not required for basic development.
 
 Without any of these, the stack is still fully functional for frontend development, API testing, and Swagger UI exploration — responses will just be empty.
 
@@ -340,7 +340,7 @@ After the Ansible deploy completes and pods are running:
 2. `oc exec deployment/rcars-api -n rcars-dev -- rcars scan --max 5` — verify the AI pipeline works end-to-end with a small batch.
 3. `oc exec deployment/rcars-api -n rcars-dev -- rcars status` — confirm analyzed count increased.
 4. `oc exec deployment/rcars-api -n rcars-dev -- rcars scan` — full scan (may take 30–60 minutes depending on catalog size and parallelism).
-5. `oc exec deployment/rcars-api -n rcars-dev -- rcars reporting-db sync` — pull reporting metrics for the retirement dashboard.
+5. `oc exec deployment/rcars-api -n rcars-dev -- rcars reporting-db sync` — pull reporting metrics for the performance dashboard.
 
 ### Fresh Start (reset everything)
 

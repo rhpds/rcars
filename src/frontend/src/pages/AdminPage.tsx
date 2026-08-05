@@ -98,7 +98,6 @@ interface QuerySessionSummary {
   started_at: string
   query_text: string | null
   chosen_ci_name: string | null
-  opted_out: boolean
 }
 
 interface SessionTurn {
@@ -106,7 +105,6 @@ interface SessionTurn {
   overall_assessment: string | null
   results_json: unknown[] | null
   chosen_ci_name: string | null
-  opted_out: boolean
   created_at: string
 }
 
@@ -198,10 +196,6 @@ export function AdminQueriesPage() {
                       <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border-default)', color: 'var(--text-muted)', fontSize: '13px' }}>Loading details...</div>
                     ) : turns?.map((turn, ti) => (
                       <div key={ti} style={{ padding: '10px 14px 14px', borderTop: '1px solid var(--border-default)' }}>
-                        {turn.opted_out ? (
-                          <div style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>Query redacted (user opted out)</div>
-                        ) : (
-                          <>
                             {turn.query_text && (
                               <div style={{ color: 'var(--score-amber)', fontSize: '13px', marginBottom: '8px', fontWeight: 500 }}>
                                 {turn.query_text}
@@ -232,8 +226,6 @@ export function AdminQueriesPage() {
                                 ))}
                               </div>
                             )}
-                          </>
-                        )}
                       </div>
                     ))
                   )}

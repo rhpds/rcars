@@ -209,6 +209,18 @@ async def require_curator(request: Request) -> str:
     return user
 
 
+async def require_performance_view(request: Request) -> str:
+    """Any authenticated user when performance_public; curator/admin otherwise."""
+    user = await require_auth(request)
+    settings: Settings = request.app.state.settings
+    if settings.performance_public:
+        return user
+    _check_api_key_role_ceiling(request, "curator")
+    if not settings.is_curator(user) and not settings.is_admin(user):
+        raise HTTPException(status_code=403, detail="Curator role required")
+    return user
+
+
 async def require_admin(request: Request) -> str:
     user = await require_auth(request)
     _check_api_key_role_ceiling(request, "admin")

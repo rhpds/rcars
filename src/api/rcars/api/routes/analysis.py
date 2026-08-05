@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from rcars.api.middleware.auth import require_admin, require_curator, require_auth
+from rcars.api.middleware.auth import require_admin, require_curator, require_auth, require_performance_view
 from rcars.api.schemas import (
-    JobResponse, RetirementDashboardResponse, WorkflowResponse,
+    JobResponse, PerformanceDashboardResponse, WorkflowResponse,
     WorkflowGetResponse, StartRetirementResponse, CancelWorkflowResponse,
     ScanResponse, RescanResponse,
 )
@@ -19,7 +19,8 @@ logger = structlog.get_logger(component="api")
 router = APIRouter(prefix="/analysis")
 
 
-WINDOW_KEYS = {"1q": "3m", "2q": "6m", "3q": "9m", "1y": "12m"}
+WINDOWS = {"3m", "6m", "9m", "12m"}
+CHANNEL_SOURCES = {"sales": "rhdp", "marketing": "interactive_labs"}
 
 
 def _base_name_to_content_id(base_name: str, db) -> str | None:
@@ -63,51 +64,48 @@ class LinkJiraRequest(BaseModel):
 
 
 @router.get(
-    "/retirement",
-    tags=["Retirement"],
-    summary="Retirement dashboard",
+    "/performance",
+    tags=["Performance"],
+    summary="Performance dashboard",
     description=(
-        "Returns catalog items scored for retirement potential based on usage, cost, and sales impact. "
-        "Supports filtering by score threshold, category, production status, and time window (1q/2q/3q/1y). "
-        "Curator-only."
+        "Returns catalog items scored for performance based on usage, cost, and sales impact. "
+        "Supports filtering by score threshold, category, production status, time window (3m/6m/9m/12m), and channel (sales/marketing)."
     ),
-    response_model=RetirementDashboardResponse,
+    response_model=PerformanceDashboardResponse,
 )
-async def retirement_dashboard(
+async def performance_dashboard(
     request: Request,
-    user: str = Depends(require_curator),
-    sort_by: str = Query("retirement_score"),
+    user: str = Depends(require_performance_view),
+    sort_by: str = Query("performance_score"),
     sort_dir: str = Query("desc"),
     min_score: int | None = Query(None),
     category: str | None = Query(None),
     has_prod: bool | None = Query(None),
     search: str | None = Query(None),
-    window: str = Query("1y"),
+    window: str = Query("12m"),
+    channel: str = Query("sales"),
     workflow_status: str | None = Query(None),
 ):
-    db = request.app.state.db
-    window_key = WINDOW_KEYS.get(window, "12m")
+    if window not in WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
+    if channel not in CHANNEL_SOURCES:
+        raise HTTPException(400, f"channel must be one of {sorted(CHANNEL_SOURCES)}")
+    source = CHANNEL_SOURCES[channel]
 
-    # Map frontend sort names to DB column names
-    sort_map = {"retirement_score": "performance_score", "touched_amount": "pipeline_touched"}
-    db_sort_by = sort_map.get(sort_by, sort_by)
+    db = request.app.state.db
 
     items = db.list_performance_data(
-        sort_by=db_sort_by, sort_dir=sort_dir,
-        min_score=min_score, category=category,
+        sort_by=sort_by, sort_dir=sort_dir,
+        category=category,
         has_prod=has_prod, search=search,
         workflow_status=workflow_status,
+        channel=source,
     )
 
     import json as _json
     for item in items:
         # Backward-compat: derive catalog_base_name from content_id
         item["catalog_base_name"] = _extract_base_name_from_content_id(item.get("content_id", ""))
-
-        # Field name aliases for frontend compat
-        item["touched_amount"] = item.get("pipeline_touched", 0)
-        item["experiences"] = item.get("completions", 0)
-        item["retirement_score"] = item.get("performance_score", 0)
 
         # Apply windowed metrics overlay
         wm = item.get("windowed_metrics") or {}
@@ -116,20 +114,37 @@ async def retirement_dashboard(
                 wm = _json.loads(wm)
             except (ValueError, TypeError):
                 wm = {}
-        w = wm.get(window_key, {})
+        item["windowed_metrics"] = wm
+        w = wm.get(window, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
-            item["experiences"] = w.get("experiences", w.get("completions", 0))
+            item["completions"] = w.get("completions", 0)
             item["requests"] = w.get("requests", 0)
             item["unique_users"] = w.get("unique_users", 0)
             item["success_ratio"] = w.get("success_ratio", 0)
             item["failure_ratio"] = w.get("failure_ratio", 0)
-            item["touched_amount"] = w.get("touched_amount", w.get("pipeline_touched", 0))
+            item["pipeline_touched"] = w.get("pipeline_touched", 0)
             item["closed_amount"] = w.get("closed_amount", 0)
             item["total_cost"] = w.get("total_cost", 0)
             item["avg_cost_per_provision"] = w.get("avg_cost_per_provision", 0)
-            item["retirement_score"] = w.get("retirement_score", w.get("performance_score", 0))
+            item["performance_score"] = w.get("performance_score", 0)
             item["sales_impact"] = w.get("sales_impact", "low")
+        else:
+            item["provisions"] = 0
+            item["completions"] = 0
+            item["requests"] = 0
+            item["unique_users"] = 0
+            item["success_ratio"] = 0
+            item["failure_ratio"] = 0
+            item["pipeline_touched"] = 0
+            item["closed_amount"] = 0
+            item["total_cost"] = 0
+            item["avg_cost_per_provision"] = 0
+            item["performance_score"] = 0
+            item["sales_impact"] = "low"
+
+        if channel != "sales":
+            item["performance_score"] = w.get("performance_score", 0)
 
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names)
@@ -148,11 +163,11 @@ async def retirement_dashboard(
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 
     # Re-sort by frontend sort names (DB sorted by DB column names, may differ)
-    allowed_sorts = {"retirement_score", "provisions", "total_cost", "closed_amount", "touched_amount", "display_name", "touched_roi", "closed_roi"}
+    allowed_sorts = {"performance_score", "provisions", "total_cost", "closed_amount", "pipeline_touched", "display_name", "touched_roi", "closed_roi"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
         if sort_by == "touched_roi":
-            items.sort(key=lambda i: (i.get("touched_amount") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
+            items.sort(key=lambda i: (i.get("pipeline_touched") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
         elif sort_by == "closed_roi":
             items.sort(key=lambda i: (i.get("closed_amount") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
         elif sort_by == "display_name":
@@ -160,13 +175,16 @@ async def retirement_dashboard(
         else:
             items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
 
+    if min_score is not None:
+        items = [i for i in items if (i.get("performance_score") or 0) >= min_score]
+
     from datetime import date as _date
     today = _date.today()
     for item in items:
         wm = item.pop("windowed_metrics", None) or {}
         if isinstance(wm, str):
             wm = _json.loads(wm)
-        w = wm.get(window_key, {})
+        w = wm.get(window, {})
         item["score_breakdown"] = w.get("score_breakdown") or item.get("score_breakdown")
 
         iu = item.get("ignored_until")
@@ -177,6 +195,56 @@ async def retirement_dashboard(
         else:
             item["ignored_until"] = None
 
+    # Marketing addendum: when viewing sales channel, add marketing metrics if available
+    if channel == "sales":
+        marketing_ids = [i["content_id"] for i in items
+                         if "interactive_labs" in (i.get("channels_present") or [])]
+        marketing_map = db.get_channel_metrics_map(marketing_ids, "interactive_labs")
+        for item in items:
+            mrow = marketing_map.get(item["content_id"])
+            item["marketing"] = None
+            if mrow:
+                mrow_wm = mrow.get("windowed_metrics") or {}
+                if isinstance(mrow_wm, str):
+                    try:
+                        mrow_wm = _json.loads(mrow_wm)
+                    except (ValueError, TypeError):
+                        mrow_wm = {}
+                mw = mrow_wm.get(window, {})
+                item["marketing"] = {
+                    "provisions": mw.get("provisions", mrow.get("provisions", 0)),
+                    "unique_users": mw.get("unique_users", mrow.get("unique_users", 0)),
+                    "completions": mw.get("completions", mrow.get("completions", 0)),
+                    "page_views": mrow.get("page_views", 0),
+                    "score": mw.get("performance_score"),
+                }
+    else:
+        # When viewing marketing channel, add sales metrics if available
+        sales_ids = [i["content_id"] for i in items
+                     if "rhdp" in (i.get("channels_present") or [])]
+        sales_map = db.get_channel_metrics_map(sales_ids, "rhdp")
+        for item in items:
+            srow = sales_map.get(item["content_id"])
+            item["sales"] = None
+            if srow:
+                srow_wm = srow.get("windowed_metrics") or {}
+                if isinstance(srow_wm, str):
+                    try:
+                        srow_wm = _json.loads(srow_wm)
+                    except (ValueError, TypeError):
+                        srow_wm = {}
+                sw = srow_wm.get(window, {})
+                item["sales"] = {
+                    "provisions": sw.get("provisions", srow.get("provisions", 0)),
+                    "unique_users": sw.get("unique_users", srow.get("unique_users", 0)),
+                    "completions": sw.get("completions", srow.get("completions", 0)),
+                    "page_views": srow.get("page_views", 0),
+                    "pipeline_touched": float(sw.get("pipeline_touched") or 0),
+                    "closed_amount": float(sw.get("closed_amount") or 0),
+                    "total_cost": float(sw.get("total_cost") or 0),
+                    "score": sw.get("performance_score"),
+                }
+
     sync_status = db.get_reporting_sync_status()
     return {
         "items": items,
@@ -184,12 +252,13 @@ async def retirement_dashboard(
         "synced_at": str(sync_status["last_synced"]) if sync_status and sync_status.get("last_synced") else None,
         "summary": sync_status,
         "window": window,
+        "channel": channel,
     }
 
 
 @router.get(
-    "/retirement/workflow/{base_name}",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}",
+    tags=["Performance"],
     summary="Get retirement workflow",
     description="Returns the current retirement workflow state for a catalog item. Curator-only.",
     response_model=WorkflowGetResponse,
@@ -202,8 +271,8 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/review",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/review",
+    tags=["Performance"],
     summary="Mark item as reviewed",
     description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
     response_model=WorkflowResponse,
@@ -225,8 +294,8 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/approve",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/approve",
+    tags=["Performance"],
     summary="Approve item for retirement",
     description=(
         "Approves a catalog item for retirement with a reason and optional replacement. "
@@ -243,21 +312,24 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
-    # Build approval snapshot from performance data
+    # Build channel-keyed approval snapshot from performance data
     perf_score = db.get_performance_score(content_id)
-    perf_channels = db.get_performance_channels(content_id)
-    rhdp = next((ch for ch in perf_channels if ch.get("channel") == "rhdp"), None) if perf_channels else None
-    snapshot = {
-        "provisions": rhdp.get("provisions", 0) if rhdp else 0,
-        "experiences": rhdp.get("completions", 0) if rhdp else 0,
-        "unique_users": rhdp.get("unique_users", 0) if rhdp else 0,
-        "touched_amount": float(rhdp.get("pipeline_touched", 0) or 0) if rhdp else 0,
-        "closed_amount": float(rhdp.get("closed_amount", 0) or 0) if rhdp else 0,
-        "total_cost": float(rhdp.get("total_cost", 0) or 0) if rhdp else 0,
-        "retirement_score": perf_score.get("performance_score", 0) if perf_score else 0,
-        "window": "12m",
-        "snapshot_date": datetime.now().strftime("%Y-%m-%d"),
-    }
+    perf_channels = db.get_performance_channels(content_id) or []
+    channel_scores = (perf_score or {}).get("channel_scores") or {}
+    snapshot: dict = {"snapshot_at": datetime.now().isoformat()}
+    for ch in perf_channels:
+        key = "sales" if ch.get("channel") == "rhdp" else "marketing"
+        snapshot[key] = {
+            "score": ((perf_score or {}).get("performance_score", 0) if key == "sales"
+                      else (channel_scores.get(ch.get("channel"), {}) or {}).get("score", 0)),
+            "provisions": ch.get("provisions", 0),
+            "unique_users": ch.get("unique_users", 0),
+            "completions": ch.get("completions", 0),
+            "pipeline_touched": float(ch.get("pipeline_touched") or 0),
+            "closed_amount": float(ch.get("closed_amount") or 0),
+            "total_cost": float(ch.get("total_cost") or 0),
+            "page_views": ch.get("page_views", 0),
+        }
 
     fields = {
         "step_reviewed_at": "NOW()",
@@ -278,8 +350,8 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/notify",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/notify",
+    tags=["Performance"],
     summary="Mark owner as notified",
     description="Records that the content owner has been notified about the retirement. Curator-only.",
     response_model=WorkflowResponse,
@@ -301,8 +373,8 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/start",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/start",
+    tags=["Performance"],
     summary="Start retirement process",
     description=(
         "Starts the retirement process: creates a Jira ticket and sets a target retirement date. "
@@ -360,8 +432,8 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/link-jira",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/link-jira",
+    tags=["Performance"],
     summary="Link existing Jira ticket",
     description="Links an existing Jira ticket to the retirement workflow and advances to started status. Requires prior approval.",
     response_model=WorkflowResponse,
@@ -394,8 +466,8 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 
 
 @router.put(
-    "/retirement/workflow/{base_name}/notes",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}/notes",
+    tags=["Performance"],
     summary="Update curator notes",
     description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
     response_model=WorkflowResponse,
@@ -412,8 +484,8 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 
 
 @router.delete(
-    "/retirement/workflow/{base_name}",
-    tags=["Retirement"],
+    "/performance/workflow/{base_name}",
+    tags=["Performance"],
     summary="Cancel retirement workflow",
     description="Cancels and removes the retirement workflow for a catalog item. Admin-only.",
     response_model=CancelWorkflowResponse,
@@ -512,10 +584,10 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
 
 
 @router.put(
-    "/retirement/ignore/{base_name}",
-    tags=["Retirement"],
+    "/performance/ignore/{base_name}",
+    tags=["Performance"],
     summary="Ignore item for 30 days",
-    description="Mutes a catalog item from the retirement dashboard for 30 days. Curator-only.",
+    description="Mutes a catalog item from the performance dashboard for 30 days. Curator-only.",
 )
 async def ignore_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
@@ -534,8 +606,8 @@ async def ignore_item(base_name: str, request: Request, user: str = Depends(requ
 
 
 @router.delete(
-    "/retirement/ignore/{base_name}",
-    tags=["Retirement"],
+    "/performance/ignore/{base_name}",
+    tags=["Performance"],
     summary="Un-ignore item",
     description="Removes the mute/ignore from a catalog item. Curator-only.",
 )

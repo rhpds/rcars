@@ -72,3 +72,9 @@ class TestRevokeApiKey:
         client.app.state.db.revoke_api_key.return_value = None
         resp = client.delete("/api/v1/auth/keys/999")
         assert resp.status_code == 404
+
+
+def test_auth_me_includes_performance_public(client):
+    resp = client.get("/api/v1/auth/me")
+    assert resp.status_code == 200
+    assert resp.json()["performance_public"] is True
