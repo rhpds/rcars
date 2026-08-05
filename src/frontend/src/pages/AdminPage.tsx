@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { api } from '../services/api'
+import type { RoleAssignment } from '../services/api'
 
 // ── Token Usage Page ──
 
@@ -233,6 +234,176 @@ export function AdminQueriesPage() {
               )
             })}
           </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Role Assignments Page ──
+
+export function AdminRolesPage() {
+  const [assignments, setAssignments] = useState<RoleAssignment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [type, setType] = useState<'user' | 'group'>('group')
+  const [value, setValue] = useState('')
+  const [role, setRole] = useState<'curator' | 'admin'>('curator')
+  const [adding, setAdding] = useState(false)
+  const [addError, setAddError] = useState('')
+
+  const load = () => {
+    setLoading(true)
+    api.getRoleAssignments()
+      .then(data => setAssignments(data.assignments))
+      .catch(() => setAssignments([]))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const handleAdd = async () => {
+    if (!value.trim()) return
+    setAdding(true)
+    setAddError('')
+    try {
+      await api.addRoleAssignment(type, value.trim(), role)
+      setValue('')
+      load()
+    } catch (e: unknown) {
+      const status = (e as { status?: number })?.status
+      setAddError(status === 409 ? `A ${type} entry for '${value.trim()}' already exists.` : 'Failed to add assignment.')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      await api.deleteRoleAssignment(id)
+      load()
+    } catch {
+      // ignore — reload will reflect actual state
+    }
+  }
+
+  const configEntries = assignments.filter(a => a.source === 'config')
+  const dbEntries = assignments.filter(a => a.source === 'db')
+
+  const shortTime = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+
+  const roleLabel = (r: string) => r.charAt(0).toUpperCase() + r.slice(1)
+  const typeLabel = (t: string) => t === 'user' ? 'User' : 'Group'
+
+  return (
+    <div className="admin-layout admin-layout--wide">
+      {configEntries.length > 0 && (
+        <div className="admin-section">
+          <h3>From Configuration</h3>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
+            Set via environment variables at deploy time. Manage in Ansible vars to change.
+          </p>
+          <table className="status-table">
+            <thead>
+              <tr><th>Type</th><th>Value</th><th>Role</th><th></th></tr>
+            </thead>
+            <tbody>
+              {configEntries.map((a, i) => (
+                <tr key={i}>
+                  <td style={{ color: 'var(--text-muted)' }}>{typeLabel(a.type)}</td>
+                  <td>{a.value}</td>
+                  <td>{roleLabel(a.role)}</td>
+                  <td>
+                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', border: '1px solid var(--border-default)', borderRadius: '3px', padding: '1px 5px' }}>
+                      config
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="admin-section">
+        <h3>Managed Access</h3>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '12px' }}>
+          Add users or OpenShift group names. Group membership is resolved live at login.
+        </p>
+
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <select
+            className="filter-select"
+            value={type}
+            onChange={e => setType(e.target.value as 'user' | 'group')}
+            style={{ width: 'auto' }}
+          >
+            <option value="group">Group</option>
+            <option value="user">User</option>
+          </select>
+          <input
+            type="text"
+            className="filter-select"
+            placeholder={type === 'group' ? 'OpenShift group name' : 'Username'}
+            value={value}
+            onChange={e => { setValue(e.target.value); setAddError('') }}
+            onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+            style={{ minWidth: '220px' }}
+          />
+          <select
+            className="filter-select"
+            value={role}
+            onChange={e => setRole(e.target.value as 'curator' | 'admin')}
+            style={{ width: 'auto' }}
+          >
+            <option value="curator">Curator</option>
+            <option value="admin">Admin</option>
+          </select>
+          <button
+            className="action-btn action-btn--primary"
+            onClick={handleAdd}
+            disabled={adding || !value.trim()}
+          >
+            {adding ? 'Adding…' : 'Add'}
+          </button>
+          {addError && (
+            <span style={{ fontSize: '12px', color: 'var(--score-red, #c9190b)' }}>{addError}</span>
+          )}
+        </div>
+
+        {loading ? (
+          <div style={{ color: 'var(--text-muted)' }}>Loading…</div>
+        ) : dbEntries.length === 0 ? (
+          <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>No managed assignments yet.</div>
+        ) : (
+          <table className="status-table">
+            <thead>
+              <tr><th>Type</th><th>Value</th><th>Role</th><th>Added by</th><th>Added</th><th></th></tr>
+            </thead>
+            <tbody>
+              {dbEntries.map(a => (
+                <tr key={a.id}>
+                  <td style={{ color: 'var(--text-muted)' }}>{typeLabel(a.type)}</td>
+                  <td>{a.value}</td>
+                  <td>{roleLabel(a.role)}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{a.added_by}</td>
+                  <td style={{ color: 'var(--text-muted)', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                    {a.added_at ? shortTime(a.added_at) : '—'}
+                  </td>
+                  <td>
+                    <button
+                      className="action-btn"
+                      onClick={() => handleDelete(a.id!)}
+                      style={{ padding: '2px 8px', fontSize: '12px' }}
+                      title="Remove"
+                    >
+                      ×
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>

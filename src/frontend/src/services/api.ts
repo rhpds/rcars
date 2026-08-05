@@ -304,6 +304,15 @@ export const api = {
     ),
   revokeApiKey: (keyId: number) =>
     request<{ id: number; revoked_at: string }>(`/auth/keys/${keyId}`, { method: 'DELETE' }),
+
+  getRoleAssignments: () => request<{ assignments: RoleAssignment[] }>('/admin/role-assignments'),
+  addRoleAssignment: (type: string, value: string, role: string) =>
+    request<RoleAssignment>('/admin/role-assignments', {
+      method: 'POST',
+      body: JSON.stringify({ type, value, role }),
+    }),
+  deleteRoleAssignment: (id: number) =>
+    request<void>(`/admin/role-assignments/${id}`, { method: 'DELETE' }),
 };
 
 export interface RetirementWorkflow {
@@ -406,4 +415,14 @@ export interface PerformanceDashboardResponse {
   summary: { total: number; last_synced: string | null } | null
   window: string
   channel: string
+}
+
+export interface RoleAssignment {
+  id: number | null
+  type: string
+  value: string
+  role: string
+  source: string
+  added_by: string | null
+  added_at: string | null
 }
