@@ -18,7 +18,8 @@ const stageBadgeClass: Record<string, string> = {
 const safeHref = (url: string | undefined) => url?.startsWith('http') ? url : `https://${url}`
 
 function WorkflowInlineBadge({ status }: { status: string }) {
-  const label = status === 'in_process' ? 'in process' : status
+  const labels: Record<string, string> = { approved: 'recommended', notified: 'recommended', started: 'in progress' }
+  const label = labels[status] || status
   return <span className="ret-inline-badge">{label}</span>
 }
 
@@ -379,7 +380,7 @@ export function PerformancePage() {
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Retirement Status</div>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'In Process'], ['started', 'Started'], ['muted', `Muted${ignoredCount > 0 ? ` (${ignoredCount})` : ''}`]] as [StatusFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', 'Recommended'], ['started', 'In Progress'], ['muted', `Muted${ignoredCount > 0 ? ` (${ignoredCount})` : ''}`]] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                   {label}

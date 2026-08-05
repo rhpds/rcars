@@ -555,9 +555,9 @@ RHDP Content Team`
                     )}
                   </StepperStep>
 
-                  {/* Step 3: Start Retirement */}
+                  {/* Step 3: Retirement In Progress */}
                   <StepperStep
-                    title="Start Retirement"
+                    title="Retirement In Progress"
                     complete={isStarted}
                     active={startIsNext}
                     pending={!isApproved}
