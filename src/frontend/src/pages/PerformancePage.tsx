@@ -192,8 +192,6 @@ export function PerformancePage() {
 
   const isIgnored = (i: PerformanceItem) => !!i.ignored_until
   const activeItems = allItems.filter(i => !isIgnored(i))
-  const ignoredCount = allItems.filter(isIgnored).length
-  const noActionCount = activeItems.filter(i => !i.workflow_status).length
   const recommendedCount = activeItems.filter(i => i.workflow_status === 'approved' || i.workflow_status === 'notified').length
   const inProgressCount = activeItems.filter(i => i.workflow_status === 'started').length
 
