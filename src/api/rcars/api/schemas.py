@@ -374,3 +374,25 @@ class ApiKeyListResponse(BaseModel):
 class RevokeApiKeyResponse(BaseModel):
     id: int
     revoked_at: str
+
+
+# ── Role Assignments ───────────────────────────────────────────────
+
+class RoleAssignment(BaseModel):
+    id: int | None = None
+    type: str
+    value: str
+    role: str
+    source: str  # 'config' | 'db'
+    added_by: str | None = None
+    added_at: datetime | None = None
+
+
+class RoleAssignmentsResponse(BaseModel):
+    assignments: list[RoleAssignment]
+
+
+class AddRoleAssignmentRequest(BaseModel):
+    type: str = Field(pattern="^(user|group)$", description="'user' for a username, 'group' for an OpenShift group name")
+    value: str = Field(min_length=1, max_length=255)
+    role: str = Field(pattern="^(curator|admin)$")
