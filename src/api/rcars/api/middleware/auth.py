@@ -169,10 +169,11 @@ async def _fetch_group_members(group_name: str) -> set[str]:
         return set()
 
     try:
+        if not _K8S_CA_PATH.exists():
+            return cached[0] if cached else set()
         token = _K8S_TOKEN_PATH.read_text().strip()
-        ca = str(_K8S_CA_PATH) if _K8S_CA_PATH.exists() else False
         url = f"https://{_K8S_HOST}:{_K8S_PORT}/apis/user.openshift.io/v1/groups/{group_name}"
-        async with httpx.AsyncClient(verify=ca, timeout=5.0) as client:
+        async with httpx.AsyncClient(verify=str(_K8S_CA_PATH), timeout=5.0) as client:
             resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
             resp.raise_for_status()
         members = set(resp.json().get("users") or [])

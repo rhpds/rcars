@@ -104,10 +104,13 @@ class TestGroupLookup:
     def setup_method(self):
         _GROUPS_CACHE.clear()
 
+    @patch("rcars.api.middleware.auth._K8S_CA_PATH")
     @patch("rcars.api.middleware.auth._K8S_TOKEN_PATH")
     @patch("rcars.api.middleware.auth.httpx.AsyncClient")
     @patch.dict(os.environ, {"KUBERNETES_SERVICE_HOST": "10.0.0.1", "KUBERNETES_SERVICE_PORT": "443"})
-    async def test_fetch_group_members_returns_user_set(self, mock_client_cls, mock_token_path):
+    async def test_fetch_group_members_returns_user_set(self, mock_client_cls, mock_token_path, mock_ca_path):
+        mock_ca_path.exists.return_value = True
+        mock_ca_path.__str__ = lambda self: "/fake/ca.crt"
         mock_token_path.read_text.return_value = "pod-token"
         mock_token_path.exists = MagicMock(return_value=False)
         mock_client_cls.return_value = _mock_async_client_get(

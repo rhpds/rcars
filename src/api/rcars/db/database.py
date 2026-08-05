@@ -475,7 +475,7 @@ class Database:
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys",
+            "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "workload_mapping", "workload_scan_state",
             "babylon_items", "content_entities",

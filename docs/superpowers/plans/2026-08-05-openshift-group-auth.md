@@ -496,7 +496,7 @@
   ```bash
   KUBECONFIG=/Users/nstephan/devel/secrets/rcars-mgmt-dev.kubeconfig \
     oc auth can-i get groups.user.openshift.io \
-    --as system:serviceaccount:rcars-dev:rcars-api
+    --as system:serviceaccount:rcars-dev:default
   ```
 
   Expected: `yes`
