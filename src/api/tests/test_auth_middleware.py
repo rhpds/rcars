@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -11,6 +12,9 @@ from fastapi import HTTPException
 from rcars.api.middleware.auth import (
     _parse_sa_allowlist,
     _validate_sa_token,
+    _fetch_group_members,
+    _user_in_groups,
+    _GROUPS_CACHE,
     get_current_user,
     require_auth,
     require_curator,
@@ -67,6 +71,78 @@ def _mock_async_client(post_return=None, post_side_effect=None) -> MagicMock:
     else:
         client.post = AsyncMock(return_value=post_return)
     return client
+
+
+def _mock_async_client_get(get_return=None) -> MagicMock:
+    """Build a mock httpx.AsyncClient context manager with GET support."""
+    client = AsyncMock()
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    client.get = AsyncMock(return_value=get_return)
+    return client
+
+
+def _mock_group_response(users: list[str]) -> MagicMock:
+    """Build a mock httpx response for a groups API call."""
+    resp = MagicMock()
+    resp.json.return_value = {"users": users}
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Group lookup
+# ---------------------------------------------------------------------------
+
+
+class TestGroupLookup:
+    def setup_method(self):
+        _GROUPS_CACHE.clear()
+
+    @patch("rcars.api.middleware.auth._K8S_TOKEN_PATH")
+    @patch("rcars.api.middleware.auth.httpx.AsyncClient")
+    @patch.dict(os.environ, {"KUBERNETES_SERVICE_HOST": "10.0.0.1", "KUBERNETES_SERVICE_PORT": "443"})
+    async def test_fetch_group_members_returns_user_set(self, mock_client_cls, mock_token_path):
+        mock_token_path.read_text.return_value = "pod-token"
+        mock_token_path.exists = MagicMock(return_value=False)
+        mock_client_cls.return_value = _mock_async_client_get(
+            get_return=_mock_group_response(["user@redhat.com", "other@redhat.com"])
+        )
+        import rcars.api.middleware.auth as auth_mod
+        orig = auth_mod._K8S_HOST
+        auth_mod._K8S_HOST = "10.0.0.1"
+        try:
+            members = await _fetch_group_members("rhdp-curators")
+        finally:
+            auth_mod._K8S_HOST = orig
+        assert "user@redhat.com" in members
+        assert "other@redhat.com" in members
+
+    async def test_fetch_group_members_returns_empty_when_not_in_cluster(self):
+        import rcars.api.middleware.auth as auth_mod
+        orig = auth_mod._K8S_HOST
+        auth_mod._K8S_HOST = ""
+        try:
+            members = await _fetch_group_members("any-group")
+        finally:
+            auth_mod._K8S_HOST = orig
+        assert members == set()
+
+    @patch("rcars.api.middleware.auth._fetch_group_members", new_callable=AsyncMock)
+    async def test_user_in_groups_returns_true_on_membership(self, mock_fetch):
+        mock_fetch.return_value = {"user@redhat.com", "other@redhat.com"}
+        result = await _user_in_groups("user@redhat.com", ["rhdp-curators"])
+        assert result is True
+
+    @patch("rcars.api.middleware.auth._fetch_group_members", new_callable=AsyncMock)
+    async def test_user_in_groups_returns_false_when_not_member(self, mock_fetch):
+        mock_fetch.return_value = {"other@redhat.com"}
+        result = await _user_in_groups("user@redhat.com", ["rhdp-curators"])
+        assert result is False
+
+    async def test_user_in_groups_empty_list_returns_false(self):
+        result = await _user_in_groups("user@redhat.com", [])
+        assert result is False
 
 
 # ---------------------------------------------------------------------------

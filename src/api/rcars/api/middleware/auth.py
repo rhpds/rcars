@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import os
 import time
 from pathlib import Path
 
@@ -21,6 +22,12 @@ _TOKEN_REVIEW_URL = (
 # In-memory cache: key_hash → (user_email, role, expires_at_ts, cached_at)
 _api_key_cache: dict[str, tuple[str, str, float | None, float]] = {}
 _CACHE_TTL = 10.0
+
+# Group membership cache: group_name → (members_set, fetched_at)
+_GROUPS_CACHE: dict[str, tuple[set[str], float]] = {}
+_GROUPS_CACHE_TTL = 60.0
+_K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
+_K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
 
 
 def _log_auth_decision(
@@ -115,6 +122,41 @@ def _validate_api_key_cached(request: Request, raw_key: str) -> tuple[str, str, 
 
 def invalidate_api_key_cache(key_hash: str) -> None:
     _api_key_cache.pop(key_hash, None)
+
+
+async def _fetch_group_members(group_name: str) -> set[str]:
+    now = time.monotonic()
+    cached = _GROUPS_CACHE.get(group_name)
+    if cached:
+        members, fetched_at = cached
+        if now - fetched_at < _GROUPS_CACHE_TTL:
+            return members
+
+    if not _K8S_HOST:
+        return set()
+
+    try:
+        token = _K8S_TOKEN_PATH.read_text().strip()
+        ca = str(_K8S_CA_PATH) if _K8S_CA_PATH.exists() else False
+        url = f"https://{_K8S_HOST}:{_K8S_PORT}/apis/user.openshift.io/v1/groups/{group_name}"
+        async with httpx.AsyncClient(verify=ca, timeout=5.0) as client:
+            resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+            resp.raise_for_status()
+        members = set(resp.json().get("users") or [])
+        _GROUPS_CACHE[group_name] = (members, now)
+        return members
+    except Exception:
+        logger.warning("group_fetch_failed", group=group_name, exc_info=True)
+        return cached[0] if cached else set()
+
+
+async def _user_in_groups(email: str, groups: list[str]) -> bool:
+    if not groups or not email:
+        return False
+    for group in groups:
+        if email in await _fetch_group_members(group):
+            return True
+    return False
 
 
 async def get_current_user(request: Request) -> str | None:

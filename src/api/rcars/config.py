@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     # Auth / roles
     curator_emails_str: str = ""
     admin_emails_str: str = ""
+    curator_groups_str: str = ""
+    admin_groups_str: str = ""
     dev_user: str = ""
     sa_allowlist_str: str = ""
     proxy_verification_secret: str = ""
@@ -153,6 +155,14 @@ class Settings(BaseSettings):
     @property
     def admin_emails(self) -> list[str]:
         return _parse_csv(self.admin_emails_str)
+
+    @property
+    def curator_groups(self) -> list[str]:
+        return _parse_csv(self.curator_groups_str)
+
+    @property
+    def admin_groups(self) -> list[str]:
+        return _parse_csv(self.admin_groups_str)
 
     @property
     def sa_allowlist(self) -> list[str]:
