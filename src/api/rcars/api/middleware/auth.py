@@ -29,6 +29,10 @@ _GROUPS_CACHE_TTL = 60.0
 _K8S_HOST = os.environ.get("KUBERNETES_SERVICE_HOST", "")
 _K8S_PORT = os.environ.get("KUBERNETES_SERVICE_PORT", "443")
 
+# DB role assignments cache: (entries, fetched_at) or None
+_role_assignments_cache: tuple[list[dict], float] | None = None
+_ROLE_ASSIGNMENTS_CACHE_TTL = 30.0
+
 
 def _log_auth_decision(
     request: Request,
@@ -122,6 +126,35 @@ def _validate_api_key_cached(request: Request, raw_key: str) -> tuple[str, str, 
 
 def invalidate_api_key_cache(key_hash: str) -> None:
     _api_key_cache.pop(key_hash, None)
+
+
+def invalidate_role_assignments_cache() -> None:
+    global _role_assignments_cache
+    _role_assignments_cache = None
+
+
+async def _get_cached_role_assignments(db) -> list[dict]:
+    global _role_assignments_cache
+    now = time.monotonic()
+    if _role_assignments_cache:
+        entries, fetched_at = _role_assignments_cache
+        if now - fetched_at < _ROLE_ASSIGNMENTS_CACHE_TTL:
+            return entries
+    entries = db.get_role_assignments()
+    _role_assignments_cache = (entries, now)
+    return entries
+
+
+async def _user_has_db_role(db, email: str, required_roles: set[str]) -> bool:
+    assignments = await _get_cached_role_assignments(db)
+    for entry in assignments:
+        if entry["role"] not in required_roles:
+            continue
+        if entry["type"] == "user" and entry["value"].lower() == email.lower():
+            return True
+        if entry["type"] == "group" and email in await _fetch_group_members(entry["value"]):
+            return True
+    return False
 
 
 async def _fetch_group_members(group_name: str) -> set[str]:
@@ -246,9 +279,12 @@ async def require_curator(request: Request) -> str:
     user = await require_auth(request)
     _check_api_key_role_ceiling(request, "curator")
     settings: Settings = request.app.state.settings
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Curator role required")
-    return user
+    if settings.is_curator(user) or settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"curator", "admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Curator role required")
 
 
 async def require_performance_view(request: Request) -> str:
@@ -258,15 +294,21 @@ async def require_performance_view(request: Request) -> str:
     if settings.performance_public:
         return user
     _check_api_key_role_ceiling(request, "curator")
-    if not settings.is_curator(user) and not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Curator role required")
-    return user
+    if settings.is_curator(user) or settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"curator", "admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Curator role required")
 
 
 async def require_admin(request: Request) -> str:
     user = await require_auth(request)
     _check_api_key_role_ceiling(request, "admin")
     settings: Settings = request.app.state.settings
-    if not settings.is_admin(user):
-        raise HTTPException(status_code=403, detail="Admin role required")
-    return user
+    if settings.is_admin(user):
+        return user
+    db = request.app.state.db
+    if await _user_has_db_role(db, user, {"admin"}):
+        return user
+    raise HTTPException(status_code=403, detail="Admin role required")

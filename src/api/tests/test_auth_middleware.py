@@ -14,7 +14,9 @@ from rcars.api.middleware.auth import (
     _validate_sa_token,
     _fetch_group_members,
     _user_in_groups,
+    _user_has_db_role,
     _GROUPS_CACHE,
+    invalidate_role_assignments_cache,
     get_current_user,
     require_auth,
     require_curator,
@@ -45,7 +47,10 @@ def _make_request(
     settings.is_curator = MagicMock(return_value=False)
     settings.is_admin = MagicMock(return_value=False)
     request.app.state.settings = settings
-    request.app.state.db = db or MagicMock()
+    if db is None:
+        db = MagicMock()
+        db.get_role_assignments.return_value = []
+    request.app.state.db = db
     request.state = MagicMock()
     return request
 
@@ -143,6 +148,101 @@ class TestGroupLookup:
     async def test_user_in_groups_empty_list_returns_false(self):
         result = await _user_in_groups("user@redhat.com", [])
         assert result is False
+
+
+# ---------------------------------------------------------------------------
+# DB role assignment checks
+# ---------------------------------------------------------------------------
+
+
+class TestDbRoleCheck:
+    def setup_method(self):
+        invalidate_role_assignments_cache()
+
+    def _make_db(self, assignments: list[dict]) -> MagicMock:
+        db = MagicMock()
+        db.get_role_assignments.return_value = assignments
+        return db
+
+    async def test_user_type_grants_curator(self):
+        db = self._make_db([{"type": "user", "value": "alice@redhat.com", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"curator", "admin"})
+        assert result is True
+
+    async def test_user_type_case_insensitive(self):
+        db = self._make_db([{"type": "user", "value": "Alice@RedHat.com", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"curator", "admin"})
+        assert result is True
+
+    async def test_user_type_wrong_role_not_granted(self):
+        db = self._make_db([{"type": "user", "value": "alice@redhat.com", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"admin"})
+        assert result is False
+
+    async def test_no_matching_entry_returns_false(self):
+        db = self._make_db([{"type": "user", "value": "other@redhat.com", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"curator", "admin"})
+        assert result is False
+
+    @patch("rcars.api.middleware.auth._fetch_group_members", new_callable=AsyncMock)
+    async def test_group_type_grants_curator_when_member(self, mock_fetch):
+        mock_fetch.return_value = {"alice@redhat.com", "bob@redhat.com"}
+        db = self._make_db([{"type": "group", "value": "rhdp-curators", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"curator", "admin"})
+        assert result is True
+        mock_fetch.assert_called_once_with("rhdp-curators")
+
+    @patch("rcars.api.middleware.auth._fetch_group_members", new_callable=AsyncMock)
+    async def test_group_type_denies_non_member(self, mock_fetch):
+        mock_fetch.return_value = {"bob@redhat.com"}
+        db = self._make_db([{"type": "group", "value": "rhdp-curators", "role": "curator"}])
+        result = await _user_has_db_role(db, "alice@redhat.com", {"curator", "admin"})
+        assert result is False
+
+    async def test_require_curator_passes_via_db_user_entry(self):
+        db = self._make_db([{"type": "user", "value": "alice@redhat.com", "role": "curator"}])
+        request = _make_request(
+            headers={"X-Forwarded-Email": "alice@redhat.com", "X-Proxy-Secret": "s"},
+            proxy_verification_secret="s",
+            db=db,
+        )
+        result = await require_curator(request)
+        assert result == "alice@redhat.com"
+
+    async def test_require_admin_passes_via_db_admin_entry(self):
+        db = self._make_db([{"type": "user", "value": "alice@redhat.com", "role": "admin"}])
+        request = _make_request(
+            headers={"X-Forwarded-Email": "alice@redhat.com", "X-Proxy-Secret": "s"},
+            proxy_verification_secret="s",
+            db=db,
+        )
+        result = await require_admin(request)
+        assert result == "alice@redhat.com"
+
+    async def test_require_admin_blocks_curator_db_entry(self):
+        """curator DB entry is not sufficient for require_admin."""
+        db = self._make_db([{"type": "user", "value": "alice@redhat.com", "role": "curator"}])
+        request = _make_request(
+            headers={"X-Forwarded-Email": "alice@redhat.com", "X-Proxy-Secret": "s"},
+            proxy_verification_secret="s",
+            db=db,
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await require_admin(request)
+        assert exc_info.value.status_code == 403
+
+    async def test_env_var_takes_precedence_no_db_call(self):
+        """Email in env var list skips DB entirely."""
+        db = self._make_db([])
+        request = _make_request(
+            headers={"X-Forwarded-Email": "listed@redhat.com", "X-Proxy-Secret": "s"},
+            proxy_verification_secret="s",
+            db=db,
+        )
+        request.app.state.settings.is_curator.return_value = True
+        result = await require_curator(request)
+        assert result == "listed@redhat.com"
+        db.get_role_assignments.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
