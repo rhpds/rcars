@@ -446,6 +446,11 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 cur.execute(SCHEMA_SQL)
+                for table in ("api_keys", "advisor_sessions", "token_usage",
+                              "embeddings", "enrichment_tags", "analysis_log"):
+                    cur.execute(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
             conn.commit()
 
     def drop_schema(self):
