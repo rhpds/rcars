@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from rcars.api.middleware.auth import _user_has_db_role
 from rcars.config import Settings, call_llm
-from rcars.db.database import Database
+from rcars.db.database import Database, _prefix_overlap
 from rcars.services.analyzer import generate_embedding
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
 from rcars.services.recommender.pipeline import extract_urls
@@ -66,7 +66,7 @@ def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: lis
     """If other items tie with `best` on keyword overlap, return all tied items."""
     stage_placeholders = ",".join(["%s"] * len(stages))
     best_name_words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", best.get("display_name") or "")}
-    best_overlap = len(keywords & best_name_words)
+    best_overlap = _prefix_overlap(keywords, best_name_words)
     with db.pool.connection() as conn:
         rows = conn.execute(
             f"SELECT ce.content_id, ce.display_name, bi.stage "
@@ -76,7 +76,7 @@ def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: lis
     tied = []
     for row in rows:
         name_words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", row["display_name"] or "")}
-        if len(keywords & name_words) == best_overlap:
+        if _prefix_overlap(keywords, name_words) == best_overlap:
             tied.append(row)
     return tied if len(tied) > 1 else None
 

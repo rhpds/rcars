@@ -432,6 +432,17 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 
 
 
+def _prefix_overlap(query_words: set[str], name_words: set[str], min_prefix: int = 4) -> int:
+    """Count keyword matches allowing prefix matching for words >= min_prefix chars."""
+    count = 0
+    for qw in query_words:
+        for nw in name_words:
+            if qw == nw or (len(qw) >= min_prefix and nw.startswith(qw)) or (len(nw) >= min_prefix and qw.startswith(nw)):
+                count += 1
+                break
+    return count
+
+
 class Database:
     def __init__(self, database_url: str):
         self._url = database_url
@@ -657,7 +668,7 @@ class Database:
                 best_overlap = 0
                 for row in cur.fetchall():
                     name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"] or "")}
-                    overlap = len(keywords & name_words)
+                    overlap = _prefix_overlap(keywords, name_words)
                     if overlap >= min_overlap and (overlap > best_overlap or
                             (overlap == best_overlap and row.get("is_published"))):
                         best_overlap = overlap
