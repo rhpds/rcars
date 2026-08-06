@@ -407,6 +407,9 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     perf_channels = db.get_performance_channels(content_id)
     rhdp = next((ch for ch in perf_channels if ch.get("channel") == "rhdp"), None) if perf_channels else None
     metrics = dict(rhdp) if rhdp else {}
+    entity = db.get_content_entity(content_id)
+    if entity and entity.get("display_name"):
+        metrics["display_name"] = entity["display_name"]
 
     wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days}
 
