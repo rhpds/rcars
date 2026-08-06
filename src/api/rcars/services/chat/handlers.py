@@ -156,7 +156,8 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
                      "score": scores.get(cid)})
-    rows.sort(key=lambda r: -(r["provisions"] or 0))
+    if not res.scope_ids:
+        rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1
     return HandlerResult(
         blocks=[Block(type="performance_table",
