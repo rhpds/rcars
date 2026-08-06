@@ -423,7 +423,10 @@ class CatalogReader:
                 # deletion (active ResourceClaims prevent immediate cleanup). Two signals required:
                 # allowGroups:[] locks ordering, and the ops annotation records the deletion message.
                 _ops_raw = (crd.get("metadata", {}).get("annotations") or {}).get("babylon.gpte.redhat.com/ops")
-                _ops_comments = json.loads(_ops_raw).get("comments", []) if _ops_raw else []
+                try:
+                    _ops_comments = json.loads(_ops_raw).get("comments", []) if _ops_raw else []
+                except (json.JSONDecodeError, TypeError):
+                    _ops_comments = []
                 if (
                     crd.get("spec", {}).get("accessControl", {}).get("allowGroups") == []
                     and any(c.get("message") == "Deleted from AgnosticV" for c in _ops_comments)

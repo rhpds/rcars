@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlparse
 import structlog
 from pydantic import ValidationError
 
+from rcars.api.middleware.auth import _user_has_db_role
 from rcars.config import Settings, call_llm
 from rcars.db.database import Database
 from rcars.services.analyzer import generate_embedding
@@ -110,8 +111,8 @@ def _turn_chips(context: list[dict], output: RouterOutput) -> list[Chip]:
             for t in _result_turns(context)[-3:]]
 
 
-def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
-                       settings: Settings, user_email: str) -> Resolution:
+async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
+                             settings: Settings, user_email: str) -> Resolution:
     # Ladder 2: symbolic scope → content_ids from session turns
     scope_ids: list[str] = []
     scope_turn: int | None = None
@@ -163,8 +164,10 @@ def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
     # Ladder 5: role check on the resolved intent (demand is logged before opening up)
     required = settings.chat_intent_roles.get(output.intent, "any")
     allowed = (required == "any"
-               or (required == "curator" and (settings.is_curator(user_email) or settings.is_admin(user_email)))
-               or (required == "admin" and settings.is_admin(user_email)))
+               or (required == "curator" and (settings.is_curator(user_email) or settings.is_admin(user_email)
+                                              or await _user_has_db_role(db, user_email, {"curator", "admin"})))
+               or (required == "admin" and (settings.is_admin(user_email)
+                                            or await _user_has_db_role(db, user_email, {"admin"}))))
     if not allowed:
         logger.info("chat_role_redirect", component="chat", intent=output.intent,
                     required_role=required, user=user_email)

@@ -43,59 +43,66 @@ def test_pattern_check_url_and_lb():
     assert chat_router.pattern_check("find me an ansible lab") is None
 
 
-def test_scope_prior_results_resolves_and_skips_clarify_turns(db):
+@pytest.mark.asyncio
+async def test_scope_prior_results_resolves_and_skips_clarify_turns(db):
     seed_chat_fixtures(db)
     out = RouterOutput(intent="performance", confidence=0.9,
                        scope=Scope(type="prior_results", turn=0))
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "execute"
     assert res.scope_ids == ["babylon:lb2144-ansible-eda", "babylon:lb2145-ansible-basics"]
 
 
-def test_scope_ordinal(db):
+@pytest.mark.asyncio
+async def test_scope_ordinal(db):
     seed_chat_fixtures(db)
     out = RouterOutput(intent="item_facts", confidence=0.9,
                        scope=Scope(type="ordinal", turn=0, index=2))
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "execute"
     assert [i["content_id"] for i in res.items] == ["babylon:lb2145-ansible-basics"]
 
 
-def test_stale_scope_clarifies(db):
+@pytest.mark.asyncio
+async def test_stale_scope_clarifies(db):
     out = RouterOutput(intent="performance", confidence=0.9,
                        scope=Scope(type="prior_results", turn=99))
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "clarify" and res.chips
 
 
-def test_unresolvable_ref_offers_guesses(db, monkeypatch):
+@pytest.mark.asyncio
+async def test_unresolvable_ref_offers_guesses(db, monkeypatch):
     seed_chat_fixtures(db)
     monkeypatch.setattr(chat_router, "generate_embedding",
                         lambda text, prefix="": fake_embedding(text))
     out = RouterOutput(intent="overlap", confidence=0.9, item_refs=["the quantum blockchain lab"])
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "clarify"
     assert res.clarify and "mean" in res.clarify.question.lower()
     assert 0 < len(res.chips) <= 3
 
 
-def test_lb_ref_resolves(db):
+@pytest.mark.asyncio
+async def test_lb_ref_resolves(db):
     ids = seed_chat_fixtures(db)
     out = RouterOutput(intent="overlap", confidence=0.9, item_refs=["LB2144"])
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "execute"
     assert res.items[0]["content_id"] == ids["lb2144-ansible-eda"]
 
 
-def test_low_confidence_clarifies(db):
+@pytest.mark.asyncio
+async def test_low_confidence_clarifies(db):
     out = RouterOutput(intent="recommend", confidence=0.3,
                        clarify={"question": "Lab or demo?", "options": ["Lab", "Demo"]})
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
     assert res.kind == "clarify" and res.clarify.question == "Lab or demo?"
 
 
-def test_role_gate_redirects(db):
+@pytest.mark.asyncio
+async def test_role_gate_redirects(db):
     out = RouterOutput(intent="performance", confidence=0.9,
                        scope=Scope(type="prior_results", turn=0))
-    res = chat_router.resolve_and_verify(out, CTX, db, SETTINGS(), "notcurator@x.com")
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(), "notcurator@x.com")
     assert res.kind == "redirect" and "curator" in res.redirect_message.lower()

@@ -122,8 +122,8 @@ async def sse_stream(relay: JobProgressRelay, job_id: str,
                      job_status: str | None = None) -> AsyncGenerator[str, None]:
     # If the job already finished before the stream opened (fast handlers),
     # emit a synthetic complete/failed event so the frontend doesn't hang.
-    if job_status in ("completed", "failed"):
-        phase = "complete" if job_status == "completed" else "failed"
+    if job_status in ("complete", "failed"):
+        phase = "complete" if job_status == "complete" else "failed"
         done_msg = {"phase": phase, "status": job_status}
         yield f"data: {json.dumps({**done_msg, 'user_message': translate_to_user_message(done_msg)})}\n\n"
         return

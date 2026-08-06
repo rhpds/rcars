@@ -127,6 +127,10 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
 
 async def handle_performance(res: Resolution, db: Database, settings: Settings,
                              stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     args = PerformanceArgs.model_validate(res.output.args)
     window = args.window or "3m"
     triaged = [i for i in res.items if i.get("tier") in ("green", "yellow")]

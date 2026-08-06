@@ -70,7 +70,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                             answer=OUT_OF_SCOPE_ANSWER,
                             blocks=[Block(type="notice", data={"kind": "out_of_scope"})])
     else:
-        res = resolve_and_verify(output, context, db, settings, user_email)
+        res = await resolve_and_verify(output, context, db, settings, user_email)
         if res.kind == "clarify":
             intent_for_log = "clarify"
             envelope = Envelope(intent="clarify", scope_echo="Needs clarification",

@@ -202,10 +202,14 @@ export function AdvisorPage() {
           setTurns(prev => [...prev, env])
           setActiveTurn(turns.length)
           setMessages(prev => [...prev, { role: 'assistant', content: env.answer, envelope: env, jobId: activeJobId }])
+        } else {
+          const errMsg = data.error || 'Something went wrong. Please try again.'
+          setMessages(prev => [...prev, { role: 'assistant', content: errMsg }])
         }
         setActiveJobId(null)
         setSending(false)
       }).catch(() => {
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Something went wrong. Please try again.' }])
         setActiveJobId(null)
         setSending(false)
       })

@@ -181,7 +181,11 @@ async def _fetch_group_members(group_name: str) -> set[str]:
         return members
     except Exception:
         logger.warning("group_fetch_failed", group=group_name, exc_info=True)
-        return cached[0] if cached else set()
+        if cached:
+            members, fetched_at = cached
+            if now - fetched_at < 300:
+                return members
+        return set()
 
 
 async def _user_in_groups(email: str, groups: list[str]) -> bool:
