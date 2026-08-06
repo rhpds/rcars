@@ -57,6 +57,14 @@
       results: [{id: "babylon:aws-ocp-arm", name: "AWS with OpenShift Open Environment (ARM)"}]
   expect: {intent: item_facts}
 
+- message: "None of these. I just need an empty AWS sandbox environment."
+  context:
+    - n: 0
+      intent: clarify
+      query: "tell me about the AWS Open Environment"
+      results: []
+  expect: {intent: item_facts}
+
 - message: "what's the weather in Raleigh?"
   expect: {intent: out_of_scope}
 

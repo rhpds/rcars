@@ -129,7 +129,9 @@ def build_router_prompt(context: list[dict]) -> tuple[str, str]:
         "Rules: scope refers to a prior turn by its number n; use type 'prior_results' for "
         "these/those/them and 'ordinal' (with 1-based index) for 'the second one'. Put free-text "
         "item mentions in item_refs — never invent catalog names. confidence is 0-1. If unsure, "
-        "set clarify to {question, options} and lower confidence.\n"
+        "set clarify to {question, options} and lower confidence. "
+        "When the user rejects clarification options ('none of these', 'not that') and restates "
+        "what they want, keep the SAME intent as the prior turn — do NOT switch to recommend.\n"
         f"Examples:\n{shots}")
     ctx = json.dumps(context, default=str).replace('{', '{{').replace('}', '}}')
     user = ("Session context (prior turns, oldest first; 'n' is the turn number):\n"

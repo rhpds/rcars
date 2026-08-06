@@ -172,7 +172,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
         else:
             chips = [Chip(label=g.get("display_name", g["content_id"]), intent=output.intent,
                           args={**output.args, "item_ref": f"content_id:{g['content_id']}"})
-                     for g in resolved["guesses"][:3]]
+                     for g in resolved["guesses"][:5]]
             return Resolution(kind="clarify", output=output,
                               clarify=Clarify(question=f'I couldn\'t find "{ref}". Did you mean:'),
                               chips=chips)
