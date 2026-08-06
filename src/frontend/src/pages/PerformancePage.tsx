@@ -24,7 +24,7 @@ function WorkflowInlineBadge({ status }: { status: string }) {
 }
 
 export function PerformancePage() {
-  const { isCurator, canViewPerformance } = useAuth()
+  const { isCurator, isAdmin, canViewPerformance } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [search, setSearch] = useState(searchParams.get('search') || '')
@@ -381,7 +381,7 @@ export function PerformancePage() {
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Retirement Status</div>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', `Recommended (${recommendedCount})`], ['started', `In Progress (${inProgressCount})`], ['muted', 'Muted']] as [StatusFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', `Recommended (${recommendedCount})`], ['started', `In Progress (${inProgressCount})`], ...(isAdmin ? [['muted', 'Muted']] : [])] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                   {label}
@@ -643,7 +643,7 @@ export function PerformancePage() {
                             {isCurator && (
                               <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center',
                                 borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
-                                {muted ? (
+                                {isAdmin && (muted ? (
                                   <button className="ret-action-btn" onClick={(e) => { e.stopPropagation(); handleUnignore(item.catalog_base_name) }}>
                                     Unmute
                                   </button>
@@ -652,7 +652,7 @@ export function PerformancePage() {
                                     title="Mute this item for 30 days — removes it from counts and filters">
                                     Mute 30d
                                   </button>
-                                )}
+                                ))}
                                 <button className="ret-action-btn ret-action-btn--primary" onClick={(e) => { e.stopPropagation(); setDrawerItem(item) }}>
                                   Retirement Workflow
                                 </button>
