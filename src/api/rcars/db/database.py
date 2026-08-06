@@ -1942,7 +1942,7 @@ class Database:
         with self._pool.connection() as conn:
             conn.execute(
                 """UPDATE jobs
-                   SET status = 'running',
+                   SET status = CASE WHEN status IN ('complete', 'failed') THEN status ELSE 'running' END,
                        started_at = COALESCE(started_at, %s),
                        progress_json = jsonb_set(
                            COALESCE(progress_json, '{"messages":[]}'),
