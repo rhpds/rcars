@@ -49,6 +49,14 @@
 - message: "what modules are in LB2145 and what products does it cover?"
   expect: {intent: item_facts}
 
+- message: "is there one without ARM?"
+  context:
+    - n: 0
+      intent: item_facts
+      query: "tell me about the AWS Open Environment"
+      results: [{id: "babylon:aws-ocp-arm", name: "AWS with OpenShift Open Environment (ARM)"}]
+  expect: {intent: item_facts}
+
 - message: "what's the weather in Raleigh?"
   expect: {intent: out_of_scope}
 

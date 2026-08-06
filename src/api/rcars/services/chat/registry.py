@@ -85,7 +85,10 @@ INTENTS: dict[str, IntentSpec] = {
         block_types=("item_card",),
         followups=({"label": "Overlap with this", "intent": "overlap", "scope_from": "anchor"},
                    {"label": "Performance of this", "intent": "performance", "scope_from": "anchor"}),
-        prompt_fragment="item_facts: describe one specific item (what is / tell me about / what's in).",
+        prompt_fragment=("item_facts: describe one specific item (what is / tell me about / what's in). "
+                         "Also use for variant-finding follow-ups ('is there one without X', "
+                         "'is there a version with Y') — extract the base name from the prior turn "
+                         "and put the modified name in item_refs. Do NOT use recommend for variants."),
         examples=(
             {"message": "what is the SAP HANA demo about?",
              "output": {"intent": "item_facts", "args": {"item_ref": "SAP HANA demo"}, "scope": None,
@@ -93,6 +96,9 @@ INTENTS: dict[str, IntentSpec] = {
             {"message": "tell me about the second one",
              "output": {"intent": "item_facts", "args": {}, "scope": {"type": "ordinal", "turn": 0, "index": 2},
                         "item_refs": [], "confidence": 0.85, "clarify": None}},
+            {"message": "is there one without ARM?",
+             "output": {"intent": "item_facts", "args": {"item_ref": "AWS Open Environment"}, "scope": None,
+                        "item_refs": ["AWS Open Environment"], "confidence": 0.75, "clarify": None}},
         )),
     "out_of_scope": IntentSpec(
         name="out_of_scope",
