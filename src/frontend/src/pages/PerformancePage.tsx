@@ -414,7 +414,7 @@ export function PerformancePage() {
           <div style={{ display: 'flex', gap: '4px' }}>
             {([['3m', '3 Mo'], ['6m', '6 Mo'], ['9m', '9 Mo'], ['12m', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
               <button key={w} onClick={() => setWindow(w)}
-                className={window_ === w ? 'active' : ''}>
+                className={`ca-filter-btn${window_ === w ? ' active' : ''}`}>
                 {label}
               </button>
             ))}
