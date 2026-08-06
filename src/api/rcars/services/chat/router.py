@@ -62,6 +62,25 @@ def pattern_check(message: str) -> RouterOutput | None:
     return None
 
 
+def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: list[str]) -> list[dict] | None:
+    """If other items tie with `best` on keyword overlap, return all tied items."""
+    stage_placeholders = ",".join(["%s"] * len(stages))
+    best_name_words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", best.get("display_name") or "")}
+    best_overlap = len(keywords & best_name_words)
+    with db.pool.connection() as conn:
+        rows = conn.execute(
+            f"SELECT ce.content_id, ce.display_name, bi.stage "
+            f"FROM content_entities ce JOIN babylon_items bi ON bi.content_id = ce.content_id "
+            f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
+            (*stages,)).fetchall()
+    tied = []
+    for row in rows:
+        name_words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", row["display_name"] or "")}
+        if len(keywords & name_words) == best_overlap:
+            tied.append(row)
+    return tied if len(tied) > 1 else None
+
+
 def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
                  embed_fn=None) -> dict:
     """Catalog resolution: LB regex → name keyword overlap → embedding guesses.
@@ -80,6 +99,9 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
         if item:
+            ties = _find_keyword_ties(db, words, item, stages)
+            if ties:
+                return {"guesses": ties}
             return {"item": item}
     embed = embed_fn or generate_embedding
     guesses = db.search_embeddings(embed(ref, prefix="search_query"),
