@@ -445,10 +445,10 @@ export function AdvisorPage() {
         onMouseDown={handleResizeStart}
       />
 
-      {/* Evidence panel */}
+      {/* Results panel */}
       <div className="rec-pane" style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div className="pane-label">Evidence</div>
+          <div className="pane-label">Results</div>
           {turns.length > 1 && (
             <div style={{ display: 'flex', gap: '6px', fontSize: '12px' }}>
               {turns.map((_, i) => (
@@ -485,7 +485,7 @@ export function AdvisorPage() {
           <div className="rec-pane-loading">Waiting for results...</div>
         ) : (
           <div style={{ color: 'var(--text-muted)', fontSize: '15px', padding: '20px 0' }}>
-            Submit a query to see evidence.
+            Submit a query to see results.
           </div>
         )}
       </div>
