@@ -583,8 +583,19 @@ class Database:
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
+                cur.execute("SELECT content_type FROM content_entities WHERE content_id = %s", (content_id,))
+                row = cur.fetchone()
+                prev_type = row["content_type"] if row else None
+
                 cur.execute(ce_sql, ce_data)
                 cur.execute(bi_sql, bi_data)
+
+                if prev_type and prev_type != content_type:
+                    cur.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
+                    cur.execute("DELETE FROM showroom_analysis WHERE content_id = %s", (content_id,))
+                    logger.info("content_type_transition", component="rcars",
+                                content_id=content_id, prev=prev_type, new=content_type,
+                                action="cleared_artifacts")
             conn.commit()
         return content_id
 

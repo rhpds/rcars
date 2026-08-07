@@ -71,7 +71,7 @@ async def create_api_key(
     body: CreateApiKeyRequest, request: Request, user: str = Depends(require_admin)
 ):
     settings: Settings = request.app.state.settings
-    creator_max = _user_max_role(settings, user)
+    creator_max = await _user_max_role(settings, user)
     if _ROLE_LEVELS.get(body.role, 0) > _ROLE_LEVELS[creator_max]:
         raise HTTPException(
             status_code=403,
