@@ -391,12 +391,28 @@ src/api/rcars/prompts/vocabulary.yaml      # source of truth, PR-reviewed
 ```
 
 ```yaml
-# vocabulary.yaml — source-agnostic; shared by all content analyzers
-solutions:  [ApplicationPlatform, ContainerManagement, Edge, ...]
-products:   ["Red Hat OpenShift", "Red Hat Advanced Cluster Security", ...]
-topics:     [gitops, service-mesh, observability, ...]
-lo_verbs:   [deploy, configure, integrate, secure, ...]   # learning-objective verbs (Babylon labs)
+# vocabulary.yaml — source-agnostic; shared by all content analyzers.
+# products/solutions/verticals carry {name, aliases} so near-duplicates and
+# acronyms (RHACS, ApplicationPlatform, FSI, ...) normalize to one canonical
+# term. Layout mirrors the Publishing House ph-validation-policy ConfigMap.
+products:                                    # canonical Red Hat product names
+  - {name: "Red Hat Advanced Cluster Security", aliases: [RHACS, ACS, StackRox]}
+  - ...
+solutions:                                   # high-level solution areas (OSSPA-anchored)
+  - {name: "Application Platform", aliases: [ApplicationPlatform, ApplicationDevelopment]}
+  - ...
+verticals:                                   # industry verticals (OSSPA PAList Vertical)
+  - {name: "Financial Services", aliases: [FSI]}
+  - ...
+platforms:  [On-Premise, AWS, Azure, Cloud, Edge]   # OSSPA-native deployment target
+topics:     [gitops, service-mesh, observability, ...]   # BROAD only — LLM coins the specifics
+audience:   ["platform engineers", developers, ...]      # roles (open-ended)
+difficulty: [beginner, intermediate, advanced]           # closed set
+action_verbs_valid:    [deploy, configure, integrate, ...]   # learning-objective verbs (Babylon labs)
+action_verbs_rejected: [understand, learn, know, ...]        # non-measurable — flag/replace
 ```
+
+`topics` is deliberately a **broad** guide, not an exhaustive taxonomy: the OSSPA `metaKeyword` column alone holds 186 near-unique keywords (e.g. "granite 3.2 8b instruct"), and codifying that granularity would blunt the model's own topic detection. The vocabulary normalizes the *stable* dimensions (products, solutions, verticals, LO verbs) and leaves fine-grained topics to the LLM.
 
 **Loading.** A cached loader reads the file (or the ConfigMap mount path) once per process:
 
