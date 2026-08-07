@@ -309,6 +309,9 @@ export function AdvisorPage() {
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.
               </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '12px' }}>
+                Questions or feedback? Join <a href="https://redhat.enterprise.slack.com/archives/C0BNJ74JA3V" target="_blank" rel="noopener noreferrer">#forum-dem-rcars</a> on Slack.
+              </p>
             </div>
           )}
           {messages.map((msg, i) => (
