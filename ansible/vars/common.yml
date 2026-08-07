@@ -36,6 +36,8 @@ vertex_region: us-east5
 stale_days: 3
 curator_emails: []
 admin_emails: []
+# Performance page visible to all authenticated users (false = curator-only)
+performance_public: true
 
 # Scheduled maintenance pipeline (runs in scan-worker via arq cron)
 pipeline_enabled: true

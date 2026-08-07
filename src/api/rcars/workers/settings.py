@@ -34,6 +34,7 @@ from rcars.logging import setup_logging, get_logger
 from rcars.api.streaming import JobProgressRelay
 from rcars.workers.base import WorkerContext
 from rcars.workers.recommend import run_recommendation
+from rcars.workers.chat import run_chat_turn
 from rcars.workers.scan import run_analysis
 from arq import cron, func
 from rcars.workers.ops import run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan, run_reporting_sync_job
@@ -109,7 +110,7 @@ class WorkerSettings:
 
 class RecommendWorkerSettings:
     """Recommendation worker — handles advisor queries. Separate from scan to avoid starvation."""
-    functions = [run_recommendation]
+    functions = [run_recommendation, run_chat_turn]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))

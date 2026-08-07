@@ -4,6 +4,7 @@ Reads CatalogItem and AgnosticVComponent CRDs from the Babylon K8s API
 and extracts catalog metadata and Showroom URLs using a strict allowlist.
 """
 
+import json
 import logging
 import urllib3
 from datetime import datetime
@@ -418,6 +419,22 @@ class CatalogReader:
 
             log.info("Found %d CatalogItems in %s, processing...", len(crds), ns)
             for i, crd in enumerate(crds, 1):
+                # Skip CatalogItems the agnosticv-operator is holding open after AgnosticVComponent
+                # deletion (active ResourceClaims prevent immediate cleanup). Two signals required:
+                # allowGroups:[] locks ordering, and the ops annotation records the deletion message.
+                _ops_raw = (crd.get("metadata", {}).get("annotations") or {}).get("babylon.gpte.redhat.com/ops")
+                try:
+                    _ops_comments = json.loads(_ops_raw).get("comments", []) if _ops_raw else []
+                except (json.JSONDecodeError, TypeError):
+                    _ops_comments = []
+                if (
+                    crd.get("spec", {}).get("accessControl", {}).get("allowGroups") == []
+                    and any(c.get("message") == "Deleted from AgnosticV" for c in _ops_comments)
+                ):
+                    ci_name = crd.get("metadata", {}).get("name", "unknown")
+                    log.info("Skipping CatalogItem %s (deleted from AgnosticV, pending ResourceClaim drain)", ci_name)
+                    continue
+
                 item = extract_catalog_item(crd)
                 ci_name = item["ci_name"]
 

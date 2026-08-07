@@ -700,9 +700,9 @@ def reporting_db_status(ctx):
 
     _print(f"  Last synced:    {status['last_synced']}")
     _print(f"  Total items:    {status['total']}")
-    _print(f"  High (>=55):    {status['high']}")
-    _print(f"  Review (35-54): {status['review']}")
-    _print(f"  Keepers (<35):  {status['keepers']}")
+    _print(f"  Strong (>=55):    {status['strong']}")
+    _print(f"  Moderate (35-54): {status['moderate']}")
+    _print(f"  Low (<35):        {status['low']}")
 
 
 @reporting_db_group.command("show")

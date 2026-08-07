@@ -115,6 +115,38 @@
           name: default
           namespace: "{{ target_namespace }}"
 
+- name: Ensure OAuth SA can read OpenShift group membership
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: "{{ app_name }}-group-reader"
+      rules:
+        - apiGroups: ["user.openshift.io"]
+          resources: ["groups"]
+          verbs: ["get"]
+
+- name: Bind group-reader ClusterRole to API SA (default)
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: "{{ app_name }}-group-reader"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: "{{ app_name }}-group-reader"
+      subjects:
+        - kind: ServiceAccount
+          name: default
+          namespace: "{{ target_namespace }}"
+
 # ── Long-lived token + kubeconfig generation ──────────────────────────────────
 
 - name: Ensure long-lived token Secret exists

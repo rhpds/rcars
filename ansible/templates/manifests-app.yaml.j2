@@ -117,6 +117,8 @@ spec:
               value: "{{ curator_emails | join(',') }}"
             - name: RCARS_ADMIN_EMAILS_STR
               value: "{{ admin_emails | join(',') }}"
+            - name: RCARS_PERFORMANCE_PUBLIC
+              value: "{{ performance_public | default(true) | lower }}"
             - name: RCARS_STALE_DAYS
               value: "{{ stale_days }}"
             - name: RCARS_SA_ALLOWLIST_STR
@@ -467,6 +469,12 @@ spec:
               value: "{{ recommend_max_jobs | default('15') }}"
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
+            - name: RCARS_CURATOR_EMAILS_STR
+              value: "{{ curator_emails | join(',') }}"
+            - name: RCARS_ADMIN_EMAILS_STR
+              value: "{{ admin_emails | join(',') }}"
+            - name: RCARS_PERFORMANCE_PUBLIC
+              value: "{{ performance_public | default(true) | lower }}"
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials

@@ -8,7 +8,7 @@ import httpx
 import structlog
 from fastapi import APIRouter, Depends, Request, HTTPException, Query
 
-from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache, _K8S_CA_PATH
+from rcars.api.middleware.auth import require_auth, require_admin, invalidate_api_key_cache, _K8S_CA_PATH, _user_has_db_role
 from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import (
     AuthMeResponse,
@@ -29,10 +29,10 @@ router = APIRouter()
 _ROLE_LEVELS = {"user": 0, "curator": 1, "admin": 2}
 
 
-def _user_max_role(settings: Settings, user: str) -> str:
-    if settings.is_admin(user):
+async def _user_max_role(settings: Settings, user: str, db=None) -> str:
+    if settings.is_admin(user) or (db and await _user_has_db_role(db, user, {"admin"})):
         return "admin"
-    if settings.is_curator(user):
+    if settings.is_curator(user) or (db and await _user_has_db_role(db, user, {"curator", "admin"})):
         return "curator"
     return "user"
 
@@ -52,12 +52,13 @@ def _generate_api_key() -> tuple[str, str, str]:
 )
 async def auth_me(request: Request, user: str = Depends(require_auth)):
     settings: Settings = request.app.state.settings
+    db = request.app.state.db
     roles = ["user"]
-    if settings.is_curator(user) or settings.is_admin(user):
+    if settings.is_curator(user) or settings.is_admin(user) or await _user_has_db_role(db, user, {"curator", "admin"}):
         roles.append("curator")
-    if settings.is_admin(user):
+    if settings.is_admin(user) or await _user_has_db_role(db, user, {"admin"}):
         roles.append("admin")
-    return {"email": user, "roles": roles}
+    return {"email": user, "roles": roles, "performance_public": settings.performance_public}
 
 
 @router.post(
@@ -220,14 +221,14 @@ async def exchange_token(body: TokenExchangeRequest, request: Request):
 
     # Create 24h API key
     raw_key, key_hash, key_prefix = _generate_api_key()
-    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=settings.cli_token_expiry_hours)
 
     db.create_api_key(
         key_hash=key_hash,
         key_prefix=key_prefix,
         name=f"CLI session {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')}",
         created_by=user_email,
-        role="user",
+        role=await _user_max_role(settings, user_email, db=db),
         expires_at=expires_at,
     )
 

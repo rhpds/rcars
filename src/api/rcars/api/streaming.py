@@ -77,6 +77,22 @@ def translate_to_user_message(msg: dict) -> str:
         if status == "complete":
             return f"Found {msg.get('candidates', 0)} candidates"
 
+    if phase == "routing":
+        return "Understanding your question..."
+
+    if phase == "fetching":
+        intent = msg.get("intent", "")
+        labels = {
+            "recommend": "Searching the content catalog...",
+            "overlap": "Finding similar items...",
+            "performance": "Checking performance channels...",
+            "item_facts": "Loading item details...",
+        }
+        return labels.get(intent, "Fetching data...")
+
+    if phase == "composing":
+        return "Writing the answer..."
+
     if phase == "triage":
         if status == "started":
             return f"Evaluating relevance of {msg.get('total', '?')} candidates..."
@@ -102,7 +118,16 @@ def translate_to_user_message(msg: dict) -> str:
     return f"{phase}: {status}"
 
 
-async def sse_stream(relay: JobProgressRelay, job_id: str) -> AsyncGenerator[str, None]:
+async def sse_stream(relay: JobProgressRelay, job_id: str,
+                     job_status: str | None = None) -> AsyncGenerator[str, None]:
+    # If the job already finished before the stream opened (fast handlers),
+    # emit a synthetic complete/failed event so the frontend doesn't hang.
+    if job_status in ("complete", "failed"):
+        phase = "complete" if job_status == "complete" else "failed"
+        done_msg = {"phase": phase, "status": job_status}
+        yield f"data: {json.dumps({**done_msg, 'user_message': translate_to_user_message(done_msg)})}\n\n"
+        return
+
     queued_msg = {"phase": "queued", "status": "waiting"}
     queued_data = {**queued_msg, "user_message": translate_to_user_message(queued_msg)}
     yield f"data: {json.dumps(queued_data)}\n\n"
@@ -116,9 +141,10 @@ async def sse_stream(relay: JobProgressRelay, job_id: str) -> AsyncGenerator[str
         yield f"data: {json.dumps(event_data)}\n\n"
 
 
-def create_sse_response(relay: JobProgressRelay, job_id: str) -> StreamingResponse:
+def create_sse_response(relay: JobProgressRelay, job_id: str,
+                        job_status: str | None = None) -> StreamingResponse:
     return StreamingResponse(
-        sse_stream(relay, job_id),
+        sse_stream(relay, job_id, job_status=job_status),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

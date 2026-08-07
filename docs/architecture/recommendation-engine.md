@@ -9,6 +9,9 @@ The recommendation engine is the core of the RCARS Advisor. When a user asks a q
 
 The engine uses a three-phase progressive pipeline. Each phase narrows and enriches the results. The pipeline is implemented as a generator that yields state after each phase, allowing the web UI to show progressive results as they become available.
 
+!!! note "Chat Integration"
+    The recommendation pipeline is also invoked by the [Advisor Chat](advisor-chat.md) `handle_recommend` handler. Chat queries support two additional parameters: `depth` (low/medium/high — controls how far through the pipeline to run) and `scope_content_ids` (restricts vector search to a working set from prior turns). When `depth` is omitted, the full three-phase pipeline runs unchanged.
+
 ```mermaid
 flowchart TD
     Q[User Query] --> Acronym[Expand Acronyms<br/>AAP → Ansible Automation Platform]
@@ -211,8 +214,8 @@ Currently supported acronyms:
 | Acronym | Expansion |
 |---------|-----------|
 | AAP | Ansible Automation Platform |
-| ACM, RHACM | Advanced Cluster Management |
-| ACS, RHACS | Advanced Cluster Security |
+| ACM, RHACM | Advanced Cluster Management for Kubernetes |
+| ACS, RHACS | Advanced Cluster Security for Kubernetes |
 | RHOAI | Red Hat OpenShift AI |
 | OCP | OpenShift Container Platform |
 | ARO | Azure Red Hat OpenShift |
@@ -223,8 +226,13 @@ Currently supported acronyms:
 | RHSSO | Red Hat Single Sign-On |
 | EDA | Event-Driven Ansible |
 | TAP | Trusted Application Pipeline |
+| AMQ | Red Hat AMQ Streams |
+| CRW | Red Hat CodeReady Workspaces |
+| RHBK | Red Hat Build of Keycloak |
 
-This is a hardcoded list in `pipeline.py` and a known limitation — acronyms not in this table will produce poor vector matches. A more robust approach (e.g., a curated dictionary loaded from the database, or automatic expansion from product metadata) is on the backlog.
+In addition to acronyms, RCARS expands common product synonyms (e.g., "Red Hat AI" → "Red Hat OpenShift AI", "GitOps" → "Red Hat OpenShift GitOps ArgoCD Argo CD"). Both lists are defined in `src/api/rcars/data/product-terms.yaml`.
+
+Acronyms and synonyms not in this file will produce poor vector matches. The YAML file can be edited and redeployed without code changes.
 
 ---
 

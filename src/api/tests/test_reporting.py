@@ -4,7 +4,7 @@ import json
 from unittest.mock import patch, MagicMock
 
 from rcars.services.reporting_sync import (
-    extract_base_name, compute_retirement_score, mcp_query,
+    extract_base_name, compute_performance_score, compute_performance_score_breakdown, mcp_query,
     _window_start, _build_windowed_metrics, WINDOW_DAYS,
 )
 
@@ -29,85 +29,65 @@ class TestExtractBaseName:
         assert extract_base_name("a.b.c.prod") == "a.b.c"
 
 
-class TestRetirementScore:
-    def test_perfect_retirement_candidate(self):
-        """Bottom percentile on everything, zero sales, high cost."""
-        score = compute_retirement_score(
+class TestComputePerformanceScore:
+    def test_zero_activity_scores_zero(self):
+        score = compute_performance_score(
             provisions_zero=True, provisions_pct=0,
             touched_zero=True, touched_pct=0,
             closed_zero=True, closed_pct=0,
-            total_cost=10000, closed_amount=0, first_provision="",
+            total_cost=0, closed_amount=0,
         )
-        assert score >= 70
+        assert score == 0
 
-    def test_healthy_asset(self):
-        """Top percentile on everything."""
-        score = compute_retirement_score(
-            provisions_zero=False, provisions_pct=90,
-            touched_zero=False, touched_pct=90,
+    def test_top_performer_scores_high(self):
+        score = compute_performance_score(
+            provisions_zero=False, provisions_pct=90, provisions_raw=612,
+            touched_zero=False, touched_pct=90, touched_raw=3_800_000,
             closed_zero=False, closed_pct=90,
-            total_cost=50000, closed_amount=5_000_000, first_provision="2024-01-01",
+            total_cost=50_000, closed_amount=4_200_000,
             roi_zero=False, roi_pct=90,
         )
-        assert score < 10
+        # 25 (usage) + 15 (pipeline) + 25 (closed) + round(15*0.90)=14 → 79
+        assert score >= 75
 
-    def test_new_item_discount(self):
-        """Recently published items get score reduction."""
-        from datetime import datetime, timedelta
-        recent = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
-        score = compute_retirement_score(
-            provisions_zero=True, provisions_pct=0,
+    def test_high_cost_zero_sales_gets_zero_roi_points(self):
+        breakdown = compute_performance_score_breakdown(
+            provisions_zero=False, provisions_pct=80, provisions_raw=100,
             touched_zero=True, touched_pct=0,
             closed_zero=True, closed_pct=0,
-            total_cost=100, closed_amount=0, first_provision=recent,
+            total_cost=50_000, closed_amount=0,
+            roi_zero=True, roi_pct=0,
         )
-        assert score <= 50
-
-    def test_high_cost_zero_sales(self):
-        """High cost with zero closed sales adds 15 points."""
-        score = compute_retirement_score(
-            provisions_zero=False, provisions_pct=60,
-            touched_zero=False, touched_pct=60,
-            closed_zero=True, closed_pct=0,
-            total_cost=10000, closed_amount=0, first_provision="2024-01-01",
-        )
-        assert score >= 15
-
-    def test_score_capped_at_100(self):
-        """Score should never exceed 100."""
-        score = compute_retirement_score(
-            provisions_zero=True, provisions_pct=0,
-            touched_zero=True, touched_pct=0,
-            closed_zero=True, closed_pct=0,
-            total_cost=100000, closed_amount=0, first_provision="2020-01-01",
-        )
-        assert score <= 100
+        roi = next(f for f in breakdown["factors"] if f["factor"] == "roi")
+        assert roi["points"] == 0
+        assert roi["level"] == "none"
 
     def test_median_item_moderate_score(self):
-        """Item at p50 on everything should score moderately."""
-        score = compute_retirement_score(
-            provisions_zero=False, provisions_pct=50,
-            touched_zero=False, touched_pct=50,
-            closed_zero=False, closed_pct=50,
-            total_cost=5000, closed_amount=500_000, first_provision="2024-01-01",
+        score = compute_performance_score(
+            provisions_zero=False, provisions_pct=45, provisions_raw=28,
+            touched_zero=False, touched_pct=45, touched_raw=120_000,
+            closed_zero=False, closed_pct=45,
+            total_cost=8_000, closed_amount=90_000,
+            roi_zero=False, roi_pct=45,
         )
-        assert 5 <= score <= 30
+        # 15 + 5 + 10 + round(15*0.45)=7 → 37: moderate band
+        assert 35 <= score < 55
 
-    def test_zero_touched_always_penalized(self):
-        """Zero touched gets full pipeline penalty regardless of percentile."""
-        score_zero = compute_retirement_score(
-            provisions_zero=False, provisions_pct=50,
+    def test_no_age_discount_parameter(self):
+        import inspect
+        from rcars.services.reporting_sync import _compute_performance_score_with_breakdown
+        params = inspect.signature(_compute_performance_score_with_breakdown).parameters
+        assert "first_provision" not in params
+
+    def test_breakdown_has_no_age_discount_key(self):
+        breakdown = compute_performance_score_breakdown(
+            provisions_zero=True, provisions_pct=0,
             touched_zero=True, touched_pct=0,
-            closed_zero=False, closed_pct=80,
-            total_cost=0, closed_amount=1_000_000, first_provision="2024-01-01",
+            closed_zero=True, closed_pct=0,
+            total_cost=0, closed_amount=0,
         )
-        score_nonzero = compute_retirement_score(
-            provisions_zero=False, provisions_pct=50,
-            touched_zero=False, touched_pct=30,
-            closed_zero=False, closed_pct=80,
-            total_cost=0, closed_amount=1_000_000, first_provision="2024-01-01",
-        )
-        assert score_zero > score_nonzero
+        assert "age_discount" not in breakdown
+        assert breakdown["score"] == 0
 
     def test_sales_impact_high(self):
         from rcars.services.reporting_sync import compute_sales_impact
@@ -158,10 +138,9 @@ class TestBuildWindowedMetrics:
         w_closed = {wk: {"item-a": 20000.0} for wk in WINDOW_DAYS}
         w_cost = {wk: {"item-a": 5000.0} for wk in WINDOW_DAYS}
         w_uu = {wk: {"item-a": 7} for wk in WINDOW_DAYS}
-        first_prov = {"item-a": "2024-01-01", "item-b": None}
 
         result = _build_windowed_metrics(
-            names, w_provisions, w_touched, w_closed, w_cost, w_uu, first_prov,
+            names, w_provisions, w_touched, w_closed, w_cost, w_uu,
         )
 
         assert "item-a" in result
@@ -171,23 +150,23 @@ class TestBuildWindowedMetrics:
             entry = result["item-a"][wk]
             assert entry["provisions"] == 10
             assert entry["unique_users"] == 7
-            assert entry["touched_amount"] == 50000.0
+            assert entry["pipeline_touched"] == 50000.0
             assert entry["closed_amount"] == 20000.0
             assert entry["total_cost"] == 5000.0
-            assert "retirement_score" in entry
+            assert "performance_score" in entry
             assert "sales_impact" in entry
             assert entry["avg_cost_per_provision"] == 500.0
 
-    def test_zero_item_gets_max_retirement_score(self):
-        """An item with zero provisions/sales in a window should score high."""
+    def test_zero_item_gets_min_performance_score(self):
+        """An item with zero provisions/sales in a window should score 0."""
         names = {"zero-item"}
         empty = {wk: {} for wk in WINDOW_DAYS}
         result = _build_windowed_metrics(
-            names, empty, empty, empty, empty, empty, {"zero-item": None},
+            names, empty, empty, empty, empty, empty,
         )
         for wk in WINDOW_DAYS:
             assert result["zero-item"][wk]["provisions"] == 0
-            assert result["zero-item"][wk]["retirement_score"] >= 50
+            assert result["zero-item"][wk]["performance_score"] == 0
 
     def test_percentile_ranking_varies_across_items(self):
         """Items with different provision counts should get different scores."""
@@ -205,13 +184,12 @@ class TestBuildWindowedMetrics:
         w_closed = {wk: {"high": 200000.0, "low": 500.0} for wk in WINDOW_DAYS}
         w_cost = {wk: {"high": 10000.0, "low": 100.0} for wk in WINDOW_DAYS}
         w_uu = {wk: {} for wk in WINDOW_DAYS}
-        first_prov = {"high": "2023-01-01", "low": "2023-01-01"}
 
         result = _build_windowed_metrics(
-            names, w_provisions, w_touched, w_closed, w_cost, w_uu, first_prov,
+            names, w_provisions, w_touched, w_closed, w_cost, w_uu,
         )
         for wk in WINDOW_DAYS:
-            assert result["low"][wk]["retirement_score"] > result["high"][wk]["retirement_score"]
+            assert result["high"][wk]["performance_score"] > result["low"][wk]["performance_score"]
 
 
 class TestMcpPagination:

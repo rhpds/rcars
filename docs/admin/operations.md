@@ -11,8 +11,8 @@ Workers are long-running processes that pick up jobs from Redis queues. They are
 
 | Deployment | Entry Point | Queue | Tasks | Timeouts |
 |---|---|---|---|---|
-| `rcars-scan-worker` | `arq rcars.workers.WorkerSettings` | `arq:queue:scan` | `run_analysis`, `run_catalog_refresh`, `run_stale_check`, `run_nightly_pipeline` | 600s default, stale_check 3600s, nightly 7200s |
-| `rcars-recommend-worker` | `arq rcars.workers.RecommendWorkerSettings` | `arq:queue:recommend` | `run_recommendation` | 120s |
+| `rcars-scan-worker` | `arq rcars.workers.WorkerSettings` | `arq:queue:scan` | `run_analysis`, `run_catalog_refresh`, `run_stale_check`, `run_nightly_pipeline`, `run_workload_scan`, `run_reporting_sync_job` | 600s default, stale_check 3600s, workload_scan 3600s, nightly 7200s |
+| `rcars-recommend-worker` | `arq rcars.workers.RecommendWorkerSettings` | `arq:queue:recommend` | `run_recommendation`, `run_chat_turn` | 120s |
 
 Both use the same container image (`rcars-api:latest`) with different arq entrypoints.
 
@@ -44,16 +44,16 @@ recommend_worker_memory_request: 1Gi
 recommend_worker_memory_limit: 2Gi
 ```
 
-After changing vars, deploy with `--tags apply` to update the manifests without rebuilding images.
+After changing vars, deploy with `--tags apply-config` to update the manifests without rebuilding images.
 
 Each worker pod has a fixed concurrency limit (hardcoded in `src/api/rcars/workers/settings.py`):
 
 | Setting | Scan Worker | Recommend Worker |
 |---|---|---|
-| Concurrent jobs per pod | 5 | 3 |
+| Concurrent jobs per pod | 5 (env: `RCARS_SCAN_MAX_JOBS`) | 15 (env: `RCARS_RECOMMEND_MAX_JOBS`) |
 | Default job timeout | 600s | 120s |
 
-These per-pod limits cannot be changed via configuration. To increase total concurrency, increase the number of replicas. For example, setting `recommend_worker_replicas: 2` gives 6 concurrent recommendation queries (3 per pod × 2 pods).
+Per-pod concurrency is configurable via environment variables. To increase total throughput, you can also increase the number of replicas.
 
 Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
@@ -79,7 +79,8 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 4. **Workload Repo Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses Claude Haiku to determine what product each role installs. Updates the workload mapping table with verified product names. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
-5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes retirement scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Retirement Analysis](../architecture/retirement-analysis.md) for details.
+5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
+6. **Compute Similarity** — recomputes pairwise content overlap scores from current embeddings.
 
 Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking or workload scanning.
 
@@ -111,7 +112,7 @@ pipeline_minute: 0
 Then redeploy the scan worker so it picks up the new values:
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags build-api
+ansible-playbook ansible/deploy.yml -e env=dev --tags api
 ```
 
 The new schedule takes effect when the scan-worker pod restarts. The current schedule is visible in the Admin UI under **Scheduled Maintenance** (e.g. "Schedule: 04:00 UTC daily").
@@ -131,12 +132,12 @@ arq's `unique=True` flag ensures the cron job runs only once even if multiple sc
 
 ## Monitoring
 
-The admin dashboard at `/admin/workers` shows:
+The admin dashboard at `/system/jobs` shows:
 
 - **Worker Status** — auto-refreshes every 10 seconds. Summary bar with running, queued, complete, failed counts.
 - **Recent Jobs** — last 50 jobs with type, CI name, status (color-coded), timestamps, and duration. Running/queued jobs sort to the top.
 
-The `/admin/catalog` page shows:
+The `/system/status` page shows:
 
 - **Catalog Status** — total items, analyzed/unanalyzed/stale counts, last sync/analysis timestamps with CURRENT/STALE indicators
 - **Scheduled Maintenance** — pipeline status, last run summary, "Run Maintenance Now" button

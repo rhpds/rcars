@@ -53,24 +53,26 @@ export function RcarsSidebar() {
             </NavLink>
           )}
 
+          {(auth.isCurator || auth.canViewPerformance) && (
+            <div className="rcars-nav-section-label">Analysis</div>
+          )}
+
           {auth.isCurator && (
-            <>
-              <div className="rcars-nav-section-label">Analysis</div>
+            <NavLink
+              to="/analysis/overlap"
+              className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+            >
+              Overlap
+            </NavLink>
+          )}
 
-              <NavLink
-                to="/analysis/overlap"
-                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
-              >
-                Overlap
-              </NavLink>
-
-              <NavLink
-                to="/analysis/retirement"
-                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
-              >
-                Retirement
-              </NavLink>
-            </>
+          {auth.canViewPerformance && (
+            <NavLink
+              to="/analysis/performance"
+              className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+            >
+              Performance
+            </NavLink>
           )}
 
           {auth.isAdmin && (
@@ -117,6 +119,13 @@ export function RcarsSidebar() {
                 className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
               >
                 API Keys
+              </NavLink>
+
+              <NavLink
+                to="/system/roles"
+                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+              >
+                Access Control
               </NavLink>
             </>
           )}

@@ -1,0 +1,75 @@
+# Golden routing eval test cases — real LLM calls at temperature 0
+# Parametrized by message and expected (intent, optional scope_type)
+# YAML anchors (&ctx, *ctx) reuse context blocks for multi-turn patterns
+
+- message: "I need a 2-hour hands-on OpenShift virtualization lab for platform engineers"
+  expect: {intent: recommend}
+
+- message: "something for an Ansible automation workshop at a financial services customer"
+  expect: {intent: recommend}
+
+- message: "high-usage Ansible content for an EDA demo"
+  expect: {intent: recommend}
+
+- message: "how is our Ansible EDA content performing?"
+  expect: {intent: performance}
+
+- message: "what overlaps with LB2144?"
+  expect: {intent: overlap}
+
+- message: "is the SAP lab similar to anything else we have?"
+  expect: {intent: overlap}
+
+- message: "do we have duplicate OpenShift Virtualization labs?"
+  expect: {intent: overlap}
+
+- message: "which of these performed best?"
+  context: &ctx
+    - n: 0
+      intent: recommend
+      query: "ansible labs"
+      results: [{id: "babylon:a", name: "Lab A"}, {id: "babylon:b", name: "Lab B"}]
+  expect: {intent: performance, scope_type: prior_results}
+
+- message: "what's the cost per provision on these?"
+  context: *ctx
+  expect: {intent: performance, scope_type: prior_results}
+
+- message: "tell me about the second one"
+  context: *ctx
+  expect: {intent: item_facts, scope_type: ordinal}
+
+- message: "what overlaps with the first result?"
+  context: *ctx
+  expect: {intent: overlap, scope_type: ordinal}
+
+- message: "what is the SAP HANA demo about?"
+  expect: {intent: item_facts}
+
+- message: "what modules are in LB2145 and what products does it cover?"
+  expect: {intent: item_facts}
+
+- message: "is there one without ARM?"
+  context:
+    - n: 0
+      intent: item_facts
+      query: "tell me about the AWS Open Environment"
+      results: [{id: "babylon:aws-ocp-arm", name: "AWS with OpenShift Open Environment (ARM)"}]
+  expect: {intent: item_facts}
+
+- message: "None of these. I just need an empty AWS sandbox environment."
+  context:
+    - n: 0
+      intent: clarify
+      query: "tell me about the AWS Open Environment"
+      results: []
+  expect: {intent: item_facts}
+
+- message: "what's the weather in Raleigh?"
+  expect: {intent: out_of_scope}
+
+- message: "open a Jira ticket to retire LB2144"
+  expect: {intent: out_of_scope}
+
+- message: "who won the world cup?"
+  expect: {intent: out_of_scope}

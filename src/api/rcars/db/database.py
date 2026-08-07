@@ -184,7 +184,7 @@ CREATE INDEX IF NOT EXISTS idx_pc_content_id ON performance_channels(content_id)
 CREATE INDEX IF NOT EXISTS idx_pc_channel ON performance_channels(channel);
 
 -- ═══════════════════════════════════════════════════════════════════
--- performance_scores — replaces retirement_score on reporting_metrics
+-- performance_scores — per-item scores and windowed metrics
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS performance_scores (
     content_id      TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
@@ -408,8 +408,39 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_session ON advisor_sessions(sess
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_email);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
 
+-- Advisor chat (multi-intent) — RHDPCD-599
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS intent TEXT;
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS envelope_json JSONB;
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
+
+-- Chat turn index uniqueness — RHDPCD-599
+CREATE UNIQUE INDEX IF NOT EXISTS idx_advisor_sessions_session_turn
+    ON advisor_sessions (session_id, turn_index);
+
+-- Role assignments — RHDPCD-176
+CREATE TABLE IF NOT EXISTS role_assignments (
+    id SERIAL PRIMARY KEY,
+    type VARCHAR(10) NOT NULL CHECK (type IN ('user', 'group')),
+    value VARCHAR(255) NOT NULL,
+    role VARCHAR(10) NOT NULL CHECK (role IN ('curator', 'admin')),
+    added_by VARCHAR(255) NOT NULL,
+    added_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(type, value)
+);
+
 """
 
+
+
+def _prefix_overlap(query_words: set[str], name_words: set[str], min_prefix: int = 4) -> int:
+    """Count keyword matches allowing prefix matching for words >= min_prefix chars."""
+    count = 0
+    for qw in query_words:
+        for nw in name_words:
+            if qw == nw or (len(qw) >= min_prefix and nw.startswith(qw)) or (len(nw) >= min_prefix and qw.startswith(nw)):
+                count += 1
+                break
+    return count
 
 
 class Database:
@@ -437,6 +468,11 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
                 cur.execute(SCHEMA_SQL)
+                for table in ("api_keys", "advisor_sessions", "token_usage",
+                              "embeddings", "enrichment_tags", "analysis_log"):
+                    cur.execute(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
             conn.commit()
 
     def drop_schema(self):
@@ -455,7 +491,7 @@ class Database:
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
-            "api_keys",
+            "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "workload_mapping", "workload_scan_state",
             "babylon_items", "content_entities",
@@ -594,7 +630,8 @@ class Database:
                     f"JOIN babylon_items bi ON bi.content_id = ce.content_id "
                     f"WHERE ce.display_name ILIKE %s "
                     f"AND bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL "
-                    f"ORDER BY CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END "
+                    f"ORDER BY bi.is_published DESC NULLS LAST, "
+                    f"CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END "
                     f"LIMIT 1",
                     (pattern, *stage_list),
                 )
@@ -621,7 +658,7 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage "
+                    f"SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage, bi.is_published "
                     f"FROM content_entities ce "
                     f"JOIN babylon_items bi ON bi.content_id = ce.content_id "
                     f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
@@ -631,8 +668,9 @@ class Database:
                 best_overlap = 0
                 for row in cur.fetchall():
                     name_words = {w.lower() for w in re.findall(r'[a-zA-Z]{3,}', row["display_name"] or "")}
-                    overlap = len(keywords & name_words)
-                    if overlap >= min_overlap and overlap > best_overlap:
+                    overlap = _prefix_overlap(keywords, name_words)
+                    if overlap >= min_overlap and (overlap > best_overlap or
+                            (overlap == best_overlap and row.get("is_published"))):
                         best_overlap = overlap
                         best_item = row
                 if best_item:
@@ -1068,6 +1106,7 @@ class Database:
         include_zt: bool = True,
         quality_threshold: float = 0.45,
         retrieval_window: int = 200,
+        scope_content_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         zt_filter = ""
         if not include_zt:
@@ -1094,6 +1133,12 @@ class Database:
             ct_filter = f"AND e.content_type IN ({ct_placeholders})"
             ct_params = list(content_types)
 
+        scope_filter = ""
+        scope_params: list = []
+        if scope_content_ids:
+            scope_filter = "AND e.content_id = ANY(%s)"
+            scope_params = [scope_content_ids]
+
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
 
         sql = f"""
@@ -1106,6 +1151,7 @@ class Database:
                   {ct_filter}
                   {stage_filter}
                   {zt_filter}
+                  {scope_filter}
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
             ),
@@ -1131,7 +1177,7 @@ class Database:
             LEFT JOIN showroom_analysis sa ON sa.content_id = g.content_id
             ORDER BY g.best_similarity DESC
         """
-        params = [vec_str, *ct_params, *stage_params, vec_str, retrieval_window,
+        params = [vec_str, *ct_params, *stage_params, *scope_params, vec_str, retrieval_window,
                   quality_threshold, limit]
 
         with self._pool.connection() as conn:
@@ -1524,11 +1570,8 @@ class Database:
     def log_token_usage(
         self, operation: str, model: str, input_tokens: int, output_tokens: int,
         ci_name: str | None = None, query_text: str | None = None,
-        provider: str = "anthropic", opted_out: bool = False,
+        provider: str = "anthropic",
     ) -> None:
-        if opted_out:
-            query_text = None
-            ci_name = None
         with self._pool.connection() as conn:
             conn.execute(
                 """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, ci_name, query_text, provider)
@@ -1797,21 +1840,13 @@ class Database:
         self, session_id: str, turn_index: int, user_email: str | None,
         query_text: str | None, event_url: str | None,
         results: list[dict], overall_assessment: str | None,
-        opted_out: bool = False,
     ) -> int:
-        if opted_out:
-            query_text = None
-            results = None
-            overall_assessment = None
-            event_url = None
-            if user_email:
-                user_email = hashlib.sha256(user_email.encode()).hexdigest()[:16]
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment, opted_out)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
+                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, (session_id, turn_index, user_email, query_text, event_url,
-                  Jsonb(results) if results is not None else None, overall_assessment, opted_out))
+                  Jsonb(results) if results is not None else None, overall_assessment))
             row_id = cur.fetchone()["id"]
             conn.commit()
         return row_id
@@ -1836,7 +1871,7 @@ class Database:
         inner = """
             SELECT DISTINCT ON (session_id)
                    session_id, created_at AS started_at,
-                   query_text, chosen_ci_name, opted_out,
+                   query_text, chosen_ci_name,
                    COUNT(*) OVER (PARTITION BY session_id) AS turns
             FROM advisor_sessions
         """
@@ -1877,17 +1912,17 @@ class Database:
 
     # ── Jobs ──
 
-    def has_active_recommend_job(self, user_email: str) -> bool:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT 1 FROM jobs WHERE job_type = 'recommend' AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
-                (user_email,),
-            )
-            return cur.fetchone() is not None
-
-    def create_job(self, job_type: str, queue: str, created_by: str | None = None) -> str:
+    def create_job(self, job_type: str, queue: str, created_by: str | None = None,
+                   limit_active: bool = False) -> str | None:
         job_id = str(uuid.uuid4())
         with self._pool.connection() as conn:
+            if limit_active and created_by:
+                cur = conn.execute(
+                    "SELECT 1 FROM jobs WHERE job_type IN ('recommend', 'chat') "
+                    "AND created_by = %s AND status IN ('queued', 'running') LIMIT 1",
+                    (created_by,))
+                if cur.fetchone() is not None:
+                    return None
             conn.execute(
                 "INSERT INTO jobs (id, job_type, status, queue, created_by, created_at) VALUES (%s, %s, 'queued', %s, %s, %s)",
                 (job_id, job_type, queue, created_by, datetime.now(timezone.utc)),
@@ -1918,7 +1953,7 @@ class Database:
         with self._pool.connection() as conn:
             conn.execute(
                 """UPDATE jobs
-                   SET status = 'running',
+                   SET status = CASE WHEN status IN ('complete', 'failed') THEN status ELSE 'running' END,
                        started_at = COALESCE(started_at, %s),
                        progress_json = jsonb_set(
                            COALESCE(progress_json, '{"messages":[]}'),
@@ -2069,6 +2104,19 @@ class Database:
             )
             return cur.fetchall()
 
+    def get_channel_metrics_map(self, content_ids: list[str], channel: str) -> dict[str, dict]:
+        """Return {content_id: performance_channels row} for one channel."""
+        if not content_ids:
+            return {}
+        sql = """
+            SELECT * FROM performance_channels
+            WHERE channel = %s AND content_id = ANY(%s)
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, (channel, content_ids))
+                return {r["content_id"]: r for r in cur.fetchall()}
+
     def get_performance_score(self, content_id: str) -> dict | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
@@ -2199,11 +2247,11 @@ class Database:
         self,
         sort_by: str = "performance_score",
         sort_dir: str = "desc",
-        min_score: int | None = None,
         category: str | None = None,
         has_prod: bool | None = None,
         search: str | None = None,
         workflow_status: str | None = None,
+        channel: str = "rhdp",
     ) -> list[dict]:
         allowed_sorts = {
             "performance_score", "provisions", "total_cost",
@@ -2216,10 +2264,8 @@ class Database:
 
         conditions = ["ce.retired_at IS NULL"]
         params: dict = {}
+        params["channel"] = channel
 
-        if min_score is not None:
-            conditions.append("ps.performance_score >= %(min_score)s")
-            params["min_score"] = min_score
 
         if search:
             words = search.strip().split()
@@ -2279,12 +2325,15 @@ class Database:
                    pc.avg_cost_per_provision, pc.success_ratio,
                    pc.first_activity, pc.last_activity,
                    pc.windowed_metrics, pc.synced_at,
+                   (SELECT COALESCE(array_agg(DISTINCT pc2.channel), '{{}}')
+                      FROM performance_channels pc2
+                     WHERE pc2.content_id = ps.content_id) AS channels_present,
                    CASE WHEN rw.step_approved_at IS NOT NULL THEN rw.status END AS workflow_status,
                    rw.jira_key, rw.retirement_target_date
             FROM performance_scores ps
             JOIN content_entities ce ON ce.content_id = ps.content_id
             LEFT JOIN babylon_items bi ON bi.content_id = ps.content_id
-            LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = 'rhdp'
+            LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = %(channel)s
             LEFT JOIN retirement_workflow rw ON rw.content_id = ps.content_id
             {where}
             ORDER BY {order_expr} {direction} NULLS LAST
@@ -2364,9 +2413,9 @@ class Database:
                 COUNT(*) FILTER (WHERE pc.provisions > 0) AS with_provisions,
                 COUNT(*) FILTER (WHERE pc.total_cost > 0) AS with_cost,
                 COUNT(*) FILTER (WHERE pc.closed_amount > 0) AS with_sales,
-                COUNT(*) FILTER (WHERE ps.performance_score >= 55) AS high,
-                COUNT(*) FILTER (WHERE ps.performance_score >= 35 AND ps.performance_score < 55) AS review,
-                COUNT(*) FILTER (WHERE ps.performance_score < 35) AS keepers,
+                COUNT(*) FILTER (WHERE ps.performance_score >= 55) AS strong,
+                COUNT(*) FILTER (WHERE ps.performance_score >= 35 AND ps.performance_score < 55) AS moderate,
+                COUNT(*) FILTER (WHERE ps.performance_score < 35) AS low,
                 MAX(pc.synced_at) AS last_synced
             FROM performance_scores ps
             LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = 'rhdp'
@@ -2546,11 +2595,11 @@ class Database:
             return row["id"]
 
     def revoke_user_cli_keys(self, user_email: str) -> int:
-        """Revoke all active CLI session keys for a user (role='user' with expiry)."""
+        """Revoke all active CLI session keys for a user."""
         with self.pool.connection() as conn:
             rows = conn.execute(
                 """UPDATE api_keys SET revoked_at = NOW()
-                   WHERE created_by = %s AND role = 'user'
+                   WHERE created_by = %s
                      AND expires_at IS NOT NULL
                      AND revoked_at IS NULL
                      AND expires_at > NOW()
@@ -2621,3 +2670,34 @@ class Database:
                 (key_id,),
             )
             conn.commit()
+
+    # ── Role assignments ──
+
+    def get_role_assignments(self) -> list[dict]:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, type, value, role, added_by, added_at FROM role_assignments ORDER BY added_at DESC"
+                )
+                return cur.fetchall()
+
+    def add_role_assignment(self, type: str, value: str, role: str, added_by: str) -> dict:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO role_assignments (type, value, role, added_by)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, type, value, role, added_by, added_at
+                    """,
+                    (type, value, role, added_by),
+                )
+                conn.commit()
+                return cur.fetchone()
+
+    def delete_role_assignment(self, id: int) -> bool:
+        with self.pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM role_assignments WHERE id = %s", (id,))
+                conn.commit()
+                return cur.rowcount > 0

@@ -25,7 +25,7 @@ The main page is the Advisor — a two-pane layout that is always split. The lef
 │  ──────────  │                                            │
 │  ANALYSIS    │  [input box]  [Send]   41/2000             │
 │  Overlap     │                                            │
-│  Retirement  │                                            │
+│  Performance │                                            │
 │  ──────────  │                                            │
 │  SYSTEM      │                                            │
 │  Status      │                                            │
@@ -46,8 +46,8 @@ The sidebar is organized into four labeled sections:
 
 - **ADVISOR** — **New Session** starts a fresh advisor conversation. **History** shows your past sessions with saved recommendations.
 - **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads** (curator only) shows infrastructure workload mappings.
-- **ANALYSIS** (admin only) — **Overlap** detects duplicate content. **Retirement** provides data-driven retirement scoring.
-- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions.
+- **ANALYSIS** (curators + performance viewers) — **Overlap** (curator only) detects duplicate content. **Performance** provides data-driven performance scoring and retirement workflow.
+- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions. **API Keys** manages external API keys. **Access Control** manages role assignments.
 
 ### Theme Toggle
 
@@ -225,7 +225,7 @@ Click an item to expand it. The expanded view shows:
 
 ## Content Analysis
 
-The Content Analysis section is a top-level navigation group in the sidebar, visible to admins only. It contains two sub-pages for analyzing catalog content at scale.
+The Analysis section is a top-level navigation group in the sidebar, visible to curators and users who can view performance data. It contains two sub-pages for analyzing catalog content at scale.
 
 ### Content Overlap (`/analysis/overlap`)
 
@@ -262,34 +262,38 @@ Published Virtual CIs are excluded because they have no Showroom content of thei
 
 **When to recompute:** After a full scan or re-analysis, since the underlying fingerprints may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
-### Retirement Analysis (`/analysis/retirement`)
+### Performance Analysis (`/analysis/performance`)
 
-The Retirement page helps curators identify catalog items that should be retired based on low usage, weak sales impact, and high cost. It combines data from the RHDP reporting database with RCARS catalog metadata to produce a scored dashboard. For the full technical details of the scoring methodology, data pipeline, and configuration, see the [Retirement Analysis architecture doc](../architecture/retirement-analysis.md).
+The Performance page helps curators understand catalog item impact based on usage, sales performance, and cost efficiency. It combines data from the RHDP reporting database with RCARS catalog metadata to produce a scored dashboard. Higher scores indicate better-performing items. Low-performing items can be flagged for retirement through an integrated workflow. For the full technical details of the scoring methodology, data pipeline, and configuration, see the [Performance Analysis architecture doc](../architecture/performance-analysis.md).
 
 The page header shows when the reporting data was last synced (e.g., "Last synced: 3h ago").
+
+#### Access Model
+
+By default, the Performance page is public to all authenticated users (`RCARS_PERFORMANCE_PUBLIC=true`). Curators see additional features (muting, retirement workflow). To restrict the entire page to curators only, set `RCARS_PERFORMANCE_PUBLIC=false`.
 
 #### Time Window Selector
 
 The Prod tab has a time window selector that controls how far back the data looks:
 
-- **1 Quarter** — trailing 3 months of activity
-- **2 Quarters** — trailing 6 months
-- **3 Quarters** — trailing 9 months
-- **1 Year** (default) — trailing 12 months
+- **3m** — trailing 3 months of activity
+- **6m** — trailing 6 months
+- **9m** — trailing 9 months
+- **12m** (default) — trailing 12 months
 
-Selecting a shorter window shows how items perform with only recent data. An item that had strong usage last year but zero activity this quarter will score higher (worse) in the 1Q view. Scores are recomputed locally from stored quarterly breakdowns — no re-query to the reporting database is needed.
+Selecting a shorter window shows how items perform with only recent data. An item that had strong usage last year but zero activity this quarter will score lower (worse performance) in the 3m view. Scores are recomputed locally from stored quarterly breakdowns — no re-query to the reporting database is needed.
 
 The total asset count stays constant across all windows — all current catalog items are always shown regardless of their activity in the selected period.
 
-#### Prod Retirements Tab
+#### Prod Performance Tab
 
-Shows scored items that have a production deployment. This is the primary triage tool.
+Shows scored items that have a production deployment. This is the primary performance review tool.
 
-**Stat cards** — total assets, high retirement (score ≥55), review (35-54), keepers (<35), total cost, total closed, total touched.
+**Stat cards** — total items, strong (score ≥55), moderate (35-54), low (<35), total cost, total closed, total touched.
 
-**Score filter** (labeled "Score") — All, High ≥55, Review 35-54, Keepers <35.
+**Score filter** (labeled "Score") — All, Strong ≥55, Moderate 35-54, Low <35.
 
-**Status filter** (labeled "Status") — All, No Action, In Process, Started. Filters items by retirement workflow state.
+**Status filter** (labeled "Status") — All, No Action, In Process, Started, Muted. Filters items by retirement workflow state.
 
 **Search** — filter by display name.
 
@@ -298,7 +302,7 @@ Shows scored items that have a production deployment. This is the primary triage
 | Column | Description |
 |--------|-------------|
 | Name | Display name |
-| Score | Retirement score (0-100, higher = stronger retirement candidate) |
+| Score | Performance score (0-100, higher = better performance) |
 | Provisions | Total production provisions in the time window |
 | Touched | Total opportunity value linked to provisions |
 | T-ROI | Touched-to-cost ratio |
@@ -306,7 +310,7 @@ Shows scored items that have a production deployment. This is the primary triage
 | C-ROI | Closed-to-cost ratio |
 | Cost | Total infrastructure cost (all environments amortized) |
 
-Score badges are color-coded: red (≥55), orange (35-54), green (<35).
+Score badges are color-coded: green (≥55), blue (35-54), amber (<35).
 
 **Expanded rows** — click any row to expand and see:
 
@@ -317,6 +321,7 @@ Score badges are color-coded: red (≥55), orange (35-54), green (<35).
 - **Success** / **Failure** — provision success and failure ratios as percentages
 - **First Provision** / **Last Provision** — date range of activity
 - **Category** — the catalog item's category
+- **Mute button** (curator only) — "Mute 30d" marks an item as ignored for 30 days. Muted items are excluded from stats and appear at reduced opacity with a "muted" badge when viewing via the Muted status filter. Click "Unmute" to remove early.
 
 #### Without Prod Tab
 
@@ -332,25 +337,27 @@ Shows items that only exist in dev and/or event stages — never promoted to pro
 
 **Age color coding** — age > 365 days in red, > 180 days in orange.
 
-**Expanded rows** — click to see: environments (with Browse links), catalog name, unique users, experiences, total cost, and category.
+**Expanded rows** — click to see: environments (with Browse links), catalog name, unique users, completions, total cost, and category.
 
 Items more than a year old without a prod deployment are strong candidates for either promotion or retirement.
 
 #### Retirement Workflow Drawer
 
-Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a four-step workflow.
+Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a five-step workflow.
 
-**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, experiences, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
+**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, completions, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
 
 **Workflow Steps:**
 
-1. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
+1. **Review** — initial review step that records who reviewed the item and when.
 
-2. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
+2. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
 
-3. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
+3. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
 
-4. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
+4. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
+
+5. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
 
 **Additional sections in the drawer:**
 
@@ -360,29 +367,36 @@ Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with 
 
 Items with an active workflow show an inline badge in the table row: amber "In Process" or blue "Retirement Started".
 
-#### Understanding Retirement Scores
+#### Score Breakdown Popover
 
-Each item receives a score from 0 to 100. Higher scores indicate stronger retirement candidates. The score combines four dimensions, each scored relative to catalog peers using percentile ranking:
+Click a score badge to see a popover explaining the score. Shows:
+- One-line summary (e.g., "Strong usage and sales with solid pipeline")
+- Per-factor breakdowns with points, progress bars, and plain-English reasons including actual values and percentile rankings (e.g., "6,106 provisions — top tier (percentile 95 of items with activity)")
+
+Click anywhere outside or on the badge again to dismiss.
+
+#### Understanding Performance Scores
+
+Each item receives a score from 0 to 100. **Higher scores indicate better performance.** The score combines four dimensions, each scored relative to catalog peers using percentile ranking:
 
 | Component | Max Points | What it measures |
 |---|---|---|
-| Usage | 25 | Provision count — zero gets max; non-zero ranked by percentile |
-| Pipeline | 15 | Touched amount (sales impact) — zero gets max; non-zero by percentile |
-| Revenue | 25 | Closed-won amount — zero gets max; non-zero by percentile |
-| Cost efficiency | 15 | ROI when both cost and revenue exist; penalty for cost with no revenue |
-| Age discount | -30 | New items (<90 days: -30, 90-180 days: -10) get a score reduction |
+| Usage | 25 | Provision count — zero gets 0 points; non-zero ranked by percentile |
+| Pipeline | 15 | Touched amount (sales impact) — zero gets 0 points; non-zero by percentile |
+| Revenue | 25 | Closed-won amount — zero gets 0 points; non-zero by percentile |
+| Cost efficiency | 15 | ROI when both cost and revenue exist; 0 points for cost with no revenue |
 
 **Dashboard thresholds:**
 
 | Tier | Score | Meaning |
 |---|---|---|
-| High Retirement | ≥ 55 | Strong candidates — low/zero activity across multiple dimensions |
-| Review | 35–54 | Weak but non-zero activity — worth investigating |
-| Keepers | < 35 | Meaningful activity — retain |
+| Strong | ≥ 55 | Strong performers — meaningful activity across multiple dimensions |
+| Moderate | 35–54 | Moderate activity — steady but not standout |
+| Low | < 35 | Low/zero activity — may be niche, new, or candidates for review |
 
 ## The System Pages
 
-The System section is visible to admins only (not curators). It has five pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, and **Query History**.
+The System section is visible to admins only (not curators). It has seven pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, **Query History**, **API Keys**, and **Access Control**.
 
 ### Status (`/system/status`)
 

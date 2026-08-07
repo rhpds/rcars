@@ -46,6 +46,7 @@ class ReadinessResponse(BaseModel):
 class AuthMeResponse(BaseModel):
     email: str = Field(description="Authenticated user's email address")
     roles: list[str] = Field(description="Granted roles: user, curator, admin")
+    performance_public: bool = True
 
 
 class TokenExchangeRequest(BaseModel):
@@ -62,6 +63,11 @@ class TokenExchangeResponse(BaseModel):
 
 class QuerySubmitResponse(BaseModel):
     job_id: str = Field(description="Job ID; poll via /advisor/query/{job_id}/result or stream via /advisor/query/{job_id}/stream")
+
+
+class ChatSubmitResponse(BaseModel):
+    job_id: str
+    session_id: str
 
 
 class QueryResultResponse(BaseModel):
@@ -182,12 +188,13 @@ class ContentPathResponse(BaseModel):
 
 # ── Analysis ────────────────────────────────────────────────────────
 
-class RetirementDashboardResponse(BaseModel):
-    items: list[dict] = Field(description="Retirement-scored catalog items with reporting metrics")
+class PerformanceDashboardResponse(BaseModel):
+    items: list[dict] = Field(description="Performance-scored catalog items with reporting metrics")
     total: int
     synced_at: str | None = None
     summary: dict | None = None
     window: str
+    channel: str
 
 
 class WorkflowResponse(BaseModel):
@@ -275,7 +282,6 @@ class QueryHistorySession(BaseModel):
     started_at: datetime
     query_text: str | None = None
     chosen_ci_name: str | None = None
-    opted_out: bool = False
 
 
 class QueryHistoryResponse(BaseModel):
@@ -368,3 +374,25 @@ class ApiKeyListResponse(BaseModel):
 class RevokeApiKeyResponse(BaseModel):
     id: int
     revoked_at: str
+
+
+# ── Role Assignments ───────────────────────────────────────────────
+
+class RoleAssignment(BaseModel):
+    id: int | None = None
+    type: str
+    value: str
+    role: str
+    source: str  # 'config' | 'db'
+    added_by: str | None = None
+    added_at: datetime | None = None
+
+
+class RoleAssignmentsResponse(BaseModel):
+    assignments: list[RoleAssignment]
+
+
+class AddRoleAssignmentRequest(BaseModel):
+    type: str = Field(pattern="^(user|group)$", description="'user' for a username, 'group' for an OpenShift group name")
+    value: str = Field(min_length=1, max_length=255)
+    role: str = Field(pattern="^(curator|admin)$")

@@ -7,10 +7,11 @@ interface AuthState {
   isLoading: boolean
   isCurator: boolean
   isAdmin: boolean
+  canViewPerformance: boolean
 }
 
 const defaultState: AuthState = {
-  email: '', roles: [], isLoading: true, isCurator: false, isAdmin: false,
+  email: '', roles: [], isLoading: true, isCurator: false, isAdmin: false, canViewPerformance: false,
 }
 
 export const AuthContext = createContext<AuthState>(defaultState)
@@ -30,6 +31,7 @@ export function useAuthProvider(): AuthState {
         isLoading: false,
         isCurator: data.roles.includes('curator'),
         isAdmin: data.roles.includes('admin'),
+        canViewPerformance: data.performance_public || data.roles.includes('curator'),
       }))
       .catch(() => setState(prev => ({ ...prev, isLoading: false })))
   }, [])

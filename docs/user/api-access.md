@@ -100,7 +100,7 @@ Each API key grants access up to the role it was issued with:
 | Role | Access |
 |------|--------|
 | `user` | Read-only — catalog, advisor queries, history |
-| `curator` | Read + curation actions — analysis, retirement workflow |
+| `curator` | Read + curation actions — analysis, performance workflow |
 | `admin` | Full access including admin endpoints |
 
 OAuth-issued keys (from the login scripts) always grant `user` role. If you need curator or admin access via API key, ask an admin to create a long-lived key for you through the RCARS admin UI.

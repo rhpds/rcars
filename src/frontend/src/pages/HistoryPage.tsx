@@ -15,6 +15,7 @@ interface SessionTurn {
   overall_assessment: string | null
   results_json: StreamCandidate[] | null
   chosen_ci_name: string | null
+  envelope_json?: { intent: string; scope_echo: string; answer: string } | null
 }
 
 interface SessionDetail {
@@ -66,9 +67,6 @@ export function HistoryPage() {
     if (latestRequestRef.current === sessionId) setDetailLoading(false)
   }
 
-  const activeTurn = detail?.turns[detail.turns.length - 1]
-  const candidates = activeTurn?.results_json || []
-
   return (
     <div className="history-layout">
       <div className="history-sidebar">
@@ -110,45 +108,76 @@ export function HistoryPage() {
           </div>
         ) : detailLoading ? (
           <div className="history-empty-detail">Loading...</div>
-        ) : !detail || candidates.length === 0 ? (
-          <div className="history-empty-detail">No recommendations in this session.</div>
+        ) : !detail || detail.turns.length === 0 ? (
+          <div className="history-empty-detail">Session not found.</div>
         ) : (
           <>
-            {activeTurn?.query_text && (
-              <div className="history-query-banner">
-                {activeTurn.query_text}
-              </div>
-            )}
-            {activeTurn?.overall_assessment && (
-              <div className="history-assessment">
-                {activeTurn.overall_assessment}
-              </div>
-            )}
-            <div className="history-rec-list">
-              {candidates.filter(c => c.tier === 'green').length > 0 && (
-                <div className="history-tier-label" style={{ color: 'var(--score-green)' }}>
-                  Best fit ({candidates.filter(c => c.tier === 'green').length})
+            {detail.turns.map((turn, turnIdx) => {
+              const candidates = turn.results_json || []
+              return (
+                <div key={turnIdx} style={{
+                  marginBottom: 24,
+                  paddingBottom: turnIdx < detail.turns.length - 1 ? 24 : 0,
+                  borderBottom: turnIdx < detail.turns.length - 1 ? '1px solid var(--border-subtle)' : undefined,
+                }}>
+                  {turn.query_text && (
+                    <div className="history-query-banner">
+                      {turn.query_text}
+                    </div>
+                  )}
+                  {turn.envelope_json ? (
+                    <>
+                      <div style={{ padding: '12px 0', fontSize: '12px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
+                        {turn.envelope_json.intent.replace('_', ' ')}
+                      </div>
+                      <div className="history-assessment">
+                        {turn.envelope_json.answer}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {turn.overall_assessment && (
+                        <div className="history-assessment">
+                          {turn.overall_assessment}
+                        </div>
+                      )}
+                      {candidates.length > 0 && (
+                        <div className="history-rec-list">
+                          {candidates.filter(c => c.tier === 'green').length > 0 && (
+                            <div className="history-tier-label" style={{ color: 'var(--score-green)' }}>
+                              Best fit ({candidates.filter(c => c.tier === 'green').length})
+                            </div>
+                          )}
+                          {candidates.filter(c => c.tier === 'green').map(c => (
+                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} chosenCiName={turn.chosen_ci_name || undefined} />
+                          ))}
+                          {candidates.filter(c => c.tier === 'yellow').length > 0 && (
+                            <div className="history-tier-label" style={{ color: 'var(--score-amber)' }}>
+                              Other options ({candidates.filter(c => c.tier === 'yellow').length})
+                            </div>
+                          )}
+                          {candidates.filter(c => c.tier === 'yellow').map(c => (
+                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
+                          ))}
+                          {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').length > 0 && (
+                            <div className="history-tier-label" style={{ color: 'var(--text-muted)' }}>
+                              Also reviewed ({candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').length})
+                            </div>
+                          )}
+                          {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').map(c => (
+                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
-              {candidates.filter(c => c.tier === 'green').map(c => (
-                <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={0} chosenCiName={activeTurn?.chosen_ci_name || undefined} />
-              ))}
-              {candidates.filter(c => c.tier === 'yellow').length > 0 && (
-                <div className="history-tier-label" style={{ color: 'var(--score-amber)' }}>
-                  Other options ({candidates.filter(c => c.tier === 'yellow').length})
-                </div>
-              )}
-              {candidates.filter(c => c.tier === 'yellow').map(c => (
-                <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={0} />
-              ))}
-              {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').length > 0 && (
-                <div className="history-tier-label" style={{ color: 'var(--text-muted)' }}>
-                  Also reviewed ({candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').length})
-                </div>
-              )}
-              {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').map(c => (
-                <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={0} />
-              ))}
+              )
+            })}
+            <div style={{ marginTop: 12 }}>
+              <a href={`/advisor?session=${detail.session_id}`} style={{ color: 'var(--text-link)', fontSize: '13px' }}>
+                Open in Advisor →
+              </a>
             </div>
           </>
         )}

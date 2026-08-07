@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from rcars.api.middleware.auth import require_admin
+from rcars.api.middleware.auth import require_admin, invalidate_role_assignments_cache
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
     OverlapItemsResponse, ScheduleResponse, LlmProviderResponse,
-    ReportingStatusResponse,
+    ReportingStatusResponse, RoleAssignmentsResponse, AddRoleAssignmentRequest,
 )
 from rcars.config import Settings
 from rcars.db.similarity import compute_content_similarity, get_overlap_items, get_similarity_stats
@@ -178,7 +178,6 @@ async def query_history(
                 "started_at": s["started_at"],
                 "query_text": s.get("query_text"),
                 "chosen_ci_name": s.get("chosen_ci_name"),
-                "opted_out": s.get("opted_out", False),
             }
             for s in sessions
         ],
@@ -422,3 +421,69 @@ async def reporting_status(request: Request, user: str = Depends(require_admin))
         "with_sales": status["with_sales"] if status else 0,
         "last_synced": status["last_synced"] if status else None,
     }
+
+
+@router.get(
+    "/role-assignments",
+    summary="List role assignments",
+    description="Returns all role assignments: DB-managed entries plus read-only entries derived from env var config. Admin-only.",
+    response_model=RoleAssignmentsResponse,
+)
+async def list_role_assignments(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    settings: Settings = request.app.state.settings
+
+    config_entries = [
+        {"id": None, "type": "user", "value": v, "role": "curator", "source": "config", "added_by": None, "added_at": None}
+        for v in settings.curator_emails
+    ] + [
+        {"id": None, "type": "user", "value": v, "role": "admin", "source": "config", "added_by": None, "added_at": None}
+        for v in settings.admin_emails
+    ]
+
+    db_entries = [
+        {**row, "source": "db"}
+        for row in db.get_role_assignments()
+    ]
+
+    return {"assignments": config_entries + db_entries}
+
+
+@router.post(
+    "/role-assignments",
+    summary="Add a role assignment",
+    description="Adds a new role assignment (user or group). Returns 409 if the entry already exists. Admin-only.",
+    status_code=201,
+)
+async def add_role_assignment(
+    body: AddRoleAssignmentRequest,
+    request: Request,
+    user: str = Depends(require_admin),
+):
+    db = request.app.state.db
+    try:
+        row = db.add_role_assignment(body.type, body.value, body.role, added_by=user)
+    except Exception as e:
+        if "unique" in str(e).lower() or "duplicate" in str(e).lower():
+            raise HTTPException(status_code=409, detail=f"Assignment for {body.type} '{body.value}' already exists")
+        raise
+    invalidate_role_assignments_cache()
+    return {**row, "source": "db"}
+
+
+@router.delete(
+    "/role-assignments/{assignment_id}",
+    summary="Remove a role assignment",
+    description="Removes a DB-managed role assignment by ID. Returns 404 if not found. Admin-only.",
+    status_code=204,
+)
+async def delete_role_assignment(
+    assignment_id: int,
+    request: Request,
+    user: str = Depends(require_admin),
+):
+    db = request.app.state.db
+    deleted = db.delete_role_assignment(assignment_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Role assignment not found")
+    invalidate_role_assignments_cache()
