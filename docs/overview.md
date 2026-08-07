@@ -59,7 +59,7 @@ This makes RCARS the institutional memory for the RHDP catalog. Curators can fin
 
 ### Nightly Maintenance
 
-A nightly pipeline runs at 04:00 UTC and chains five steps: catalog refresh, stale content detection, re-analysis of changed items, workload repo scanning, and reporting data sync. Each step runs independently — a failure in one does not block the others.
+A nightly pipeline runs at 04:00 UTC and chains six steps: catalog refresh, stale content detection, re-analysis of changed items, workload repo scanning, reporting data sync, and content similarity computation. Each step runs independently — a failure in one does not block the others.
 
 ## Who Uses It
 
@@ -75,7 +75,7 @@ A nightly pipeline runs at 04:00 UTC and chains five steps: catalog refresh, sta
 
 RCARS runs on OpenShift as four deployments: a React frontend (PatternFly 6), a FastAPI API, and two arq background workers (scan and recommend, split to prevent bulk operations from blocking user queries). It is backed by PostgreSQL with pgvector for semantic search and Redis for job queuing and SSE streaming.
 
-LLM calls use LiteMaaS (Red Hat's internal AI service) as the primary provider with Vertex AI as an automatic fallback. Three models: Sonnet for content analysis and rationale, Haiku for triage and workload scanning.
+LLM calls use LiteMaaS (Red Hat's internal AI service) as the primary provider with Vertex AI as an automatic fallback. Two models: Sonnet for content analysis, rationale, and chat answers; Haiku for triage, workload scanning, and chat routing.
 
 Reporting data is imported from the RHDP reporting MCP server, which provides access to the same `provisions_summary` materialized view that powers the SuperSet management dashboard.
 

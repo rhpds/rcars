@@ -205,12 +205,12 @@ The split exists because of a starvation problem: with a single worker, a bulk s
 
 | Setting | Scan Worker | Recommend Worker |
 |---|---|---|
-| Concurrent jobs per pod | 5 | 3 |
+| Concurrent jobs per pod | 5 | 15 |
 | Default job timeout | 600s | 120s |
 | CPU request/limit | 500m / 2 | 250m / 1 |
 | Memory request/limit | 1Gi / 4Gi | 1Gi / 2Gi |
 
-Per-pod concurrency is hardcoded. To increase total throughput, increase the number of replicas — e.g., 2 recommend worker pods gives 6 concurrent queries. Resource limits and replica counts are configured via Ansible vars. See [Operations Guide](../admin/operations.md#scaling) for details.
+Per-pod concurrency is configurable via `RCARS_SCAN_MAX_JOBS` and `RCARS_RECOMMEND_MAX_JOBS` environment variables. Resource limits and replica counts are configured via Ansible vars. See [Operations Guide](../admin/operations.md#scaling) for details.
 
 Some tasks override the default timeout: stale check (3600s), workload scan (3600s), nightly pipeline (7200s).
 
@@ -220,9 +220,10 @@ The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron:
 
 1. **Catalog refresh** — pull latest CRDs from Babylon
 2. **Stale check** — `git ls-remote` to detect changed Showroom repos
-3. **Re-analysis** — rescan stale items
+3. **Re-analysis** — enqueue analysis jobs for stale items
 4. **Workload scan** — scan agDv2 collection repos for new/changed roles
 5. **Reporting sync** — pull reporting data from MCP server
+6. **Compute similarity** — recompute pairwise content overlap scores
 
 ### LLM Provider Routing
 
@@ -233,7 +234,7 @@ RCARS supports two LLM providers with automatic failover:
 
 The unified `call_llm()` function routes each call to the appropriate provider. If LiteMaaS is available and has the requested model, it is used; otherwise the call falls back to Vertex AI automatically. Provider is tracked per LLM call in the `token_usage` table.
 
-Three models are used: Sonnet for content analysis, rationale generation, and chat answers; Haiku for triage, workload scanning, and chat routing.
+Two models are used: Sonnet for content analysis, rationale generation, and chat answers; Haiku for triage, workload scanning, and chat routing.
 
 ---
 
@@ -266,14 +267,12 @@ RCARS runs on OpenShift, managed by an Ansible playbook (`ansible/deploy.yml`) w
 
 | Tag | What it does |
 |---|---|
-| `deploy` | Full deploy: namespace, infra + app manifests, builds, migrations, rollout wait |
-| `update` | Build API + frontend, then run migrations (correct ordering for code + schema changes) |
-| `build-api` | Trigger API image build, wait for build + rollout |
-| `build-frontend` | Trigger frontend image build, wait for build |
-| `apply` | Apply Kubernetes manifests only (config changes, secrets, env vars) |
-| `migrate` | Run `rcars init-db` on the current pod |
+| `full` | Full deploy: namespace, infra + app manifests, builds, schema setup, smoke test |
+| `api` | Apply manifests → build API → schema setup → smoke test |
+| `frontend` | Apply manifests → build frontend → smoke test |
+| `apply-config` | Apply manifests only (config changes, secrets, env vars — no builds) |
 | `mgmt-rbac` | Bootstrap management ServiceAccount, ClusterRole, and kubeconfig |
 
-**Migration ordering:** Migrations execute on the running API pod. When deploying changes that include schema modifications, use `--tags update` — never run `--tags migrate` before `--tags build-api`.
+Schema setup (`rcars init-db`) runs automatically after every API build. It executes on the new pod, so code and schema are always in sync.
 
 See [Deployment Guide](../admin/deployment.md) for full setup instructions.

@@ -214,8 +214,8 @@ Currently supported acronyms:
 | Acronym | Expansion |
 |---------|-----------|
 | AAP | Ansible Automation Platform |
-| ACM, RHACM | Advanced Cluster Management |
-| ACS, RHACS | Advanced Cluster Security |
+| ACM, RHACM | Advanced Cluster Management for Kubernetes |
+| ACS, RHACS | Advanced Cluster Security for Kubernetes |
 | RHOAI | Red Hat OpenShift AI |
 | OCP | OpenShift Container Platform |
 | ARO | Azure Red Hat OpenShift |
@@ -226,8 +226,13 @@ Currently supported acronyms:
 | RHSSO | Red Hat Single Sign-On |
 | EDA | Event-Driven Ansible |
 | TAP | Trusted Application Pipeline |
+| AMQ | Red Hat AMQ Streams |
+| CRW | Red Hat CodeReady Workspaces |
+| RHBK | Red Hat Build of Keycloak |
 
-This is a hardcoded list in `pipeline.py` and a known limitation — acronyms not in this table will produce poor vector matches. A more robust approach (e.g., a curated dictionary loaded from the database, or automatic expansion from product metadata) is on the backlog.
+In addition to acronyms, RCARS expands common product synonyms (e.g., "Red Hat AI" → "Red Hat OpenShift AI", "GitOps" → "Red Hat OpenShift GitOps ArgoCD Argo CD"). Both lists are defined in `src/api/rcars/data/product-terms.yaml`.
+
+Acronyms and synonyms not in this file will produce poor vector matches. The YAML file can be edited and redeployed without code changes.
 
 ---
 

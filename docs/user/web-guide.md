@@ -46,8 +46,8 @@ The sidebar is organized into four labeled sections:
 
 - **ADVISOR** — **New Session** starts a fresh advisor conversation. **History** shows your past sessions with saved recommendations.
 - **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads** (curator only) shows infrastructure workload mappings.
-- **ANALYSIS** — **Overlap** detects duplicate content. **Performance** provides data-driven performance scoring and retirement workflow.
-- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions.
+- **ANALYSIS** (curators + performance viewers) — **Overlap** (curator only) detects duplicate content. **Performance** provides data-driven performance scoring and retirement workflow.
+- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions. **API Keys** manages external API keys. **Access Control** manages role assignments.
 
 ### Theme Toggle
 
@@ -225,7 +225,7 @@ Click an item to expand it. The expanded view shows:
 
 ## Content Analysis
 
-The Content Analysis section is a top-level navigation group in the sidebar, visible to admins only. It contains two sub-pages for analyzing catalog content at scale.
+The Analysis section is a top-level navigation group in the sidebar, visible to curators and users who can view performance data. It contains two sub-pages for analyzing catalog content at scale.
 
 ### Content Overlap (`/analysis/overlap`)
 
@@ -343,19 +343,21 @@ Items more than a year old without a prod deployment are strong candidates for e
 
 #### Retirement Workflow Drawer
 
-Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a four-step workflow.
+Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a five-step workflow.
 
 **Usage Data Grid** — pinned at the top, showing score, provisions, unique users, completions, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
 
 **Workflow Steps:**
 
-1. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
+1. **Review** — initial review step that records who reviewed the item and when.
 
-2. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
+2. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
 
-3. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
+3. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
 
-4. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
+4. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
+
+5. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
 
 **Additional sections in the drawer:**
 
@@ -394,7 +396,7 @@ Each item receives a score from 0 to 100. **Higher scores indicate better perfor
 
 ## The System Pages
 
-The System section is visible to admins only (not curators). It has five pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, and **Query History**.
+The System section is visible to admins only (not curators). It has seven pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, **Query History**, **API Keys**, and **Access Control**.
 
 ### Status (`/system/status`)
 

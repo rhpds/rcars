@@ -103,7 +103,7 @@ If the narrative LLM call fails, the scaffold alone is the answer. The turn succ
 |---------|---------|-------------|
 | `chat_router_model` | triage_model (Haiku) | Model for intent classification |
 | `chat_answer_model` | rationale_model (Sonnet) | Model for answer narrative |
-| `chat_intent_roles_str` | `performance:curator` | Per-intent role gates (comma-separated `intent:role` pairs) |
+| `chat_intent_roles_str` | `""` (empty — no gates) | Per-intent role gates (comma-separated `intent:role` pairs, e.g. `performance:curator`) |
 | `chat_router_confidence_threshold` | `0.6` | Below this → clarification turn |
 | `chat_context_turns` | `5` | Turns in the router's context window |
 

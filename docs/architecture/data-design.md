@@ -112,7 +112,7 @@ Each step has `step_<name>_at` / `step_<name>_by` timestamps and actor fields. A
 
 ### Sessions and jobs
 
-- **`advisor_sessions`**: Query history -- each row is one turn in an advisor conversation. Tracks the query, results, and which recommendation the user chose (`chosen_content_id`).
+- **`advisor_sessions`**: Query history -- each row is one turn in an advisor conversation. Tracks the query, intent, results (including the full chat envelope and scope), and which recommendation the user chose (`chosen_content_id`).
 - **`jobs`**: Async job tracking for long-running operations (scans, refreshes, queries). Stores status, progress, and results.
 
 ### Auth and operational
@@ -324,6 +324,7 @@ CREATE TABLE IF NOT EXISTS content_similarity (
     content_id_a TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
     content_id_b TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
     similarity_score REAL NOT NULL,
+    relationship_type TEXT NOT NULL DEFAULT 'overlap',
     computed_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(content_id_a, content_id_b)
 );
@@ -457,6 +458,9 @@ CREATE TABLE IF NOT EXISTS advisor_sessions (
     chosen_content_id TEXT,
     chosen_at TIMESTAMPTZ,
     opted_out BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    intent TEXT,
+    envelope_json JSONB,
+    scope_json JSONB
 );
 ```
