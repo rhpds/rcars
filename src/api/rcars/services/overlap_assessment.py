@@ -16,14 +16,14 @@ VALID_RECOMMENDATIONS = frozenset({"merge", "keep_both", "retire_one"})
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "overlap_assessment.txt"
 
 
-def _coerce_list(val: Any) -> list:
-    """Coerce value to list. None→[], str→[str], list→list, else→[]."""
+def _coerce_list(val: Any) -> list[str]:
+    """Coerce value to string list. None→[], str→[str], list→filtered strings, else→[]."""
     if val is None:
         return []
     if isinstance(val, str):
         return [val]
     if isinstance(val, list):
-        return val
+        return [item for item in val if isinstance(item, str)]
     return []
 
 
@@ -49,7 +49,7 @@ def _validate_assessment(parsed: dict) -> dict | None:
         "differentiators_a": _coerce_list(parsed.get("differentiators_a")),
         "differentiators_b": _coerce_list(parsed.get("differentiators_b")),
         "recommendation": recommendation,
-        "rationale": parsed.get("rationale", ""),
+        "rationale": parsed["rationale"] if isinstance(parsed.get("rationale"), str) else "",
     }
 
 
@@ -119,11 +119,12 @@ def assess_overlap(
     settings: Settings,
     content_id_a: str,
     content_id_b: str,
-) -> dict | None:
+) -> tuple[dict | None, str]:
     """Assess overlap between two content items via LLM.
 
-    Returns cached assessment if present, otherwise calls LLM, validates,
-    persists, and returns result. Returns None on failure.
+    Returns (assessment_dict, reason). Reason is "ok" on success,
+    or one of: "cached", "missing_analysis", "not_overlap", "llm_error",
+    "parse_error", "validation_error".
     """
     # Normalize order to match content_similarity constraint
     if content_id_a > content_id_b:
@@ -132,20 +133,23 @@ def assess_overlap(
     # Check cache
     with pool.connection() as conn:
         cur = conn.execute(
-            """SELECT llm_assessment FROM content_similarity
+            """SELECT llm_assessment, relationship_type FROM content_similarity
                WHERE content_id_a = %s AND content_id_b = %s""",
             (content_id_a, content_id_b),
         )
         row = cur.fetchone()
-        if row and row["llm_assessment"]:
+        if not row or row.get("relationship_type") != "overlap":
+            logger.warning("not_overlap_pair", content_id_a=content_id_a, content_id_b=content_id_b)
+            return None, "not_overlap"
+        if row["llm_assessment"]:
             logger.debug("overlap_assessment_cached", content_id_a=content_id_a, content_id_b=content_id_b)
-            return row["llm_assessment"]
+            return row["llm_assessment"], "cached"
 
     # Load analysis data
     analysis_a, analysis_b = _load_analysis_pair(pool, content_id_a, content_id_b)
     if not analysis_a or not analysis_b:
         logger.warning("missing_analysis_for_overlap_pair", content_id_a=content_id_a, content_id_b=content_id_b)
-        return None
+        return None, "missing_analysis"
 
     # Build prompt and call LLM
     prompt = _build_assessment_prompt(analysis_a, analysis_b)
@@ -163,13 +167,13 @@ def assess_overlap(
     parsed = parse_analysis_response(result.text)
     if not parsed:
         logger.warning("failed_to_parse_overlap_response", content_id_a=content_id_a, content_id_b=content_id_b)
-        return None
+        return None, "parse_error"
 
     # Validate
     validated = _validate_assessment(parsed)
     if not validated:
         logger.warning("invalid_overlap_assessment", content_id_a=content_id_a, content_id_b=content_id_b, parsed=parsed)
-        return None
+        return None, "validation_error"
 
     # Attach metadata
     validated["model"] = settings.overlap_model
@@ -190,7 +194,7 @@ def assess_overlap(
         conn.commit()
 
     logger.info("overlap_assessed", content_id_a=content_id_a, content_id_b=content_id_b, verdict=validated["verdict"])
-    return validated
+    return validated, "ok"
 
 
 def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> dict:
@@ -205,7 +209,8 @@ def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> 
         cur = conn.execute(
             """SELECT content_id_a, content_id_b
                FROM content_similarity
-               WHERE similarity_score >= %s
+               WHERE relationship_type = 'overlap'
+                 AND similarity_score >= %s
                  AND llm_assessment IS NULL
                ORDER BY similarity_score DESC""",
             (min_score,),
@@ -214,22 +219,21 @@ def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> 
 
     pairs_found = len(pairs)
     assessed = 0
+    skipped = 0
     errors = 0
     total_tokens = 0
 
     for content_id_a, content_id_b in pairs:
         try:
-            result = assess_overlap(pool, settings, content_id_a, content_id_b)
+            result, reason = assess_overlap(pool, settings, content_id_a, content_id_b)
             if result:
                 assessed += 1
                 total_tokens += result["tokens"]["input"] + result["tokens"]["output"]
             else:
-                errors += 1
+                skipped += 1
         except Exception as e:
             logger.error("batch_assess_error", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
             errors += 1
-
-    skipped = pairs_found - assessed - errors
     logger.info("batch_assess_complete", pairs_found=pairs_found, assessed=assessed, skipped=skipped, errors=errors, total_tokens=total_tokens)
 
     return {

@@ -263,9 +263,10 @@ def test_assess_overlap_calls_llm_and_persists(mock_llm, db):
         text=MOCK_LLM_RESPONSE, input_tokens=500, output_tokens=200
     )
     settings = Settings(database_url=TEST_DB_URL)
-    result = assess_overlap(db.pool, settings, cid_a, cid_b)
+    result, reason = assess_overlap(db.pool, settings, cid_a, cid_b)
 
     assert result is not None
+    assert reason == "ok"
     assert result["verdict"] == "complementary"
     assert result["recommendation"] == "keep_both"
     assert result["model"] == settings.overlap_model
@@ -292,9 +293,10 @@ def test_assess_overlap_returns_cache_on_second_call(mock_llm, db):
     )
     settings = Settings(database_url=TEST_DB_URL)
     assess_overlap(db.pool, settings, cid_a, cid_b)
-    result2 = assess_overlap(db.pool, settings, cid_a, cid_b)
+    result2, reason2 = assess_overlap(db.pool, settings, cid_a, cid_b)
 
     assert result2["verdict"] == "complementary"
+    assert reason2 == "cached"
     assert mock_llm.call_count == 1  # cached, no second LLM call
 
 
@@ -331,10 +333,11 @@ def test_assess_overlap_missing_analysis_returns_none(mock_llm, db):
     compute_content_similarity(db.pool, threshold=0.75)
 
     settings = Settings(database_url=TEST_DB_URL)
-    result = assess_overlap(
+    result, reason = assess_overlap(
         db.pool, settings, "babylon:ns.no-analysis-a.prod", "babylon:ns.no-analysis-b.prod"
     )
     assert result is None
+    assert reason == "missing_analysis"
     mock_llm.assert_not_called()
 
 
@@ -354,8 +357,9 @@ def test_assess_overlap_rejects_invalid_verdict(mock_llm, db):
         input_tokens=500, output_tokens=200,
     )
     settings = Settings(database_url=TEST_DB_URL)
-    result = assess_overlap(db.pool, settings, cid_a, cid_b)
+    result, reason = assess_overlap(db.pool, settings, cid_a, cid_b)
     assert result is None
+    assert reason == "validation_error"
 
     # Verify nothing was persisted
     with db.pool.connection() as conn:
@@ -405,7 +409,8 @@ def test_assessment_endpoint_returns_cached(db):
         )
         conn.commit()
 
-    result = assess_overlap(db.pool, Settings(database_url=TEST_DB_URL), cid_a, cid_b)
+    result, reason = assess_overlap(db.pool, Settings(database_url=TEST_DB_URL), cid_a, cid_b)
     assert result is not None
+    assert reason == "cached"
     assert result["verdict"] == "complementary"
     assert "tokens" in result

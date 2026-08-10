@@ -349,12 +349,12 @@ async def overlap_assessment(
     settings = Settings()
 
     import asyncio
-    result = await asyncio.to_thread(
+    result, reason = await asyncio.to_thread(
         assess_overlap, db.pool, settings, content_id_a, content_id_b
     )
 
     if result is None:
-        return {"assessment": None, "assessed_at": None, "reason": "missing_analysis"}
+        return {"assessment": None, "assessed_at": None, "reason": reason}
 
     # Read assessed_at from DB
     a, b = (content_id_a, content_id_b) if content_id_a < content_id_b else (content_id_b, content_id_a)

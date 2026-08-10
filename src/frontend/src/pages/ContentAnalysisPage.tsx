@@ -152,16 +152,19 @@ export function ContentOverlapPage() {
       setDrawer(prev => prev ? { ...prev, loading: false } : null)
     }
 
+    const reqA = item.content_id
+    const reqB = neighbor.content_id
     try {
-      const resp = await api.getOverlapAssessment(item.content_id, neighbor.content_id)
-      setDrawer(prev => prev ? {
-        ...prev,
-        assessment: resp.assessment as OverlapAssessment | null,
-        assessmentLoading: false,
-        assessmentReason: resp.reason || null,
-      } : null)
+      const resp = await api.getOverlapAssessment(reqA, reqB)
+      setDrawer(prev => {
+        if (!prev || prev.item.content_id !== reqA || prev.neighbor.content_id !== reqB) return prev
+        return { ...prev, assessment: resp.assessment as OverlapAssessment | null, assessmentLoading: false, assessmentReason: resp.reason || null }
+      })
     } catch {
-      setDrawer(prev => prev ? { ...prev, assessmentLoading: false } : null)
+      setDrawer(prev => {
+        if (!prev || prev.item.content_id !== reqA || prev.neighbor.content_id !== reqB) return prev
+        return { ...prev, assessmentLoading: false }
+      })
     }
   }
 
