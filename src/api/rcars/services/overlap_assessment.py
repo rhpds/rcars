@@ -163,9 +163,15 @@ def assess_overlap(
             max_tokens=1024,
             temperature=0,
         )
-    except Exception as e:
+    except RuntimeError as e:
         logger.error("llm_call_failed", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
         return None, "llm_error"
+    except Exception as e:
+        # Catch provider SDK errors (anthropic.APIError, network, etc.) but not via bare Exception import
+        if type(e).__module__.startswith(("anthropic", "httpx", "openai")):
+            logger.error("llm_provider_error", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
+            return None, "llm_error"
+        raise
 
     # Parse response
     parsed = parse_analysis_response(result.text)
