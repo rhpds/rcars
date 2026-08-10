@@ -132,7 +132,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     args = PerformanceArgs.model_validate(res.output.args)
-    window = args.window or "3m"
+    window = args.window or "6m"
     triaged = [i for i in res.items if i.get("tier") in ("green", "yellow")]
     ids = res.scope_ids or [i["content_id"] for i in (triaged or res.items)]
     scores = get_performance_scores(db.pool, ids)
@@ -155,7 +155,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "cost_per_provision": float(rhdp.get("avg_cost_per_provision") or 0) or None,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
-                     "score": scores.get(cid)})
+                     "score": (w.get("score_breakdown") or {}).get("score") or scores.get(cid)})
     if not res.scope_ids:
         rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1
