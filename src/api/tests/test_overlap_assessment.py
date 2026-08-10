@@ -4,6 +4,7 @@ import os
 import psycopg
 from psycopg.rows import dict_row
 import pytest
+from rcars.config import Settings
 from rcars.db.database import Database
 
 TEST_DB_URL = os.environ.get(
@@ -41,3 +42,14 @@ def test_content_similarity_has_assessment_columns(db):
         cols = {row["column_name"]: row["data_type"] for row in cur.fetchall()}
     assert cols["llm_assessment"] == "jsonb"
     assert cols["assessed_at"] == "timestamp with time zone"
+
+
+def test_overlap_model_default():
+    s = Settings(database_url="postgresql://test:test@localhost/test")
+    assert s.overlap_model == "claude-sonnet-4-6"
+
+
+def test_overlap_model_from_env(monkeypatch):
+    monkeypatch.setenv("RCARS_OVERLAP_MODEL", "claude-haiku-4-5")
+    s = Settings(database_url="postgresql://test:test@localhost/test")
+    assert s.overlap_model == "claude-haiku-4-5"
