@@ -378,3 +378,34 @@ def test_parse_truncated_assessment_response():
     # The validation layer will catch missing fields
     if result:
         assert "verdict" in result
+
+
+def test_assessment_endpoint_returns_cached(db):
+    """Verify cached assessment is returned without LLM call."""
+    cid_a, cid_b = _seed_overlap_pair(db)
+
+    assessment = {
+        "verdict": "complementary",
+        "shared_topics": ["OpenShift"],
+        "differentiators_a": ["GitOps"],
+        "differentiators_b": ["Troubleshooting"],
+        "recommendation": "keep_both",
+        "rationale": "Different angles.",
+        "model": "claude-sonnet-4-6",
+        "tokens": {"input": 500, "output": 200},
+    }
+
+    # Pre-populate a cached assessment
+    with db.pool.connection() as conn:
+        conn.execute(
+            """UPDATE content_similarity
+               SET llm_assessment = %s::jsonb, assessed_at = NOW()
+               WHERE content_id_a = %s AND content_id_b = %s""",
+            (json.dumps(assessment), cid_a, cid_b),
+        )
+        conn.commit()
+
+    result = assess_overlap(db.pool, Settings(database_url=TEST_DB_URL), cid_a, cid_b)
+    assert result is not None
+    assert result["verdict"] == "complementary"
+    assert "tokens" in result
