@@ -27,6 +27,8 @@ export function NonProdItemsPage() {
     new Set(searchParams.get('stages')?.split(',').filter(Boolean) || []))
   const [selectedContentTypes, setSelectedContentTypes] = useState<Set<string>>(
     new Set(searchParams.get('content_types')?.split(',').filter(Boolean) || []))
+  const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
+    new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
   const [provFilter, setProvFilter] = useState<string>(searchParams.get('provs') || 'all')
 
   const [allItems, setAllItems] = useState<NonProdItem[]>([])
@@ -64,9 +66,10 @@ export function NonProdItemsPage() {
     if (sortDir !== 'desc') params.order = sortDir
     if (selectedStages.size > 0) params.stages = Array.from(selectedStages).sort().join(',')
     if (selectedContentTypes.size > 0) params.content_types = Array.from(selectedContentTypes).sort().join(',')
+    if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
     if (provFilter !== 'all') params.provs = provFilter
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, provFilter, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -105,6 +108,7 @@ export function NonProdItemsPage() {
     setStatusFilter('all')
     setSelectedStages(new Set())
     setSelectedContentTypes(new Set())
+    setSelectedNamespaces(new Set())
     setProvFilter('all')
   }
 
@@ -117,6 +121,7 @@ export function NonProdItemsPage() {
       if (!itemStages.some(s => selectedStages.has(s))) return false
     }
     if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
+    if (selectedNamespaces.size > 0 && (!i.catalog_namespace || !selectedNamespaces.has(i.catalog_namespace))) return false
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
@@ -138,6 +143,14 @@ export function NonProdItemsPage() {
     const counts: Record<string, number> = {}
     for (const i of allItems) {
       if (i.content_type) counts[i.content_type] = (counts[i.content_type] || 0) + 1
+    }
+    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
+  })()
+
+  const availableNamespaces = (() => {
+    const counts: Record<string, number> = {}
+    for (const i of allItems) {
+      if (i.catalog_namespace) counts[i.catalog_namespace] = (counts[i.catalog_namespace] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
@@ -194,6 +207,30 @@ export function NonProdItemsPage() {
             </div>
           </div>
         )}
+
+        <div className="browse-filter-group">
+          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            Namespace
+            {selectedNamespaces.size > 0 && (
+              <button onClick={() => setSelectedNamespaces(new Set())}
+                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                Clear ({selectedNamespaces.size})
+              </button>
+            )}
+          </div>
+          <div style={{
+            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
+            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
+          }}>
+            {availableNamespaces.map(([ns, count]) => (
+              <label key={ns} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>
+                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleSet(setSelectedNamespaces, ns)} />
+                <span>{ns}</span>
+                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
+              </label>
+            ))}
+          </div>
+        </div>
 
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Provisions</div>
