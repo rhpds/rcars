@@ -10,6 +10,7 @@ import { WorkloadsPage } from './pages/WorkloadsPage'
 import { AdminTokensPage, AdminQueriesPage, AdminRolesPage } from './pages/AdminPage'
 import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
+import { NonProdItemsPage } from './pages/NonProdItemsPage'
 import { PerformancePage } from './pages/PerformancePage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
@@ -51,6 +52,7 @@ export default function App() {
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                       <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
+                      <Route path="/analysis/nonprod" element={<NonProdItemsPage />} />
                     </>
                   )}
                   {auth.canViewPerformance && (
