@@ -87,7 +87,7 @@ export function ContentOverlapPage() {
   const [loading, setLoading] = useState(true)
   const [computing, setComputing] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
-  const [minScore, setMinScore] = useState(Number(searchParams.get('min_score')) || 0.85)
+  const [minScore, setMinScore] = useState(Number(searchParams.get('min_score')) || 0.95)
   const [stage, setStage] = useState<string>(searchParams.get('stage') || 'prod')
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
@@ -220,8 +220,8 @@ export function ContentOverlapPage() {
           aria-label="Min score"
         >
           <FormSelectOption value="0.95" label="≥ 95% (near-duplicates)" />
-          <FormSelectOption value="0.85" label="≥ 85% (high overlap)" />
-          <FormSelectOption value="0.75" label="≥ 75% (all stored)" />
+          <FormSelectOption value="0.90" label="≥ 90% (high overlap)" />
+          <FormSelectOption value="0.85" label="≥ 85%" />
         </FormSelect>
 
         <SearchInput
