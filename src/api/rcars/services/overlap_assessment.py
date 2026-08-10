@@ -155,13 +155,17 @@ def assess_overlap(
     prompt = _build_assessment_prompt(analysis_a, analysis_b)
     logger.info("calling_llm_for_overlap", content_id_a=content_id_a, content_id_b=content_id_b, model=settings.overlap_model)
 
-    result = call_llm(
-        settings=settings,
-        model=settings.overlap_model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1024,
-        temperature=0,
-    )
+    try:
+        result = call_llm(
+            settings=settings,
+            model=settings.overlap_model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
+            temperature=0,
+        )
+    except Exception as e:
+        logger.error("llm_call_failed", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
+        return None, "llm_error"
 
     # Parse response
     parsed = parse_analysis_response(result.text)
@@ -226,11 +230,13 @@ def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> 
     for content_id_a, content_id_b in pairs:
         try:
             result, reason = assess_overlap(pool, settings, content_id_a, content_id_b)
-            if result:
+            if reason == "ok":
                 assessed += 1
                 total_tokens += result["tokens"]["input"] + result["tokens"]["output"]
-            else:
+            elif reason in {"cached", "missing_analysis", "not_overlap"}:
                 skipped += 1
+            else:
+                errors += 1
         except Exception as e:
             logger.error("batch_assess_error", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
             errors += 1
