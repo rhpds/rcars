@@ -1,7 +1,7 @@
 # Portfolio Architecture Ingest — Design Spec
 
 **Jira:** [RHDPCD-28](https://redhat.atlassian.net/browse/RHDPCD-28) (child of [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25))
-**Date:** 2026-07-30 (revised 2026-08-07)
+**Date:** 2026-07-30 (revised 2026-08-07, 2026-08-10)
 **Status:** Design
 **Author:** M. Rudisill
 **Depends on:** RHDPCD-359 (Generalized Content Model — deployed)
@@ -79,7 +79,7 @@ The three architecture asset types — `PA`, `VP`, `SP` — are what we ingest, 
 | exactly one of `islive` / `showInCatalog` is `TRUE`  | `in_progress` | Curators only             |
 | neither is `TRUE`                                    | `draft`       | Curators only             |
 
-Advisor and Browse default to `status='live'`. A curator-only "Show non-live" toggle exposes `in_progress` and `draft` items, mirroring the existing "Show Retired" pattern.
+Advisor and Browse default to `status='live'`. A curator-only "Show non-live" toggle exposes `in_progress` and `draft` items, mirroring the existing "Show Retired" pattern. **This filter is a Phase 1 deliverable, not deferred:** the shared candidate-retrieval query used by Advisor's vector search and by the Browse API applies `(source != 'portfolio_arch' OR status = 'live')` in Phase 1, before any dedicated architecture UI exists — see 3i. Without it, `in_progress`/`draft` items would leak into recommendations and Browse results via vector search the moment embeddings exist, regardless of whether a curator UI toggle has shipped.
 
 As of 2026-07 there are ~39 in-scope rows with `showInCatalog=TRUE` (PA 34, PA,VP 3, SP 2); ingesting all in-scope rows with a valid `.adoc` also pulls in additional `in_progress` / `draft` items beyond those. Rows excluded from Phase 1 entirely:
 
@@ -255,17 +255,19 @@ Both tables go into `src/api/rcars/db/database.py` `SCHEMA_SQL` using `CREATE TA
 
 #### 2d. content_entities card fields for OSSPA items
 
-Populated on ingest from CSV (before analysis), then overwritten by analysis when it runs:
+Populated on ingest from CSV **on first insert only**, then owned by analysis from that point on:
 
 
-| Field           | Initial value (CSV)                   | After analysis |
-| --------------- | ------------------------------------- | -------------- |
-| `display_name`  | CSV `Heading`                         | Unchanged      |
-| `summary`       | CSV `Summary`                         | LLM summary    |
-| `products_json` | CSV `Product` (comma-split)           | LLM products   |
-| `topics_json`   | Derived from `Solutions` + `Vertical` | LLM topics     |
-| `audience_json` | `["architect", "developer"]` default  | LLM audience   |
-| `difficulty`    | `null`                                | LLM difficulty |
+| Field           | Initial value (CSV, INSERT only)      | Owner after first analysis |
+| --------------- | -------------------------------------- | -------------------------- |
+| `display_name`  | CSV `Heading`                          | CSV `Heading` (updated every sync — CSV-owned, not LLM-owned) |
+| `summary`       | CSV `Summary`                          | `analyze_architecture_item` — LLM summary |
+| `products_json` | CSV `Product` (comma-split)            | `analyze_architecture_item` — LLM products |
+| `topics_json`   | Derived from `Solutions` + `Vertical`  | `analyze_architecture_item` — LLM topics |
+| `audience_json` | `["architect", "developer"]` default   | `analyze_architecture_item` — LLM audience |
+| `difficulty`    | `null`                                 | `analyze_architecture_item` — LLM difficulty |
+
+**`upsert_osspa_item` never updates `summary`, `products_json`, `topics_json`, `audience_json`, or `difficulty` on conflict.** These five columns are set once on `INSERT` as a pre-analysis seed and excluded from the `ON CONFLICT DO UPDATE` clause entirely — only `analyze_architecture_item` writes to them after that. This matters because `upsert_osspa_item` runs on *every* sync (CSV-only, no analysis), while analysis only reruns when `content_hash` changes; without the exclusion, a routine CSV-only sync would silently overwrite good LLM output with the stale CSV seed values, and the following hash-unchanged skip (3b step 7d) would leave it that way indefinitely. `upsert_babylon_catalog_item` in `src/api/rcars/db/database.py` (lines 480-553) already applies this same insert-only pattern to `content_entities` for Babylon items — `upsert_osspa_item` follows the identical approach.
 
 
 
@@ -282,12 +284,12 @@ Populated on ingest from CSV (before analysis), then overwritten by analysis whe
 | `fetch_palist_csv(settings) -> list[dict]`                                        | HTTP GET PAList.csv, parse, normalize booleans                                                             |
 | `scope_rows(rows) -> list[dict]`                                                  | Apply ingestion gate — any `ProductType` token ∈ {PA, VP, SP} (no IE token) AND `.adoc` DetailPage. Not a live/catalog filter |
 | `derive_status(row) -> str`                                                       | Map raw `islive` + `showInCatalog` → `live` / `in_progress` / `draft`                                      |
-| `upsert_osspa_item(db, row) -> str`                                               | Write `content_entities` + `portfolio_architectures` (incl. derived `status`) for one CSV row; return `content_id` |
-| `retire_missing_osspa(db, active_content_ids) -> int`                             | Soft-retire `source='portfolio_arch'` items not in the current in-scope set — only when the CSV fetch was complete (completeness guard, see 3h)  |
-| `clone_examples_repo(settings) -> Path`                                           | Shallow clone or fetch portfolio-architecture-examples at configured ref                                   |
+| `upsert_osspa_item(db, row) -> str`                                               | Write `content_entities` (card fields **except** `summary`/`products_json`/`topics_json`/`audience_json`/`difficulty`, which are INSERT-only — see 2d) + `portfolio_architectures` (incl. derived `status`) for one CSV row. Always resets `retired_at = NULL, retirement_reason = NULL` on conflict, mirroring `upsert_babylon_catalog_item`. Returns `content_id` |
+| `retire_missing_osspa(db, active_content_ids) -> int`                             | Soft-retire `source='portfolio_arch'` items not in the current in-scope set — only when completeness + shrink-guard checks pass (see 3h)  |
+| `clone_examples_repo(settings) -> Path`                                           | Shallow clone or fetch portfolio-architecture-examples at configured ref; bounded timeout; must succeed before any DB writes this sync (see 3h) |
 | `read_detail_adoc(clone_path, detail_page) -> str`                                | Safe path join with canonical real-path containment check; enforce size cap; read `.adoc` text; strip `++++` passthrough blocks (see 3h) |
-| `analyze_architecture_item(db, content_id, adoc_text, csv_row, settings) -> dict` | Hash check → LLM → write `architecture_analysis` + denormalize to `content_entities` + generate embeddings |
-| `run_osspa_sync(ctx, job_id, force=False) -> dict`                                | Orchestrator: acquire advisory lock → CSV → upsert → retire → clone → analyze; return stats (see 3h)       |
+| `analyze_architecture_item(db, content_id, adoc_text, csv_row, settings) -> dict` | Sets `is_stale=TRUE` before analysis → LLM → write `architecture_analysis` + denormalize to `content_entities` + generate embeddings → clears `is_stale` only after all three commit (see 3h) |
+| `run_osspa_sync(ctx, job_id, force=False, confirm_empty_inventory=False) -> dict` | Orchestrator: acquire advisory lock → CSV → clone/validate → upsert → retire → analyze; return stats (see 3h)       |
 
 
 
@@ -299,25 +301,45 @@ Populated on ingest from CSV (before analysis), then overwritten by analysis whe
    ("sync already running") — serializes nightly + manual runs (see 3h)
 1. Fetch and parse PAList.csv (bounded timeout, see 3h)
 2. Apply ingestion gate (scope_rows) → active_rows (all in-scope PA/PA,VP/SP with .adoc, any status)
-3. Guard: if active_rows is empty → abort (do not wipe existing items)
-4. For each row → upsert_osspa_item:
+3. Guard: if active_rows is empty →
+       if confirm_empty_inventory is NOT set → abort sync (do not wipe existing items); log + return stats
+       if confirm_empty_inventory IS set → proceed (operator has verified the inventory is genuinely empty);
+           retire_missing_osspa in step 6 is then permitted to retire all source='portfolio_arch' rows
+4. Ensure examples repo clone at configured ref (bounded timeout); record HEAD SHA.
+   MUST succeed before any DB write below — a clone/fetch failure aborts the sync here,
+   before upsert or retire, so existing rows are never mutated by a run that can't
+   validate content (closes the "clone fails after DB already changed" gap — see 3h)
+5. For each row → upsert_osspa_item:
        derive status (live / in_progress / draft) from islive + showInCatalog
-       content_entities (ON CONFLICT DO UPDATE — card fields)
+       content_entities (ON CONFLICT DO UPDATE — card fields EXCEPT summary/products_json/
+           topics_json/audience_json/difficulty, which are INSERT-only — see 2d;
+           always resets retired_at = NULL, retirement_reason = NULL on conflict)
        portfolio_architectures (ON CONFLICT DO UPDATE — extension fields incl. status)
-5. retire_missing_osspa: only if the CSV fetch was complete (HTTP 200,
-   parseable header, non-empty active set — completeness guard, see 3h)
+6. retire_missing_osspa: only if completeness is established — HTTP 200, parseable header,
+   AND (active_rows count is not a suspicious drop vs. the current DB's active
+   source='portfolio_arch' count, i.e. within the shrink-guard threshold — see 3h)
+   OR confirm_empty_inventory was set in step 3
    → soft-retire source='portfolio_arch' items with content_id NOT IN active content_ids
-6. Ensure examples repo clone at configured ref (bounded timeout); record HEAD SHA
+   → if completeness/shrink-guard fails: skip retirement, log a warning, continue to step 7
+     with whatever upserted from this run (do not abort the whole sync)
 7. For each active item needing analysis:
-       a. Resolve DetailPage under clone root (safe join + real-path check)
+       a. Resolve DetailPage under clone root (safe join + real-path check).
+          If the file is missing and no architecture_analysis row exists yet for this
+          content_id, first create a minimal row (content_id, is_stale=TRUE) so
+          staleness has somewhere to live — then continue to (d) below
        b. Read adoc text (capped at max size); strip ++++...++++ passthrough blocks
        c. Compute content_hash (adoc body + prompt-input CSV fields)
-       d. If hash unchanged AND architecture_analysis row exists AND not force → skip
-       e. Else: LLM analyze → write architecture_analysis
+       d. If is_stale=FALSE AND hash unchanged AND embedding for this content_id already
+          matches the current content_hash AND not force → skip (analysis is genuinely current)
+       e. Else: set is_stale=TRUE first → LLM analyze → write architecture_analysis
               → denormalize summary/products/topics/audience/difficulty to content_entities
               → in ONE transaction: clear old embeddings for this content_id and
                 store the new architecture embedding (embed_type='summary') from
                 summary + detailed topics — atomic swap (see 3h); no per-section embeddings
+              → clear is_stale (set FALSE) and clear stale_commit ONLY after that
+                transaction commits successfully; a failure at any point (LLM error,
+                denormalization, embedding write) leaves is_stale=TRUE so the next
+                sync retries this item instead of treating the stale hash as done
 8. Release advisory lock; return stats: upserted, retired, analyzed, skipped, failed
 ```
 
@@ -342,7 +364,7 @@ Reuse the structured JSON output format from Showroom analysis (same `parse_anal
 - Provide adoc prose as content body
 - Request: `summary`, `products`, `topics`, `detailed_topics`, `audience`, `difficulty`, `solution_areas`, `use_cases`, `key_components`
 - Instruct the LLM to draw from both CSV metadata and adoc prose; prefer adoc for specifics
-- Constrain `products`, `topics`, and `solution_areas` to the controlled vocabulary where a listed term fits; only coin a new term when nothing matches (see 3g)
+- Prefer precise product / solution / topic terms; when the shared controlled vocabulary ships ([2026-08-10-controlled-vocabulary-design.md](2026-08-10-controlled-vocabulary-design.md)), analysis will prefer listed terms and normalize aliases — but that wiring is **not** part of this Phase 1 deliverable
 - `detailed_topics` is a richer, architecture-wide list of the specific topics the doc covers (technologies, integration points, design decisions) — more detailed than the short `topics`, applicable to the **whole** architecture, not per section. It enriches the single embedding (see 3e)
 - For thin content (an adoc with mostly diagrams/embeds and a short intro): the prompt must produce a useful summary from CSV metadata alone — the adoc intro may only be 2-3 sentences
 - Do **not** request `modules` or `learning_objectives` — these are architecture docs, not labs
@@ -379,55 +401,13 @@ WHERE source = 'babylon' AND content_id NOT IN (...)
 
 As part of this work, **rename the existing Babylon helper `retire_removed_items()` → `retire_missing_babylon()`** so it reads as a matched pair with `retire_missing_osspa()` — each source owns a clearly named retire helper. OSSPA lifecycle is owned exclusively by `retire_missing_osspa()` in this service; Babylon lifecycle by `retire_missing_babylon()`.
 
-#### 3g. Controlled Vocabulary
+#### 3g. Controlled Vocabulary — deferred to separate spec
 
-To keep `products`, `topics`, `solutions`, and learning-objective verbs consistent **across sources** — Babylon labs and OSSPA architectures alike — analysis draws from a shared, controlled vocabulary rather than emitting free text. This is net-new: today RCARS enforces almost no vocabulary at ingest (only `content_type` and `format_suitability` are constrained), so products/topics arrive as unnormalized LLM free-text. A shared vocabulary makes triage, Browse filtering, and cross-source similarity more reliable by collapsing near-duplicate terms (e.g. "RHACS" vs "Advanced Cluster Security").
+Cross-source term normalization (products, solutions, verticals, LO verbs, …) touches every analyzer, not just OSSPA. Per code-owner guidance (Nate, 2026-08-10), that work lives in its own design spec and must not be munged into this ingest feature:
 
-**Storage.** A version-controlled YAML file is the source of truth, mounted as a k8s ConfigMap so ops can override it per environment without an image rebuild — mirroring the Publishing House [`configmap-validation-policy.yaml`](https://github.com/rhpds/rhdp-publishing-house/blob/main/central-api/k8s/configmap-validation-policy.yaml) pattern:
+→ **[2026-08-10-controlled-vocabulary-design.md](2026-08-10-controlled-vocabulary-design.md)**
 
-```text
-src/api/rcars/prompts/vocabulary.yaml      # source of truth, PR-reviewed
-   └─ mounted as a ConfigMap (Ansible)     # per-env override, no rebuild
-```
-
-```yaml
-# vocabulary.yaml — source-agnostic; shared by all content analyzers.
-# products/solutions/verticals carry {name, aliases} so near-duplicates and
-# acronyms (RHACS, ApplicationPlatform, FSI, ...) normalize to one canonical
-# term. Layout mirrors the Publishing House ph-validation-policy ConfigMap.
-products:                                    # canonical Red Hat product names
-  - {name: "Red Hat Advanced Cluster Security", aliases: [RHACS, ACS, StackRox]}
-  - ...
-solutions:                                   # high-level solution areas (OSSPA-anchored)
-  - {name: "Application Platform", aliases: [ApplicationPlatform, ApplicationDevelopment]}
-  - ...
-verticals:                                   # industry verticals (OSSPA PAList Vertical)
-  - {name: "Financial Services", aliases: [FSI]}
-  - ...
-platforms:  [On-Premise, AWS, Azure, Cloud, Edge]   # OSSPA-native deployment target
-topics:     [gitops, service-mesh, observability, ...]   # BROAD only — LLM coins the specifics
-audience:   ["platform engineers", developers, ...]      # roles (open-ended)
-difficulty: [beginner, intermediate, advanced]           # closed set
-action_verbs_valid:    [deploy, configure, integrate, ...]   # learning-objective verbs (Babylon labs)
-action_verbs_rejected: [understand, learn, know, ...]        # non-measurable — flag/replace
-```
-
-`topics` is deliberately a **broad** guide, not an exhaustive taxonomy: the OSSPA `metaKeyword` column alone holds 186 near-unique keywords (e.g. "granite 3.2 8b instruct"), and codifying that granularity would blunt the model's own topic detection. The vocabulary normalizes the *stable* dimensions (products, solutions, verticals, LO verbs) and leaves fine-grained topics to the LLM.
-
-**Loading.** A cached loader reads the file (or the ConfigMap mount path) once per process:
-
-```python
-# src/api/rcars/services/vocabulary.py
-@lru_cache
-def load_vocabulary() -> dict: ...   # {"solutions": [...], "products": [...], ...}
-```
-
-**Injection.** At analysis time the vocabulary lists are interpolated into the analysis prompt (both `architecture_analyze.txt` and the existing `analyze_showroom.txt`). The prompt instructs the model to prefer a listed term where one fits and only coin a new one when nothing matches. A post-analysis normalization pass — mirroring the existing `_sanitize_format_suitability` in `scan.py` — snaps obvious near-misses to their canonical form before write.
-
-**Scope notes.**
-
-- The vocabulary is deliberately **generic and source-agnostic** so Babylon and OSSPA converge on the same terms over time. `lo_verbs` applies to labs, not architectures (Phase 1 does not request learning objectives for OSSPA) — it lives in the shared file for Babylon's use.
-- Phase 1 introduces the file, the loader, and injection into the **architecture** prompt. Wiring the same vocabulary into the Babylon analyzer is a low-risk follow-up, not a Phase 1 blocker.
+OSSPA Phase 1 analysis lands free-text (structured JSON) and picks up normalization on the next re-analysis once the vocabulary ships — or lands already normalized if vocabulary ships first. Either order is fine; the two are independently deployable. A draft `src/api/rcars/prompts/vocabulary.yaml` may already exist in-tree as seed data for that separate work; this ingest spec does not own, mount, or wire it.
 
 #### 3h. Robustness & Safety
 
@@ -435,17 +415,35 @@ Hardening for untrusted input (public GitLab repos, LLM output) and concurrent r
 
 1. **Path canonicalization & symlink containment.** Beyond rejecting `..` and absolute paths, resolve the joined DetailPage to its real path and confirm it is still under the clone root before reading. This blocks symlinks committed inside the repo that point outside the clone. A path that escapes → skip the row, log a warning.
 
-2. **Freshness hash includes CSV metadata.** `content_hash` covers the adoc body **plus** the CSV fields that feed the prompt (`Summary`, `Product`, `Solutions`, `Vertical`, `metaKeyword`), so a metadata-only edit re-triggers analysis deterministically. Hashing the adoc body alone would silently miss those edits.
+2. **Freshness hash includes CSV metadata, and staleness is tied to embedding completion, not just the hash.** `content_hash` covers the adoc body **plus** the CSV fields that feed the prompt (`Summary`, `Product`, `Solutions`, `Vertical`, `metaKeyword`), so a metadata-only edit re-triggers analysis deterministically. But an unchanged hash is only trusted if the item is also **not** `is_stale`: `analyze_architecture_item` sets `is_stale=TRUE` *before* starting analysis and clears it only after analysis, `content_entities` denormalization, and the embedding swap have all committed (3b step 7e). The hash-unchanged skip (3b step 7d) additionally requires `is_stale=FALSE`. This closes the gap where an LLM call or embedding write fails mid-way: without this, the `content_hash` column could already reflect the new content while the embedding still reflects the old (or no) content, and the next sync would see "hash unchanged" and skip forever, permanently losing that item from vector search. If a DetailPage file goes missing and no `architecture_analysis` row exists yet, one is created with `is_stale=TRUE` so this mechanism has a row to track (3b step 7a).
 
-3. **Bounded fetch, clone, and file size.** All external I/O is bounded: the CSV fetch and git clone/fetch run under `osspa_fetch_timeout_s`; the adoc read is capped at `osspa_max_adoc_bytes`. An adoc over the cap → truncate to the cap for analysis and flag `enrichment_review_needed`; a fetch/clone over its timeout → abort the sync (existing rows intact). Prevents a hostile or runaway input from stalling the shared scan worker.
+3. **Bounded fetch, clone, and file size — validated before any DB write.** All external I/O is bounded: the CSV fetch and git clone/fetch run under `osspa_fetch_timeout_s`; the adoc read is capped at `osspa_max_adoc_bytes`. An adoc over the cap → truncate to the cap for analysis and flag `enrichment_review_needed`. The examples-repo clone (step 4 in 3b) now runs, and must succeed, **before** `upsert_osspa_item` or `retire_missing_osspa` run — a fetch/clone over its timeout aborts the sync at that point, so existing rows are provably untouched, not just "probably fine because nothing else changed yet." Prevents a hostile or runaway input from stalling the shared scan worker, and prevents a partial sync (cards written, clone failed) from leaving the catalog in a half-updated state.
 
-4. **Catalog completeness before retire.** `retire_missing_osspa` runs only after a **complete** CSV fetch — HTTP 200, a parseable header row, and a non-empty active set. The empty-active-set guard (step 3) covers the all-empty case; this extends it so a truncated or malformed CSV is never trusted as the authoritative active set and cannot mass-retire real items. If completeness is not established, retirement is skipped and logged while upserts from whatever parsed still proceed.
+4. **Catalog completeness and a row-count shrink guard, before retire.** `retire_missing_osspa` runs only after: HTTP 200 + a parseable header row (existing checks), **and** a shrink guard — the new active-row count must not fall below `osspa_retire_shrink_guard_pct` (default 50%) of the current count of non-retired `source='portfolio_arch'` rows already in the database. HTTP 200 and a parseable header prove the request succeeded, not that the *body* is complete — a connection that drops mid-stream can still deliver a syntactically valid, non-empty, truncated CSV. The shrink guard catches that case: a truncation big enough to drop real rows will also produce a suspicious drop in row count relative to what's already in the DB, which HTTP status and header parsing cannot detect. If either check fails, retirement is skipped and logged as a completeness/shrink-guard failure; upserts from whatever parsed still proceed. The empty-active-set guard (step 3 in 3b) is the zero-row edge case of the same problem: retiring *everything* is never automatic. An operator who has independently verified the OSSPA inventory is genuinely empty must pass `--confirm-empty-inventory` to `rcars osspa sync` (or the equivalent admin request param) to allow `retire_missing_osspa` to retire all `source='portfolio_arch'` rows in one run.
 
-5. **Atomic embedding swap.** The clear-old + write-new embedding sequence for an item runs in **one transaction**, so a crash mid-write can never leave an item with zero or partial vectors (which would silently drop it from vector search). The prior vectors remain until the new set commits.
+5. **Atomic embedding swap.** The clear-old + write-new embedding sequence for an item runs in **one transaction**, so a crash mid-write can never leave an item with zero or partial vectors (which would silently drop it from vector search). The prior vectors remain until the new set commits. This transaction is also the one whose successful commit clears `is_stale` (item 2, above).
 
 6. **Untrusted input in the prompt.** Both the adoc body and CSV metadata come from public repos and are treated as untrusted. The prompt frames them as data to analyze, not instructions to follow, and the output is validated by `parse_analysis_response()` against the expected JSON shape. Content attempting to steer the model ("ignore previous instructions…") cannot alter control flow — the worst case is a low-quality analysis, caught by curator review.
 
 7. **Advisory lock serializes sync.** `run_osspa_sync` takes a Postgres advisory lock at start, so a manual `POST /admin/sync-osspa` and the nightly pipeline cannot run concurrently and clobber each other's upserts/retires. If the lock is already held, the second run exits early with a "sync already running" status.
+
+8. **LLM-owned card fields survive routine CSV syncs.** `upsert_osspa_item` excludes `summary`, `products_json`, `topics_json`, `audience_json`, and `difficulty` from its `ON CONFLICT DO UPDATE` clause (2d) — they are seeded on `INSERT` only and owned by `analyze_architecture_item` afterward. Without this, the CSV-only upsert that runs on every sync would overwrite good LLM analysis with the CSV seed on the very next sync, and the hash-unchanged skip (item 2, above) would prevent analysis from ever restoring it. `upsert_osspa_item` also always resets `retired_at = NULL, retirement_reason = NULL` on conflict, so a row that reappears in the CSV after being retired is correctly un-retired on the next sync — matching the Lifecycle table (Section 6) and `upsert_babylon_catalog_item`'s existing behavior for Babylon.
+
+#### 3i. Default visibility filter (Phase 1, not deferred)
+
+Advisor/Browse **UI** for architecture content (cards, content-type filter chips, CTA/detail links) is deferred to a future spec (see Out of Scope). That is a rendering concern, not a data-safety one — until it ships, non-`live` OSSPA rows must still be prevented from surfacing through the *existing* Advisor retrieval and Browse API paths, because embeddings for `in_progress`/`draft` items exist the moment analysis runs (3e) and are visible to any vector-search query regardless of UI support.
+
+To close that gap without waiting on the UI work, the shared candidate-retrieval query paths add one filter clause in Phase 1:
+
+```sql
+-- Applied by: Advisor vector-search candidate query, Browse default (non-curator) query
+WHERE retired_at IS NULL
+  AND (source != 'portfolio_arch' OR status = 'live')
+```
+
+- Curator-facing queries (Browse "Show non-live" toggle, admin/curation endpoints) omit the `status = 'live'` clause, mirroring the existing "Show Retired" pattern.
+- This is a query-clause change to existing shared retrieval code, not new UI. It ships in Phase 1 alongside ingest so the Phase 1 visibility guarantee (Ingestion Scope & Status Tagging) is actually enforced by a consumer, not just asserted.
+- Babylon rows are unaffected — the `source != 'portfolio_arch'` branch is a no-op for them.
 
 ### 4. Worker Integration
 
@@ -458,9 +456,9 @@ Hardening for untrusted input (public GitLab repos, LLM output) and concurrent r
 
 | Entry                           | Details                                                                                   |
 | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| Nightly maintenance pipeline    | New step in `run_maintenance_pipeline` after catalog refresh, before similarity recompute |
-| `POST /api/v1/admin/sync-osspa` | Admin-only endpoint; enqueues job; returns `{job_id}`                                     |
-| `rcars osspa sync [--force]`    | CLI command; synchronous; `--force` bypasses hash check                                   |
+| Nightly maintenance pipeline    | New step in `run_maintenance_pipeline` after catalog refresh, before similarity recompute; never passes `confirm_empty_inventory` |
+| `POST /api/v1/admin/sync-osspa` | Admin-only endpoint; enqueues job; accepts optional `confirm_empty_inventory: bool`; returns `{job_id}` |
+| `rcars osspa sync [--force] [--confirm-empty-inventory]` | CLI command; synchronous; `--force` bypasses hash check; `--confirm-empty-inventory` permits retiring all items when the CSV has zero in-scope rows (see 3h) |
 
 
 All three entry points funnel through `run_osspa_sync`, which is serialized by a Postgres advisory lock (see 3h) — a manual sync and the nightly pipeline cannot overlap.
@@ -482,7 +480,7 @@ All settings in `src/api/rcars/config.py` using existing `RCARS_` prefix pattern
 | `osspa_clone_dir`         | `{clone_dir}/osspa-examples`                                   | Working directory           |
 | `osspa_fetch_timeout_s`   | `30`                                                          | Timeout for CSV fetch + git clone/fetch (see 3h) |
 | `osspa_max_adoc_bytes`    | `1000000`                                                     | Max adoc bytes read for analysis; larger is truncated + flagged (see 3h) |
-| `vocabulary_path`         | `prompts/vocabulary.yaml` (ConfigMap mount overrides)         | Controlled-vocabulary source (see 3g); shared across sources |
+| `osspa_retire_shrink_guard_pct` | `0.5`                                                    | Minimum fraction of the current DB's active `source='portfolio_arch'` row count that the new active set must retain before `retire_missing_osspa` is allowed to run (see 3h) |
 
 
 No auth tokens required — both repos are public. If GitLab rate-limits the clone, an optional `RCARS_GITLAB_TOKEN` can be wired later.
@@ -500,7 +498,7 @@ No auth tokens required — both repos are public. If GitLab rate-limits the clo
 | Content of DetailPage `.adoc` changes                    | `content_hash` mismatch → re-analyzed on next sync                                  |
 | CSV prompt-input changes (Summary, Product, Solutions, Vertical, metaKeyword) | Included in `content_hash` → re-analysis triggered on next sync (see 3h)  |
 | CSV non-prompt field changes (e.g. Image1Url)            | Card/extension row updated on upsert; re-analysis not forced                        |
-| Previously retired row reappears in CSV                  | Upserted with `retired_at = NULL` on next sync; `status` re-derived; treated as new |
+| Previously retired row reappears in CSV                  | `upsert_osspa_item` always clears `retired_at`/`retirement_reason` on conflict (3a/3h#8) — upserted with `retired_at = NULL` on next sync; `status` re-derived; treated as new |
 
 
 
@@ -511,19 +509,24 @@ No auth tokens required — both repos are public. If GitLab rate-limits the clo
 | Case                                          | Behavior                                                                                                                                      |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | CSV fetch fails                               | Abort sync; leave existing OSSPA rows intact; job fails                                                                                       |
-| Active set is empty after filtering           | Abort sync (safety guard — never wipe all items on a bad CSV)                                                                                 |
-| DetailPage file missing from clone            | Upsert catalog row; mark `is_stale=TRUE` on analysis record; log error; continue                                                              |
-| LLM analysis fails                            | Same error patterns as Showroom scan failure; scan_status not set (architecture_analysis has no scan_status — log error, skip item, continue) |
+| Active set is empty after filtering, no `--confirm-empty-inventory` | Abort sync (safety guard — never wipe all items on a bad CSV); no upserts, no retirements                             |
+| Active set is empty after filtering, `--confirm-empty-inventory` set | Proceed; `retire_missing_osspa` retires all `source='portfolio_arch'` rows (operator-confirmed empty inventory)       |
+| Active set shrinks below `osspa_retire_shrink_guard_pct` of current DB count (but is non-empty) | Upserts proceed for whatever parsed; retirement skipped and logged as a possible truncation (see 3h#4) |
+| Examples repo clone/fetch fails or times out  | Abort sync **before any upsert or retire runs**; leave existing OSSPA rows intact; job fails (see 3h#3)                                       |
+| DetailPage file missing from clone, analysis row exists | Mark `is_stale=TRUE` on the existing `architecture_analysis` row; log error; continue                                              |
+| DetailPage file missing from clone, no analysis row yet | Create a minimal `architecture_analysis` row (`content_id`, `is_stale=TRUE`); log error; continue (see 3b step 7a)                 |
+| LLM analysis fails                            | Row stays `is_stale=TRUE` (never cleared); same error patterns as Showroom scan failure; scan_status not set (architecture_analysis has no scan_status — log error, skip item, continue); retried on next sync |
+| Denormalization or embedding write fails after a successful LLM call | Transaction rolls back; `architecture_analysis` row and `is_stale` are unaffected by the failed write — `is_stale` stays TRUE from step 7e, retried on next sync |
 | `ProductType=PA,VP`                           | Maps to `architecture`; `pa_name` slug uses full PAName                                                                                       |
-| `Product` column empty for a row              | `products_json` seeded empty; LLM fills from adoc + other CSV fields                                                                          |
+| `Product` column empty for a row              | `products_json` seeded empty on INSERT only; LLM fills from adoc + other CSV fields; never reset by a later CSV-only sync (2d)               |
 | Duplicate `ppid` in CSV                       | Should not happen; log warning; last row wins                                                                                                 |
 | Path traversal / symlink escape in DetailPage | Real path resolves outside clone root → skip row; log warning (see 3h)                                                                        |
 | adoc exceeds `osspa_max_adoc_bytes`           | Truncate to the cap for analysis; flag `enrichment_review_needed`; continue (see 3h)                                                          |
-| CSV fetch incomplete / malformed header       | Completeness guard fails → retirement skipped; upsert whatever parsed; log (see 3h)                                                           |
-| Fetch or clone exceeds `osspa_fetch_timeout_s`| Abort sync; leave existing OSSPA rows intact; job fails                                                                                       |
+| CSV fetch incomplete / malformed header       | Completeness guard fails → retirement skipped; upsert whatever parsed; log (see 3h#4)                                                         |
 | Prompt-injection text in adoc/CSV             | Treated as untrusted data, not instructions; output schema-validated; worst case a low-quality analysis flagged for review (see 3h)           |
 | Concurrent sync (nightly + manual)            | Second run exits early — advisory lock already held (see 3h)                                                                                  |
-| Crash mid embedding write                     | Atomic swap → prior vectors intact; item never left with zero/partial embeddings (see 3h)                                                     |
+| Crash mid embedding write                     | Atomic swap → prior vectors intact; item never left with zero/partial embeddings; `is_stale` stays TRUE, retried next sync (see 3h)           |
+| Non-`live` item's embedding exists but item hasn't shipped in UI yet | Excluded from Advisor/Browse default results by the 3i status filter regardless — not dependent on UI existing |
 
 
 
@@ -537,7 +540,7 @@ No auth tokens required — both repos are public. If GitLab rate-limits the clo
 | Ingestion gate: `DetailPage` without `.adoc` excluded                | Unit        | Row not in active set                                  |
 | Ingestion gate: in-scope row is ingested regardless of live status   | Unit        | `showInCatalog=FALSE` / `islive=FALSE` row still in active set |
 | Status derivation: live / in_progress / draft                        | Unit        | Both TRUE → `live`; one TRUE → `in_progress`; neither → `draft` |
-| Default visibility: non-`live` items excluded from default queries   | Integration | `in_progress`/`draft` items absent unless "Show non-live" set |
+| Default visibility: non-`live` items excluded from default queries (see 3i) | Integration | `in_progress`/`draft` items absent from Advisor + Browse default queries unless "Show non-live" set |
 | `content_id` format: `pa:{ppid}`                                     | Unit        | Correct for PA, PA,VP, and SP rows                     |
 | Asset-type mapping: PA/PA,VP/SP → `architecture`; Demo/IE excluded   | Unit        | Only the three architecture types in active set        |
 | Path resolution: root, nested                                        | Unit        | Correct path; traversal rejected                       |
@@ -546,13 +549,19 @@ No auth tokens required — both repos are public. If GitLab rate-limits the clo
 | Babylon safety: Babylon CRD scan does not retire OSSPA items         | Integration | OSSPA row survives Babylon scan run                    |
 | Analysis: produces exactly one architecture embedding                | Integration | one `embeddings` row, `embed_type='summary'`; no `section` rows |
 | Empty active set guard                                               | Unit        | Sync aborts; no retirements                            |
-| Vocabulary: analysis output normalized to canonical terms            | Unit        | Near-miss products/topics snapped to `vocabulary.yaml` terms |
+| Empty active set with `--confirm-empty-inventory`                    | Integration | All `source='portfolio_arch'` rows retired              |
+| Shrink guard: active set drops >50% but is non-empty                 | Integration | Retirement skipped and logged; upserts still applied   |
 | Path safety: symlink escaping clone root rejected                    | Unit        | Row skipped; nothing read outside clone root           |
 | Freshness: CSV prompt-field change re-triggers analysis              | Unit        | `content_hash` changes when `Summary`/`Solutions` edited |
+| Freshness: failed embedding write leaves item stale                  | Integration | `is_stale` stays TRUE after a simulated embedding-write failure; next sync retries instead of skipping on unchanged hash |
+| Freshness: missing DetailPage with no prior analysis row             | Integration | Minimal `architecture_analysis` row created with `is_stale=TRUE` |
 | Completeness guard: malformed/partial CSV does not retire            | Integration | No retirements when CSV fetch incomplete               |
+| LLM-owned fields survive a CSV-only resync                           | Integration | `summary`/`products_json`/`topics_json`/`audience_json`/`difficulty` unchanged after a sync where only CSV fields changed and content_hash was unaffected |
+| Clone failure aborts before any DB write                             | Integration | No upserts or retirements committed when the examples-repo clone times out |
 | Atomic embeddings: crash mid-swap leaves prior vectors               | Integration | Item never left with zero embeddings                   |
 | Concurrency: second concurrent sync exits early                     | Integration | Advisory lock prevents overlapping runs                |
 | Retrieval: OSSPA item returned by vector search for matching query   | Integration | Candidate has `source='portfolio_arch'`                |
+| Retrieval: non-`live` OSSPA item excluded from Advisor default candidates (see 3i) | Integration | `in_progress`/`draft` item embeddings exist but are filtered from the default candidate query |
 
 
 
@@ -567,14 +576,16 @@ No auth tokens required — both repos are public. If GitLab rate-limits the clo
 - **Writing back to OSSPA GitLab** — read-only.
 - **Interactive Labs performance channel** — separate spec.
 - **Dedicated model selection** — Phase 1 reuses the existing Showroom-analysis model. Choosing a dedicated architecture-analysis model (frontier now vs. open-source later, with cost/quality trade-offs) needs a team discussion — including Ashok on open-source options — before a `pa_model`-style config lever is added. Deferred to Phase 2.
-- **Advisor & Browse integration** — surfacing architecture items in the Advisor rationale flow and the Browse UI (content-type filter, architecture cards, CTA/detail links, curator-control handling) is deferred to a future spec. Phase 1 ends at ingest: items land in `content_entities` + `embeddings` and are retrievable by vector search, but the consuming UI work ships separately.
+- **Advisor & Browse UI** — surfacing architecture items in the Advisor rationale flow and dedicated Browse UI (content-type filter, architecture cards, CTA/detail links, curator-control handling) is deferred to a future spec. Phase 1 ends at ingest: items land in `content_entities` + `embeddings` and are retrievable by vector search, but the consuming UI work ships separately. **Not deferred:** the default-visibility query filter (3i) that keeps non-`live` items out of Advisor recommendations and default Browse results — that's a small change to existing shared retrieval code, and ships in Phase 1 so the status-visibility contract in Ingestion Scope & Status Tagging is actually enforced.
 - **Full Browse UI for architecture content type** — Phase 2, ships alongside actual items.
+- **Controlled vocabulary** — shared analysis-time term normalization across all sources. Owned by [2026-08-10-controlled-vocabulary-design.md](2026-08-10-controlled-vocabulary-design.md); not a Phase 1 deliverable of this ingest (see 3g).
 
 
 
 ## Relationship to Other Specs
 
 - **RHDPCD-359 (Generalized Content Model)** — prerequisite; deployed. This spec creates the tables that 359 left as illustrative placeholders.
+- **Controlled vocabulary** — [2026-08-10-controlled-vocabulary-design.md](2026-08-10-controlled-vocabulary-design.md). Cross-cutting; ships independently. This ingest consumes it when available and does not block on it.
 - **Overlap analysis redesign** — `content_similarity` `related` pairs between Babylon and OSSPA will populate automatically once embeddings exist. No overlap spec changes needed.
 - **Interactive Experience ingest** — future spec. Phase 1 excludes all `ProductType=IE` rows.
 - **Browse/Advisor UI redesign** — Phase 2; architecture content type cards and filters ship alongside new content types.

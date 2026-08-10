@@ -2,8 +2,11 @@
 #
 # Source of truth for the terms RCARS analysis should prefer when tagging
 # content (Babylon labs AND OSSPA architectures). Deliberately source-agnostic
-# so both converge on the same terms over time. See design spec §3g
-# (docs/superpowers/specs/2026-08-06-rcars-oppsa-injestion.md).
+# so both converge on the same terms over time.
+#
+# Owned by the Controlled Vocabulary design spec (NOT Portfolio Architecture
+# ingest — that feature consumes this; it does not own it):
+#   docs/superpowers/specs/2026-08-10-controlled-vocabulary-design.md
 #
 # DESIGN INTENT (per Nate, 2026-08-06):
 #   This list exists to NORMALIZE — collapse near-duplicate product names,
@@ -15,7 +18,7 @@
 #   (The OSSPA PAList.csv `metaKeyword` column proves the point: 186 distinct
 #    keywords, almost all one-offs like "granite 3.2 8b instruct" — never codify.)
 #
-# How it is used:
+# How it is used (once the vocab spec ships):
 #   1. Loaded once per process by rcars/services/vocabulary.py (@lru_cache).
 #   2. Interpolated into the analysis prompts (architecture_analyze.txt and
 #      analyze_showroom.txt). The model is told to PREFER a listed term where
