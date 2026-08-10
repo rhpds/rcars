@@ -12,11 +12,6 @@ const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
 }
 
-function WorkflowInlineBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { approved: 'recommended', notified: 'recommended', started: 'in progress' }
-  return <span className="ret-inline-badge">{labels[status] || status}</span>
-}
-
 export function NonProdItemsPage() {
   const { isCurator } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -32,8 +27,6 @@ export function NonProdItemsPage() {
     new Set(searchParams.get('stages')?.split(',').filter(Boolean) || []))
   const [selectedContentTypes, setSelectedContentTypes] = useState<Set<string>>(
     new Set(searchParams.get('content_types')?.split(',').filter(Boolean) || []))
-  const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
-    new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
   const [provFilter, setProvFilter] = useState<string>(searchParams.get('provs') || 'all')
 
   const [allItems, setAllItems] = useState<NonProdItem[]>([])
@@ -71,10 +64,9 @@ export function NonProdItemsPage() {
     if (sortDir !== 'desc') params.order = sortDir
     if (selectedStages.size > 0) params.stages = Array.from(selectedStages).sort().join(',')
     if (selectedContentTypes.size > 0) params.content_types = Array.from(selectedContentTypes).sort().join(',')
-    if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
     if (provFilter !== 'all') params.provs = provFilter
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, provFilter, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -113,7 +105,6 @@ export function NonProdItemsPage() {
     setStatusFilter('all')
     setSelectedStages(new Set())
     setSelectedContentTypes(new Set())
-    setSelectedNamespaces(new Set())
     setProvFilter('all')
   }
 
@@ -126,7 +117,6 @@ export function NonProdItemsPage() {
       if (!itemStages.some(s => selectedStages.has(s))) return false
     }
     if (selectedContentTypes.size > 0 && i.content_type && !selectedContentTypes.has(i.content_type)) return false
-    if (selectedNamespaces.size > 0 && i.catalog_namespace && !selectedNamespaces.has(i.catalog_namespace)) return false
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
@@ -148,14 +138,6 @@ export function NonProdItemsPage() {
     const counts: Record<string, number> = {}
     for (const i of allItems) {
       if (i.content_type) counts[i.content_type] = (counts[i.content_type] || 0) + 1
-    }
-    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-
-  const availableNamespaces = (() => {
-    const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      if (i.catalog_namespace) counts[i.catalog_namespace] = (counts[i.catalog_namespace] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
@@ -212,30 +194,6 @@ export function NonProdItemsPage() {
             </div>
           </div>
         )}
-
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Namespace
-            {selectedNamespaces.size > 0 && (
-              <button onClick={() => setSelectedNamespaces(new Set())}
-                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
-                Clear ({selectedNamespaces.size})
-              </button>
-            )}
-          </div>
-          <div style={{
-            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
-            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
-          }}>
-            {availableNamespaces.map(([ns, count]) => (
-              <label key={ns} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>
-                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleSet(setSelectedNamespaces, ns)} />
-                <span>{ns}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-              </label>
-            ))}
-          </div>
-        </div>
 
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Provisions</div>
@@ -322,7 +280,7 @@ export function NonProdItemsPage() {
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '900px' }}>
+            <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '1000px' }}>
               <thead>
                 <tr>
                   <th className="clickable" style={{ maxWidth: '300px' }} onClick={() => toggleSort('display_name')}>
@@ -330,21 +288,21 @@ export function NonProdItemsPage() {
                   </th>
                   <th>Type</th>
                   <th>Stages</th>
-                  <th>Namespace</th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
                     Provs {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
-                    Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
+                  <th className="num">Experiences</th>
                   <th className="clickable num" onClick={() => toggleSort('success_ratio')}>
                     Success {sortBy === 'success_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('failure_ratio')}>
                     Failure {sortBy === 'failure_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
+                  <th>First Prov</th>
                   <th>Last Prov</th>
-                  <th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -372,46 +330,61 @@ export function NonProdItemsPage() {
                             </span>
                           ))}
                         </td>
-                        <td style={{ fontSize: '11px' }}>{item.catalog_namespace || '—'}</td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
                         <td className="num">{item.unique_users.toLocaleString()}</td>
+                        <td className="num">{item.completions.toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
                         <td className="num">{(item.failure_ratio * 100).toFixed(1)}%</td>
+                        <td style={{ fontSize: '11px' }}>{item.first_provision || '—'}</td>
                         <td style={{ fontSize: '11px' }}>{item.last_provision || '—'}</td>
-                        <td>
-                          {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
-                        </td>
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">
                           <td colSpan={10}>
-                            <div className="ca-detail">
-                              <div className="ca-detail-item">
-                                <span className="ca-detail-label">Requests</span>
-                                <span className="ca-detail-value">{item.requests.toLocaleString()}</span>
+                            {item.stages.length > 0 && (
+                              <div style={{ marginBottom: '8px' }}>
+                                <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-muted)' }}>
+                                  Per-Environment Breakdown
+                                </div>
+                                <table className="ca-table" style={{ fontSize: '11px', marginBottom: 0 }}>
+                                  <thead>
+                                    <tr>
+                                      <th>Environment</th>
+                                      <th className="num">Provisions</th>
+                                      <th className="num">Unique Users</th>
+                                      <th className="num">Experiences</th>
+                                      <th>First Provision</th>
+                                      <th>Last Provision</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {item.stages.map(s => (
+                                      <tr key={s.ci_name}>
+                                        <td>
+                                          <a href={s.catalog_url} target="_blank" rel="noreferrer"
+                                            className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
+                                            onClick={e => e.stopPropagation()}>
+                                            {s.stage}
+                                          </a>
+                                          <span style={{ marginLeft: '6px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', fontSize: '10px' }}>
+                                            {s.ci_name}
+                                          </span>
+                                        </td>
+                                        <td className="num">—</td>
+                                        <td className="num">—</td>
+                                        <td className="num">—</td>
+                                        <td>—</td>
+                                        <td>—</td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
+                                  Per-environment metrics require per-stage MCP queries (not yet implemented). Totals shown in main row.
+                                </div>
                               </div>
-                              <div className="ca-detail-item">
-                                <span className="ca-detail-label">Completions</span>
-                                <span className="ca-detail-value">{item.completions.toLocaleString()}</span>
-                              </div>
-                              <div className="ca-detail-item">
-                                <span className="ca-detail-label">First Provision</span>
-                                <span className="ca-detail-value">{item.first_provision || 'N/A'}</span>
-                              </div>
-                              <div className="ca-detail-item">
-                                <span className="ca-detail-label">Environments</span>
-                                <span className="ca-detail-value">
-                                  {item.stages.map(s => (
-                                    <a key={s.ci_name} href={s.catalog_url} target="_blank" rel="noreferrer"
-                                      className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
-                                      onClick={e => e.stopPropagation()}>
-                                      {s.ci_name}
-                                    </a>
-                                  ))}
-                                </span>
-                              </div>
-                            </div>
-                            <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center',
+                            )}
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center',
                               borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
                               {muted ? (
                                 <button className="ret-action-btn" onClick={(e) => { e.stopPropagation(); handleUnignore(item.catalog_base_name) }}>
