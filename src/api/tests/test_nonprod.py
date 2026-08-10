@@ -45,3 +45,9 @@ class TestNonprodIgnore:
     def test_clear_method_exists(self):
         from rcars.db.database import Database
         assert hasattr(Database, "clear_nonprod_ignored")
+
+
+class TestSyncNonprodUsage:
+    def test_function_exists(self):
+        from rcars.services.reporting_sync import _sync_nonprod_usage
+        assert callable(_sync_nonprod_usage)

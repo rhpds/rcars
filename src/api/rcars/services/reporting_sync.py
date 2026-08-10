@@ -373,6 +373,8 @@ def _build_cost_sql(start_date: str) -> str:
 
 WINDOW_DAYS = {"3m": 91, "6m": 182, "9m": 274, "12m": 365}
 
+NONPROD_WINDOWS = {"6m": 182, "12m": 365}
+
 
 def _window_start(window: str) -> str:
     """Return the start date for a sliding window (today - N days)."""
@@ -583,6 +585,91 @@ def _build_windowed_metrics(
             per_item.setdefault(name, {})[wk] = entry
 
     return per_item
+
+
+def _build_nonprod_provisions_sql(start_date: str) -> str:
+    """Like _build_provisions_sql but WITHOUT PROVISION_FILTERS — all envs, all users."""
+    return f"""
+        SELECT
+            ci.name AS catalog_base_name,
+            COUNT(DISTINCT ps.uuid) AS provisions,
+            COUNT(DISTINCT ps.request_id) AS requests,
+            COALESCE(SUM(ps.user_experiences), 0) AS completions,
+            COUNT(DISTINCT ps.user_id) AS unique_users,
+            ROUND(
+                SUM(ps.provision_success)::numeric
+                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
+            ) AS success_ratio,
+            ROUND(
+                SUM(ps.provision_failure)::numeric
+                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
+            ) AS failure_ratio,
+            MIN(ps.provisioned_at)::date::text AS first_provision,
+            MAX(ps.provisioned_at)::date::text AS last_provision
+        FROM provisions_summary ps
+        JOIN catalog_items ci ON ci.id = ps.catalog_id
+        WHERE ps.provisioned_at >= '{start_date}'
+        GROUP BY ci.name
+    """
+
+
+def _sync_nonprod_usage(db, url: str, token: str) -> dict:
+    """Sync usage metrics for items that have no prod stage."""
+    log = logger.bind(action="nonprod_sync")
+
+    nonprod_map = db.get_nonprod_base_names()
+    if not nonprod_map:
+        log.info("no_nonprod_items")
+        return {"nonprod_synced": 0, "nonprod_orphans": 0}
+
+    log.info("nonprod_items_found", count=len(nonprod_map))
+
+    w_data: dict[str, dict[str, dict]] = {}
+    for wk, days in NONPROD_WINDOWS.items():
+        w_start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+        log.info("fetching_nonprod_window", window=wk, start=w_start)
+        rows = mcp_query(_build_nonprod_provisions_sql(w_start), url=url, token=token)
+        w_data[wk] = {r["catalog_base_name"]: r for r in rows}
+        log.info("fetched_nonprod_window", window=wk, rows=len(rows))
+
+    upsert_rows = []
+    data_12m = w_data.get("12m", {})
+    for base_name, content_id in nonprod_map.items():
+        row_12m = data_12m.get(base_name, {})
+
+        windowed = {}
+        for wk in NONPROD_WINDOWS:
+            r = w_data.get(wk, {}).get(base_name, {})
+            windowed[wk] = {
+                "provisions": int(r.get("provisions", 0)),
+                "requests": int(r.get("requests", 0)),
+                "completions": int(r.get("completions", 0)),
+                "unique_users": int(r.get("unique_users", 0)),
+                "success_ratio": float(r.get("success_ratio", 0) or 0),
+                "failure_ratio": float(r.get("failure_ratio", 0) or 0),
+            }
+
+        upsert_rows.append({
+            "content_id": content_id,
+            "catalog_base_name": base_name,
+            "provisions": int(row_12m.get("provisions", 0)),
+            "requests": int(row_12m.get("requests", 0)),
+            "completions": int(row_12m.get("completions", 0)),
+            "unique_users": int(row_12m.get("unique_users", 0)),
+            "success_ratio": float(row_12m.get("success_ratio", 0) or 0),
+            "failure_ratio": float(row_12m.get("failure_ratio", 0) or 0),
+            "first_provision": row_12m.get("first_provision"),
+            "last_provision": row_12m.get("last_provision"),
+            "windowed_metrics": json.dumps(windowed),
+        })
+
+    upserted = db.upsert_nonprod_usage(upsert_rows)
+    valid_ids = set(nonprod_map.values())
+    orphans = db.delete_orphan_nonprod_data(valid_ids)
+
+    summary = {"nonprod_synced": upserted, "nonprod_orphans": orphans}
+    log.info("nonprod_sync_complete", **summary)
+    return summary
 
 
 def run_reporting_sync(db, settings) -> dict:
@@ -811,6 +898,9 @@ def run_reporting_sync(db, settings) -> dict:
     synced_content_ids = {r["content_id"] for r in resolved_rows}
     orphans = db.delete_orphan_performance_data(synced_content_ids=synced_content_ids)
 
+    # Sync non-prod usage (items without a prod stage)
+    nonprod_summary = _sync_nonprod_usage(db, url, token)
+
     summary = {
         "synced": upserted,
         "scores_upserted": scores_upserted,
@@ -823,6 +913,7 @@ def run_reporting_sync(db, settings) -> dict:
         "closed_rows": len(closed_data),
         "cost_rows": len(cost_data),
         "date_rows": len(date_data),
+        **nonprod_summary,
     }
     log.info("sync_complete", **summary)
     return summary
