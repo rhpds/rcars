@@ -628,6 +628,130 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
     return {"status": "ok"}
 
 
+NONPROD_WINDOWS = {"6m", "12m"}
+
+
+@router.get(
+    "/nonprod",
+    tags=["Non-Prod Items"],
+    summary="Non-prod items dashboard",
+    description="Returns catalog items with no production stage, with usage metrics. Curator-only.",
+)
+async def nonprod_dashboard(
+    request: Request,
+    user: str = Depends(require_curator),
+    sort_by: str = Query("provisions"),
+    sort_dir: str = Query("desc"),
+    content_type: str | None = Query(None),
+    stage: str | None = Query(None),
+    namespace: str | None = Query(None),
+    search: str | None = Query(None),
+    window: str = Query("12m"),
+    status: str | None = Query(None),
+):
+    if window not in NONPROD_WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(NONPROD_WINDOWS)}")
+
+    db = request.app.state.db
+    items = db.list_nonprod_items(
+        sort_by=sort_by, sort_dir=sort_dir,
+        content_type=content_type, stage=stage,
+        namespace=namespace, search=search,
+        status=status,
+    )
+
+    import json as _json
+    from datetime import date as _date
+    today = _date.today()
+
+    # Collect all base_names for stage lookup
+    base_names = [i["catalog_base_name"] for i in items]
+    stages_map = db.get_stages_for_base_names(base_names, include_retired=False)
+
+    for item in items:
+        # Apply windowed metrics overlay
+        wm = item.get("windowed_metrics") or {}
+        if isinstance(wm, str):
+            try:
+                wm = _json.loads(wm)
+            except (ValueError, TypeError):
+                wm = {}
+        w = wm.get(window, {})
+        if w:
+            item["provisions"] = w.get("provisions", 0)
+            item["requests"] = w.get("requests", 0)
+            item["completions"] = w.get("completions", 0)
+            item["unique_users"] = w.get("unique_users", 0)
+            item["success_ratio"] = w.get("success_ratio", 0)
+            item["failure_ratio"] = w.get("failure_ratio", 0)
+
+        # Enrich with stages from all variants of this base name
+        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+
+        # Handle ignored_until
+        iu = item.get("ignored_until")
+        if iu and isinstance(iu, _date) and iu >= today:
+            item["ignored_until"] = iu.isoformat()
+        elif iu and isinstance(iu, str) and iu >= today.isoformat():
+            pass
+        else:
+            item["ignored_until"] = None
+
+    # Re-sort after windowed overlay
+    allowed_sorts = {"provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+    if sort_by in allowed_sorts:
+        reverse = sort_dir.lower() == "desc"
+        if sort_by == "display_name":
+            items.sort(key=lambda i: (i.get(sort_by) or ""), reverse=reverse)
+        else:
+            items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
+
+    synced_at = items[0]["synced_at"] if items and items[0].get("synced_at") else None
+
+    return {
+        "items": items,
+        "total": len(items),
+        "synced_at": str(synced_at) if synced_at else None,
+        "window": window,
+    }
+
+
+@router.put(
+    "/nonprod/ignore/{base_name}",
+    tags=["Non-Prod Items"],
+    summary="Mute non-prod item for 30 days",
+)
+async def nonprod_ignore(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    from datetime import date, timedelta
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        raise HTTPException(404, f"Item not found: {base_name}")
+    until = (date.today() + timedelta(days=30)).isoformat()
+    ok = db.set_nonprod_ignored(content_id, until)
+    if not ok:
+        raise HTTPException(404, f"Item not found in nonprod_usage: {base_name}")
+    db.log_action(base_name, "nonprod_muted", user, f"Muted until {until}")
+    return {"status": "ok", "ignored_until": until}
+
+
+@router.delete(
+    "/nonprod/ignore/{base_name}",
+    tags=["Non-Prod Items"],
+    summary="Unmute non-prod item",
+)
+async def nonprod_unignore(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        raise HTTPException(404, f"Item not found: {base_name}")
+    ok = db.clear_nonprod_ignored(content_id)
+    if not ok:
+        raise HTTPException(404, f"Item not found in nonprod_usage: {base_name}")
+    db.log_action(base_name, "nonprod_unmuted", user, "Unmuted")
+    return {"status": "ok"}
+
+
 @router.post(
     "/{identifier}",
     tags=["Content Analysis"],

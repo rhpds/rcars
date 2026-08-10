@@ -51,3 +51,12 @@ class TestSyncNonprodUsage:
     def test_function_exists(self):
         from rcars.services.reporting_sync import _sync_nonprod_usage
         assert callable(_sync_nonprod_usage)
+
+
+class TestNonprodRouteExists:
+    def test_nonprod_endpoint_registered(self):
+        """Verify the nonprod routes exist on the analysis router."""
+        from rcars.api.routes.analysis import router
+        paths = [r.path for r in router.routes]
+        assert "/analysis/nonprod" in paths
+        assert "/analysis/nonprod/ignore/{base_name}" in paths
