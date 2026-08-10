@@ -44,12 +44,24 @@ interface ItemSummary {
   topics: string[]
 }
 
+interface OverlapAssessment {
+  verdict: string
+  shared_topics: string[]
+  differentiators_a: string[]
+  differentiators_b: string[]
+  recommendation: string
+  rationale: string
+}
+
 interface DrawerPair {
   item: OverlapItem
   neighbor: NeighborItem
   itemSummary: ItemSummary | null
   neighborSummary: ItemSummary | null
   loading: boolean
+  assessment: OverlapAssessment | null
+  assessmentLoading: boolean
+  assessmentReason: string | null
 }
 
 function extractSummary(detail: Record<string, unknown>): ItemSummary {
@@ -119,7 +131,8 @@ export function ContentOverlapPage() {
   }
 
   const openDrawer = async (item: OverlapItem, neighbor: NeighborItem) => {
-    setDrawer({ item, neighbor, itemSummary: null, neighborSummary: null, loading: true })
+    setDrawer({ item, neighbor, itemSummary: null, neighborSummary: null, loading: true,
+                assessment: null, assessmentLoading: true, assessmentReason: null })
 
     const fetchSummary = async (contentId: string): Promise<ItemSummary> => {
       if (detailCache.current[contentId]) return detailCache.current[contentId]
@@ -137,6 +150,18 @@ export function ContentOverlapPage() {
       setDrawer(prev => prev ? { ...prev, itemSummary, neighborSummary, loading: false } : null)
     } catch {
       setDrawer(prev => prev ? { ...prev, loading: false } : null)
+    }
+
+    try {
+      const resp = await api.getOverlapAssessment(item.content_id, neighbor.content_id)
+      setDrawer(prev => prev ? {
+        ...prev,
+        assessment: resp.assessment as OverlapAssessment | null,
+        assessmentLoading: false,
+        assessmentReason: resp.reason || null,
+      } : null)
+    } catch {
+      setDrawer(prev => prev ? { ...prev, assessmentLoading: false } : null)
     }
   }
 
@@ -399,11 +424,108 @@ function ComparisonDrawer({
                 ciName={drawer.neighbor.ci_name}
                 summary={drawer.neighborSummary}
               />
+              <AssessmentSection
+                assessment={drawer.assessment}
+                loading={drawer.assessmentLoading}
+                reason={drawer.assessmentReason}
+                itemName={drawer.item.display_name}
+                neighborName={drawer.neighbor.display_name}
+              />
             </>
           )}
         </div>
       </div>
     </>
+  )
+}
+
+function AssessmentSection({ assessment, loading, reason, itemName, neighborName }: {
+  assessment: OverlapAssessment | null
+  loading: boolean
+  reason: string | null
+  itemName: string
+  neighborName: string
+}) {
+  if (loading) {
+    return (
+      <div className="ca-assessment-section">
+        <div className="browse-drawer-label">LLM Assessment</div>
+        <div className="browse-loading"><Spinner size="sm" /> Analyzing overlap…</div>
+      </div>
+    )
+  }
+  if (!assessment) {
+    return (
+      <div className="ca-assessment-section">
+        <div className="browse-drawer-label">LLM Assessment</div>
+        <p className="ca-compare-summary" style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>
+          {reason === 'missing_analysis' ? 'One or both items have not been analyzed yet.' : 'Assessment unavailable.'}
+        </p>
+      </div>
+    )
+  }
+
+  const verdictColor: Record<string, string> = {
+    redundant: 'var(--score-red)',
+    complementary: 'var(--score-amber)',
+    differentiated: 'var(--score-green, #2e7d32)',
+  }
+  const verdictBg: Record<string, string> = {
+    redundant: 'var(--score-red-bg)',
+    complementary: 'var(--score-amber-bg)',
+    differentiated: 'var(--score-green-bg, #e8f5e9)',
+  }
+
+  return (
+    <div className="ca-assessment-section">
+      <div className="ca-assessment-header">
+        <span className="browse-drawer-label">LLM Assessment</span>
+        <span
+          className="ca-score-badge"
+          style={{ color: verdictColor[assessment.verdict] || 'inherit',
+                   backgroundColor: verdictBg[assessment.verdict] || 'transparent' }}
+        >
+          {assessment.verdict}
+        </span>
+      </div>
+
+      {assessment.shared_topics.length > 0 && (
+        <div className="ca-assessment-group">
+          <div className="ca-assessment-sublabel">Shared Topics</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {assessment.shared_topics.map(t => (
+              <Badge key={t} className="browse-badge">{t}</Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="ca-assessment-diff-grid">
+        {assessment.differentiators_a.length > 0 && (
+          <div className="ca-assessment-group">
+            <div className="ca-assessment-sublabel">Unique to {itemName}</div>
+            <ul className="ca-assessment-list">
+              {assessment.differentiators_a.map(d => <li key={d}>{d}</li>)}
+            </ul>
+          </div>
+        )}
+        {assessment.differentiators_b.length > 0 && (
+          <div className="ca-assessment-group">
+            <div className="ca-assessment-sublabel">Unique to {neighborName}</div>
+            <ul className="ca-assessment-list">
+              {assessment.differentiators_b.map(d => <li key={d}>{d}</li>)}
+            </ul>
+          </div>
+        )}
+      </div>
+
+      <div className="ca-assessment-group">
+        <div className="ca-assessment-sublabel">
+          Recommendation: <strong>{assessment.recommendation.replace('_', ' ')}</strong>
+        </div>
+        <p className="ca-compare-summary">{assessment.rationale}</p>
+      </div>
+    </div>
   )
 }
 

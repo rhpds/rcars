@@ -825,6 +825,33 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 .ca-compare-tags { margin-top: 8px; }
 .ca-score-clickable:hover { filter: brightness(1.2); }
+.ca-assessment-section {
+  padding: 16px 20px;
+  border-top: 2px solid var(--border-color);
+}
+.ca-assessment-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ca-assessment-group { margin-top: 10px; }
+.ca-assessment-sublabel {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+.ca-assessment-diff-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.ca-assessment-list {
+  margin: 4px 0 0 16px;
+  padding: 0;
+  font-size: 0.85rem;
+}
+.ca-assessment-list li { margin-bottom: 2px; }
 
 /* ══════════════════════════════════════════════════════════════════
    Browse Page

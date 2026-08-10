@@ -231,6 +231,22 @@ export const api = {
     request<{ overlap_pairs: number; related_pairs: number; pairs_stored: number; threshold: number; stage: string }>(
       `/admin/compute-similarity?threshold=${threshold}${stage ? `&stage=${stage}` : ''}`, { method: 'POST' }),
 
+  getOverlapAssessment: (contentIdA: string, contentIdB: string) =>
+    request<{
+      assessment: {
+        verdict: string
+        shared_topics: string[]
+        differentiators_a: string[]
+        differentiators_b: string[]
+        recommendation: string
+        rationale: string
+        model: string
+        tokens: { input: number; output: number }
+      } | null
+      assessed_at: string | null
+      reason?: string
+    }>(`/admin/overlap/${encodeURIComponent(contentIdA)}/${encodeURIComponent(contentIdB)}/assessment`),
+
   // Performance analysis
   getPerformanceDashboard: (params?: {
     sort_by?: string; sort_dir?: string; min_score?: number;
