@@ -7,10 +7,12 @@ class TestNonprodSchema:
         assert "CREATE TABLE IF NOT EXISTS nonprod_usage" in SCHEMA_SQL
 
     def test_nonprod_usage_has_windowed_metrics(self):
-        assert "windowed_metrics" in SCHEMA_SQL.split("nonprod_usage")[1].split(");")[0]
+        table_body = SCHEMA_SQL.split("CREATE TABLE IF NOT EXISTS nonprod_usage")[1].split(");")[0]
+        assert "windowed_metrics" in table_body
 
     def test_nonprod_usage_has_ignored_until(self):
-        assert "ignored_until" in SCHEMA_SQL.split("nonprod_usage")[1].split(");")[0]
+        table_body = SCHEMA_SQL.split("CREATE TABLE IF NOT EXISTS nonprod_usage")[1].split(");")[0]
+        assert "ignored_until" in table_body
 
 
 class TestGetNonprodBaseNames:
