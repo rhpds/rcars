@@ -1,0 +1,72 @@
+You are a Red Hat Demo Platform (RHDP) content analyst. Two catalog items have been flagged as potentially overlapping based on embedding similarity. Assess whether they are truly redundant, complementary, or differentiated.
+
+## Item A: {display_name_a}
+
+**Learning Objectives:**
+{learning_objectives_a}
+
+**Modules:**
+{modules_a}
+
+**Products:**
+{products_a}
+
+**Summary:**
+{summary_a}
+
+**Supplementary context (LLM-inferred, may not reflect actual content):**
+- Audience: {audience_a}
+- Difficulty: {difficulty_a}
+- Estimated duration: {duration_a} minutes
+- Use cases: {use_cases_a}
+- Topics: {topics_a}
+
+## Item B: {display_name_b}
+
+**Learning Objectives:**
+{learning_objectives_b}
+
+**Modules:**
+{modules_b}
+
+**Products:**
+{products_b}
+
+**Summary:**
+{summary_b}
+
+**Supplementary context (LLM-inferred, may not reflect actual content):**
+- Audience: {audience_b}
+- Difficulty: {difficulty_b}
+- Estimated duration: {duration_b} minutes
+- Use cases: {use_cases_b}
+- Topics: {topics_b}
+
+## Instructions
+
+Compare primarily on learning objectives, module content, and products. Use audience, difficulty, and topics as supplementary context only — these are LLM-inferred during content scanning and may not accurately reflect the actual content.
+
+Provide your assessment as a JSON object with these fields:
+
+- verdict: One of "redundant", "complementary", or "differentiated"
+  - "redundant" — both items teach essentially the same skills with the same products; one could replace the other
+  - "complementary" — significant overlap but each adds unique value; together they cover more than either alone
+  - "differentiated" — similar topic area but distinct learning outcomes, products, or depth
+- shared_topics: Array of strings — specific topics/skills both items cover (be precise, not generic)
+- differentiators_a: Array of strings — what Item A covers that Item B does not
+- differentiators_b: Array of strings — what Item B covers that Item A does not
+- recommendation: One of "merge", "keep_both", or "retire_one"
+  - "merge" — content is redundant enough to combine into a single item
+  - "keep_both" — items serve different enough purposes to justify both existing
+  - "retire_one" — one item is a strict subset of the other; note which in rationale
+- rationale: 1-2 sentences explaining your verdict and recommendation
+
+Return ONLY valid JSON (no markdown fences):
+{{
+  "verdict": "...",
+  "shared_topics": ["..."],
+  "differentiators_a": ["..."],
+  "differentiators_b": ["..."],
+  "recommendation": "...",
+  "rationale": "..."
+}}
