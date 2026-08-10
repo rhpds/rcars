@@ -227,6 +227,27 @@ CREATE TABLE IF NOT EXISTS retirement_workflow (
 CREATE INDEX IF NOT EXISTS idx_rw_status ON retirement_workflow(status);
 
 -- ═══════════════════════════════════════════════════════════════════
+-- nonprod_usage — usage metrics for items without a prod stage
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS nonprod_usage (
+    content_id        TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    catalog_base_name TEXT NOT NULL,
+    provisions        INTEGER DEFAULT 0,
+    requests          INTEGER DEFAULT 0,
+    completions       INTEGER DEFAULT 0,
+    unique_users      INTEGER DEFAULT 0,
+    success_ratio     REAL DEFAULT 0,
+    failure_ratio     REAL DEFAULT 0,
+    first_provision   TEXT,
+    last_provision    TEXT,
+    windowed_metrics  JSONB DEFAULT '{}'::jsonb,
+    ignored_until     DATE,
+    synced_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_nu_base_name ON nonprod_usage(catalog_base_name);
+
+-- ═══════════════════════════════════════════════════════════════════
 -- content_similarity — re-keyed from ci_name_a/b to content_id_a/b
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS content_similarity (
@@ -491,6 +512,7 @@ class Database:
 
         tables = [
             "retirement_workflow",
+            "nonprod_usage",
             "content_similarity",
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
@@ -2158,15 +2180,16 @@ class Database:
             conn.commit()
             return cur.rowcount > 0
 
-    def get_catalog_base_names(self, include_retired: bool = False) -> dict[str, str]:
+    def get_catalog_base_names(self, include_retired: bool = False, require_prod_stage: bool = False) -> dict[str, str]:
         retired_filter = "" if include_retired else "AND ce.retired_at IS NULL"
+        prod_filter = "AND bi.stage IN ('prod', 'event')" if require_prod_stage else ""
         sql = f"""
             SELECT DISTINCT ON (base)
                 substring(bi.ci_name FROM '^(.+)\\.[^.]+$') AS base,
                 ce.display_name
             FROM babylon_items bi
             JOIN content_entities ce ON ce.content_id = bi.content_id
-            WHERE 1=1 {retired_filter}
+            WHERE 1=1 {retired_filter} {prod_filter}
             ORDER BY base, CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
         """
         with self._pool.connection() as conn:
