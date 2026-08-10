@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from rcars.api.middleware.auth import require_admin, invalidate_role_assignments_cache
+from rcars.api.middleware.auth import require_admin, require_curator, invalidate_role_assignments_cache
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
@@ -13,6 +13,7 @@ from rcars.api.schemas import (
 )
 from rcars.config import Settings
 from rcars.db.similarity import compute_content_similarity, get_overlap_items, get_similarity_stats
+from rcars.services.overlap_assessment import assess_overlap
 
 logger = structlog.get_logger()
 
@@ -273,7 +274,7 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
 )
 async def overlap_report(
     request: Request,
-    user: str = Depends(require_admin),
+    user: str = Depends(require_curator),
     min_score: float = Query(0.85, ge=0.0, le=1.0),
     stage: str | None = Query(None, description="Filter by stage"),
     content_type: str | None = Query(None, description="Filter by content type"),
@@ -323,7 +324,7 @@ async def overlap_report(
 )
 async def compute_similarity(
     request: Request,
-    user: str = Depends(require_admin),
+    user: str = Depends(require_curator),
     threshold: float = Query(0.75, ge=0.0, le=1.0),
     stage: str | None = Query(None, description="Stage filter (optional, omit for all stages)"),
 ):
@@ -332,6 +333,39 @@ async def compute_similarity(
                 threshold=threshold, stage=stage, triggered_by=user)
     result = compute_content_similarity(db.pool, threshold=threshold, stage=stage)
     return result
+
+
+@router.get(
+    "/overlap/{content_id_a}/{content_id_b}/assessment",
+    summary="Get or compute LLM overlap assessment for a pair",
+)
+async def overlap_assessment(
+    request: Request,
+    content_id_a: str,
+    content_id_b: str,
+    user: str = Depends(require_curator),
+):
+    db = request.app.state.db
+    settings = Settings()
+
+    import asyncio
+    result, reason = await asyncio.to_thread(
+        assess_overlap, db.pool, settings, content_id_a, content_id_b
+    )
+
+    if result is None:
+        return {"assessment": None, "assessed_at": None, "reason": reason}
+
+    # Read assessed_at from DB
+    a, b = (content_id_a, content_id_b) if content_id_a < content_id_b else (content_id_b, content_id_a)
+    with db.pool.connection() as conn:
+        cur = conn.execute(
+            "SELECT assessed_at FROM content_similarity WHERE content_id_a = %s AND content_id_b = %s",
+            (a, b),
+        )
+        row = cur.fetchone()
+
+    return {"assessment": result, "assessed_at": row["assessed_at"] if row else None}
 
 
 @router.get(

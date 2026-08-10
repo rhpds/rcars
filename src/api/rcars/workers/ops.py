@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import traceback
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
 from rcars.db.similarity import compute_content_similarity
+from rcars.services.overlap_assessment import batch_assess_overlaps
 import structlog
 
 from rcars.config import STAGE_PRIORITY
@@ -464,6 +466,35 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                                phase="pipeline:similarity", status="failed",
                                message="Step 6 failed: Content similarity computation failed (non-fatal)")
 
+    # ── Step 7: Batch LLM overlap assessment (near-duplicates only) ──
+    assessment_result = {"status": "skipped"}
+    if similarity_result.get("status") == "complete":
+        try:
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:assessment", status="running",
+                                   message="Step 7: Assessing near-duplicate overlaps...")
+            assessment_result = await asyncio.to_thread(
+                batch_assess_overlaps,
+                wctx.db.pool,
+                wctx.settings,
+                min_score=wctx.settings.similarity_high_threshold,
+            )
+            assessment_result["status"] = "complete"
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:assessment", status="complete",
+                                   message=f"Step 7 complete: {assessment_result.get('assessed', 0)} pairs assessed")
+            log.info("pipeline_assessment_complete", action="pipeline_step_complete",
+                     step="overlap_assessment", **assessment_result)
+        except Exception as exc:
+            msg = f"Step 7 failed (overlap assessment): {exc}"
+            warnings.append(msg)
+            log.error("pipeline_assessment_failed", action="pipeline_step_failed",
+                      step="overlap_assessment", error=str(exc), traceback=traceback.format_exc())
+            assessment_result = {"status": "error", "error": str(exc)}
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:assessment", status="failed",
+                                   message="Step 7 failed: Overlap assessment failed (non-fatal)")
+
     # Complete pipeline
     result = {
         "refresh": refresh_result,
@@ -473,6 +504,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "sandbox_summary": sandbox_summary_result,
         "reporting_sync": reporting_result,
         "similarity": similarity_result,
+        "assessment": assessment_result,
         "warnings": warnings,
     }
 

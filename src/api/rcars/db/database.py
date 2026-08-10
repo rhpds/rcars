@@ -245,6 +245,10 @@ CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(si
 ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS relationship_type TEXT NOT NULL DEFAULT 'overlap';
 CREATE INDEX IF NOT EXISTS idx_content_similarity_reltype ON content_similarity(relationship_type);
 
+-- LLM overlap assessment — RHDPCD-614
+ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS llm_assessment JSONB;
+ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS assessed_at TIMESTAMPTZ;
+
 -- ═══════════════════════════════════════════════════════════════════
 -- babylon_item_workloads — re-keyed from ci_name to content_id
 -- ═══════════════════════════════════════════════════════════════════
