@@ -805,7 +805,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 
 /* Comparison drawer */
-.ca-compare-drawer { width: 520px !important; }
+.ca-compare-drawer { width: 700px !important; }
 .ca-compare-section {
   padding: 16px 0;
   border-bottom: 1px solid var(--border-default);

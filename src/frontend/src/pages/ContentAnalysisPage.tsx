@@ -545,26 +545,6 @@ function SummarySection({ label, name, ciName, summary }: {
       ) : (
         <p className="ca-compare-summary" style={{ fontStyle: 'italic', color: 'var(--text-muted)' }}>No summary available</p>
       )}
-      {summary && summary.products.length > 0 && (
-        <div className="ca-compare-tags">
-          <span className="browse-drawer-label">Products</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-            {summary.products.map(p => (
-              <Badge key={p} className="browse-badge">{p}</Badge>
-            ))}
-          </div>
-        </div>
-      )}
-      {summary && summary.topics.length > 0 && (
-        <div className="ca-compare-tags">
-          <span className="browse-drawer-label">Topics</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
-            {summary.topics.map(t => (
-              <Badge key={t} className="browse-badge">{t}</Badge>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
