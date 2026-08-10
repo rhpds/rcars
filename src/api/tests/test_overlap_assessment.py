@@ -6,6 +6,7 @@ from psycopg.rows import dict_row
 import pytest
 from rcars.config import Settings
 from rcars.db.database import Database
+from rcars.db.similarity import _score_band
 
 TEST_DB_URL = os.environ.get(
     "RCARS_TEST_DATABASE_URL",
@@ -53,3 +54,11 @@ def test_overlap_model_from_env(monkeypatch):
     monkeypatch.setenv("RCARS_OVERLAP_MODEL", "claude-haiku-4-5")
     s = Settings(database_url="postgresql://test:test@localhost/test")
     assert s.overlap_model == "claude-haiku-4-5"
+
+
+def test_score_band_returns_moderate_not_related():
+    assert _score_band(0.80) == "moderate"
+    assert _score_band(0.75) == "moderate"
+    assert _score_band(0.84) == "moderate"
+    assert _score_band(0.95) == "near_duplicate"
+    assert _score_band(0.90) == "high_overlap"

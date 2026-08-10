@@ -218,7 +218,7 @@ def _score_band(score: float, near_dup: float = 0.95, high: float = 0.85) -> str
     elif score >= high:
         return "high_overlap"
     else:
-        return "related"
+        return "moderate"
 
 
 def get_overlap_items(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from rcars.api.middleware.auth import require_admin, invalidate_role_assignments_cache
+from rcars.api.middleware.auth import require_admin, require_curator, invalidate_role_assignments_cache
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
@@ -273,7 +273,7 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
 )
 async def overlap_report(
     request: Request,
-    user: str = Depends(require_admin),
+    user: str = Depends(require_curator),
     min_score: float = Query(0.85, ge=0.0, le=1.0),
     stage: str | None = Query(None, description="Filter by stage"),
     content_type: str | None = Query(None, description="Filter by content type"),
@@ -323,7 +323,7 @@ async def overlap_report(
 )
 async def compute_similarity(
     request: Request,
-    user: str = Depends(require_admin),
+    user: str = Depends(require_curator),
     threshold: float = Query(0.75, ge=0.0, le=1.0),
     stage: str | None = Query(None, description="Stage filter (optional, omit for all stages)"),
 ):

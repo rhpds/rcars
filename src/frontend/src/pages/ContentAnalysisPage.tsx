@@ -149,7 +149,7 @@ export function ContentOverlapPage() {
   const bandItems = (band: string) => items.filter(i => i.score_band === band)
   const nearDupes = bandItems('near_duplicate')
   const highOverlap = bandItems('high_overlap')
-  const relatedBand = bandItems('related')
+  const relatedBand = bandItems('moderate')
 
   return (
     <div className="ca-page">
@@ -263,7 +263,7 @@ export function ContentOverlapPage() {
           {relatedBand.length > 0 && (
             <details className="ca-band-section">
               <summary className="ca-band-header ca-band-muted">
-                Related ({relatedBand.length}) · 75%–84%
+                Moderate ({relatedBand.length}) · 75%–84%
               </summary>
               {relatedBand.map(item => (
                 <OverlapItemRow
