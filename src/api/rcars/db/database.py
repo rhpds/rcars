@@ -2515,7 +2515,7 @@ class Database:
                     ce.retired_at,
                     ROW_NUMBER() OVER (
                         PARTITION BY substring(bi.ci_name FROM '^(.+)\\.[^.]+$')
-                        ORDER BY CASE bi.stage WHEN 'dev' THEN 0 WHEN 'event' THEN 1 WHEN 'test' THEN 2 ELSE 3 END
+                        ORDER BY CASE bi.stage WHEN 'event' THEN 0 WHEN 'dev' THEN 1 WHEN 'test' THEN 2 ELSE 3 END
                     ) AS rn
                 FROM babylon_items bi
                 JOIN content_entities ce ON ce.content_id = bi.content_id
