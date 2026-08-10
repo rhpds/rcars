@@ -305,6 +305,28 @@ export const api = {
   unignoreItem: (baseName: string) =>
     request<{ status: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
+  // Non-prod items
+  getNonprodItems: (params?: {
+    sort_by?: string; sort_dir?: string; content_type?: string;
+    stage?: string; namespace?: string; search?: string;
+    window?: string; status?: string;
+  }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+      })
+    }
+    const query = qs.toString()
+    return request<NonProdDashboardResponse>(`/analysis/nonprod${query ? '?' + query : ''}`)
+  },
+
+  ignoreNonprodItem: (baseName: string) =>
+    request<{ status: string; ignored_until: string }>(`/analysis/nonprod/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
+
+  unignoreNonprodItem: (baseName: string) =>
+    request<{ status: string }>(`/analysis/nonprod/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
 
@@ -431,6 +453,36 @@ export interface PerformanceDashboardResponse {
   summary: { total: number; last_synced: string | null } | null
   window: string
   channel: string
+}
+
+export interface NonProdItem {
+  content_id: string
+  catalog_base_name: string
+  display_name: string
+  content_type: string | null
+  stage: string | null
+  catalog_namespace: string | null
+  ci_name: string | null
+  provisions: number
+  requests: number
+  completions: number
+  unique_users: number
+  success_ratio: number
+  failure_ratio: number
+  first_provision: string | null
+  last_provision: string | null
+  stages: Array<{ stage: string; ci_name: string; catalog_url: string; has_showroom: boolean }>
+  workflow_status?: string | null
+  jira_key?: string | null
+  retirement_target_date?: string | null
+  ignored_until?: string | null
+}
+
+export interface NonProdDashboardResponse {
+  items: NonProdItem[]
+  total: number
+  synced_at: string | null
+  window: string
 }
 
 export interface RoleAssignment {
