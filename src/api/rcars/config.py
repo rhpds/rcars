@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     similarity_threshold: float = 0.85
     similarity_high_threshold: float = 0.95
     similarity_storage_threshold: float = 0.75
-    overlap_model: str = "claude-sonnet-4-6"
+    overlap_model: str = "claude-haiku-4-5"
 
     # Ops
     stale_days: int = 3
