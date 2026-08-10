@@ -619,8 +619,9 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
 
     nonprod_map = db.get_nonprod_base_names()
     if not nonprod_map:
-        log.info("no_nonprod_items")
-        return {"nonprod_synced": 0, "nonprod_orphans": 0}
+        orphans = db.delete_orphan_nonprod_data(set())
+        log.info("no_nonprod_items", orphans_removed=orphans)
+        return {"nonprod_synced": 0, "nonprod_orphans": orphans}
 
     log.info("nonprod_items_found", count=len(nonprod_map))
 

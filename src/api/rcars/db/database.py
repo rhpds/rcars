@@ -2182,7 +2182,7 @@ class Database:
 
     def get_catalog_base_names(self, include_retired: bool = False, require_prod_stage: bool = False) -> dict[str, str]:
         retired_filter = "" if include_retired else "AND ce.retired_at IS NULL"
-        prod_filter = "AND bi.stage IN ('prod', 'event')" if require_prod_stage else ""
+        prod_filter = "AND bi.stage = 'prod'" if require_prod_stage else ""
         sql = f"""
             SELECT DISTINCT ON (base)
                 substring(bi.ci_name FROM '^(.+)\\.[^.]+$') AS base,
@@ -2669,7 +2669,7 @@ class Database:
                         (list(valid_content_ids),),
                     )
                 else:
-                    cur.execute("DELETE FROM nonprod_usage WHERE content_id NOT IN (SELECT content_id FROM content_entities)")
+                    cur.execute("DELETE FROM nonprod_usage")
                 deleted = cur.rowcount
             conn.commit()
         return deleted

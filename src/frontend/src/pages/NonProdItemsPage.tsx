@@ -116,7 +116,7 @@ export function NonProdItemsPage() {
       const itemStages = i.stages.map(s => s.stage)
       if (!itemStages.some(s => selectedStages.has(s))) return false
     }
-    if (selectedContentTypes.size > 0 && i.content_type && !selectedContentTypes.has(i.content_type)) return false
+    if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
