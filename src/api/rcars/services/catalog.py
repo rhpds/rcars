@@ -441,33 +441,35 @@ class CatalogReader:
                 component = self.get_agnosticv_component(
                     ci_name, component_namespace
                 )
-                if component:
-                    url, ref = extract_showroom_url(component)
-                    item["showroom_url"] = url
-                    item["showroom_ref"] = ref
-                    if url:
-                        log.debug("  %s: showroom=%s ref=%s", ci_name, url, ref)
+                if not component:
+                    log.info("Skipping CatalogItem %s (no AgnosticVComponent found)", ci_name)
+                    continue
+                url, ref = extract_showroom_url(component)
+                item["showroom_url"] = url
+                item["showroom_ref"] = ref
+                if url:
+                    log.debug("  %s: showroom=%s ref=%s", ci_name, url, ref)
 
-                    infra = extract_infrastructure_metadata(component)
-                    if infra:
-                        item["is_agd_v2"] = True
-                        item["agd_config"] = infra.get("agd_config")
-                        item["cloud_provider"] = infra.get("cloud_provider")
-                        item["ocp_version"] = infra.get("ocp_version")
-                        item["os_image"] = infra.get("os_image")
-                        item["worker_instance_count"] = infra.get("worker_instance_count")
-                        item["control_plane_instance_count"] = infra.get("control_plane_instance_count")
-                        item["instances_json"] = infra.get("instances_json")
-                        item["_workloads"] = infra.get("workloads", [])
-                        item["_acl_groups"] = infra.get("acl_groups", [])
+                infra = extract_infrastructure_metadata(component)
+                if infra:
+                    item["is_agd_v2"] = True
+                    item["agd_config"] = infra.get("agd_config")
+                    item["cloud_provider"] = infra.get("cloud_provider")
+                    item["ocp_version"] = infra.get("ocp_version")
+                    item["os_image"] = infra.get("os_image")
+                    item["worker_instance_count"] = infra.get("worker_instance_count")
+                    item["control_plane_instance_count"] = infra.get("control_plane_instance_count")
+                    item["instances_json"] = infra.get("instances_json")
+                    item["_workloads"] = infra.get("workloads", [])
+                    item["_acl_groups"] = infra.get("acl_groups", [])
 
-                    if item["is_published"]:
-                        base_refs = extract_base_ci_refs(component)
-                        if base_refs:
-                            stage = item.get("stage", "prod")
-                            item["base_ci_name"] = component_item_to_ci_name(
-                                base_refs[0], stage
-                            )
+                if item["is_published"]:
+                    base_refs = extract_base_ci_refs(component)
+                    if base_refs:
+                        stage = item.get("stage", "prod")
+                        item["base_ci_name"] = component_item_to_ci_name(
+                            base_refs[0], stage
+                        )
 
                 items.append(item)
 
