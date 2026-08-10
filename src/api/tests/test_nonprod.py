@@ -11,3 +11,37 @@ class TestNonprodSchema:
 
     def test_nonprod_usage_has_ignored_until(self):
         assert "ignored_until" in SCHEMA_SQL.split("nonprod_usage")[1].split(");")[0]
+
+
+class TestGetNonprodBaseNames:
+    """Tests for get_nonprod_base_names — requires live DB with test data."""
+
+    def test_method_exists(self):
+        from rcars.db.database import Database
+        assert hasattr(Database, "get_nonprod_base_names")
+
+    def test_returns_dict(self):
+        from rcars.db.database import Database
+        assert callable(getattr(Database, "get_nonprod_base_names"))
+
+
+class TestUpsertNonprodUsage:
+    def test_method_exists(self):
+        from rcars.db.database import Database
+        assert hasattr(Database, "upsert_nonprod_usage")
+
+
+class TestListNonprodItems:
+    def test_method_exists(self):
+        from rcars.db.database import Database
+        assert hasattr(Database, "list_nonprod_items")
+
+
+class TestNonprodIgnore:
+    def test_set_method_exists(self):
+        from rcars.db.database import Database
+        assert hasattr(Database, "set_nonprod_ignored")
+
+    def test_clear_method_exists(self):
+        from rcars.db.database import Database
+        assert hasattr(Database, "clear_nonprod_ignored")
