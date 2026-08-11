@@ -2577,7 +2577,6 @@ class Database:
         sort_dir: str = "desc",
         content_type: str | None = None,
         stage: str | None = None,
-        namespace: str | None = None,
         search: str | None = None,
         status: str | None = None,
     ) -> list[dict]:
@@ -2591,9 +2590,6 @@ class Database:
         if stage:
             conditions.append("bi.stage = %(stage)s")
             params["stage"] = stage
-        if namespace:
-            conditions.append("bi.catalog_namespace = %(namespace)s")
-            params["namespace"] = namespace
         if search:
             conditions.append("(ce.display_name ILIKE %(search)s OR nu.catalog_base_name ILIKE %(search)s)")
             params["search"] = f"%{search}%"

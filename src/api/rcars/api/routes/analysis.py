@@ -647,7 +647,6 @@ async def nonprod_dashboard(
     sort_dir: str = Query("desc"),
     content_type: str | None = Query(None),
     stage: str | None = Query(None),
-    namespace: str | None = Query(None),
     search: str | None = Query(None),
     window: str = Query("12m"),
     status: str | None = Query(None),
@@ -659,7 +658,7 @@ async def nonprod_dashboard(
     items = db.list_nonprod_items(
         sort_by=sort_by, sort_dir=sort_dir,
         content_type=content_type, stage=stage,
-        namespace=namespace, search=search,
+        search=search,
         status=status,
     )
 

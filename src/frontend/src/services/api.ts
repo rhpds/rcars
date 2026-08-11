@@ -299,7 +299,7 @@ export const api = {
   // Non-prod items
   getNonprodItems: (params?: {
     sort_by?: string; sort_dir?: string; content_type?: string;
-    stage?: string; namespace?: string; search?: string;
+    stage?: string; search?: string;
     window?: string; status?: string;
   }) => {
     const qs = new URLSearchParams()
