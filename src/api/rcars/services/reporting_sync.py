@@ -785,7 +785,7 @@ def run_reporting_sync(db, settings) -> dict:
     pub_base_map = db.get_published_base_mapping()
     log.info("published_base_mapping", pairs=len(pub_base_map))
 
-    catalog_names = db.get_catalog_base_names()
+    catalog_names = db.get_catalog_base_names(require_prod_stage=True)
     published_bases = set(pub_base_map.keys())
     missing = set(catalog_names) - filtered_names - published_bases
     log.info("backfilling_catalog", catalog_items=len(catalog_names),
