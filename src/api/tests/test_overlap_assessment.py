@@ -9,7 +9,6 @@ import pytest
 from unittest.mock import patch, MagicMock
 from rcars.config import Settings
 from rcars.db.database import Database
-from rcars.db.similarity import _score_band
 from rcars.services.overlap_assessment import (
     assess_overlap,
     batch_assess_overlaps,
@@ -43,12 +42,12 @@ def db():
     database.close()
 
 
-def test_content_similarity_has_assessment_columns(db):
+def test_overlap_candidates_has_assessment_columns(db):
     with db.pool.connection() as conn:
         cur = conn.execute(
             """SELECT column_name, data_type
                FROM information_schema.columns
-               WHERE table_name = 'content_similarity'
+               WHERE table_name = 'overlap_candidates'
                  AND column_name IN ('llm_assessment', 'assessed_at')
                ORDER BY column_name"""
         )
@@ -59,21 +58,13 @@ def test_content_similarity_has_assessment_columns(db):
 
 def test_overlap_model_default():
     s = Settings(database_url="postgresql://test:test@localhost/test")
-    assert s.overlap_model == "claude-sonnet-4-6"
+    assert s.overlap_model == "claude-haiku-4-5"
 
 
 def test_overlap_model_from_env(monkeypatch):
     monkeypatch.setenv("RCARS_OVERLAP_MODEL", "claude-haiku-4-5")
     s = Settings(database_url="postgresql://test:test@localhost/test")
     assert s.overlap_model == "claude-haiku-4-5"
-
-
-def test_score_band_returns_moderate_not_related():
-    assert _score_band(0.80) == "moderate"
-    assert _score_band(0.75) == "moderate"
-    assert _score_band(0.84) == "moderate"
-    assert _score_band(0.95) == "near_duplicate"
-    assert _score_band(0.90) == "high_overlap"
 
 
 # --- Helper functions for Task 4 tests ---
@@ -91,14 +82,15 @@ VECTOR_96 = _make_vector(0.96)
 
 
 def _seed_overlap_pair(db):
-    """Seed two items with similarity, analysis data, and a computed overlap pair."""
-    from rcars.db.similarity import compute_content_similarity
+    """Seed two items with analysis data and a pre-computed overlap candidate."""
+    cid_a = "babylon:ns.lab-x.prod"
+    cid_b = "babylon:ns.lab-y.prod"
 
     with db.pool.connection() as conn:
         with conn.cursor() as cur:
-            for cid, name in [
-                ("babylon:ns.lab-x.prod", "OpenShift Deployment Lab"),
-                ("babylon:ns.lab-y.prod", "OpenShift Troubleshooting Lab"),
+            for cid, name, content_hash in [
+                (cid_a, "OpenShift Deployment Lab", "hash_x"),
+                (cid_b, "OpenShift Troubleshooting Lab", "hash_y"),
             ]:
                 cur.execute(
                     """INSERT INTO content_entities
@@ -116,8 +108,9 @@ def _seed_overlap_pair(db):
                     """INSERT INTO showroom_analysis
                        (content_id, summary, products_json, topics_json,
                         modules_json, learning_objectives_json, audience_json,
-                        difficulty, estimated_duration_min, use_cases_json)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                        difficulty, estimated_duration_min, use_cases_json,
+                        content_hash)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
                     (
                         cid,
                         f"Summary for {name}",
@@ -129,12 +122,13 @@ def _seed_overlap_pair(db):
                         "intermediate",
                         60,
                         json.dumps(["workshop"]),
+                        content_hash,
                     ),
                 )
 
             for cid, vec in [
-                ("babylon:ns.lab-x.prod", BASE_VECTOR),
-                ("babylon:ns.lab-y.prod", VECTOR_96),
+                (cid_a, BASE_VECTOR),
+                (cid_b, VECTOR_96),
             ]:
                 cur.execute(
                     """INSERT INTO embeddings
@@ -142,10 +136,19 @@ def _seed_overlap_pair(db):
                        VALUES (%s, 'lab', 'babylon', 'summary', 'test', %s::vector)""",
                     (cid, vec),
                 )
+
+            # Insert directly into overlap_candidates (canonical order: cid_a < cid_b)
+            cur.execute(
+                """INSERT INTO overlap_candidates
+                   (content_id_a, content_id_b, shared_products, shared_topics,
+                    content_hash_a, content_hash_b)
+                   VALUES (%s, %s, 2, 2, 'hash_x', 'hash_y')
+                   ON CONFLICT DO NOTHING""",
+                (cid_a, cid_b),
+            )
         conn.commit()
 
-    compute_content_similarity(db.pool, threshold=0.75)
-    return "babylon:ns.lab-x.prod", "babylon:ns.lab-y.prod"
+    return cid_a, cid_b
 
 
 MOCK_LLM_RESPONSE = json.dumps({
@@ -276,7 +279,7 @@ def test_assess_overlap_calls_llm_and_persists(mock_llm, db):
     # Verify persistence
     with db.pool.connection() as conn:
         cur = conn.execute(
-            """SELECT llm_assessment, assessed_at FROM content_similarity
+            """SELECT llm_assessment, assessed_at FROM overlap_candidates
                WHERE content_id_a = %s AND content_id_b = %s""",
             (cid_a, cid_b),
         )
@@ -303,13 +306,14 @@ def test_assess_overlap_returns_cache_on_second_call(mock_llm, db):
 @patch("rcars.services.overlap_assessment.call_llm")
 def test_assess_overlap_missing_analysis_returns_none(mock_llm, db):
     """Items without showroom_analysis should return None, not call LLM."""
-    from rcars.db.similarity import compute_content_similarity
+    cid_na = "babylon:ns.no-analysis-a.prod"
+    cid_nb = "babylon:ns.no-analysis-b.prod"
 
     with db.pool.connection() as conn:
         with conn.cursor() as cur:
-            for cid, name, vec in [
-                ("babylon:ns.no-analysis-a.prod", "No Analysis A", BASE_VECTOR),
-                ("babylon:ns.no-analysis-b.prod", "No Analysis B", VECTOR_96),
+            for cid, name in [
+                (cid_na, "No Analysis A"),
+                (cid_nb, "No Analysis B"),
             ]:
                 cur.execute(
                     """INSERT INTO content_entities
@@ -323,19 +327,18 @@ def test_assess_overlap_missing_analysis_returns_none(mock_llm, db):
                        VALUES (%s, %s, 'workshop', 'prod', FALSE)""",
                     (cid, cid.split(":")[-1].rsplit(".", 1)[0]),
                 )
-                cur.execute(
-                    """INSERT INTO embeddings
-                       (content_id, content_type, source, embed_type, content_text, embedding)
-                       VALUES (%s, 'lab', 'babylon', 'summary', 'test', %s::vector)""",
-                    (cid, vec),
-                )
+            # Insert as an overlap candidate (no showroom_analysis rows)
+            cur.execute(
+                """INSERT INTO overlap_candidates
+                   (content_id_a, content_id_b, shared_products, shared_topics)
+                   VALUES (%s, %s, 1, 1)
+                   ON CONFLICT DO NOTHING""",
+                (cid_na, cid_nb),
+            )
         conn.commit()
-    compute_content_similarity(db.pool, threshold=0.75)
 
     settings = Settings(database_url=TEST_DB_URL)
-    result, reason = assess_overlap(
-        db.pool, settings, "babylon:ns.no-analysis-a.prod", "babylon:ns.no-analysis-b.prod"
-    )
+    result, reason = assess_overlap(db.pool, settings, cid_na, cid_nb)
     assert result is None
     assert reason == "missing_analysis"
     mock_llm.assert_not_called()
@@ -364,7 +367,7 @@ def test_assess_overlap_rejects_invalid_verdict(mock_llm, db):
     # Verify nothing was persisted
     with db.pool.connection() as conn:
         cur = conn.execute(
-            "SELECT llm_assessment FROM content_similarity WHERE content_id_a = %s AND content_id_b = %s",
+            "SELECT llm_assessment FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
             (cid_a, cid_b),
         )
         row = cur.fetchone()
@@ -399,10 +402,10 @@ def test_assessment_endpoint_returns_cached(db):
         "tokens": {"input": 500, "output": 200},
     }
 
-    # Pre-populate a cached assessment
+    # Pre-populate a cached assessment (content_hash_a/b already set by _seed_overlap_pair)
     with db.pool.connection() as conn:
         conn.execute(
-            """UPDATE content_similarity
+            """UPDATE overlap_candidates
                SET llm_assessment = %s::jsonb, assessed_at = NOW()
                WHERE content_id_a = %s AND content_id_b = %s""",
             (json.dumps(assessment), cid_a, cid_b),

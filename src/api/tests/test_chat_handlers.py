@@ -37,8 +37,8 @@ def test_overlap_handler(db):
     assert types == ["item_card", "overlap_table"]
     neighbors = r.blocks[1].data["neighbors"]
     assert neighbors[0]["display_name"] == "LB2145 Ansible Automation Basics"
-    assert neighbors[0]["similarity_pct"] == 91
-    assert neighbors[0]["why"] is None            # overlap honesty: no invented why
+    assert neighbors[0]["shared_products"] == 2
+    assert neighbors[0]["recommendation"] is None  # no llm_assessment seeded
     assert r.anchor_ids == [ids["lb2144-ansible-eda"]]
     assert r.session_results[0]["content_id"] == ids["lb2145-ansible-basics"]
 
@@ -47,7 +47,7 @@ def test_performance_handler_rows_match_scope(db):
     ids = seed_chat_fixtures(db)
     scope = [ids["lb2144-ansible-eda"], ids["lb2145-ansible-basics"]]
     r = asyncio.run(handlers.handle_performance(
-        _res("performance", ids=scope), db, _settings(), ["prod"], True, _noop))
+        _res("performance", ids=scope, args={"window": "3m"}), db, _settings(), ["prod"], True, _noop))
     rows = r.blocks[0].data["rows"]
     assert [row["content_id"] for row in rows] == scope
     assert rows[0]["provisions"] == 40

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Badge, Button, SearchInput, FormSelect, FormSelectOption, Spinner } from '@patternfly/react-core'
+import { Badge, SearchInput, FormSelect, FormSelectOption, Spinner } from '@patternfly/react-core'
 import { api } from '../services/api'
 
 interface OverlapItem {
@@ -11,9 +11,7 @@ interface OverlapItem {
   ci_name: string | null
   category: string | null
   stage: string | null
-  max_score: number
   neighbor_count: number
-  score_band: string
   neighbors: Array<NeighborItem>
 }
 
@@ -25,14 +23,19 @@ interface NeighborItem {
   ci_name: string | null
   category: string | null
   stage: string | null
-  similarity_score: number
+  shared_products: number
+  shared_topics: number
+  verdict: string | null
+  recommendation: string | null
+  assessed_at: string | null
 }
 
 interface OverlapStats {
-  near_duplicates: number
-  high_overlap: number
-  related_band: number
-  total_pairs_stored: number
+  redundant: number
+  complementary: number
+  differentiated: number
+  unassessed: number
+  total_pairs: number
   last_computed: string | null
 }
 
@@ -79,46 +82,75 @@ function extractSummary(detail: Record<string, unknown>): ItemSummary {
   }
 }
 
+const VERDICT_COLORS: Record<string, { color: string; bg: string }> = {
+  redundant: { color: 'var(--score-red)', bg: 'var(--score-red-bg)' },
+  complementary: { color: 'var(--score-amber)', bg: 'var(--score-amber-bg)' },
+  differentiated: { color: 'var(--score-green, #2e7d32)', bg: 'var(--score-green-bg, #e8f5e9)' },
+}
+
+function VerdictBadge({ verdict, onClick, style, title }: {
+  verdict: string | null; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties; title?: string
+}) {
+  const colors = VERDICT_COLORS[verdict || ''] || { color: 'var(--text-muted)', bg: 'var(--bg-card)' }
+  const sharedStyle = { color: colors.color, backgroundColor: colors.bg, ...style }
+  const label = verdict || 'unassessed'
+  if (onClick) {
+    return (
+      <button className="ca-score-badge" style={{ ...sharedStyle, border: 'none', cursor: 'pointer' }}
+              onClick={onClick} title={title} aria-label={title || label}>
+        {label}
+      </button>
+    )
+  }
+  return (
+    <span className="ca-score-badge" style={sharedStyle} title={title}>
+      {label}
+    </span>
+  )
+}
+
 export function ContentOverlapPage() {
   const [searchParams] = useSearchParams()
   const [items, setItems] = useState<OverlapItem[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
-  const [thresholds, setThresholds] = useState({ display: 0.85, near_duplicate: 0.95 })
   const [loading, setLoading] = useState(true)
-  const [computing, setComputing] = useState(false)
+  const [totalItems, setTotalItems] = useState(0)
+  const [page, setPage] = useState(1)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
-  const [minScore, setMinScore] = useState(Number(searchParams.get('min_score')) || 0.95)
-  const [stage, setStage] = useState<string>(searchParams.get('stage') || 'prod')
+  const [verdict, setVerdict] = useState<string>(searchParams.get('verdict') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
   const detailCache = useRef<Record<string, ItemSummary>>({})
+  const requestRef = useRef(0)
 
   const loadData = useCallback(async () => {
+    const reqId = ++requestRef.current
     setLoading(true)
     try {
-      const data = await api.getOverlapReport(
-        minScore,
-        stage || undefined,
-        search || undefined,
-      )
+      const data = await api.getOverlapReport({
+        verdict: verdict || undefined,
+        search: search || undefined,
+        page,
+      })
+      if (reqId !== requestRef.current) return
       setItems(data.items)
       setStats(data.stats)
-      setThresholds(data.thresholds)
+      setTotalItems(data.total_items)
     } finally {
-      setLoading(false)
+      if (reqId === requestRef.current) setLoading(false)
     }
-  }, [minScore, stage, search])
+  }, [verdict, search, page])
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handleCompute = async () => {
-    setComputing(true)
-    try {
-      await api.computeSimilarity(undefined, stage || undefined)
-      await loadData()
-    } finally {
-      setComputing(false)
-    }
+  const handleVerdictChange = (_e: React.FormEvent, v: string) => {
+    setVerdict(v)
+    setPage(1)
+  }
+
+  const handleSearchChange = (_e: React.FormEvent, v: string) => {
+    setSearch(v)
+    setPage(1)
   }
 
   const toggleExpand = (contentId: string) => {
@@ -168,17 +200,6 @@ export function ContentOverlapPage() {
     }
   }
 
-  const scoreColor = (score: number) =>
-    score >= thresholds.near_duplicate ? 'var(--score-red)' : 'var(--score-amber)'
-  const scoreBg = (score: number) =>
-    score >= thresholds.near_duplicate ? 'var(--score-red-bg)' : 'var(--score-amber-bg)'
-  const scorePct = (score: number) => `${Math.round(score * 100)}%`
-
-  const bandItems = (band: string) => items.filter(i => i.score_band === band)
-  const nearDupes = bandItems('near_duplicate')
-  const highOverlap = bandItems('high_overlap')
-  const relatedBand = bandItems('moderate')
-
   return (
     <div className="ca-page">
       <div className="ca-header">
@@ -187,150 +208,95 @@ export function ContentOverlapPage() {
           {stats?.last_computed
             ? `Last computed ${new Date(stats.last_computed).toLocaleString()}`
             : 'Not yet computed'}
-          {' · '}Items with similarity ≥ {scorePct(minScore)}
         </p>
       </div>
 
       {stats && (
         <div className="ca-stats-grid">
-          <div className="ca-stat-card ca-stat-red">
-            <div className="ca-stat-value">{stats.near_duplicates}</div>
-            <div className="ca-stat-label">Near-Duplicates</div>
-            <div className="ca-stat-desc">≥ {scorePct(thresholds.near_duplicate)}</div>
+          <div className="ca-stat-card ca-stat-red" onClick={() => { setVerdict('redundant'); setPage(1) }} style={{ cursor: 'pointer' }}>
+            <div className="ca-stat-value">{stats.redundant}</div>
+            <div className="ca-stat-label">Redundant</div>
           </div>
-          <div className="ca-stat-card ca-stat-amber">
-            <div className="ca-stat-value">{stats.high_overlap}</div>
-            <div className="ca-stat-label">High Overlap</div>
-            <div className="ca-stat-desc">{scorePct(thresholds.display)}–{scorePct(thresholds.near_duplicate - 0.01)}</div>
+          <div className="ca-stat-card ca-stat-amber" onClick={() => { setVerdict('complementary'); setPage(1) }} style={{ cursor: 'pointer' }}>
+            <div className="ca-stat-value">{stats.complementary}</div>
+            <div className="ca-stat-label">Complementary</div>
           </div>
-          <div className="ca-stat-card ca-stat-blue">
-            <div className="ca-stat-value">{stats.total_pairs_stored}</div>
-            <div className="ca-stat-label">Total Pairs Stored</div>
-            <div className="ca-stat-desc">≥ 75%</div>
+          <div className="ca-stat-card" onClick={() => { setVerdict('differentiated'); setPage(1) }} style={{ cursor: 'pointer' }}>
+            <div className="ca-stat-value">{stats.differentiated}</div>
+            <div className="ca-stat-label">Differentiated</div>
+          </div>
+          <div className="ca-stat-card ca-stat-blue" onClick={() => { setVerdict('unassessed'); setPage(1) }} style={{ cursor: 'pointer' }}>
+            <div className="ca-stat-value">{stats.unassessed}</div>
+            <div className="ca-stat-label">Unassessed</div>
           </div>
         </div>
       )}
 
       <div className="ca-controls">
-        <FormSelect value={stage} onChange={(_e, v) => setStage(v)} aria-label="Stage filter">
-          <FormSelectOption value="prod" label="prod" />
-          <FormSelectOption value="dev" label="dev" />
-        </FormSelect>
-
-        <FormSelect
-          value={String(minScore)}
-          onChange={(_e, v) => setMinScore(parseFloat(v))}
-          aria-label="Min score"
-        >
-          <FormSelectOption value="0.95" label="≥ 95% (near-duplicates)" />
-          <FormSelectOption value="0.90" label="≥ 90% (high overlap)" />
-          <FormSelectOption value="0.85" label="≥ 85%" />
+        <FormSelect value={verdict} onChange={handleVerdictChange} aria-label="Verdict filter">
+          <FormSelectOption value="" label="All verdicts" />
+          <FormSelectOption value="redundant" label="Redundant" />
+          <FormSelectOption value="complementary" label="Complementary" />
+          <FormSelectOption value="differentiated" label="Differentiated" />
+          <FormSelectOption value="unassessed" label="Unassessed" />
         </FormSelect>
 
         <SearchInput
           placeholder="Search by name…"
           value={search}
-          onChange={(_e, v) => setSearch(v)}
-          onClear={() => setSearch('')}
+          onChange={handleSearchChange}
+          onClear={() => { setSearch(''); setPage(1) }}
         />
-
-        <Button
-          variant="secondary"
-          size="sm"
-          isLoading={computing}
-          onClick={handleCompute}
-        >
-          {computing ? 'Computing…' : 'Refresh Similarity'}
-        </Button>
       </div>
 
       {loading ? (
         <div className="browse-loading"><Spinner size="lg" /> Loading overlap data…</div>
+      ) : items.length === 0 ? (
+        <div className="browse-loading">No overlap candidates found{verdict ? ` with verdict "${verdict}"` : ''}.</div>
       ) : (
         <div className="ca-band-sections">
-          {nearDupes.length > 0 && (
-            <details open className="ca-band-section">
-              <summary className="ca-band-header ca-band-red">
-                Near-Duplicates ({nearDupes.length}) · ≥ {scorePct(thresholds.near_duplicate)}
-              </summary>
-              {nearDupes.map(item => (
-                <OverlapItemRow
-                  key={item.content_id}
-                  item={item}
-                  expanded={expandedItems.has(item.content_id)}
-                  onToggle={toggleExpand}
-                  onCompare={openDrawer}
-                  scoreColor={scoreColor}
-                  scoreBg={scoreBg}
-                  scorePct={scorePct}
-                />
-              ))}
-            </details>
-          )}
+          {items.map(item => (
+            <OverlapItemRow
+              key={item.content_id}
+              item={item}
+              expanded={expandedItems.has(item.content_id)}
+              onToggle={toggleExpand}
+              onCompare={openDrawer}
+            />
+          ))}
+        </div>
+      )}
 
-          {highOverlap.length > 0 && (
-            <details open className="ca-band-section">
-              <summary className="ca-band-header ca-band-amber">
-                High Overlap ({highOverlap.length}) · {scorePct(thresholds.display)}–{scorePct(thresholds.near_duplicate - 0.01)}
-              </summary>
-              {highOverlap.map(item => (
-                <OverlapItemRow
-                  key={item.content_id}
-                  item={item}
-                  expanded={expandedItems.has(item.content_id)}
-                  onToggle={toggleExpand}
-                  onCompare={openDrawer}
-                  scoreColor={scoreColor}
-                  scoreBg={scoreBg}
-                  scorePct={scorePct}
-                />
-              ))}
-            </details>
-          )}
-
-          {relatedBand.length > 0 && (
-            <details className="ca-band-section">
-              <summary className="ca-band-header ca-band-muted">
-                Moderate ({relatedBand.length}) · 75%–84%
-              </summary>
-              {relatedBand.map(item => (
-                <OverlapItemRow
-                  key={item.content_id}
-                  item={item}
-                  expanded={expandedItems.has(item.content_id)}
-                  onToggle={toggleExpand}
-                  onCompare={openDrawer}
-                  scoreColor={scoreColor}
-                  scoreBg={scoreBg}
-                  scorePct={scorePct}
-                />
-              ))}
-            </details>
-          )}
-
-          {items.length === 0 && (
-            <div className="browse-loading">No items found above {scorePct(minScore)} similarity.</div>
-          )}
+      {totalItems > 100 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', justifyContent: 'center' }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  style={{ padding: '4px 12px', cursor: page === 1 ? 'default' : 'pointer' }}>
+            ← Prev
+          </button>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Page {page} · {totalItems} items
+          </span>
+          <button onClick={() => setPage(p => p + 1)} disabled={page * 100 >= totalItems}
+                  style={{ padding: '4px 12px', cursor: page * 100 >= totalItems ? 'default' : 'pointer' }}>
+            Next →
+          </button>
         </div>
       )}
 
       {drawer && (
-        <ComparisonDrawer drawer={drawer} onClose={() => setDrawer(null)} scorePct={scorePct} scoreColor={scoreColor} scoreBg={scoreBg} />
+        <ComparisonDrawer drawer={drawer} onClose={() => setDrawer(null)} />
       )}
     </div>
   )
 }
 
 function OverlapItemRow({
-  item, expanded, onToggle, onCompare, scoreColor, scoreBg, scorePct,
+  item, expanded, onToggle, onCompare,
 }: {
   item: OverlapItem
   expanded: boolean
   onToggle: (id: string) => void
   onCompare: (item: OverlapItem, neighbor: NeighborItem) => void
-  scoreColor: (s: number) => string
-  scoreBg: (s: number) => string
-  scorePct: (s: number) => string
 }) {
   return (
     <div className={`browse-item ${expanded ? 'expanded' : ''}`}>
@@ -340,41 +306,36 @@ function OverlapItemRow({
           {item.ci_name && <div className="browse-item-ci">{item.ci_name}</div>}
         </div>
         <Badge className="browse-badge">{item.content_type}</Badge>
-        {item.category && <span className="browse-similar-cat">{item.category}</span>}
         {item.stage && item.stage !== 'prod' && (
           <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{item.stage}</Badge>
         )}
-        <Badge className="browse-badge">{item.neighbor_count} similar</Badge>
-        <span
-          className="ca-score-badge"
-          style={{ color: scoreColor(item.max_score), backgroundColor: scoreBg(item.max_score) }}
-        >
-          {scorePct(item.max_score)}
-        </span>
+        <Badge className="browse-badge">{item.neighbor_count} overlap{item.neighbor_count !== 1 ? 's' : ''}</Badge>
         <span className="browse-expand-icon">{expanded ? '▾' : '▸'}</span>
       </div>
       {expanded && (
         <div className="ca-item-neighbors">
           {item.neighbors.map(n => (
             <div key={n.content_id} className="browse-similar-row">
-              <span
-                className="ca-score-badge ca-score-clickable"
-                style={{ color: scoreColor(n.similarity_score), backgroundColor: scoreBg(n.similarity_score), cursor: 'pointer' }}
+              <VerdictBadge
+                verdict={n.verdict}
                 onClick={(e) => { e.stopPropagation(); onCompare(item, n) }}
-                title="Compare summaries"
-              >
-                {scorePct(n.similarity_score)}
-              </span>
+                style={{ cursor: 'pointer' }}
+                title="Compare details"
+              />
               <a
                 href={`/browse?search=${encodeURIComponent(n.ci_name || n.display_name)}`}
-                target="_blank"
-                rel="noopener noreferrer"
+                target="_blank" rel="noopener noreferrer"
                 className="browse-similar-name"
               >
                 {n.display_name}
               </a>
-              {n.stage && n.stage !== 'prod' && (
-                <Badge className={n.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{n.stage}</Badge>
+              <span className="browse-similar-cat" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                {n.shared_products}p / {n.shared_topics}t
+              </span>
+              {n.recommendation && (
+                <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                  {n.recommendation.replace('_', ' ')}
+                </span>
               )}
             </div>
           ))}
@@ -385,28 +346,19 @@ function OverlapItemRow({
 }
 
 function ComparisonDrawer({
-  drawer, onClose, scorePct, scoreColor, scoreBg,
+  drawer, onClose,
 }: {
   drawer: DrawerPair
   onClose: () => void
-  scorePct: (s: number) => string
-  scoreColor: (s: number) => string
-  scoreBg: (s: number) => string
 }) {
-  const score = drawer.neighbor.similarity_score
   return (
     <>
       <div className="browse-drawer-overlay" onClick={onClose} />
       <div className="browse-drawer ca-compare-drawer">
         <div className="browse-drawer-header">
           <div className="browse-drawer-title">
-            <span
-              className="ca-score-badge"
-              style={{ color: scoreColor(score), backgroundColor: scoreBg(score), marginRight: '8px' }}
-            >
-              {scorePct(score)}
-            </span>
-            Similarity Comparison
+            <VerdictBadge verdict={drawer.neighbor.verdict} style={{ marginRight: '8px' }} />
+            Overlap Comparison
           </div>
           <button className="browse-drawer-close" onClick={onClose} aria-label="Close drawer">&times;</button>
         </div>

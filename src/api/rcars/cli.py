@@ -11,10 +11,7 @@ from rich.table import Table
 
 from rcars.config import Settings
 from rcars.db import Database
-from rcars.db.similarity import (
-    compute_content_similarity as db_compute_similarity,
-    get_similarity_stats as db_get_similarity_stats,
-)
+from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
 from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
@@ -358,27 +355,27 @@ def status(failures: bool):
     db.close()
 
 
-@cli.command("compute-similarity")
-@click.option("--threshold", "-t", default=0.75, type=float, help="Minimum similarity score to store")
-@click.option("--stage", "-s", default=None, type=click.Choice(["prod", "event", "dev"]), help="Stage filter (Babylon only). Omit for all stages.")
-def compute_similarity_cmd(threshold: float, stage: str | None):
-    """Compute pairwise content similarity (overlap + related pairs)."""
+@cli.command("overlap-candidates")
+@click.option("--min-products", "-p", default=1, type=int, help="Minimum shared products")
+@click.option("--min-topics", "-t", default=2, type=int, help="Minimum shared topics")
+def overlap_candidates_cmd(min_products: int, min_topics: int):
+    """Generate overlap candidates via deterministic structural matching."""
     db = get_db()
-    result = db_compute_similarity(db.pool, threshold=threshold, stage=stage)
+    result = generate_overlap_candidates(db.pool, min_products=min_products, min_topics=min_topics)
 
-    click.echo(f"\nComputed similarity (threshold={threshold}, stage={stage or 'all'}):")
-    click.echo(f"  Overlap pairs:  {result['overlap_pairs']}")
-    click.echo(f"  Related pairs:  {result['related_pairs']}")
-    click.echo(f"  Total stored:   {result['pairs_stored']}")
+    click.echo(f"\nGenerated overlap candidates (min_products={min_products}, min_topics={min_topics}):")
+    click.echo(f"  Pairs inserted:  {result['pairs_inserted']}")
+    click.echo(f"  Pairs updated:   {result['pairs_updated']}")
+    click.echo(f"  Total candidates: {result['total_candidates']}")
 
-    stats = db_get_similarity_stats(db.pool, stage=stage)
-    click.echo("\nScore band breakdown:")
-    click.echo(f"  Near-duplicates (>=0.95):  {stats['near_duplicates']}")
-    click.echo(f"  High overlap (0.85-0.94):  {stats['high_overlap']}")
-    click.echo(f"  Related band (0.75-0.84):  {stats['related_band']}")
-    click.echo(f"  Total pairs stored:        {stats['total_pairs_stored']}")
+    stats = get_overlap_stats(db.pool)
+    click.echo("\nOverlap verdict breakdown:")
+    click.echo(f"  Redundant:       {stats['redundant']}")
+    click.echo(f"  Complementary:   {stats['complementary']}")
+    click.echo(f"  Differentiated:  {stats['differentiated']}")
+    click.echo(f"  Unassessed:      {stats['unassessed']}")
     if stats['last_computed']:
-        click.echo(f"  Last computed:             {stats['last_computed']}")
+        click.echo(f"  Last computed:   {stats['last_computed']}")
 
     db.close()
 

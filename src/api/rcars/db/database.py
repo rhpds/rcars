@@ -248,27 +248,24 @@ CREATE TABLE IF NOT EXISTS nonprod_usage (
 CREATE INDEX IF NOT EXISTS idx_nu_base_name ON nonprod_usage(catalog_base_name);
 
 -- ═══════════════════════════════════════════════════════════════════
--- content_similarity — re-keyed from ci_name_a/b to content_id_a/b
+-- overlap_candidates — deterministic structured matching
 -- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS content_similarity (
+CREATE TABLE IF NOT EXISTS overlap_candidates (
     id SERIAL PRIMARY KEY,
     content_id_a TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
     content_id_b TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
-    similarity_score REAL NOT NULL,
-    relationship_type TEXT NOT NULL DEFAULT 'overlap',
+    shared_products INTEGER NOT NULL DEFAULT 0,
+    shared_topics INTEGER NOT NULL DEFAULT 0,
+    content_hash_a TEXT,
+    content_hash_b TEXT,
+    llm_assessment JSONB,
+    assessed_at TIMESTAMPTZ,
     computed_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(content_id_a, content_id_b)
 );
-
-CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(content_id_a);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(content_id_b);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
-ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS relationship_type TEXT NOT NULL DEFAULT 'overlap';
-CREATE INDEX IF NOT EXISTS idx_content_similarity_reltype ON content_similarity(relationship_type);
-
--- LLM overlap assessment — RHDPCD-614
-ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS llm_assessment JSONB;
-ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS assessed_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_a ON overlap_candidates(content_id_a);
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_b ON overlap_candidates(content_id_b);
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_assessed ON overlap_candidates(assessed_at);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- babylon_item_workloads — re-keyed from ci_name to content_id
@@ -513,7 +510,7 @@ class Database:
         tables = [
             "retirement_workflow",
             "nonprod_usage",
-            "content_similarity",
+            "overlap_candidates",
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",

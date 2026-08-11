@@ -1,15 +1,15 @@
 from rcars.db.database import Database
-from rcars.db.similarity import (
-    compute_content_similarity,
+from rcars.db.overlap import (
+    generate_overlap_candidates,
     get_overlap_items,
-    get_similar_items,
-    get_similarity_stats,
+    get_overlap_stats,
+    prune_stale_candidates,
 )
 
 __all__ = [
     "Database",
-    "compute_content_similarity",
+    "generate_overlap_candidates",
     "get_overlap_items",
-    "get_similar_items",
-    "get_similarity_stats",
+    "get_overlap_stats",
+    "prune_stale_candidates",
 ]
