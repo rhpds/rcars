@@ -121,7 +121,7 @@ export function NonProdItemsPage() {
       if (!itemStages.some(s => selectedStages.has(s))) return false
     }
     if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
-    if (selectedNamespaces.size > 0 && (!i.catalog_namespace || !selectedNamespaces.has(i.catalog_namespace))) return false
+    if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
@@ -147,10 +147,13 @@ export function NonProdItemsPage() {
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
 
+  const extractNs = (name: string) => name.split('.')[0]
+
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
     for (const i of allItems) {
-      if (i.catalog_namespace) counts[i.catalog_namespace] = (counts[i.catalog_namespace] || 0) + 1
+      const ns = extractNs(i.catalog_base_name)
+      counts[ns] = (counts[ns] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
