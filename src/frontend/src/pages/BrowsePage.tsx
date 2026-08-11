@@ -400,13 +400,13 @@ export function BrowsePage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
   const [objectivesExpanded, setObjectivesExpanded] = useState<Set<string>>(new Set())
-  const [similarItems, setSimilarItems] = useState<Record<string, Array<{
+  const [similarItems, _setSimilarItems] = useState<Record<string, Array<{
     content_id: string; ci_name: string | null; display_name: string
     content_type: string; source: string; category: string; stage: string
     summary: string | null; similarity_score: number; computed_at: string
     relationship_type?: string
   }>>>({})
-  const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
+  const [similarLoading, _setSimilarLoading] = useState<Set<string>>(new Set())
 
   // Curator editing state
   const [drawerItem, setDrawerItem] = useState<string | null>(null)
@@ -538,16 +538,7 @@ export function BrowsePage() {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
     }
-    if (similarItems[ciName] === undefined && !similarLoading.has(ciName)) {
-      setSimilarLoading(prev => new Set(prev).add(ciName))
-      api.getSimilarItems(ciName, 0.85, 'all').then(data => {
-        setSimilarItems(prev => ({ ...prev, [ciName]: data.similar }))
-        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
-      }).catch(() => {
-        setSimilarItems(prev => ({ ...prev, [ciName]: [] }))
-        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
-      })
-    }
+    // ponytail: similarItems fetch removed (getSimilarItems deleted in overlap redesign); Task 9 cleans up dead state + UI
   }
 
   /* ── Curator actions ── */

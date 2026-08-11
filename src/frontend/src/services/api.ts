@@ -193,59 +193,49 @@ export const api = {
   }>('/catalog/workload-mappings/unmapped'),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
-  // Content similarity / overlap
-  getSimilarItems: (identifier: string, minScore = 0.85, relationshipType = 'overlap') =>
-    request<{
-      ci_name: string
-      content_id: string
-      similar: Array<{
-        content_id: string; ci_name: string | null; display_name: string
-        content_type: string; source: string; category: string; stage: string
-        summary: string | null; similarity_score: number; computed_at: string
-        relationship_type?: string
-      }>
-      count: number
-    }>(`/catalog/${encodeURIComponent(identifier)}/similar?min_score=${minScore}&relationship_type=${relationshipType}`),
-
-  getOverlapReport: (minScore = 0.85, stage?: string, search?: string, relationshipType = 'overlap') =>
-    request<{
+  // Content overlap
+  getOverlapReport: (params?: {
+    verdict?: string; search?: string; page?: number; page_size?: number;
+    min_shared_products?: number; min_shared_topics?: number;
+  }) => {
+    const p = new URLSearchParams()
+    if (params?.verdict) p.set('verdict', params.verdict)
+    if (params?.search) p.set('search', params.search)
+    if (params?.page) p.set('page', String(params.page))
+    if (params?.page_size) p.set('page_size', String(params.page_size))
+    if (params?.min_shared_products != null) p.set('min_shared_products', String(params.min_shared_products))
+    if (params?.min_shared_topics != null) p.set('min_shared_topics', String(params.min_shared_topics))
+    const qs = p.toString()
+    return request<{
       items: Array<{
         content_id: string; display_name: string; content_type: string; source: string
         ci_name: string | null; category: string | null; stage: string | null
-        max_score: number; neighbor_count: number; score_band: string
+        neighbor_count: number
         neighbors: Array<{
           content_id: string; display_name: string; content_type: string
           source: string; ci_name: string | null; category: string | null
-          stage: string | null; similarity_score: number
+          stage: string | null; shared_products: number; shared_topics: number
+          verdict: string | null; recommendation: string | null; assessed_at: string | null
         }>
       }>
       total_items: number; page: number; page_size: number
       stats: {
-        near_duplicates: number; high_overlap: number; related_band: number
-        total_pairs_stored: number; last_computed: string | null
+        redundant: number; complementary: number; differentiated: number
+        unassessed: number; total_pairs: number; last_computed: string | null
       }
-      thresholds: { display: number; near_duplicate: number }
-    }>(`/admin/overlap?min_score=${minScore}${stage ? `&stage=${stage}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}&relationship_type=${relationshipType}`),
-
-  computeSimilarity: (threshold = 0.75, stage?: string) =>
-    request<{ overlap_pairs: number; related_pairs: number; pairs_stored: number; threshold: number; stage: string }>(
-      `/admin/compute-similarity?threshold=${threshold}${stage ? `&stage=${stage}` : ''}`, { method: 'POST' }),
+    }>(`/analysis/overlap${qs ? `?${qs}` : ''}`)
+  },
 
   getOverlapAssessment: (contentIdA: string, contentIdB: string) =>
     request<{
       assessment: {
-        verdict: string
-        shared_topics: string[]
-        differentiators_a: string[]
-        differentiators_b: string[]
-        recommendation: string
-        rationale: string
-        model: string
-        tokens: { input: number; output: number }
+        verdict: string; shared_topics: string[]; differentiators_a: string[]
+        differentiators_b: string[]; recommendation: string; rationale: string
+        model: string; tokens: { input: number; output: number }
       } | null
       assessed_at: string | null
       reason?: string
-    }>(`/admin/overlap/${encodeURIComponent(contentIdA)}/${encodeURIComponent(contentIdB)}/assessment`),
+    }>(`/analysis/overlap/${encodeURIComponent(contentIdA)}/${encodeURIComponent(contentIdB)}`),
 
   // Performance analysis
   getPerformanceDashboard: (params?: {
