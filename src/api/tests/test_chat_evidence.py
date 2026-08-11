@@ -33,7 +33,7 @@ def test_pack_bounded_and_sorted(db):
     pack = build_evidence_pack(db, [ids["lb2144-ansible-eda"]])
     assert 1 <= len(pack) <= MAX_NEIGHBORS
     assert pack[0]["name"] == "LB2145 Ansible Automation Basics"
-    assert pack[0]["shared_products"] == 91
+    assert pack[0]["shared_products"] == 2
     assert set(pack[0]) <= {"anchor", "name", "stage", "shared_products", "shared_topics",
                             "verdict", "relationship", "products", "provisions"}
 

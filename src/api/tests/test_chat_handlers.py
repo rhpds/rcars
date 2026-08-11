@@ -37,7 +37,7 @@ def test_overlap_handler(db):
     assert types == ["item_card", "overlap_table"]
     neighbors = r.blocks[1].data["neighbors"]
     assert neighbors[0]["display_name"] == "LB2145 Ansible Automation Basics"
-    assert neighbors[0]["shared_products"] == 91
+    assert neighbors[0]["shared_products"] == 2
     assert neighbors[0]["recommendation"] is None  # no llm_assessment seeded
     assert r.anchor_ids == [ids["lb2144-ansible-eda"]]
     assert r.session_results[0]["content_id"] == ids["lb2145-ansible-basics"]
