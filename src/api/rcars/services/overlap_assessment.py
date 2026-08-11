@@ -126,24 +126,36 @@ def assess_overlap(
     or one of: "cached", "missing_analysis", "not_overlap", "llm_error",
     "parse_error", "validation_error".
     """
-    # Normalize order to match content_similarity constraint
+    # Normalize order to match overlap_candidates constraint
     if content_id_a > content_id_b:
         content_id_a, content_id_b = content_id_b, content_id_a
 
-    # Check cache
+    # Check candidate table and cache; keep connection open for hash reads
     with pool.connection() as conn:
-        cur = conn.execute(
-            """SELECT llm_assessment, relationship_type FROM content_similarity
+        row = conn.execute(
+            """SELECT llm_assessment, content_hash_a, content_hash_b
+               FROM overlap_candidates
                WHERE content_id_a = %s AND content_id_b = %s""",
             (content_id_a, content_id_b),
-        )
-        row = cur.fetchone()
-        if not row or row.get("relationship_type") != "overlap":
-            logger.warning("not_overlap_pair", content_id_a=content_id_a, content_id_b=content_id_b)
+        ).fetchone()
+        if not row:
+            logger.warning("not_candidate_pair", content_id_a=content_id_a, content_id_b=content_id_b)
             return None, "not_overlap"
         if row["llm_assessment"]:
-            logger.debug("overlap_assessment_cached", content_id_a=content_id_a, content_id_b=content_id_b)
-            return row["llm_assessment"], "cached"
+            ha = conn.execute(
+                "SELECT content_hash FROM showroom_analysis WHERE content_id = %s",
+                (content_id_a,),
+            ).fetchone()
+            hb = conn.execute(
+                "SELECT content_hash FROM showroom_analysis WHERE content_id = %s",
+                (content_id_b,),
+            ).fetchone()
+            ha = ha["content_hash"] if ha else None
+            hb = hb["content_hash"] if hb else None
+            if ha == row["content_hash_a"] and hb == row["content_hash_b"]:
+                logger.debug("overlap_assessment_cached", content_id_a=content_id_a, content_id_b=content_id_b)
+                return row["llm_assessment"], "cached"
+            logger.info("content_changed_reassessing", content_id_a=content_id_a, content_id_b=content_id_b)
 
     # Load analysis data
     analysis_a, analysis_b = _load_analysis_pair(pool, content_id_a, content_id_b)
@@ -192,14 +204,27 @@ def assess_overlap(
         "output": result.output_tokens,
     }
 
-    # Persist
+    # Persist — refresh content_hashes at write time for future cache checks
     import json as json_module
     with pool.connection() as conn:
+        ha = conn.execute(
+            "SELECT content_hash FROM showroom_analysis WHERE content_id = %s", (content_id_a,)
+        ).fetchone()
+        hb = conn.execute(
+            "SELECT content_hash FROM showroom_analysis WHERE content_id = %s", (content_id_b,)
+        ).fetchone()
         conn.execute(
-            """UPDATE content_similarity
-               SET llm_assessment = %s::jsonb, assessed_at = NOW()
+            """UPDATE overlap_candidates
+               SET llm_assessment = %s::jsonb, assessed_at = NOW(),
+                   content_hash_a = %s, content_hash_b = %s
                WHERE content_id_a = %s AND content_id_b = %s""",
-            (json_module.dumps(validated), content_id_a, content_id_b),
+            (
+                json_module.dumps(validated),
+                ha["content_hash"] if ha else None,
+                hb["content_hash"] if hb else None,
+                content_id_a,
+                content_id_b,
+            ),
         )
         conn.commit()
 
@@ -207,28 +232,31 @@ def assess_overlap(
     return validated, "ok"
 
 
-def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> dict:
-    """Assess all unassessed overlap pairs above threshold.
+def batch_assess_overlaps(pool, settings: Settings) -> dict:
+    """Assess all unassessed or stale overlap candidates.
 
-    Returns summary: pairs_found, assessed, skipped, errors, total_tokens.
+    Returns summary: pairs_found, assessed, cached, skipped, errors, total_tokens.
     """
-    logger.info("batch_assess_start", min_score=min_score)
+    logger.info("batch_assess_start")
 
-    # Find unassessed pairs
     with pool.connection() as conn:
-        cur = conn.execute(
-            """SELECT content_id_a, content_id_b
-               FROM content_similarity
-               WHERE relationship_type = 'overlap'
-                 AND similarity_score >= %s
-                 AND llm_assessment IS NULL
-               ORDER BY similarity_score DESC""",
-            (min_score,),
-        )
-        pairs = [(row["content_id_a"], row["content_id_b"]) for row in cur.fetchall()]
+        pairs = [
+            (row["content_id_a"], row["content_id_b"])
+            for row in conn.execute(
+                """SELECT oc.content_id_a, oc.content_id_b
+                   FROM overlap_candidates oc
+                   LEFT JOIN showroom_analysis sa_a ON sa_a.content_id = oc.content_id_a
+                   LEFT JOIN showroom_analysis sa_b ON sa_b.content_id = oc.content_id_b
+                   WHERE oc.llm_assessment IS NULL
+                      OR oc.content_hash_a IS DISTINCT FROM sa_a.content_hash
+                      OR oc.content_hash_b IS DISTINCT FROM sa_b.content_hash
+                   ORDER BY oc.computed_at DESC""",
+            ).fetchall()
+        ]
 
     pairs_found = len(pairs)
     assessed = 0
+    cached = 0
     skipped = 0
     errors = 0
     total_tokens = 0
@@ -239,18 +267,23 @@ def batch_assess_overlaps(pool, settings: Settings, min_score: float = 0.95) -> 
             if reason == "ok":
                 assessed += 1
                 total_tokens += result["tokens"]["input"] + result["tokens"]["output"]
-            elif reason in {"cached", "missing_analysis", "not_overlap"}:
+            elif reason == "cached":
+                cached += 1
+            elif reason in {"missing_analysis", "not_overlap"}:
                 skipped += 1
             else:
                 errors += 1
         except Exception as e:
-            logger.error("batch_assess_error", content_id_a=content_id_a, content_id_b=content_id_b, error=str(e))
+            logger.error("batch_assess_error", content_id_a=content_id_a,
+                         content_id_b=content_id_b, error=str(e))
             errors += 1
-    logger.info("batch_assess_complete", pairs_found=pairs_found, assessed=assessed, skipped=skipped, errors=errors, total_tokens=total_tokens)
 
+    logger.info("batch_assess_complete", pairs_found=pairs_found, assessed=assessed,
+                cached=cached, skipped=skipped, errors=errors, total_tokens=total_tokens)
     return {
         "pairs_found": pairs_found,
         "assessed": assessed,
+        "cached": cached,
         "skipped": skipped,
         "errors": errors,
         "total_tokens": total_tokens,
