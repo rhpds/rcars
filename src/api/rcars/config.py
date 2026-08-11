@@ -94,9 +94,8 @@ class Settings(BaseSettings):
     performance_public: bool = True
 
     # Content overlap
-    similarity_threshold: float = 0.85
-    similarity_high_threshold: float = 0.95
-    similarity_storage_threshold: float = 0.75
+    overlap_min_products: int = 1
+    overlap_min_topics: int = 2
     overlap_model: str = "claude-haiku-4-5"
 
     # Ops
@@ -128,12 +127,10 @@ class Settings(BaseSettings):
         if not self.anthropic_api_key:
             self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
 
-        if not (0 <= self.similarity_threshold <= 1):
-            raise ValueError(f"similarity_threshold must be in [0, 1], got {self.similarity_threshold}")
-        if not (0 <= self.similarity_high_threshold <= 1):
-            raise ValueError(f"similarity_high_threshold must be in [0, 1], got {self.similarity_high_threshold}")
-        if self.similarity_high_threshold < self.similarity_threshold:
-            raise ValueError(f"similarity_high_threshold ({self.similarity_high_threshold}) must be >= similarity_threshold ({self.similarity_threshold})")
+        if self.overlap_min_products < 0:
+            raise ValueError(f"overlap_min_products must be >= 0, got {self.overlap_min_products}")
+        if self.overlap_min_topics < 0:
+            raise ValueError(f"overlap_min_topics must be >= 0, got {self.overlap_min_topics}")
         if self.workload_scan_interval_days < 1:
             raise ValueError(f"workload_scan_interval_days must be positive, got {self.workload_scan_interval_days}")
 
