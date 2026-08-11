@@ -42,6 +42,7 @@ pairs AS (
 )
 SELECT * FROM pairs
 WHERE shared_products >= %(min_products)s AND shared_topics >= %(min_topics)s
+  AND content_hash_a IS DISTINCT FROM content_hash_b
 """
 
 UPSERT_SQL = """
