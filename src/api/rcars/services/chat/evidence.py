@@ -15,7 +15,9 @@ MAX_NEIGHBORS = 15
 def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
     if not anchor_ids:
         return []
+    from psycopg.rows import dict_row
     with db.pool.connection() as conn:
+        conn.row_factory = dict_row
         sim_rows = conn.execute(
             """SELECT oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
@@ -56,9 +58,12 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
         if isinstance(products, str):
             products = json.loads(products)
         products = (products or [])[:3]
+        assessment = r["llm_assessment"] or {}
         pack.append({"anchor": anchor, "name": r["display_name"], "stage": r["stage"],
-                     "similarity_pct": round(r["similarity_score"] * 100),
-                     "relationship": r["relationship_type"],
+                     "shared_products": r["shared_products"],
+                     "shared_topics": r["shared_topics"],
+                     "verdict": assessment.get("verdict"),
+                     "relationship": "overlap",
                      "products": products,
                      "provisions": r["provisions"]})
     for r in wl_rows:

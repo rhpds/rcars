@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from rcars.config import Settings
 from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
-from rcars.db.overlap import get_overlap_items
 from rcars.services.chat.models import Block, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.recommender.pipeline import run_query
@@ -97,36 +96,47 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     anchors = res.items or [db.get_babylon_item(cid) or {"content_id": cid, "display_name": cid}
                             for cid in res.scope_ids]
     anchor = anchors[0]
-    anchor_analysis = db.get_showroom_analysis(anchor["content_id"]) or {}
-    anchor_products = set(anchor_analysis.get("products_json") or [])
+    cid = anchor["content_id"]
 
-    # Fetch overlap candidates for this anchor item
-    overlap_data = get_overlap_items(db.pool, search=None, page=1, page_size=10)
-    raw_neighbors = []
-    for item in overlap_data.get("items", []):
-        if item["content_id"] == anchor["content_id"]:
-            raw_neighbors = item.get("neighbors", [])
-            break
+    with db.pool.connection() as conn:
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            """SELECT oc.content_id_a, oc.content_id_b,
+                      oc.shared_products, oc.shared_topics, oc.llm_assessment,
+                      ce.display_name, bi.ci_name, bi.stage
+               FROM overlap_candidates oc
+               JOIN content_entities ce ON ce.content_id =
+                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
+                        ELSE oc.content_id_a END
+               LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
+               ORDER BY oc.shared_products DESC, oc.shared_topics DESC
+               LIMIT 10""",
+            {"cid": cid},
+        ).fetchall()
 
     neighbors = []
-    for n in raw_neighbors:
-        n_products = set((db.get_showroom_analysis(n["content_id"]) or {}).get("products_json") or [])
+    for r in rows:
+        other_id = r["content_id_b"] if r["content_id_a"] == cid else r["content_id_a"]
+        assessment = r["llm_assessment"] or {}
         neighbors.append({
-            "content_id": n["content_id"], "ci_name": n.get("ci_name"),
-            "display_name": n["display_name"],
-            "stage": n.get("stage"), "similarity_pct": round((n.get("shared_products", 0) + n.get("shared_topics", 0)) * 10),
-            "relationship_type": n.get("verdict", "overlap"),
-            "shared_products": sorted(anchor_products & n_products),
-            "why": n.get("recommendation"),
+            "content_id": other_id, "ci_name": r.get("ci_name"),
+            "display_name": r["display_name"],
+            "stage": r.get("stage"),
+            "shared_products": r["shared_products"],
+            "shared_topics": r["shared_topics"],
+            "verdict": assessment.get("verdict"),
+            "recommendation": assessment.get("recommendation"),
         })
+
     return HandlerResult(
         blocks=[Block(type="item_card", data=_item_card(db, anchor)),
-                Block(type="overlap_table", data={"anchor": {"content_id": anchor["content_id"],
-                                                             "display_name": anchor.get("display_name")},
-                                                  "neighbors": neighbors})],
-        scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors),
-                        "top_similarity": neighbors[0]["similarity_pct"] if neighbors else None},
-        anchor_ids=[anchor["content_id"]],
+                Block(type="overlap_table", data={"anchor": {"content_id": cid,
+                                                              "display_name": anchor.get("display_name")},
+                                                   "neighbors": neighbors})],
+        scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors)},
+        anchor_ids=[cid],
         session_results=[{"content_id": n["content_id"], "display_name": n["display_name"]}
                          for n in neighbors])
 
@@ -188,18 +198,24 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
                   or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
 
-    # Fetch overlap candidates for this item
-    overlap_data = get_overlap_items(db.pool, search=None, page=1, page_size=5)
-    item_neighbors = []
-    for overlap_item in overlap_data.get("items", []):
-        if overlap_item["content_id"] == item["content_id"]:
-            item_neighbors = overlap_item.get("neighbors", [])
-            break
-
+    with db.pool.connection() as conn:
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        n_rows = conn.execute(
+            """SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
+                      oc.llm_assessment, ce.display_name
+               FROM overlap_candidates oc
+               JOIN content_entities ce ON ce.content_id =
+                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
+               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
+               ORDER BY oc.shared_products DESC LIMIT 5""",
+            {"cid": item["content_id"]},
+        ).fetchall()
     card["neighbors"] = [
-        {"content_id": n["content_id"], "display_name": n["display_name"],
-         "similarity_pct": round((n.get("shared_products", 0) + n.get("shared_topics", 0)) * 10)}
-        for n in item_neighbors]
+        {"content_id": r["content_id_b"] if r["content_id_a"] == item["content_id"] else r["content_id_a"],
+         "display_name": r["display_name"],
+         "verdict": (r["llm_assessment"] or {}).get("verdict")}
+        for r in n_rows]
     return HandlerResult(
         blocks=[Block(type="item_card", data=card)],
         scaffold_facts={"display_name": card["display_name"], "stage": card["stage"],
