@@ -92,10 +92,19 @@ function VerdictBadge({ verdict, onClick, style, title }: {
   verdict: string | null; onClick?: (e: React.MouseEvent) => void; style?: React.CSSProperties; title?: string
 }) {
   const colors = VERDICT_COLORS[verdict || ''] || { color: 'var(--text-muted)', bg: 'var(--bg-card)' }
+  const sharedStyle = { color: colors.color, backgroundColor: colors.bg, ...style }
+  const label = verdict || 'unassessed'
+  if (onClick) {
+    return (
+      <button className="ca-score-badge" style={{ ...sharedStyle, border: 'none', cursor: 'pointer' }}
+              onClick={onClick} title={title} aria-label={title || label}>
+        {label}
+      </button>
+    )
+  }
   return (
-    <span className="ca-score-badge" style={{ color: colors.color, backgroundColor: colors.bg, ...style }}
-          onClick={onClick} title={title}>
-      {verdict || 'unassessed'}
+    <span className="ca-score-badge" style={sharedStyle} title={title}>
+      {label}
     </span>
   )
 }
@@ -105,27 +114,44 @@ export function ContentOverlapPage() {
   const [items, setItems] = useState<OverlapItem[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [totalItems, setTotalItems] = useState(0)
+  const [page, setPage] = useState(1)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [verdict, setVerdict] = useState<string>(searchParams.get('verdict') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
   const detailCache = useRef<Record<string, ItemSummary>>({})
+  const requestRef = useRef(0)
 
   const loadData = useCallback(async () => {
+    const reqId = ++requestRef.current
     setLoading(true)
     try {
       const data = await api.getOverlapReport({
         verdict: verdict || undefined,
         search: search || undefined,
+        page,
       })
+      if (reqId !== requestRef.current) return
       setItems(data.items)
       setStats(data.stats)
+      setTotalItems(data.total_items)
     } finally {
-      setLoading(false)
+      if (reqId === requestRef.current) setLoading(false)
     }
-  }, [verdict, search])
+  }, [verdict, search, page])
 
   useEffect(() => { loadData() }, [loadData])
+
+  const handleVerdictChange = (_e: React.FormEvent, v: string) => {
+    setVerdict(v)
+    setPage(1)
+  }
+
+  const handleSearchChange = (_e: React.FormEvent, v: string) => {
+    setSearch(v)
+    setPage(1)
+  }
 
   const toggleExpand = (contentId: string) => {
     setExpandedItems(prev => {
@@ -187,19 +213,19 @@ export function ContentOverlapPage() {
 
       {stats && (
         <div className="ca-stats-grid">
-          <div className="ca-stat-card ca-stat-red" onClick={() => setVerdict('redundant')} style={{ cursor: 'pointer' }}>
+          <div className="ca-stat-card ca-stat-red" onClick={() => { setVerdict('redundant'); setPage(1) }} style={{ cursor: 'pointer' }}>
             <div className="ca-stat-value">{stats.redundant}</div>
             <div className="ca-stat-label">Redundant</div>
           </div>
-          <div className="ca-stat-card ca-stat-amber" onClick={() => setVerdict('complementary')} style={{ cursor: 'pointer' }}>
+          <div className="ca-stat-card ca-stat-amber" onClick={() => { setVerdict('complementary'); setPage(1) }} style={{ cursor: 'pointer' }}>
             <div className="ca-stat-value">{stats.complementary}</div>
             <div className="ca-stat-label">Complementary</div>
           </div>
-          <div className="ca-stat-card" onClick={() => setVerdict('differentiated')} style={{ cursor: 'pointer' }}>
+          <div className="ca-stat-card" onClick={() => { setVerdict('differentiated'); setPage(1) }} style={{ cursor: 'pointer' }}>
             <div className="ca-stat-value">{stats.differentiated}</div>
             <div className="ca-stat-label">Differentiated</div>
           </div>
-          <div className="ca-stat-card ca-stat-blue" onClick={() => setVerdict('unassessed')} style={{ cursor: 'pointer' }}>
+          <div className="ca-stat-card ca-stat-blue" onClick={() => { setVerdict('unassessed'); setPage(1) }} style={{ cursor: 'pointer' }}>
             <div className="ca-stat-value">{stats.unassessed}</div>
             <div className="ca-stat-label">Unassessed</div>
           </div>
@@ -207,7 +233,7 @@ export function ContentOverlapPage() {
       )}
 
       <div className="ca-controls">
-        <FormSelect value={verdict} onChange={(_e, v) => setVerdict(v)} aria-label="Verdict filter">
+        <FormSelect value={verdict} onChange={handleVerdictChange} aria-label="Verdict filter">
           <FormSelectOption value="" label="All verdicts" />
           <FormSelectOption value="redundant" label="Redundant" />
           <FormSelectOption value="complementary" label="Complementary" />
@@ -218,8 +244,8 @@ export function ContentOverlapPage() {
         <SearchInput
           placeholder="Search by name…"
           value={search}
-          onChange={(_e, v) => setSearch(v)}
-          onClear={() => setSearch('')}
+          onChange={handleSearchChange}
+          onClear={() => { setSearch(''); setPage(1) }}
         />
       </div>
 
@@ -238,6 +264,22 @@ export function ContentOverlapPage() {
               onCompare={openDrawer}
             />
           ))}
+        </div>
+      )}
+
+      {totalItems > 100 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', justifyContent: 'center' }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  style={{ padding: '4px 12px', cursor: page === 1 ? 'default' : 'pointer' }}>
+            ← Prev
+          </button>
+          <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            Page {page} · {totalItems} items
+          </span>
+          <button onClick={() => setPage(p => p + 1)} disabled={page * 100 >= totalItems}
+                  style={{ padding: '4px 12px', cursor: page * 100 >= totalItems ? 'default' : 'pointer' }}>
+            Next →
+          </button>
         </div>
       )}
 

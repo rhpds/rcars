@@ -30,7 +30,8 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
                          ELSE oc.content_id_a END
                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
                LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
-               WHERE oc.content_id_a = ANY(%(ids)s) OR oc.content_id_b = ANY(%(ids)s)
+               WHERE (oc.content_id_a = ANY(%(ids)s) OR oc.content_id_b = ANY(%(ids)s))
+                 AND NOT (oc.content_id_a = ANY(%(ids)s) AND oc.content_id_b = ANY(%(ids)s))
                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT %(cap)s""",
             {"ids": anchor_ids, "cap": MAX_NEIGHBORS}).fetchall()

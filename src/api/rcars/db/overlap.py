@@ -51,8 +51,12 @@ VALUES (%(a)s, %(b)s, %(sp)s, %(st)s, %(ha)s, %(hb)s, NOW())
 ON CONFLICT (content_id_a, content_id_b) DO UPDATE SET
     shared_products = EXCLUDED.shared_products,
     shared_topics = EXCLUDED.shared_topics,
-    content_hash_a = EXCLUDED.content_hash_a,
-    content_hash_b = EXCLUDED.content_hash_b,
+    content_hash_a = CASE WHEN overlap_candidates.llm_assessment IS NULL
+                          THEN EXCLUDED.content_hash_a
+                          ELSE overlap_candidates.content_hash_a END,
+    content_hash_b = CASE WHEN overlap_candidates.llm_assessment IS NULL
+                          THEN EXCLUDED.content_hash_b
+                          ELSE overlap_candidates.content_hash_b END,
     computed_at = NOW()
 """
 
@@ -72,6 +76,8 @@ def generate_overlap_candidates(
             CANDIDATE_SQL, {"min_products": min_products, "min_topics": min_topics}
         ).fetchall()
 
+        current_keys = {(p["content_id_a"], p["content_id_b"]) for p in pairs}
+
         inserted = 0
         updated = 0
         for p in pairs:
@@ -89,11 +95,26 @@ def generate_overlap_candidates(
                 updated += 1
             else:
                 inserted += 1
+
+        # Remove pairs that no longer meet the threshold
+        existing = conn.execute(
+            "SELECT content_id_a, content_id_b FROM overlap_candidates"
+        ).fetchall()
+        pruned_threshold = 0
+        for row in existing:
+            if (row["content_id_a"], row["content_id_b"]) not in current_keys:
+                conn.execute(
+                    "DELETE FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
+                    (row["content_id_a"], row["content_id_b"]),
+                )
+                pruned_threshold += 1
+
         conn.commit()
 
     logger.info("candidates_generated", inserted=inserted, updated=updated, total=len(pairs),
-                min_products=min_products, min_topics=min_topics)
-    return {"pairs_inserted": inserted, "pairs_updated": updated, "total_candidates": len(pairs)}
+                pruned_threshold=pruned_threshold, min_products=min_products, min_topics=min_topics)
+    return {"pairs_inserted": inserted, "pairs_updated": updated, "total_candidates": len(pairs),
+            "pairs_pruned_threshold": pruned_threshold}
 
 
 def get_overlap_stats(pool: ConnectionPool) -> dict:
