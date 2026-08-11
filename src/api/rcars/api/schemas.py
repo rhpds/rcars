@@ -140,19 +140,6 @@ class CatalogStatsResponse(BaseModel):
     model_config = {"extra": "allow"}
 
 
-class SimilarItem(BaseModel):
-    ci_name: str
-    display_name: str | None = None
-    similarity: float
-
-
-class SimilarItemsResponse(BaseModel):
-    ci_name: str
-    content_id: str
-    similar: list[dict]
-    count: int
-
-
 class InfraSearchResponse(BaseModel):
     items: list[dict]
     total: int
@@ -287,28 +274,6 @@ class QueryHistorySession(BaseModel):
 class QueryHistoryResponse(BaseModel):
     items: list[QueryHistorySession]
     total: int
-
-
-class OverlapPair(BaseModel):
-    ci_name_a: str
-    ci_name_b: str
-    similarity: float
-
-    model_config = {"extra": "allow"}
-
-
-class SimilarityThresholds(BaseModel):
-    display: float
-    near_duplicate: float
-
-
-class OverlapItemsResponse(BaseModel):
-    items: list[dict]
-    total_items: int
-    page: int
-    page_size: int
-    stats: dict | None = None
-    thresholds: SimilarityThresholds
 
 
 class ScheduleResponse(BaseModel):

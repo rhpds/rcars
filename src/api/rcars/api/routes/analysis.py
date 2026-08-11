@@ -11,6 +11,9 @@ from rcars.api.schemas import (
     ScanResponse, RescanResponse,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
+from rcars.config import Settings
+from rcars.db.overlap import get_overlap_items, get_overlap_stats
+from rcars.services.overlap_assessment import assess_overlap
 from rcars.workers.ops import sha_dedup_scan_items
 import structlog
 
@@ -750,6 +753,78 @@ async def nonprod_unignore(base_name: str, request: Request, user: str = Depends
         raise HTTPException(404, f"Item not found in nonprod_usage: {base_name}")
     db.log_action(base_name, "nonprod_unmuted", user, "Unmuted")
     return {"status": "ok"}
+
+
+@router.get(
+    "/overlap",
+    summary="Content overlap report — verdict-based, paginated",
+)
+async def overlap_report(
+    request: Request,
+    user: str = Depends(require_auth),
+    verdict: str | None = Query(None, description="redundant/complementary/differentiated/unassessed"),
+    search: str | None = Query(None, description="Search by display name"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    min_shared_products: int | None = Query(None, ge=0),
+    min_shared_topics: int | None = Query(None, ge=0),
+):
+    db = request.app.state.db
+    result = get_overlap_items(
+        db.pool, verdict=verdict, search=search,
+        page=page, page_size=page_size,
+        min_shared_products=min_shared_products,
+        min_shared_topics=min_shared_topics,
+    )
+    stats = get_overlap_stats(db.pool)
+    return {**result, "stats": stats}
+
+
+@router.post(
+    "/overlap/assess",
+    summary="On-demand overlap assessment for a pair",
+)
+async def overlap_assess(
+    request: Request,
+    content_id_a: str = Query(...),
+    content_id_b: str = Query(...),
+    user: str = Depends(require_curator),
+):
+    db = request.app.state.db
+    settings = Settings()
+    import asyncio
+    result, reason = await asyncio.to_thread(
+        assess_overlap, db.pool, settings, content_id_a, content_id_b
+    )
+    return {"assessment": result, "reason": reason}
+
+
+@router.get(
+    "/overlap/{content_id_a}/{content_id_b}",
+    summary="Get or compute LLM overlap assessment for a pair",
+)
+async def overlap_assessment_detail(
+    request: Request,
+    content_id_a: str,
+    content_id_b: str,
+    user: str = Depends(require_auth),
+):
+    db = request.app.state.db
+    settings = Settings()
+    import asyncio
+    result, reason = await asyncio.to_thread(
+        assess_overlap, db.pool, settings, content_id_a, content_id_b
+    )
+    if result is None:
+        return {"assessment": None, "assessed_at": None, "reason": reason}
+    a, b = (content_id_a, content_id_b) if content_id_a < content_id_b else (content_id_b, content_id_a)
+    with db.pool.connection() as conn:
+        cur = conn.execute(
+            "SELECT assessed_at FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
+            (a, b),
+        )
+        row = cur.fetchone()
+    return {"assessment": result, "assessed_at": row["assessed_at"] if row else None}
 
 
 @router.post(

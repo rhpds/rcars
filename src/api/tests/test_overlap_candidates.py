@@ -3,7 +3,7 @@ import os
 import psycopg
 import pytest
 from rcars.db.database import Database
-from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
+from rcars.db.overlap import generate_overlap_candidates, get_overlap_items, get_overlap_stats, prune_stale_candidates
 
 TEST_DB_URL = os.environ.get(
     "RCARS_TEST_DATABASE_URL",
@@ -118,6 +118,40 @@ def test_stage_dedup(db, seed_items):
     assert len(rows) == 1
     pair_ids = {rows[0]["content_id_a"], rows[0]["content_id_b"]}
     assert "test:d" not in pair_ids
+
+
+def test_get_overlap_items_groups_by_item(db, seed_items):
+    generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
+    # Simulate an LLM assessment
+    with db.pool.connection() as conn:
+        conn.execute(
+            """UPDATE overlap_candidates
+               SET llm_assessment = '{"verdict": "redundant", "recommendation": "merge",
+                   "shared_topics": ["containers"], "differentiators_a": [], "differentiators_b": [],
+                   "rationale": "test"}'::jsonb, assessed_at = NOW()""",
+        )
+        conn.commit()
+
+    result = get_overlap_items(db.pool, verdict="redundant")
+    assert result["total_items"] >= 1
+    item = result["items"][0]
+    assert "content_id" in item
+    assert "display_name" in item
+    assert "neighbors" in item
+    assert len(item["neighbors"]) >= 1
+    neighbor = item["neighbors"][0]
+    assert "shared_products" in neighbor
+    assert "shared_topics" in neighbor
+    assert "verdict" in neighbor
+
+
+def test_get_overlap_stats(db, seed_items):
+    generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
+    stats = get_overlap_stats(db.pool)
+    assert "unassessed" in stats
+    assert "total_pairs" in stats
+    assert stats["unassessed"] == 1
+    assert stats["total_pairs"] == 1
 
 
 def test_prune_stale_retired(db, seed_items):
