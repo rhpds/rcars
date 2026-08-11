@@ -48,16 +48,16 @@ def seed_chat_fixtures(db: Database) -> dict[str, str]:
         db.store_embedding(cid, "lab", "babylon", "summary", summary, fake_embedding(summary))
 
     edges = [
-        (ids["lb2144-ansible-eda"], ids["lb2145-ansible-basics"], 0.91, "overlap"),
-        (ids["ocpvirt-migration"], ids["ocpvirt-roadshow"], 0.87, "overlap"),
-        (ids["rhel-security"], ids["sap-hana-demo"], 0.78, "related"),
+        (ids["lb2144-ansible-eda"], ids["lb2145-ansible-basics"], 2, 3),
+        (ids["ocpvirt-migration"], ids["ocpvirt-roadshow"], 2, 2),
+        (ids["rhel-security"], ids["sap-hana-demo"], 1, 2),
     ]
     with db.pool.connection() as conn:
-        for a, b, score, rel in edges:
+        for a, b, sp, st in edges:
             conn.execute(
-                """INSERT INTO content_similarity (content_id_a, content_id_b, similarity_score, relationship_type)
-                   VALUES (%s, %s, %s, %s) ON CONFLICT (content_id_a, content_id_b) DO NOTHING""",
-                (a, b, score, rel))
+                """INSERT INTO overlap_candidates (content_id_a, content_id_b, shared_products, shared_topics, computed_at)
+                   VALUES (%s, %s, %s, %s, NOW()) ON CONFLICT (content_id_a, content_id_b) DO NOTHING""",
+                (a, b, sp, st))
         conn.execute(
             """INSERT INTO babylon_item_workloads (content_id, workload_fqcn, workload_role, workload_collection)
                VALUES (%s, %s, %s, %s) ON CONFLICT (content_id, workload_fqcn) DO NOTHING""",
