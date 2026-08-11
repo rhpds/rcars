@@ -138,6 +138,7 @@ def get_overlap_items(
     pool: ConnectionPool,
     verdict: str | None = None,
     search: str | None = None,
+    stage: str | None = None,
     page: int = 1,
     page_size: int = 100,
     min_shared_products: int | None = None,
@@ -167,8 +168,11 @@ def get_overlap_items(
         # Step 1: Find distinct items that appear in matching candidates
         search_cond = ""
         if search:
-            search_cond = " AND ce.display_name ILIKE %(search)s"
+            search_cond += " AND ce.display_name ILIKE %(search)s"
             params["search"] = f"%{search}%"
+        if stage:
+            search_cond += " AND bi.stage = %(stage)s"
+            params["stage"] = stage
 
         count_sql = f"""
             SELECT COUNT(DISTINCT item_id) FROM (

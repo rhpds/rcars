@@ -119,6 +119,7 @@ export function ContentOverlapPage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [verdict, setVerdict] = useState<string>(searchParams.get('verdict') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
+  const [stage, setStage] = useState<string>('')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
   const detailCache = useRef<Record<string, ItemSummary>>({})
   const requestRef = useRef(0)
@@ -130,6 +131,7 @@ export function ContentOverlapPage() {
       const data = await api.getOverlapReport({
         verdict: verdict || undefined,
         search: search || undefined,
+        stage: stage || undefined,
         page,
       })
       if (reqId !== requestRef.current) return
@@ -139,7 +141,7 @@ export function ContentOverlapPage() {
     } finally {
       if (reqId === requestRef.current) setLoading(false)
     }
-  }, [verdict, search, page])
+  }, [verdict, search, stage, page])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -150,6 +152,11 @@ export function ContentOverlapPage() {
 
   const handleSearchChange = (_e: React.FormEvent, v: string) => {
     setSearch(v)
+    setPage(1)
+  }
+
+  const handleStageChange = (_e: React.FormEvent, v: string) => {
+    setStage(v)
     setPage(1)
   }
 
@@ -241,6 +248,13 @@ export function ContentOverlapPage() {
           <FormSelectOption value="unassessed" label="Unassessed" />
         </FormSelect>
 
+        <FormSelect value={stage} onChange={handleStageChange} aria-label="Stage filter">
+          <FormSelectOption value="" label="All stages" />
+          <FormSelectOption value="prod" label="Prod" />
+          <FormSelectOption value="event" label="Event" />
+          <FormSelectOption value="dev" label="Dev" />
+        </FormSelect>
+
         <SearchInput
           placeholder="Search by name…"
           value={search}
@@ -305,10 +319,6 @@ function OverlapItemRow({
           <span className="browse-item-title">{item.display_name}</span>
           {item.ci_name && <div className="browse-item-ci">{item.ci_name}</div>}
         </div>
-        <Badge className="browse-badge">{item.content_type}</Badge>
-        {item.stage && item.stage !== 'prod' && (
-          <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>{item.stage}</Badge>
-        )}
         <Badge className="browse-badge">{item.neighbor_count} overlap{item.neighbor_count !== 1 ? 's' : ''}</Badge>
         <span className="browse-expand-icon">{expanded ? '▾' : '▸'}</span>
       </div>
@@ -330,7 +340,7 @@ function OverlapItemRow({
                 {n.display_name}
               </a>
               <span className="browse-similar-cat" style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                {n.shared_products}p / {n.shared_topics}t
+                {n.shared_products} products · {n.shared_topics} topics
               </span>
               {n.recommendation && (
                 <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
@@ -493,7 +503,14 @@ function SummarySection({ label, name, ciName, summary }: {
   return (
     <div className="ca-compare-section">
       <div className="browse-drawer-label">{label}</div>
-      <div className="ca-compare-name">{name}</div>
+      {ciName ? (
+        <a href={`/browse?search=${encodeURIComponent(ciName)}`} target="_blank" rel="noopener noreferrer"
+           className="ca-compare-name" style={{ textDecoration: 'none', color: 'var(--link-color, #0066cc)' }}>
+          {name}
+        </a>
+      ) : (
+        <div className="ca-compare-name">{name}</div>
+      )}
       {ciName && <div className="browse-item-ci">{ciName}</div>}
       {summary?.summary ? (
         <p className="ca-compare-summary">{summary.summary}</p>

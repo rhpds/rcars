@@ -195,12 +195,13 @@ export const api = {
 
   // Content overlap
   getOverlapReport: (params?: {
-    verdict?: string; search?: string; page?: number; page_size?: number;
+    verdict?: string; search?: string; stage?: string; page?: number; page_size?: number;
     min_shared_products?: number; min_shared_topics?: number;
   }) => {
     const p = new URLSearchParams()
     if (params?.verdict) p.set('verdict', params.verdict)
     if (params?.search) p.set('search', params.search)
+    if (params?.stage) p.set('stage', params.stage)
     if (params?.page) p.set('page', String(params.page))
     if (params?.page_size) p.set('page_size', String(params.page_size))
     if (params?.min_shared_products != null) p.set('min_shared_products', String(params.min_shared_products))

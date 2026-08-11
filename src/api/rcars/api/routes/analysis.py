@@ -764,6 +764,7 @@ async def overlap_report(
     user: str = Depends(require_auth),
     verdict: str | None = Query(None, description="redundant/complementary/differentiated/unassessed"),
     search: str | None = Query(None, description="Search by display name"),
+    stage: str | None = Query(None, description="prod/event/dev"),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=1, le=500),
     min_shared_products: int | None = Query(None, ge=0),
@@ -771,7 +772,7 @@ async def overlap_report(
 ):
     db = request.app.state.db
     result = get_overlap_items(
-        db.pool, verdict=verdict, search=search,
+        db.pool, verdict=verdict, search=search, stage=stage,
         page=page, page_size=page_size,
         min_shared_products=min_shared_products,
         min_shared_topics=min_shared_topics,
