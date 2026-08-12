@@ -727,15 +727,26 @@ RHDP Content Team`
                         ['total_cost', 'Cost', item.total_cost],
                         ['pipeline_touched', 'Touched', item.pipeline_touched],
                         ['closed_amount', 'Closed', item.closed_amount],
-                      ] as [string, string, number][]).map(([key, label, current]) => {
+                      ] as [string, string, number | undefined][]).map(([key, label, current]) => {
                         const snap = (wf.approval_snapshot?.sales ?? wf.approval_snapshot) as Record<string, number>
-                        const snapped = snap[key]
+                        const snapped = snap[key as string]
                         if (snapped === undefined) return null
                         const snapVal = num(snapped)
-                        const delta = current - snapVal
-                        const isMoney = ['total_cost', 'pipeline_touched', 'closed_amount'].includes(key)
+                        const isMoney = ['total_cost', 'pipeline_touched', 'closed_amount'].includes(key as string)
                         const fmtVal = (v: number) => isMoney ? fmt(v) : v.toLocaleString()
 
+                        if (current == null) {
+                          return (
+                            <tr key={key}>
+                              <td>{label}</td>
+                              <td>{fmtVal(snapVal)}</td>
+                              <td>N/A</td>
+                              <td />
+                            </tr>
+                          )
+                        }
+
+                        const delta = current - snapVal
                         let deltaClass = ''
                         if (delta !== 0) {
                           if (key === 'score') {
