@@ -1,0 +1,332 @@
+# vocabulary.yaml — controlled vocabulary shared by all content analyzers
+#
+# Source of truth for the terms RCARS analysis should prefer when tagging
+# content (Babylon labs AND OSSPA architectures). Deliberately source-agnostic
+# so both converge on the same terms over time.
+#
+# Owned by the Controlled Vocabulary design spec:
+#   docs/superpowers/specs/2026-08-10-controlled-vocabulary-design.md
+#
+# DESIGN INTENT (per Nate, 2026-08-06):
+#   This list exists to NORMALIZE — collapse near-duplicate product names,
+#   solution areas, and learning-objective verbs so triage/Browse/similarity
+#   stay consistent across sources. It is NOT meant to cage the LLM's ability
+#   to detect fine-grained topics.
+#
+# How it is used:
+#   1. Loaded once per process by rcars/services/vocabulary.py (@lru_cache).
+#   2. ONLY products are injected into the analysis prompt. The model is told
+#      to PREFER a listed product name and only coin a new one when nothing
+#      matches. All other dimensions stay OUT of the prompt.
+#   3. A post-analysis normalization pass snaps aliases to canonical forms
+#      (exact match, case-insensitive) and deduplicates topics (fuzzy).
+#
+# To update: edit this file, open a PR, merge. Ops can override
+# per-environment via the mounted ConfigMap without an image rebuild.
+#
+# Grounding sources: Publishing House ph-validation-policy; RCARS
+# data/product-terms.yaml + data/workload_mapping.yaml; and the live OSSPA
+# PAList.csv Product/Solutions/Vertical/Platform columns.
+
+# ---------------------------------------------------------------------------
+# products — official Red Hat product names, each with the aliases/acronyms
+# and OSSPA short-forms that should normalize to it.
+#
+# THIS IS THE ONLY DIMENSION INJECTED INTO THE LLM PROMPT.
+# All other dimensions are post-analysis normalization only.
+# ---------------------------------------------------------------------------
+products:
+  - name: Red Hat OpenShift Container Platform
+    aliases: [OpenShift, OCP]
+  - name: Red Hat Ansible Automation Platform
+    aliases: [AAP, Ansible]
+  - name: Red Hat OpenShift AI
+    aliases: [RHOAI, OpenShift AI, Red Hat AI]
+  - name: Red Hat Advanced Cluster Management
+    aliases: [RHACM, ACM]
+  - name: Red Hat Advanced Cluster Security
+    aliases: [RHACS, ACS, StackRox]
+  - name: Red Hat Developer Hub
+    aliases: [RHDH, Developer Hub]
+  - name: Red Hat Quay
+    aliases: [Quay]
+  - name: Red Hat OpenShift GitOps
+    aliases: [GitOps, ArgoCD, Argo CD]
+  - name: Red Hat OpenShift Pipelines
+    aliases: [Pipelines, Tekton]
+  - name: Red Hat OpenShift Virtualization
+    aliases: [OpenShift Virtualization, CNV, KubeVirt]
+  - name: Red Hat OpenShift Data Foundation
+    aliases: [ODF]
+  - name: Red Hat OpenShift Service Mesh
+    aliases: [Service Mesh, OSSM]
+  - name: Red Hat OpenShift Serverless
+    aliases: [Serverless, Knative]
+  - name: Red Hat Enterprise Linux
+    aliases: [RHEL, RHEL for SAP Solutions]
+  - name: Red Hat Hardened Images
+    aliases: [RHHI]
+  - name: Red Hat build of Keycloak
+    aliases: [Keycloak, RHSSO, RHBK]
+  - name: Red Hat Trusted Profile Analyzer
+    aliases: [TPA]
+  - name: Red Hat Trusted Artifact Signer
+    aliases: [TAS, RHTAS]
+  - name: Red Hat Satellite
+    aliases: [Satellite]
+  - name: Red Hat Lightwell
+    aliases: [Lightwell, Lightwell Network]
+  - name: Red Hat OpenShift Lightspeed
+    aliases: [OpenShift Lightspeed, OLS]
+  - name: Red Hat OpenShift Service on AWS
+    aliases: [ROSA]
+  - name: Azure Red Hat OpenShift
+    aliases: [ARO, Azure OpenShift]
+  - name: Single Node OpenShift
+    aliases: [SNO]
+  - name: Red Hat OpenShift Dev Spaces
+    aliases: [Dev Spaces, DevSpaces, CodeReady Workspaces, CRW]
+  - name: Red Hat OpenShift Builds
+    aliases: [Builds, Shipwright]
+  - name: Migration Toolkit for Virtualization
+    aliases: [MTV]
+  - name: Red Hat AMQ Streams
+    aliases: [AMQ Streams, AMQ]
+  - name: Red Hat 3scale API Management
+    aliases: [3scale]
+  - name: Event-Driven Ansible
+    aliases: [EDA]
+  - name: NVIDIA GPU Operator
+    aliases: [GPU Operator]
+  - name: cert-manager Operator for Red Hat OpenShift
+    aliases: [cert-manager]
+  - name: Red Hat Insights
+    aliases: [Insights]
+  - name: Red Hat OpenStack Services on OpenShift
+    aliases: [OpenStack, RHOSO]
+  - name: Red Hat Application Foundations
+    aliases: [Application Foundations, Runtimes, Red Hat Runtimes]
+  - name: Red Hat Identity Management
+    aliases: [IdM, FreeIPA]
+  - name: Red Hat JBoss Enterprise Application Platform
+    aliases: [JBoss EAP, EAP, JBoss]
+  - name: Red Hat Build of Apache Camel
+    aliases: [Camel, Red Hat Fuse, Fuse]
+  - name: Red Hat Data Grid
+    aliases: [Data Grid, Infinispan]
+  - name: Red Hat Process Automation Manager
+    aliases: [RHPAM, PAM, Decision Manager, RHDM]
+  - name: Red Hat Ceph Storage
+    aliases: [Ceph, Ceph Storage]
+  - name: Red Hat OpenShift Logging
+    aliases: [OpenShift Logging, Cluster Logging]
+
+  # NOTE: OSSPA "Consulting" and "Training" are SERVICES, not products —
+  # intentionally excluded from this list.
+
+# ---------------------------------------------------------------------------
+# solutions — high-level solution areas an item advances.
+#
+# A subset of these are official Red Hat Technology Decision Points (TDPs),
+# marked below. The others are solution areas that don't map to a TDP.
+# This distinction is informational — it does not change normalization.
+# Post-analysis alias snap only, NOT injected into the prompt.
+# ---------------------------------------------------------------------------
+solutions:
+  # TDPs (official Red Hat Technology Decision Points)
+  - name: Application Platform
+    aliases: [ApplicationPlatform, Application Development, ApplicationDevelopment]
+    is_tdp: true
+  - name: Automation
+    aliases: [Mission Critical IT Automation, ProcessAutomation, Process Automation]
+    is_tdp: true
+  - name: Container Management
+    aliases: [ContainerManagement, Multicluster Management]
+    is_tdp: true
+  - name: Virtualization
+    aliases: []
+    is_tdp: true
+  - name: AI
+    aliases: [AI Platform, AI/ML, AI ML, Machine Learning]
+    is_tdp: true
+  - name: Operating System
+    aliases: [OperatingSystem, Cloud Operating System]
+    is_tdp: true
+
+  # Non-TDP solution areas
+  - name: Integration
+    aliases: [Integration & Messaging, Messaging]
+  - name: Security
+    aliases: [Security & Compliance, Compliance]
+  - name: Sovereignty
+    aliases: [Digital Sovereignty, Data Sovereignty, Cloud Sovereignty]
+  - name: Edge
+    aliases: []
+  - name: Data Services & Storage
+    aliases: [Storage, Data Services]
+
+# ---------------------------------------------------------------------------
+# verticals — industry verticals.
+# Post-analysis alias snap only, NOT injected into the prompt.
+# ---------------------------------------------------------------------------
+verticals:
+  # "All" is a meta-value meaning "industry-agnostic" — the null case, not an
+  # actual industry. Empty/missing vertical normalizes to this.
+  - name: All
+    aliases: []
+  - name: Financial Services
+    aliases: [FSI, Financial Services Industry]
+  - name: Telco
+    aliases: [Telecommunications]
+  - name: Retail
+    aliases: []
+  - name: Healthcare
+    aliases: []
+  - name: Government
+    aliases: [Public Sector]
+  - name: Manufacturing
+    aliases: [Industrial]
+  - name: Utility
+    aliases: [Utilities, Energy]
+
+# ---------------------------------------------------------------------------
+# platforms — deployment target. What the content demonstrates deploying ONTO.
+#
+# DISTINCT from Babylon cloud_provider (where infrastructure is provisioned).
+# A lab with cloud_provider=azure might deploy VMs, not ARO. A lab with
+# cloud_provider=azure and platform=On-Premise is valid (Azure-provisioned
+# lab demonstrating on-prem patterns). No mapping between the two.
+#
+# Applies to all content types (Babylon and OSSPA).
+# Post-analysis alias snap only, NOT injected into the prompt.
+# ---------------------------------------------------------------------------
+platforms:
+  - name: On-Premise
+    aliases: [on-prem, on_premise, on premise, on-premises, on_premises]
+  - name: AWS
+    aliases: [Amazon Web Services]
+  - name: Azure
+    aliases: [Microsoft Azure]
+  - name: Cloud
+    aliases: []
+  - name: Edge
+    aliases: []
+
+# ---------------------------------------------------------------------------
+# topics — NOT ENUMERATED. Fully open dimension.
+#
+# The LLM generates as many specific topic phrases as the content warrants.
+# No count cap. No enumerated list. Format guidance only: short phrases
+# (2-4 words each), not sentences.
+#
+# Post-analysis: fuzzy dedup collapses near-identical topics on the same item
+# (case-fold + token overlap >80% → keep the longer form). No flagging.
+# ---------------------------------------------------------------------------
+# (no topics list — this comment documents the design decision)
+
+# ---------------------------------------------------------------------------
+# audience — two sub-dimensions, both fully open.
+#
+# target_audience: who the content is FOR (external consumers)
+#   Examples: platform engineers, developers, data scientists, ml engineers,
+#   application developers, devops engineers, site reliability engineers,
+#   security engineers, system administrators, IT decision makers
+#
+# recommender_audience: who at Red Hat should know about this content
+#   Examples: solution architects, consultants, TAMs, field engineers,
+#   account executives, partner engineers
+#
+# Both are open — no flagging, no normalization. These are seed examples
+# for the LLM prompt, not a closed list.
+# ---------------------------------------------------------------------------
+# (no audience list — seed examples are in the comment above and in the
+#  analysis prompt templates)
+
+# ---------------------------------------------------------------------------
+# difficulty — closed set. Post-analysis alias snap only.
+# Normalization is case-insensitive. Aliases handle common variants.
+# ---------------------------------------------------------------------------
+difficulty:
+  - name: beginner
+    aliases: [introductory, basic, beginner-level, entry-level]
+  - name: intermediate
+    aliases: [moderate, intermediate-level]
+  - name: advanced
+    aliases: [expert, advanced-level]
+
+# ---------------------------------------------------------------------------
+# Action verbs — organized by content mode.
+#
+# Different content types have different measurability criteria:
+#   hands_on:     labs, sandboxes — verify via observable state change
+#   read_through: reference architectures — verify via identifiable output
+#   interactive:  interactive demos (future) — verify via guided completion
+#
+# A verb is "measurable" if completion can be verified through an observable
+# artifact or state change, not an internal cognitive state. Aligns with
+# Bloom's taxonomy: Apply-Create for hands-on, Analyze-Evaluate for
+# read-through.
+#
+# The rejected list is the same everywhere — non-measurable cognitive-state
+# verbs are non-measurable regardless of content format.
+# ---------------------------------------------------------------------------
+action_verbs:
+  hands_on:
+    valid:
+      - configure
+      - deploy
+      - create
+      - build
+      - install
+      - implement
+      - integrate
+      - automate
+      - manage
+      - scale
+      - troubleshoot
+      - monitor
+      - observe
+      - migrate
+      - secure
+      - provision
+      - verify
+      - diagnose
+      - validate
+      - design
+    rejected: &rejected_verbs
+      - understand
+      - learn
+      - know
+      - be familiar with
+      - appreciate
+      - become aware
+      - realize
+      - recognize
+
+  read_through:
+    valid:
+      - compare
+      - evaluate
+      - assess
+      - identify
+      - distinguish
+      - review
+      - classify
+      - diagram
+      - summarize
+      - contrast
+      - analyze
+    rejected: *rejected_verbs
+
+  interactive:
+    valid:
+      - navigate
+      - interact
+      - follow
+      - demonstrate
+      - observe
+      - complete
+      - select
+      - submit
+      - verify
+    rejected: *rejected_verbs
