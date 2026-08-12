@@ -56,9 +56,9 @@ start_redis() {
 start_embedding() {
     if podman ps --format '{{.Names}}' | grep -q "^${EMBEDDING_CONTAINER}$"; then
         echo "  Embedding server already running"
-        return
+        return 0
     fi
-    podman start "${EMBEDDING_CONTAINER}" 2>/dev/null || \
+    if podman start "${EMBEDDING_CONTAINER}" 2>/dev/null || \
         podman run -d --name "${EMBEDDING_CONTAINER}" \
             -p 8000:8000 \
             -v rcars-embedding-models:/models:Z \
@@ -68,8 +68,11 @@ start_embedding() {
             --trust-remote-code \
             --dtype float32 \
             --host 0.0.0.0 --port 8000 \
-            --download-dir /models >/dev/null
-    echo "  ✓  localhost:8000 (model downloads on first start)"
+            --download-dir /models >/dev/null 2>&1; then
+        echo "  ✓  localhost:8000 (model downloads on first start)"
+    else
+        echo "  ⚠  Embedding server failed to start (scans/recommendations won't work)"
+    fi
 }
 
 start_api() {
@@ -192,10 +195,21 @@ show_status() {
     fi
 }
 
+frontend_only() {
+    echo "Starting RCARS frontend only..."
+    echo ""
+    echo "Starting Frontend (vite dev)..."
+    start_frontend
+    echo ""
+    echo "Frontend:  http://localhost:3000"
+    echo "Logs:      /tmp/rcars-frontend.log"
+}
+
 case "${1:-start}" in
-    start)   start ;;
-    stop)    stop ;;
-    restart) stop; sleep 1; start ;;
-    status)  show_status ;;
-    *)       echo "Usage: $0 {start|stop|restart|status}" ;;
+    start)    start ;;
+    stop)     stop ;;
+    restart)  stop; sleep 1; start ;;
+    status)   show_status ;;
+    frontend) frontend_only ;;
+    *)        echo "Usage: $0 {start|stop|restart|status|frontend}" ;;
 esac
