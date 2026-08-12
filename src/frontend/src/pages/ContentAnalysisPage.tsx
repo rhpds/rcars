@@ -222,7 +222,7 @@ export function ContentOverlapPage() {
   return (
     <div className="ca-page">
       <div className="ca-header">
-        <h1>Content Overlap Detection</h1>
+        <h1>Content Overlap Detection — <span style={{ fontSize: '0.5em', fontWeight: 400, opacity: 0.7 }}>Alpha</span></h1>
         <p className="ca-subtitle">
           {stats?.last_computed
             ? `Last computed ${new Date(stats.last_computed).toLocaleString()}`

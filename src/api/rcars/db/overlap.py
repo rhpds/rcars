@@ -211,40 +211,54 @@ def get_overlap_items(
 
         if page_cids:
             batch_params = {**params, "cids": page_cids}
+            where_frag = where.lstrip(" AND ") if where else ""
+            where_clause = f"AND {where_frag}" if where_frag else ""
             batch_sql = f"""
-                SELECT oc.content_id_a, oc.content_id_b,
-                       oc.shared_products, oc.shared_topics,
-                       oc.llm_assessment, oc.assessed_at,
-                       ce.display_name, ce.content_type, ce.source,
-                       bi.ci_name, bi.category, bi.stage
-                FROM overlap_candidates oc
-                JOIN content_entities ce ON ce.content_id =
-                    CASE WHEN oc.content_id_a = ANY(%(cids)s) THEN oc.content_id_b
-                         ELSE oc.content_id_a END
-                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
-                WHERE (oc.content_id_a = ANY(%(cids)s) OR oc.content_id_b = ANY(%(cids)s))
-                {where}
-                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
+                SELECT anchor_id, neighbor_id, shared_products, shared_topics,
+                       llm_assessment, assessed_at,
+                       display_name, content_type, source,
+                       ci_name, category, stage
+                FROM (
+                    SELECT oc.content_id_a AS anchor_id, oc.content_id_b AS neighbor_id,
+                           oc.shared_products, oc.shared_topics,
+                           oc.llm_assessment, oc.assessed_at,
+                           ce.display_name, ce.content_type, ce.source,
+                           bi.ci_name, bi.category, bi.stage
+                    FROM overlap_candidates oc
+                    JOIN content_entities ce ON ce.content_id = oc.content_id_b
+                    LEFT JOIN babylon_items bi ON bi.content_id = oc.content_id_b
+                    WHERE oc.content_id_a = ANY(%(cids)s) {where_clause}
+                    UNION ALL
+                    SELECT oc.content_id_b, oc.content_id_a,
+                           oc.shared_products, oc.shared_topics,
+                           oc.llm_assessment, oc.assessed_at,
+                           ce.display_name, ce.content_type, ce.source,
+                           bi.ci_name, bi.category, bi.stage
+                    FROM overlap_candidates oc
+                    JOIN content_entities ce ON ce.content_id = oc.content_id_a
+                    LEFT JOIN babylon_items bi ON bi.content_id = oc.content_id_a
+                    WHERE oc.content_id_b = ANY(%(cids)s) {where_clause}
+                ) neighbors
+                ORDER BY shared_products DESC, shared_topics DESC
             """
             for nr in conn.execute(batch_sql, batch_params).fetchall():
-                assessment = nr["llm_assessment"] or {}
-                row = {
-                    "display_name": nr["display_name"],
-                    "content_type": nr["content_type"],
-                    "source": nr["source"],
-                    "ci_name": nr["ci_name"],
-                    "category": nr["category"],
-                    "stage": nr["stage"],
-                    "shared_products": nr["shared_products"],
-                    "shared_topics": nr["shared_topics"],
-                    "verdict": assessment.get("verdict"),
-                    "recommendation": assessment.get("recommendation"),
-                    "assessed_at": str(nr["assessed_at"]) if nr["assessed_at"] else None,
-                }
-                for anchor in page_cids:
-                    if nr["content_id_a"] == anchor or nr["content_id_b"] == anchor:
-                        other = nr["content_id_b"] if nr["content_id_a"] == anchor else nr["content_id_a"]
-                        neighbors_by_item[anchor].append({**row, "content_id": other})
+                anchor = nr["anchor_id"]
+                if anchor in neighbors_by_item:
+                    assessment = nr["llm_assessment"] or {}
+                    neighbors_by_item[anchor].append({
+                        "content_id": nr["neighbor_id"],
+                        "display_name": nr["display_name"],
+                        "content_type": nr["content_type"],
+                        "source": nr["source"],
+                        "ci_name": nr["ci_name"],
+                        "category": nr["category"],
+                        "stage": nr["stage"],
+                        "shared_products": nr["shared_products"],
+                        "shared_topics": nr["shared_topics"],
+                        "verdict": assessment.get("verdict"),
+                        "recommendation": assessment.get("recommendation"),
+                        "assessed_at": str(nr["assessed_at"]) if nr["assessed_at"] else None,
+                    })
 
         items = []
         for ir in item_rows:
