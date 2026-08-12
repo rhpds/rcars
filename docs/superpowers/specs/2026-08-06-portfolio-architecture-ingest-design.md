@@ -287,7 +287,7 @@ Populated on ingest from CSV **on first insert only**, then owned by analysis fr
 | `upsert_osspa_item(db, row) -> str`                                               | Write `content_entities` (card fields **except** `summary`/`products_json`/`topics_json`/`audience_json`/`difficulty`, which are INSERT-only — see 2d) + `portfolio_architectures` (incl. derived `status`) for one CSV row. Always resets `retired_at = NULL, retirement_reason = NULL` on conflict, mirroring `upsert_babylon_catalog_item`. Returns `content_id` |
 | `retire_missing_osspa(db, active_content_ids) -> int`                             | Soft-retire `source='portfolio_arch'` items not in the current in-scope set — only when completeness + shrink-guard checks pass (see 3h)  |
 | `clone_examples_repo(settings) -> Path`                                           | Shallow clone or fetch portfolio-architecture-examples at configured ref; bounded timeout; must succeed before any DB writes this sync (see 3h). When reusing an existing checkout, reset to configured ref and clean untracked files to ensure a known-good state |
-| `read_detail_adoc(clone_path, detail_page) -> str`                                | Safe path join with canonical real-path containment check; enforce size cap; read `.adoc` text; strip `++++` passthrough blocks (see 3h) |
+| `read_detail_adoc(clone_path, detail_page) -> tuple[str, str]`                    | Safe path join with canonical real-path containment check; verify file is tracked at recorded HEAD (`git ls-tree`); read **full** `.adoc` text and compute `content_hash` from it; then truncate to `osspa_max_adoc_bytes` for the LLM prompt copy; strip `++++` passthrough blocks from the prompt copy; return `(full_text_for_hash, prompt_text)` (see 3h) |
 | `analyze_architecture_item(db, content_id, adoc_text, csv_row, settings) -> dict` | Sets `is_stale=TRUE` before analysis → LLM → write `architecture_analysis` + denormalize to `content_entities` + generate embeddings → clears `is_stale` only after all three commit (see 3h) |
 | `run_osspa_sync(ctx, job_id, force=False, confirm_empty_inventory=False) -> dict` | Orchestrator: acquire advisory lock → CSV → clone/validate → upsert → retire → analyze; return stats (see 3h). All blocking I/O (HTTP, git, DB, file reads, LLM calls) must run via `asyncio.to_thread()` since this executes on the shared arq scan worker event loop |
 
@@ -329,8 +329,11 @@ Populated on ingest from CSV **on first insert only**, then owned by analysis fr
           content_id, first create a minimal row (content_id, is_stale=TRUE) so
           staleness has somewhere to live — then **skip to the next item** (do not
           fall through to analysis without adoc text)
-       b. Read adoc text (capped at max size); strip ++++...++++ passthrough blocks
-       c. Compute content_hash (adoc body + prompt-input CSV fields)
+       b. Read full adoc text via read_detail_adoc: verify file is tracked at HEAD
+          (git ls-tree), read full source, compute content_hash from the FULL body
+          + prompt-input CSV fields, then produce a separate prompt copy truncated
+          to osspa_max_adoc_bytes with ++++...++++ passthrough blocks stripped
+       c. content_hash is from the full source (not the truncated prompt copy)
        d. If is_stale=FALSE AND hash unchanged AND embedding for this content_id already
           matches the current content_hash AND not force → skip (analysis is genuinely current)
        e. Else: set is_stale=TRUE first → LLM analyze → write architecture_analysis
@@ -409,7 +412,7 @@ Cross-source term normalization (products, solutions, verticals, LO verbs, …) 
 
 → **[2026-08-10-controlled-vocabulary-design.md](2026-08-10-controlled-vocabulary-design.md)**
 
-OSSPA Phase 1 analysis lands free-text (structured JSON) and picks up normalization on the next re-analysis once the vocabulary ships — or lands already normalized if vocabulary ships first. Either order is fine; the two are independently deployable. A draft `src/api/rcars/prompts/vocabulary.yaml` may already exist in-tree as seed data for that separate work; this ingest spec does not own, mount, or wire it.
+OSSPA Phase 1 analysis lands free-text (structured JSON) and picks up normalization on the next re-analysis once the vocabulary ships — or lands already normalized if vocabulary ships first. Either order is fine; the two are independently deployable. A draft `src/api/rcars/data/vocabulary.yaml` may already exist in-tree as seed data for that separate work; this ingest spec does not own, mount, or wire it.
 
 #### 3h. Robustness & Safety
 
@@ -568,6 +571,8 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 | Shrink guard: active set drops >50% but is non-empty                 | Integration | Retirement skipped and logged; upserts still applied   |
 | Path safety: symlink escaping clone root rejected                    | Unit        | Row skipped; nothing read outside clone root           |
 | Freshness: CSV prompt-field change re-triggers analysis              | Unit        | `content_hash` changes when `Summary`/`Solutions` edited |
+| Freshness: edit past osspa_max_adoc_bytes still triggers re-analysis | Unit        | `content_hash` computed from full source, not truncated prompt copy |
+| Checkout: untracked file in clone root is not read                   | Unit        | File not in `git ls-tree HEAD` → row skipped             |
 | Freshness: failed embedding write leaves item stale                  | Integration | `is_stale` stays TRUE after a simulated embedding-write failure; next sync retries instead of skipping on unchanged hash |
 | Freshness: missing DetailPage with no prior analysis row             | Integration | Minimal `architecture_analysis` row created with `is_stale=TRUE` |
 | Completeness guard: malformed/partial CSV does not retire            | Integration | No retirements when CSV fetch incomplete               |

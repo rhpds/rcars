@@ -1,6 +1,6 @@
 # Controlled Vocabulary — Design Spec
 
-**Jira:** TBD (child of [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25))
+**Jira:** [RHDPCD-507](https://redhat.atlassian.net/browse/RHDPCD-507) (child of [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25))
 **Date:** 2026-08-10
 **Status:** Design
 **Author:** M. Rudisill
@@ -37,9 +37,11 @@ Per Nate (2026-08-06): the list exists to **normalize** — collapse near-duplic
 ## Source of Truth
 
 ```text
-src/api/rcars/prompts/vocabulary.yaml      # source of truth, PR-reviewed
+src/api/rcars/data/vocabulary.yaml         # source of truth, PR-reviewed
    └─ mounted as a ConfigMap (Ansible)     # per-env override, no rebuild
 ```
+
+> **Why `data/`, not `prompts/`?** The file is reference data (product names, solution areas, verbs), not a prompt template. The `data/` directory already contains `product-terms.yaml` and `workload_mapping.yaml` — the same kind of reference data. Prompt templates in `prompts/` interpolate vocabulary lists at render time but do not own them.
 
 A draft of this file already exists in-tree (seeded from Publishing House `ph-validation-policy`, RCARS `data/product-terms.yaml` + `data/workload_mapping.yaml`, and the live OSSPA PAList Product/Solutions/Vertical/Platform columns). This spec owns finalizing that draft, the loader, injection, normalization, and wiring — not inventing a second file.
 
@@ -79,6 +81,10 @@ action_verbs_rejected: [understand, learn, know, ...]        # non-measurable �
 
 `action_verbs_*` apply to labs, not architectures. They live in the shared file so Babylon and any future lab-like source share one list.
 
+> **`All` as a vertical:** `All` is a meta-value meaning "industry-agnostic," not an actual industry. It is stored as the canonical form for items with no specific vertical. The normalizer treats an empty or missing vertical as `All`. It is not a member of the vertical taxonomy in the same sense as `Financial Services` — it is the null case.
+
+> **Measurability criteria for action verbs:** A verb is "measurable" if a lab environment can verify completion through observable state change. `deploy` → a pod exists; `configure` → a setting changed. `explore` and `analyze` are included as valid because labs can verify them through concrete output (e.g., "run this query and observe the result"). `understand` and `learn` are rejected because they describe internal cognitive states with no observable artifact.
+
 ## Runtime
 
 ### Loading
@@ -89,8 +95,9 @@ action_verbs_rejected: [understand, learn, know, ...]        # non-measurable �
 def load_vocabulary() -> dict: ...   # {"solutions": [...], "products": [...], ...}
 ```
 
-- Reads `RCARS_VOCABULARY_PATH` (default: packaged `prompts/vocabulary.yaml`; ConfigMap mount overrides).
-- Cached once per process; ops override takes effect on pod restart / cache clear.
+- Reads `RCARS_VOCABULARY_PATH` (env var, mapped to `vocabulary_path` Pydantic setting; default: packaged `data/vocabulary.yaml`).
+- ConfigMap mount path: `/opt/app-root/config/vocabulary.yaml` (set via Ansible `vocabulary_path` var on API + scan-worker deployments).
+- Cached once per process via `@lru_cache`. **Update contract:** a ConfigMap change requires a rolling restart of API + scan-worker + recommend-worker to take effect. An admin endpoint `POST /api/v1/admin/reload-vocabulary` calls `load_vocabulary.cache_clear()` for hot-reload without restart. During rollout, processes may briefly run different vocabulary versions — this is acceptable because normalization is idempotent (re-analysis corrects any drift).
 
 ### Injection
 
@@ -101,24 +108,30 @@ At analysis time, vocabulary lists are interpolated into:
 
 The prompt instructs the model to prefer a listed term where one fits and only coin a new one when nothing matches.
 
+A shared renderer (`render_vocabulary_block(vocab, content_type)`) builds the vocabulary instruction block. It includes `action_verbs_*` only when `content_type` is `lab` or `demo` (not `architecture`). Both analyzers call this renderer; neither hardcodes vocabulary lists.
+
 ### Normalization
 
 A post-analysis pass — mirroring `_sanitize_format_suitability` in `scan.py` — snaps aliases and obvious near-misses to canonical form before write. Unknown values are kept and flagged:
 
-| `review_reasons` reason | When |
-| ----------------------- | ---- |
-| `unknown_product` | Product not in vocabulary (and not an alias) |
-| `unknown_topic` | Optional for Phase 1 — topics stay open; flag only if we later tighten |
-| `unknown_audience` | Optional for Phase 1 |
-| `rejected_action_verb` | LO verb in `action_verbs_rejected` |
+| `review_reasons` reason | Dimension | When |
+| ----------------------- | --------- | ---- |
+| `unknown_product` | products (soft-closed) | Product not in vocabulary and not an alias |
+| `unknown_solution` | solutions (soft-closed) | Solution not in vocabulary and not an alias |
+| `unknown_vertical` | verticals (soft-closed) | Vertical not in vocabulary and not an alias |
+| `unknown_platform` | platforms (soft-closed) | Platform not in vocabulary |
+| `unknown_difficulty` | difficulty (closed) | Value doesn't snap to beginner/intermediate/advanced |
+| `rejected_action_verb` | action_verbs (closed) | LO verb in `action_verbs_rejected` |
 
-This matches the RHDPCD-359 review-flag contract without silently dropping LLM output.
+`topics` and `audience` are **open** dimensions — they are never flagged. The LLM is encouraged to coin specific topics and audience terms beyond the seed lists. Flagging is reserved for soft-closed and closed dimensions where an unlisted value indicates a normalization gap, not model creativity.
+
+In all cases, the original value is **preserved** alongside the flag — nothing is silently dropped. This matches the RHDPCD-359 review-flag contract.
 
 ## Configuration
 
 | Setting | Default | Purpose |
 | ------- | ------- | ------- |
-| `vocabulary_path` | `prompts/vocabulary.yaml` (ConfigMap mount overrides) | Controlled-vocabulary source |
+| `vocabulary_path` | `data/vocabulary.yaml` (ConfigMap mount overrides) | Controlled-vocabulary source |
 
 Ansible mounts the file as a ConfigMap on API + scan-worker (and recommend-worker if any consumer runs there) so ops can hot-patch terms without an image rebuild.
 
@@ -142,7 +155,7 @@ Ansible mounts the file as a ConfigMap on API + scan-worker (and recommend-worke
 
 ## Relationship to Other Specs
 
-- **RHDPCD-359 (Generalized Content Model)** — sketched the vocabulary contract (`vocabularies.yaml`, unknown-term review flags). This spec delivers that contract under the concrete path `prompts/vocabulary.yaml`.
+- **RHDPCD-359 (Generalized Content Model)** — sketched the vocabulary contract (`vocabularies.yaml`, unknown-term review flags). This spec delivers that contract under the concrete path `data/vocabulary.yaml`.
 - **RHDPCD-28 (Portfolio Architecture Ingest)** — consumes the vocabulary once this ships; OSSPA Phase 1 must not block on it. Architecture analysis can land free-text first and pick up normalization on the next re-analysis after this ships, or land with injection if this ships first — either order is fine because the two are independently deployable.
 - **Query synonym expansion (`product-terms.yaml`)** — complementary, not replaced. Analysis-time normalization ≠ query-time expansion.
 
@@ -164,4 +177,4 @@ Ansible mounts the file as a ConfigMap on API + scan-worker (and recommend-worke
 1. **Review and approve this spec** — confirm dimensions, open-vs-closed choices (especially broad `topics`), and the unknown-term flagging contract.
 2. **Open / link a Jira child under RHDPCD-25** for tracking.
 3. **Write implementation plan** — loader, prompt injection (both analyzers), normalization, ConfigMap, tests.
-4. **Coordinate with OSSPA ingest** — either ship this first (OSSPA analysis lands already normalized) or shortly after (re-analysis picks it up). Do not block OSSPA Phase 1 approval on this.
+4. **Coordinate with OSSPA ingest** — preferred ordering: OSSPA ingest ships first (analysis lands free-text), vocabulary ships second with a `--force` re-analysis of all OSSPA items to normalize. If vocabulary ships first, the architecture prompt (`architecture_analyze.txt`) does not exist yet — vocabulary injection for that prompt is a no-op until OSSPA creates the file. Either order works at the data layer; the preferred ordering avoids a dangling prompt reference.

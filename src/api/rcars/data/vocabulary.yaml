@@ -61,9 +61,9 @@ products:
   - name: Red Hat OpenShift Virtualization
     aliases: [OpenShift Virtualization, CNV, KubeVirt]
   - name: Red Hat OpenShift Data Foundation
-    aliases: [ODF, Data, Storage]
+    aliases: [ODF]
   - name: Red Hat OpenShift Service Mesh
-    aliases: [Service Mesh, Istio, OSSM]
+    aliases: [Service Mesh, OSSM]
   - name: Red Hat OpenShift Serverless
     aliases: [Serverless, Knative]
   - name: Red Hat Enterprise Linux
@@ -71,7 +71,7 @@ products:
   - name: Red Hat Hardened Images
     aliases: [RHHI]
   - name: Red Hat build of Keycloak
-    aliases: [Keycloak, RHSSO, SSO, RHBK]
+    aliases: [Keycloak, RHSSO, RHBK]
   - name: Red Hat Trusted Profile Analyzer
     aliases: [TPA]
   - name: Red Hat Trusted Artifact Signer
@@ -95,9 +95,9 @@ products:
   - name: Migration Toolkit for Virtualization
     aliases: [MTV]
   - name: Red Hat AMQ Streams
-    aliases: [AMQ, Kafka]
+    aliases: [AMQ Streams, AMQ]
   - name: Red Hat 3scale API Management
-    aliases: [3scale, API]
+    aliases: [3scale]
   - name: Event-Driven Ansible
     aliases: [EDA]
   - name: NVIDIA GPU Operator
@@ -113,10 +113,20 @@ products:
     # the two tokens co-occur and normalize to one product.
     aliases: [Application Foundations, Runtimes, Red Hat Runtimes]
   - name: Red Hat Identity Management
-    # OSSPA "Identity" is used loosely: mostly infra identity (IdM/FreeIPA) in
-    # telco/5G/cloud rows, occasionally app SSO (Keycloak) in AI/API rows.
-    # Mapped to IdM as the dominant sense — revisit if SSO cases grow.
-    aliases: [Identity, IdM, FreeIPA]
+    aliases: [IdM, FreeIPA]
+
+  - name: Red Hat JBoss Enterprise Application Platform
+    aliases: [JBoss EAP, EAP, JBoss]
+  - name: Red Hat Build of Apache Camel
+    aliases: [Camel, Red Hat Fuse, Fuse]
+  - name: Red Hat Data Grid
+    aliases: [Data Grid, Infinispan]
+  - name: Red Hat Process Automation Manager
+    aliases: [RHPAM, PAM, Decision Manager, RHDM]
+  - name: Red Hat Ceph Storage
+    aliases: [Ceph, Ceph Storage]
+  - name: Red Hat OpenShift Logging
+    aliases: [OpenShift Logging, Cluster Logging]
 
   # NOTE: OSSPA "Consulting" and "Training" are SERVICES, not products —
   # intentionally excluded from this list.
@@ -158,6 +168,8 @@ solutions:
 # (industry-agnostic) is the default when no specific vertical applies.
 # ---------------------------------------------------------------------------
 verticals:
+  # "All" is a meta-value meaning "industry-agnostic" — the null case, not an
+  # actual industry. Empty/missing vertical normalizes to this.
   - name: All
     aliases: []
   - name: Financial Services
@@ -180,11 +192,16 @@ verticals:
 # LLM is not asked to generate these, but canonical forms aid normalization.
 # ---------------------------------------------------------------------------
 platforms:
-  - On-Premise
-  - AWS
-  - Azure
-  - Cloud
-  - Edge
+  - name: On-Premise
+    aliases: [on-prem, on_premise, on premise, on-premises, on_premises]
+  - name: AWS
+    aliases: [Amazon Web Services]
+  - name: Azure
+    aliases: [Microsoft Azure]
+  - name: Cloud
+    aliases: []
+  - name: Edge
+    aliases: []
 
 # ---------------------------------------------------------------------------
 # topics — BROAD topic areas only (see DESIGN INTENT above). This is a light
@@ -242,10 +259,14 @@ audience:
 # ---------------------------------------------------------------------------
 # difficulty — closed set. Snap any near-miss to one of these.
 # ---------------------------------------------------------------------------
+# Normalization is case-insensitive. Aliases handle common variants.
 difficulty:
-  - beginner
-  - intermediate
-  - advanced
+  - name: beginner
+    aliases: [introductory, basic, beginner-level, entry-level]
+  - name: intermediate
+    aliases: [moderate, intermediate-level]
+  - name: advanced
+    aliases: [expert, advanced-level]
 
 # ---------------------------------------------------------------------------
 # Learning-objective verbs (Babylon labs). Not requested for OSSPA
