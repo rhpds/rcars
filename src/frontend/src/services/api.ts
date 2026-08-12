@@ -193,43 +193,50 @@ export const api = {
   }>('/catalog/workload-mappings/unmapped'),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
-  // Content similarity / overlap
-  getSimilarItems: (identifier: string, minScore = 0.85, relationshipType = 'overlap') =>
-    request<{
-      ci_name: string
-      content_id: string
-      similar: Array<{
-        content_id: string; ci_name: string | null; display_name: string
-        content_type: string; source: string; category: string; stage: string
-        summary: string | null; similarity_score: number; computed_at: string
-        relationship_type?: string
-      }>
-      count: number
-    }>(`/catalog/${encodeURIComponent(identifier)}/similar?min_score=${minScore}&relationship_type=${relationshipType}`),
-
-  getOverlapReport: (minScore = 0.85, stage?: string, search?: string, relationshipType = 'overlap') =>
-    request<{
+  // Content overlap
+  getOverlapReport: (params?: {
+    verdict?: string; search?: string; stage?: string; page?: number; page_size?: number;
+    min_shared_products?: number; min_shared_topics?: number;
+  }) => {
+    const p = new URLSearchParams()
+    if (params?.verdict) p.set('verdict', params.verdict)
+    if (params?.search) p.set('search', params.search)
+    if (params?.stage) p.set('stage', params.stage)
+    if (params?.page) p.set('page', String(params.page))
+    if (params?.page_size) p.set('page_size', String(params.page_size))
+    if (params?.min_shared_products != null) p.set('min_shared_products', String(params.min_shared_products))
+    if (params?.min_shared_topics != null) p.set('min_shared_topics', String(params.min_shared_topics))
+    const qs = p.toString()
+    return request<{
       items: Array<{
         content_id: string; display_name: string; content_type: string; source: string
         ci_name: string | null; category: string | null; stage: string | null
-        max_score: number; neighbor_count: number; score_band: string
+        neighbor_count: number
         neighbors: Array<{
           content_id: string; display_name: string; content_type: string
           source: string; ci_name: string | null; category: string | null
-          stage: string | null; similarity_score: number
+          stage: string | null; shared_products: number; shared_topics: number
+          verdict: string | null; recommendation: string | null; assessed_at: string | null
         }>
       }>
       total_items: number; page: number; page_size: number
       stats: {
-        near_duplicates: number; high_overlap: number; related_band: number
-        total_pairs_stored: number; last_computed: string | null
+        redundant: number; complementary: number; differentiated: number
+        unassessed: number; total_pairs: number; last_computed: string | null
       }
-      thresholds: { display: number; near_duplicate: number }
-    }>(`/admin/overlap?min_score=${minScore}${stage ? `&stage=${stage}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}&relationship_type=${relationshipType}`),
+    }>(`/analysis/overlap${qs ? `?${qs}` : ''}`)
+  },
 
-  computeSimilarity: (threshold = 0.75, stage?: string) =>
-    request<{ overlap_pairs: number; related_pairs: number; pairs_stored: number; threshold: number; stage: string }>(
-      `/admin/compute-similarity?threshold=${threshold}${stage ? `&stage=${stage}` : ''}`, { method: 'POST' }),
+  getOverlapAssessment: (contentIdA: string, contentIdB: string) =>
+    request<{
+      assessment: {
+        verdict: string; shared_topics: string[]; differentiators_a: string[]
+        differentiators_b: string[]; recommendation: string; rationale: string
+        model: string; tokens: { input: number; output: number }
+      } | null
+      assessed_at: string | null
+      reason?: string
+    }>(`/analysis/overlap/${encodeURIComponent(contentIdA)}/${encodeURIComponent(contentIdB)}`),
 
   // Performance analysis
   getPerformanceDashboard: (params?: {
@@ -288,6 +295,28 @@ export const api = {
 
   unignoreItem: (baseName: string) =>
     request<{ status: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+
+  // Non-prod items
+  getNonprodItems: (params?: {
+    sort_by?: string; sort_dir?: string; content_type?: string;
+    stage?: string; search?: string;
+    window?: string; status?: string;
+  }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+      })
+    }
+    const query = qs.toString()
+    return request<NonProdDashboardResponse>(`/analysis/nonprod${query ? '?' + query : ''}`)
+  },
+
+  ignoreNonprodItem: (baseName: string) =>
+    request<{ status: string; ignored_until: string }>(`/analysis/nonprod/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
+
+  unignoreNonprodItem: (baseName: string) =>
+    request<{ status: string }>(`/analysis/nonprod/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
@@ -357,7 +386,7 @@ export interface ScoreBreakdown {
 export interface MarketingMetrics {
   provisions: number
   unique_users: number
-  completions: number
+  experiences: number
   page_views: number
   score: number | null
 }
@@ -365,7 +394,7 @@ export interface MarketingMetrics {
 export interface SalesMetrics {
   provisions: number
   unique_users: number
-  completions: number
+  experiences: number
   page_views: number
   pipeline_touched: number
   closed_amount: number
@@ -386,7 +415,7 @@ export interface PerformanceItem {
   marketing?: MarketingMetrics | null
   sales?: SalesMetrics | null
   provisions: number
-  completions: number
+  experiences: number
   requests: number
   unique_users: number
   success_ratio: number
@@ -415,6 +444,36 @@ export interface PerformanceDashboardResponse {
   summary: { total: number; last_synced: string | null } | null
   window: string
   channel: string
+}
+
+export interface NonProdItem {
+  content_id: string
+  catalog_base_name: string
+  display_name: string
+  content_type: string | null
+  stage: string | null
+  catalog_namespace: string | null
+  ci_name: string | null
+  provisions: number
+  requests: number
+  experiences: number
+  unique_users: number
+  success_ratio: number
+  failure_ratio: number
+  first_provision: string | null
+  last_provision: string | null
+  stages: Array<{ stage: string; ci_name: string; catalog_url: string; has_showroom: boolean }>
+  workflow_status?: string | null
+  jira_key?: string | null
+  retirement_target_date?: string | null
+  ignored_until?: string | null
+}
+
+export interface NonProdDashboardResponse {
+  items: NonProdItem[]
+  total: number
+  synced_at: string | null
+  window: string
 }
 
 export interface RoleAssignment {

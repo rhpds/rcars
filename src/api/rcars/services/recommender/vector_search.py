@@ -24,6 +24,25 @@ STOP_WORDS = frozenset({
     "try", "currently", "suggestion", "minute", "minutes", "hour", "hours",
 })
 
+# Grammatical filler only — stripped before embedding to prevent dilution.
+# Keeps content-type words (lab, demo, workshop) and action words (show, find)
+# that carry search signal for the embedding model.
+EMBEDDING_STOP_WORDS = frozenset({
+    "a", "an", "the", "is", "it", "to", "for", "of", "and", "or", "in", "on",
+    "with", "that", "this", "be", "are", "was", "i", "we", "my", "our", "me",
+    "do", "does", "but", "have", "has", "had", "can", "could",
+    "should", "would", "will", "what", "which", "how", "about",
+    "any", "some", "more", "also", "just", "very", "too", "so", "than",
+    "something", "anything", "there",
+})
+
+
+def _strip_embedding_filler(query: str) -> str:
+    """Remove grammatical filler words before embedding to reduce dilution."""
+    words = query.split()
+    kept = [w for w in words if w.lower() not in EMBEDDING_STOP_WORDS]
+    return " ".join(kept) if kept else query
+
 
 def _resolve_ci_references(
     query: str, db: Database, stages: list[str], include_zt: bool,
@@ -102,7 +121,9 @@ def search(
     effective_stages = stages or ["prod"]
     quality_threshold = 1.0 - distance_cutoff
 
-    query_embedding = generate_embedding(query, prefix="search_query")
+    embed_text = _strip_embedding_filler(query)
+    log.info("embedding query: %r → %r", query, embed_text)
+    query_embedding = generate_embedding(embed_text, prefix="search_query")
 
     rows = db.search_embeddings(
         query_embedding=query_embedding,

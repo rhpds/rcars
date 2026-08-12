@@ -8,7 +8,6 @@ from dataclasses import dataclass, field
 from rcars.config import Settings
 from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
-from rcars.db.similarity import get_similar_items
 from rcars.services.chat.models import Block, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.recommender.pipeline import run_query
@@ -43,7 +42,7 @@ def _item_card(db: Database, item: dict) -> dict:
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                            stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = RecommendArgs.model_validate(res.output.args)
-    query = args.search_query or " ".join(str(v) for v in args.constraints.values())
+    query = res.message or args.search_query or " ".join(str(v) for v in args.constraints.values())
     if not query and res.scope_ids:
         query = " ".join(i.get("display_name", "") for i in (res.items or []) if i.get("display_name")) or "recommend similar content"
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
@@ -97,30 +96,47 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     anchors = res.items or [db.get_babylon_item(cid) or {"content_id": cid, "display_name": cid}
                             for cid in res.scope_ids]
     anchor = anchors[0]
-    anchor_analysis = db.get_showroom_analysis(anchor["content_id"]) or {}
-    anchor_products = set(anchor_analysis.get("products_json") or [])
-    raw = get_similar_items(db.pool, anchor["content_id"],
-                            min_score=settings.similarity_storage_threshold,
-                            relationship_type="all")[:10]
+    cid = anchor["content_id"]
+
+    with db.pool.connection() as conn:
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        rows = conn.execute(
+            """SELECT oc.content_id_a, oc.content_id_b,
+                      oc.shared_products, oc.shared_topics, oc.llm_assessment,
+                      ce.display_name, bi.ci_name, bi.stage
+               FROM overlap_candidates oc
+               JOIN content_entities ce ON ce.content_id =
+                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
+                        ELSE oc.content_id_a END
+               LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
+               ORDER BY oc.shared_products DESC, oc.shared_topics DESC
+               LIMIT 10""",
+            {"cid": cid},
+        ).fetchall()
+
     neighbors = []
-    for n in raw:
-        n_products = set((db.get_showroom_analysis(n["content_id"]) or {}).get("products_json") or [])
+    for r in rows:
+        other_id = r["content_id_b"] if r["content_id_a"] == cid else r["content_id_a"]
+        assessment = r["llm_assessment"] or {}
         neighbors.append({
-            "content_id": n["content_id"], "ci_name": n.get("ci_name"),
-            "display_name": n["display_name"],
-            "stage": n.get("stage"), "similarity_pct": round(n["similarity_score"] * 100),
-            "relationship_type": n.get("relationship_type", "overlap"),
-            "shared_products": sorted(anchor_products & n_products),
-            "why": None,  # populated by the future overlap-summary batch job
+            "content_id": other_id, "ci_name": r.get("ci_name"),
+            "display_name": r["display_name"],
+            "stage": r.get("stage"),
+            "shared_products": r["shared_products"],
+            "shared_topics": r["shared_topics"],
+            "verdict": assessment.get("verdict"),
+            "recommendation": assessment.get("recommendation"),
         })
+
     return HandlerResult(
         blocks=[Block(type="item_card", data=_item_card(db, anchor)),
-                Block(type="overlap_table", data={"anchor": {"content_id": anchor["content_id"],
-                                                             "display_name": anchor.get("display_name")},
-                                                  "neighbors": neighbors})],
-        scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors),
-                        "top_similarity": neighbors[0]["similarity_pct"] if neighbors else None},
-        anchor_ids=[anchor["content_id"]],
+                Block(type="overlap_table", data={"anchor": {"content_id": cid,
+                                                              "display_name": anchor.get("display_name")},
+                                                   "neighbors": neighbors})],
+        scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors)},
+        anchor_ids=[cid],
         session_results=[{"content_id": n["content_id"], "display_name": n["display_name"]}
                          for n in neighbors])
 
@@ -132,7 +148,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     args = PerformanceArgs.model_validate(res.output.args)
-    window = args.window or "3m"
+    window = args.window or "6m"
     triaged = [i for i in res.items if i.get("tier") in ("green", "yellow")]
     ids = res.scope_ids or [i["content_id"] for i in (triaged or res.items)]
     scores = get_performance_scores(db.pool, ids)
@@ -155,7 +171,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "cost_per_provision": float(rhdp.get("avg_cost_per_provision") or 0) or None,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
-                     "score": scores.get(cid)})
+                     "score": (lambda s: s if s is not None else scores.get(cid))((w.get("score_breakdown") or {}).get("score"))})
     if not res.scope_ids:
         rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1
@@ -181,11 +197,25 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
             else (db.get_babylon_item(res.scope_ids[0])
                   or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
+
+    with db.pool.connection() as conn:
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        n_rows = conn.execute(
+            """SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
+                      oc.llm_assessment, ce.display_name
+               FROM overlap_candidates oc
+               JOIN content_entities ce ON ce.content_id =
+                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
+               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
+               ORDER BY oc.shared_products DESC LIMIT 5""",
+            {"cid": item["content_id"]},
+        ).fetchall()
     card["neighbors"] = [
-        {"content_id": n["content_id"], "display_name": n["display_name"],
-         "similarity_pct": round(n["similarity_score"] * 100)}
-        for n in get_similar_items(db.pool, item["content_id"],
-                                   min_score=settings.similarity_threshold)[:5]]
+        {"content_id": r["content_id_b"] if r["content_id_a"] == item["content_id"] else r["content_id_a"],
+         "display_name": r["display_name"],
+         "verdict": (r["llm_assessment"] or {}).get("verdict")}
+        for r in n_rows]
     return HandlerResult(
         blocks=[Block(type="item_card", data=card)],
         scaffold_facts={"display_name": card["display_name"], "stage": card["stage"],

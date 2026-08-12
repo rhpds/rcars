@@ -11,6 +11,9 @@ from rcars.api.schemas import (
     ScanResponse, RescanResponse,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
+from rcars.config import Settings
+from rcars.db.overlap import get_overlap_items, get_overlap_stats
+from rcars.services.overlap_assessment import assess_overlap
 from rcars.workers.ops import sha_dedup_scan_items
 import structlog
 
@@ -118,7 +121,7 @@ async def performance_dashboard(
         w = wm.get(window, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
-            item["completions"] = w.get("completions", 0)
+            item["experiences"] = w.get("experiences", 0)
             item["requests"] = w.get("requests", 0)
             item["unique_users"] = w.get("unique_users", 0)
             item["success_ratio"] = w.get("success_ratio", 0)
@@ -131,7 +134,7 @@ async def performance_dashboard(
             item["sales_impact"] = w.get("sales_impact", "low")
         else:
             item["provisions"] = 0
-            item["completions"] = 0
+            item["experiences"] = 0
             item["requests"] = 0
             item["unique_users"] = 0
             item["success_ratio"] = 0
@@ -214,7 +217,7 @@ async def performance_dashboard(
                 item["marketing"] = {
                     "provisions": mw.get("provisions", mrow.get("provisions", 0)),
                     "unique_users": mw.get("unique_users", mrow.get("unique_users", 0)),
-                    "completions": mw.get("completions", mrow.get("completions", 0)),
+                    "experiences": mw.get("experiences", mrow.get("experiences", 0)),
                     "page_views": mrow.get("page_views", 0),
                     "score": mw.get("performance_score"),
                 }
@@ -237,7 +240,7 @@ async def performance_dashboard(
                 item["sales"] = {
                     "provisions": sw.get("provisions", srow.get("provisions", 0)),
                     "unique_users": sw.get("unique_users", srow.get("unique_users", 0)),
-                    "completions": sw.get("completions", srow.get("completions", 0)),
+                    "experiences": sw.get("experiences", srow.get("experiences", 0)),
                     "page_views": srow.get("page_views", 0),
                     "pipeline_touched": float(sw.get("pipeline_touched") or 0),
                     "closed_amount": float(sw.get("closed_amount") or 0),
@@ -324,7 +327,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
                       else (channel_scores.get(ch.get("channel"), {}) or {}).get("score", 0)),
             "provisions": ch.get("provisions", 0),
             "unique_users": ch.get("unique_users", 0),
-            "completions": ch.get("completions", 0),
+            "experiences": ch.get("experiences", 0),
             "pipeline_touched": float(ch.get("pipeline_touched") or 0),
             "closed_amount": float(ch.get("closed_amount") or 0),
             "total_cost": float(ch.get("total_cost") or 0),
@@ -626,6 +629,197 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
         raise HTTPException(404, f"Item not found: {base_name}")
     db.log_action(base_name, "retirement_unignored", user, "Unmuted")
     return {"status": "ok"}
+
+
+NONPROD_WINDOWS = {"6m", "12m"}
+
+
+@router.get(
+    "/nonprod",
+    tags=["Non-Prod Items"],
+    summary="Non-prod items dashboard",
+    description="Returns catalog items with no production stage, with usage metrics. Curator-only.",
+)
+async def nonprod_dashboard(
+    request: Request,
+    user: str = Depends(require_curator),
+    sort_by: str = Query("provisions"),
+    sort_dir: str = Query("desc"),
+    content_type: str | None = Query(None),
+    stage: str | None = Query(None),
+    search: str | None = Query(None),
+    window: str = Query("12m"),
+    status: str | None = Query(None),
+):
+    if window not in NONPROD_WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(NONPROD_WINDOWS)}")
+
+    db = request.app.state.db
+    items = db.list_nonprod_items(
+        sort_by=sort_by, sort_dir=sort_dir,
+        content_type=content_type, stage=stage,
+        search=search,
+        status=status,
+    )
+
+    import json as _json
+    from datetime import date as _date
+    today = _date.today()
+
+    # Collect all base_names for stage lookup
+    base_names = [i["catalog_base_name"] for i in items]
+    stages_map = db.get_stages_for_base_names(base_names, include_retired=False)
+
+    for item in items:
+        # Apply windowed metrics overlay
+        wm = item.get("windowed_metrics") or {}
+        if isinstance(wm, str):
+            try:
+                wm = _json.loads(wm)
+            except (ValueError, TypeError):
+                wm = {}
+        w = wm.get(window, {})
+        item["provisions"] = w.get("provisions", 0)
+        item["requests"] = w.get("requests", 0)
+        item["experiences"] = w.get("experiences", 0)
+        item["unique_users"] = w.get("unique_users", 0)
+        item["success_ratio"] = w.get("success_ratio", 0)
+        item["failure_ratio"] = w.get("failure_ratio", 0)
+
+        # Enrich with stages from all variants of this base name
+        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+
+        # Handle ignored_until
+        iu = item.get("ignored_until")
+        if iu and isinstance(iu, _date) and iu >= today:
+            item["ignored_until"] = iu.isoformat()
+        elif iu and isinstance(iu, str) and iu >= today.isoformat():
+            pass
+        else:
+            item["ignored_until"] = None
+
+    # Re-sort after windowed overlay
+    allowed_sorts = {"provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+    if sort_by in allowed_sorts:
+        reverse = sort_dir.lower() == "desc"
+        if sort_by == "display_name":
+            items.sort(key=lambda i: (i.get(sort_by) or ""), reverse=reverse)
+        else:
+            items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
+
+    synced_at = max((i["synced_at"] for i in items if i.get("synced_at")), default=None) if items else None
+
+    return {
+        "items": items,
+        "total": len(items),
+        "synced_at": str(synced_at) if synced_at else None,
+        "window": window,
+    }
+
+
+@router.put(
+    "/nonprod/ignore/{base_name}",
+    tags=["Non-Prod Items"],
+    summary="Mute non-prod item for 30 days",
+)
+async def nonprod_ignore(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    from datetime import date, timedelta
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        raise HTTPException(404, f"Item not found: {base_name}")
+    until = (date.today() + timedelta(days=30)).isoformat()
+    ok = db.set_nonprod_ignored(content_id, until)
+    if not ok:
+        raise HTTPException(404, f"Item not found in nonprod_usage: {base_name}")
+    db.log_action(base_name, "nonprod_muted", user, f"Muted until {until}")
+    return {"status": "ok", "ignored_until": until}
+
+
+@router.delete(
+    "/nonprod/ignore/{base_name}",
+    tags=["Non-Prod Items"],
+    summary="Unmute non-prod item",
+)
+async def nonprod_unignore(base_name: str, request: Request, user: str = Depends(require_curator)):
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db)
+    if not content_id:
+        raise HTTPException(404, f"Item not found: {base_name}")
+    ok = db.clear_nonprod_ignored(content_id)
+    if not ok:
+        raise HTTPException(404, f"Item not found in nonprod_usage: {base_name}")
+    db.log_action(base_name, "nonprod_unmuted", user, "Unmuted")
+    return {"status": "ok"}
+
+
+@router.get(
+    "/overlap",
+    summary="Content overlap report — verdict-based, paginated",
+)
+async def overlap_report(
+    request: Request,
+    user: str = Depends(require_auth),
+    verdict: str | None = Query(None, description="redundant/complementary/differentiated/unassessed"),
+    search: str | None = Query(None, description="Search by display name"),
+    stage: str | None = Query(None, description="prod/event/dev"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=500),
+    min_shared_products: int | None = Query(None, ge=0),
+    min_shared_topics: int | None = Query(None, ge=0),
+):
+    db = request.app.state.db
+    result = get_overlap_items(
+        db.pool, verdict=verdict, search=search, stage=stage,
+        page=page, page_size=page_size,
+        min_shared_products=min_shared_products,
+        min_shared_topics=min_shared_topics,
+    )
+    stats = get_overlap_stats(db.pool)
+    return {**result, "stats": stats}
+
+
+@router.post(
+    "/overlap/assess",
+    summary="On-demand overlap assessment for a pair",
+)
+async def overlap_assess(
+    request: Request,
+    content_id_a: str = Query(...),
+    content_id_b: str = Query(...),
+    user: str = Depends(require_curator),
+):
+    db = request.app.state.db
+    settings = Settings()
+    import asyncio
+    result, reason = await asyncio.to_thread(
+        assess_overlap, db.pool, settings, content_id_a, content_id_b
+    )
+    return {"assessment": result, "reason": reason}
+
+
+@router.get(
+    "/overlap/{content_id_a}/{content_id_b}",
+    summary="Get cached LLM overlap assessment for a pair",
+)
+async def overlap_assessment_detail(
+    request: Request,
+    content_id_a: str,
+    content_id_b: str,
+    user: str = Depends(require_auth),
+):
+    db = request.app.state.db
+    a, b = (content_id_a, content_id_b) if content_id_a < content_id_b else (content_id_b, content_id_a)
+    with db.pool.connection() as conn:
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        row = conn.execute(
+            "SELECT llm_assessment, assessed_at FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
+            (a, b),
+        ).fetchone()
+    if not row:
+        return {"assessment": None, "assessed_at": None, "reason": "not_overlap"}
+    return {"assessment": row["llm_assessment"], "assessed_at": row["assessed_at"]}
 
 
 @router.post(

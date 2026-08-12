@@ -22,6 +22,7 @@ interface CatalogItem {
   stage: string
   catalog_namespace: string
   showroom_url: string | null
+  showroom_ref: string | null
   scan_status: string
   is_published?: boolean
   is_stale?: boolean
@@ -52,6 +53,7 @@ interface ItemDetail {
   stage: string
   catalog_namespace: string
   showroom_url: string | null
+  showroom_ref: string | null
   scan_status: string
   content_path: string | null
   showroom_url_override: string | null
@@ -400,13 +402,6 @@ export function BrowsePage() {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [itemDetails, setItemDetails] = useState<Record<string, ItemDetail>>({})
   const [objectivesExpanded, setObjectivesExpanded] = useState<Set<string>>(new Set())
-  const [similarItems, setSimilarItems] = useState<Record<string, Array<{
-    content_id: string; ci_name: string | null; display_name: string
-    content_type: string; source: string; category: string; stage: string
-    summary: string | null; similarity_score: number; computed_at: string
-    relationship_type?: string
-  }>>>({})
-  const [similarLoading, setSimilarLoading] = useState<Set<string>>(new Set())
 
   // Curator editing state
   const [drawerItem, setDrawerItem] = useState<string | null>(null)
@@ -537,16 +532,6 @@ export function BrowsePage() {
       if (detail.analysis?.enrichment_review_needed) {
         setFlaggedItems(prev => new Set(prev).add(ciName))
       }
-    }
-    if (similarItems[ciName] === undefined && !similarLoading.has(ciName)) {
-      setSimilarLoading(prev => new Set(prev).add(ciName))
-      api.getSimilarItems(ciName, 0.85, 'all').then(data => {
-        setSimilarItems(prev => ({ ...prev, [ciName]: data.similar }))
-        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
-      }).catch(() => {
-        setSimilarItems(prev => ({ ...prev, [ciName]: [] }))
-        setSimilarLoading(prev => { const s = new Set(prev); s.delete(ciName); return s })
-      })
     }
   }
 
@@ -921,84 +906,6 @@ export function BrowsePage() {
                         </CollapsibleSection>
                       )}
 
-                      {/* 6a. Similar Content (same source) */}
-                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type).length > 0 && (() => {
-                        const overlapItems = similarItems[item.ci_name].filter(s => s.relationship_type === 'overlap' || !s.relationship_type)
-                        const top5 = overlapItems.slice(0, 5)
-                        const remaining = overlapItems.length - top5.length
-                        return (
-                          <CollapsibleSection
-                            label="Similar Content"
-                            color="amber"
-                            count={overlapItems.length}
-                          >
-                            {top5.map(sim => (
-                              <div key={sim.content_id || sim.ci_name} className="browse-similar-row">
-                                <span className={`browse-similar-score ${sim.similarity_score >= 0.95 ? 'high' : 'medium'}`}>
-                                  {Math.round(sim.similarity_score * 100)}%
-                                </span>
-                                <a
-                                  className="browse-similar-name"
-                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {sim.display_name || sim.ci_name}
-                                </a>
-                                <span className="browse-similar-cat">{sim.category}</span>
-                                {sim.stage !== 'prod' && (
-                                  <Badge className={sim.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
-                                    {sim.stage}
-                                  </Badge>
-                                )}
-                              </div>
-                            ))}
-                            <a
-                              href={`/analysis/overlap?search=${encodeURIComponent(item.display_name)}&min_score=0.85`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="browse-similar-name"
-                              style={{ fontSize: '12px', paddingTop: '4px', display: 'block' }}
-                            >
-                              {remaining > 0 ? `+${remaining} more — ` : ''}View in overlap report
-                            </a>
-                          </CollapsibleSection>
-                        )
-                      })()}
-
-                      {/* 6b. Related Content (cross-source) */}
-                      {similarItems[item.ci_name] && similarItems[item.ci_name].filter(s => s.relationship_type === 'related').length > 0 && (
-                        <CollapsibleSection
-                          label="Related Content"
-                          color="blue"
-                          count={similarItems[item.ci_name].filter(s => s.relationship_type === 'related').length}
-                        >
-                          <p className="browse-similar-desc">Related content from other types.</p>
-                          {similarItems[item.ci_name]
-                            .filter(s => s.relationship_type === 'related')
-                            .map(sim => (
-                              <div key={sim.content_id || sim.ci_name} className="browse-similar-row">
-                                <span className={`browse-similar-score medium`}>
-                                  {Math.round(sim.similarity_score * 100)}%
-                                </span>
-                                <a
-                                  className="browse-similar-name"
-                                  href={`/browse?search=${encodeURIComponent(sim.ci_name || sim.display_name)}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  {sim.display_name || sim.ci_name}
-                                </a>
-                                <Badge className="badge-type">{sim.content_type}</Badge>
-                                <span className="browse-similar-cat">{sim.category}</span>
-                              </div>
-                            ))}
-                        </CollapsibleSection>
-                      )}
-
-                      {similarLoading.has(item.ci_name) && (
-                        <div className="browse-loading-inline">Loading similar content...</div>
-                      )}
 
                       {/* 7. Curator Tags */}
                       {detail.tags.length > 0 && (
@@ -1022,7 +929,7 @@ export function BrowsePage() {
                           RHDP Catalog
                         </a>
                         {item.showroom_url && (
-                          <a href={safeHref(item.showroom_url)} target="_blank" rel="noopener noreferrer">
+                          <a href={safeHref(item.showroom_ref ? `${item.showroom_url}/tree/${item.showroom_ref}` : item.showroom_url)} target="_blank" rel="noopener noreferrer">
                             Showroom Repo
                           </a>
                         )}

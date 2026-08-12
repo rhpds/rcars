@@ -7,12 +7,11 @@ from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 from rcars.api.schemas import (
     StatusResponse, JobResponse, CatalogItemResponse, CatalogStatsResponse,
-    SimilarItemsResponse, InfraSearchResponse, FacetsResponse,
+    InfraSearchResponse, FacetsResponse,
     WorkloadMappingsResponse, UnmappedWorkloadsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
-from rcars.db.similarity import get_similar_items as db_get_similar_items
 
 router = APIRouter(prefix="/catalog")
 
@@ -230,30 +229,6 @@ async def infra_stats(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/{identifier}/similar",
-    summary="Find similar catalog items",
-    description="Returns catalog items with similar content based on vector embedding similarity.",
-    response_model=SimilarItemsResponse,
-    responses={404: {"description": "Catalog item not found"}},
-)
-async def get_similar_items(
-    identifier: str,
-    request: Request,
-    user: str = Depends(require_auth),
-    min_score: float = Query(0.85, ge=0.0, le=1.0),
-    relationship_type: str = Query("overlap", description="overlap, related, or all"),
-):
-    db = request.app.state.db
-    item = _resolve_item(identifier, db)
-    if not item:
-        raise HTTPException(status_code=404, detail="Catalog item not found")
-    content_id = item["content_id"]
-    similar = db_get_similar_items(db.pool, content_id, min_score=min_score, relationship_type=relationship_type)
-    return {"ci_name": item.get("ci_name", identifier), "content_id": content_id,
-            "similar": similar, "count": len(similar)}
-
-
-@router.get(
     "/{identifier}",
     summary="Get catalog item details",
     description=(
@@ -286,7 +261,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
                 "provisions": rhdp.get("provisions", 0),
                 "unique_users": rhdp.get("unique_users", 0),
                 "requests": rhdp.get("requests", 0),
-                "completions": rhdp.get("completions", 0),
+                "experiences": rhdp.get("experiences", 0),
                 "pipeline_touched": rhdp.get("pipeline_touched", 0),
                 "closed_amount": rhdp.get("closed_amount", 0),
                 "total_cost": rhdp.get("total_cost", 0),

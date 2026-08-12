@@ -11,7 +11,7 @@ from rcars.config import Settings, call_llm
 logger = structlog.get_logger(component="chat")
 
 _SCAFFOLDS = {
-    "recommend": lambda f: (f"Found {f.get('green_count', 0)} strong matches out of "
+    "recommend": lambda f: (f"Found {f.get('green_count', 0)} best-fit results out of "
                             f"{f.get('result_count', 0)} candidates"
                             + (" within your prior results." if f.get("scoped") else ".")),
     "overlap": lambda f: (

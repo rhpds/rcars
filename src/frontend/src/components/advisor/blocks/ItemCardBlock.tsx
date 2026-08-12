@@ -8,7 +8,7 @@ interface ItemCardBlockProps {
 
 interface ItemNeighbor {
   display_name: string
-  similarity_pct: number
+  verdict?: string | null
 }
 
 function catalogUrl(ciName: string, namespace: string): string {
@@ -118,11 +118,11 @@ export function ItemCardBlock({ block }: ItemCardBlockProps) {
       {neighbors.length > 0 && (
         <div style={{ marginBottom: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
-            Similar items
+            Overlapping items
           </div>
           {neighbors.map((n, i) => (
             <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
-              {n.display_name} ({n.similarity_pct}%)
+              {n.display_name}{n.verdict ? ` — ${n.verdict}` : ''}
             </div>
           ))}
         </div>

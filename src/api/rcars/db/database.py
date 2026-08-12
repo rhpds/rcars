@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS performance_channels (
     requests                INTEGER DEFAULT 0,
     page_views              INTEGER DEFAULT 0,
     downloads               INTEGER DEFAULT 0,
-    completions             INTEGER DEFAULT 0,
+    experiences             INTEGER DEFAULT 0,
 
     pipeline_touched        NUMERIC,
     closed_amount           NUMERIC,
@@ -227,23 +227,45 @@ CREATE TABLE IF NOT EXISTS retirement_workflow (
 CREATE INDEX IF NOT EXISTS idx_rw_status ON retirement_workflow(status);
 
 -- ═══════════════════════════════════════════════════════════════════
--- content_similarity — re-keyed from ci_name_a/b to content_id_a/b
+-- nonprod_usage — usage metrics for items without a prod stage
 -- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS content_similarity (
+CREATE TABLE IF NOT EXISTS nonprod_usage (
+    content_id        TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    catalog_base_name TEXT NOT NULL,
+    provisions        INTEGER DEFAULT 0,
+    requests          INTEGER DEFAULT 0,
+    experiences       INTEGER DEFAULT 0,
+    unique_users      INTEGER DEFAULT 0,
+    success_ratio     REAL DEFAULT 0,
+    failure_ratio     REAL DEFAULT 0,
+    first_provision   TEXT,
+    last_provision    TEXT,
+    windowed_metrics  JSONB DEFAULT '{}'::jsonb,
+    ignored_until     DATE,
+    synced_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_nu_base_name ON nonprod_usage(catalog_base_name);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- overlap_candidates — deterministic structured matching
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS overlap_candidates (
     id SERIAL PRIMARY KEY,
     content_id_a TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
     content_id_b TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
-    similarity_score REAL NOT NULL,
-    relationship_type TEXT NOT NULL DEFAULT 'overlap',
+    shared_products INTEGER NOT NULL DEFAULT 0,
+    shared_topics INTEGER NOT NULL DEFAULT 0,
+    content_hash_a TEXT,
+    content_hash_b TEXT,
+    llm_assessment JSONB,
+    assessed_at TIMESTAMPTZ,
     computed_at TIMESTAMPTZ DEFAULT NOW(),
     UNIQUE(content_id_a, content_id_b)
 );
-
-CREATE INDEX IF NOT EXISTS idx_content_similarity_a ON content_similarity(content_id_a);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_b ON content_similarity(content_id_b);
-CREATE INDEX IF NOT EXISTS idx_content_similarity_score ON content_similarity(similarity_score DESC);
-ALTER TABLE content_similarity ADD COLUMN IF NOT EXISTS relationship_type TEXT NOT NULL DEFAULT 'overlap';
-CREATE INDEX IF NOT EXISTS idx_content_similarity_reltype ON content_similarity(relationship_type);
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_a ON overlap_candidates(content_id_a);
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_b ON overlap_candidates(content_id_b);
+CREATE INDEX IF NOT EXISTS idx_overlap_candidates_assessed ON overlap_candidates(assessed_at);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- babylon_item_workloads — re-keyed from ci_name to content_id
@@ -428,6 +450,10 @@ CREATE TABLE IF NOT EXISTS role_assignments (
     UNIQUE(type, value)
 );
 
+-- Rename completions → experiences — RHDPCD-74
+ALTER TABLE performance_channels ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
+ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
+
 """
 
 
@@ -487,7 +513,8 @@ class Database:
 
         tables = [
             "retirement_workflow",
-            "content_similarity",
+            "nonprod_usage",
+            "overlap_candidates",
             "performance_scores", "performance_channels",
             "embeddings", "enrichment_tags", "showroom_analysis",
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
@@ -2056,13 +2083,13 @@ class Database:
         sql = """
             INSERT INTO performance_channels (
                 content_id, channel,
-                provisions, unique_users, requests, completions,
+                provisions, unique_users, requests, experiences,
                 pipeline_touched, closed_amount, total_cost, avg_cost_per_provision,
                 success_ratio, first_activity, last_activity,
                 windowed_metrics, synced_at
             ) VALUES (
                 %(content_id)s, %(channel)s,
-                %(provisions)s, %(unique_users)s, %(requests)s, %(completions)s,
+                %(provisions)s, %(unique_users)s, %(requests)s, %(experiences)s,
                 %(pipeline_touched)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
                 %(success_ratio)s, %(first_activity)s, %(last_activity)s,
                 %(windowed_metrics)s::jsonb, NOW()
@@ -2071,7 +2098,7 @@ class Database:
                 provisions = EXCLUDED.provisions,
                 unique_users = EXCLUDED.unique_users,
                 requests = EXCLUDED.requests,
-                completions = EXCLUDED.completions,
+                experiences = EXCLUDED.experiences,
                 pipeline_touched = EXCLUDED.pipeline_touched,
                 closed_amount = EXCLUDED.closed_amount,
                 total_cost = EXCLUDED.total_cost,
@@ -2154,15 +2181,16 @@ class Database:
             conn.commit()
             return cur.rowcount > 0
 
-    def get_catalog_base_names(self, include_retired: bool = False) -> dict[str, str]:
+    def get_catalog_base_names(self, include_retired: bool = False, require_prod_stage: bool = False) -> dict[str, str]:
         retired_filter = "" if include_retired else "AND ce.retired_at IS NULL"
+        prod_filter = "AND bi.stage = 'prod'" if require_prod_stage else ""
         sql = f"""
             SELECT DISTINCT ON (base)
                 substring(bi.ci_name FROM '^(.+)\\.[^.]+$') AS base,
                 ce.display_name
             FROM babylon_items bi
             JOIN content_entities ce ON ce.content_id = bi.content_id
-            WHERE 1=1 {retired_filter}
+            WHERE 1=1 {retired_filter} {prod_filter}
             ORDER BY base, CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END
         """
         with self._pool.connection() as conn:
@@ -2331,7 +2359,7 @@ class Database:
                    ps.channel_scores, ps.ignored_until,
                    ce.display_name, ce.content_type,
                    bi.ci_name, bi.category, bi.stage, bi.is_prod,
-                   pc.provisions, pc.unique_users, pc.requests, pc.completions,
+                   pc.provisions, pc.unique_users, pc.requests, pc.experiences,
                    pc.pipeline_touched, pc.closed_amount, pc.total_cost,
                    pc.avg_cost_per_provision, pc.success_ratio,
                    pc.first_activity, pc.last_activity,
@@ -2474,6 +2502,173 @@ class Database:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql)
                 return {row["base"] for row in cur.fetchall()}
+
+    # ── Non-Prod Usage ──
+
+    def get_nonprod_base_names(self) -> dict[str, str]:
+        """Return {base_name: content_id} for items with no active prod-stage variant."""
+        sql = """
+            WITH base_stages AS (
+                SELECT
+                    substring(bi.ci_name FROM '^(.+)\\.[^.]+$') AS base_name,
+                    bi.content_id,
+                    bi.stage,
+                    ce.retired_at,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY substring(bi.ci_name FROM '^(.+)\\.[^.]+$')
+                        ORDER BY CASE bi.stage WHEN 'event' THEN 0 WHEN 'dev' THEN 1 WHEN 'test' THEN 2 ELSE 3 END
+                    ) AS rn
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id
+                WHERE ce.retired_at IS NULL
+            )
+            SELECT base_name, content_id
+            FROM base_stages
+            WHERE rn = 1
+              AND base_name NOT IN (
+                  SELECT DISTINCT substring(bi2.ci_name FROM '^(.+)\\.[^.]+$')
+                  FROM babylon_items bi2
+                  JOIN content_entities ce2 ON ce2.content_id = bi2.content_id
+                  WHERE bi2.stage = 'prod' AND ce2.retired_at IS NULL
+              )
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
+                return {r["base_name"]: r["content_id"] for r in cur.fetchall() if r["base_name"]}
+
+    def upsert_nonprod_usage(self, rows: list[dict]) -> int:
+        """Upsert rows into nonprod_usage. Returns count of rows upserted."""
+        if not rows:
+            return 0
+        sql = """
+            INSERT INTO nonprod_usage (
+                content_id, catalog_base_name,
+                provisions, requests, experiences, unique_users,
+                success_ratio, failure_ratio,
+                first_provision, last_provision,
+                windowed_metrics, synced_at
+            ) VALUES (
+                %(content_id)s, %(catalog_base_name)s,
+                %(provisions)s, %(requests)s, %(experiences)s, %(unique_users)s,
+                %(success_ratio)s, %(failure_ratio)s,
+                %(first_provision)s, %(last_provision)s,
+                %(windowed_metrics)s::jsonb, NOW()
+            )
+            ON CONFLICT (content_id) DO UPDATE SET
+                catalog_base_name = EXCLUDED.catalog_base_name,
+                provisions = EXCLUDED.provisions,
+                requests = EXCLUDED.requests,
+                experiences = EXCLUDED.experiences,
+                unique_users = EXCLUDED.unique_users,
+                success_ratio = EXCLUDED.success_ratio,
+                failure_ratio = EXCLUDED.failure_ratio,
+                first_provision = EXCLUDED.first_provision,
+                last_provision = EXCLUDED.last_provision,
+                windowed_metrics = EXCLUDED.windowed_metrics,
+                synced_at = NOW()
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                for row in rows:
+                    cur.execute(sql, row)
+            conn.commit()
+        return len(rows)
+
+    def list_nonprod_items(
+        self,
+        sort_by: str = "provisions",
+        sort_dir: str = "desc",
+        content_type: str | None = None,
+        stage: str | None = None,
+        search: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        """List non-prod items with joined entity/babylon data."""
+        conditions = []
+        params: dict = {}
+
+        if content_type:
+            conditions.append("ce.content_type = %(content_type)s")
+            params["content_type"] = content_type
+        if stage:
+            conditions.append("bi.stage = %(stage)s")
+            params["stage"] = stage
+        if search:
+            conditions.append("(ce.display_name ILIKE %(search)s OR nu.catalog_base_name ILIKE %(search)s)")
+            params["search"] = f"%{search}%"
+        if status == "muted":
+            conditions.append("nu.ignored_until IS NOT NULL AND nu.ignored_until >= CURRENT_DATE")
+        elif status == "active":
+            conditions.append("(nu.ignored_until IS NULL OR nu.ignored_until < CURRENT_DATE)")
+
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
+
+        allowed_sorts = {"provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+        if sort_by == "display_name":
+            order_expr = "ce.display_name"
+        elif sort_by in allowed_sorts:
+            order_expr = f"nu.{sort_by}"
+        else:
+            order_expr = "nu.provisions"
+
+        sql = f"""
+            SELECT nu.content_id, nu.catalog_base_name,
+                   nu.provisions, nu.requests, nu.experiences, nu.unique_users,
+                   nu.success_ratio, nu.failure_ratio,
+                   nu.first_provision, nu.last_provision,
+                   nu.windowed_metrics, nu.ignored_until, nu.synced_at,
+                   ce.display_name, ce.content_type,
+                   bi.stage, bi.catalog_namespace, bi.ci_name,
+                   CASE WHEN rw.step_approved_at IS NOT NULL THEN rw.status END AS workflow_status,
+                   rw.jira_key, rw.retirement_target_date
+            FROM nonprod_usage nu
+            JOIN content_entities ce ON ce.content_id = nu.content_id
+            LEFT JOIN babylon_items bi ON bi.content_id = nu.content_id
+            LEFT JOIN retirement_workflow rw ON rw.content_id = nu.content_id
+            {where}
+            ORDER BY {order_expr} {direction} NULLS LAST
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    def set_nonprod_ignored(self, content_id: str, until: str) -> bool:
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE nonprod_usage SET ignored_until = %s WHERE content_id = %s",
+                    (until, content_id),
+                )
+                ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+
+    def clear_nonprod_ignored(self, content_id: str) -> bool:
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE nonprod_usage SET ignored_until = NULL WHERE content_id = %s",
+                    (content_id,),
+                )
+                ok = cur.rowcount > 0
+            conn.commit()
+        return ok
+
+    def delete_orphan_nonprod_data(self, valid_content_ids: set[str]) -> int:
+        if not valid_content_ids:
+            return 0
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM nonprod_usage WHERE content_id != ALL(%s)",
+                    (list(valid_content_ids),),
+                )
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
 
     # ── Retirement Workflow ──
 

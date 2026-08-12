@@ -63,7 +63,7 @@ class OverlapArgs(BaseModel):
 
 class PerformanceArgs(BaseModel):
     item_refs: list[str] = Field(default_factory=list)
-    window: Literal["3m", "6m", "9m", "12m"] | None = "3m"
+    window: Literal["3m", "6m", "9m", "12m"] | None = "6m"
 
 
 class ItemFactsArgs(BaseModel):

@@ -298,13 +298,13 @@ export function AdvisorPage() {
                 <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check overlap</strong> — "What overlaps with LB2144?"
+                <strong style={{ color: 'var(--text-primary)' }}>Check overlap</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "Which of these performed best?" (after a search)
+                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the SAP HANA demo about?"
+                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
               </p>
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.

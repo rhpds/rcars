@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 import traceback
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
-from rcars.db.similarity import compute_content_similarity
+from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
+from rcars.services.overlap_assessment import batch_assess_overlaps
 import structlog
 
 from rcars.config import STAGE_PRIORITY
@@ -436,33 +438,51 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         log.warning("pipeline_api_keys_prune_failed", action="pipeline_step_failed",
                     step="prune_api_keys", error=str(exc))
 
-    # ── Step 6: Compute content similarity ──
-    similarity_result = {"status": "skipped"}
+    # ── Step 6: Overlap detection (candidates + assessment) ──
+    overlap_result = {"status": "skipped"}
     try:
         await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline:similarity", status="running",
-                               message="Step 6: Computing content similarity...")
+                               phase="pipeline:overlap", status="running",
+                               message="Step 6: Generating overlap candidates...")
         import asyncio
-        similarity_result = await asyncio.to_thread(
-            compute_content_similarity,
+
+        # 6a: Prune stale pairs
+        pruned = await asyncio.to_thread(prune_stale_candidates, wctx.db.pool)
+
+        # 6b: Generate candidates
+        gen_result = await asyncio.to_thread(
+            generate_overlap_candidates,
             wctx.db.pool,
-            threshold=wctx.settings.similarity_storage_threshold,
+            min_products=wctx.settings.overlap_min_products,
+            min_topics=wctx.settings.overlap_min_topics,
         )
-        similarity_result["status"] = "complete"
+
+        # 6c: Assess unassessed/stale candidates
+        assess_result = await asyncio.to_thread(
+            batch_assess_overlaps, wctx.db.pool, wctx.settings,
+        )
+
+        overlap_result = {
+            "status": "complete",
+            "pruned": pruned,
+            **gen_result,
+            **assess_result,
+        }
         await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline:similarity", status="complete",
-                               message=f"Step 6 complete: {similarity_result.get('pairs_stored', 0)} pairs stored")
-        log.info("pipeline_similarity_complete", action="pipeline_step_complete",
-                 step="similarity", **similarity_result)
+                               phase="pipeline:overlap", status="complete",
+                               message=f"Step 6 complete: {gen_result['total_candidates']} candidates, "
+                                       f"{assess_result['assessed']} assessed, {pruned} pruned")
+        log.info("pipeline_overlap_complete", action="pipeline_step_complete",
+                 step="overlap", **overlap_result)
     except Exception as exc:
-        msg = f"Step 6 failed (content similarity): {exc}"
+        msg = f"Step 6 failed (overlap detection): {exc}"
         warnings.append(msg)
-        log.error("pipeline_similarity_failed", action="pipeline_step_failed", step="similarity",
+        log.error("pipeline_overlap_failed", action="pipeline_step_failed", step="overlap",
                   error=str(exc), traceback=traceback.format_exc())
-        similarity_result = {"status": "error", "error": str(exc)}
+        overlap_result = {"status": "error", "error": str(exc)}
         await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline:similarity", status="failed",
-                               message="Step 6 failed: Content similarity computation failed (non-fatal)")
+                               phase="pipeline:overlap", status="failed",
+                               message="Step 6 failed: Overlap detection failed (non-fatal)")
 
     # Complete pipeline
     result = {
@@ -472,7 +492,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "workload_scan": workload_scan_result,
         "sandbox_summary": sandbox_summary_result,
         "reporting_sync": reporting_result,
-        "similarity": similarity_result,
+        "overlap": overlap_result,
         "warnings": warnings,
     }
 

@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
-from rcars.api.middleware.auth import require_admin, invalidate_role_assignments_cache
+from rcars.api.middleware.auth import require_admin, require_curator, invalidate_role_assignments_cache
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
-    OverlapItemsResponse, ScheduleResponse, LlmProviderResponse,
+    ScheduleResponse, LlmProviderResponse,
     ReportingStatusResponse, RoleAssignmentsResponse, AddRoleAssignmentRequest,
 )
 from rcars.config import Settings
-from rcars.db.similarity import compute_content_similarity, get_overlap_items, get_similarity_stats
 
 logger = structlog.get_logger()
 
@@ -259,79 +258,6 @@ async def scan_workloads(request: Request, user: str = Depends(require_admin)):
     logger.info("workload_scan_enqueued", component="rcars", action="scan_workloads",
                 job_id=job_id, created_by=user)
     return {"job_id": job_id}
-
-
-@router.get(
-    "/overlap",
-    summary="Content overlap report — item-centric, paginated",
-    description=(
-        "Returns catalog items grouped by their maximum similarity score, "
-        "with neighbor lists for each item. Supports filtering by score, stage, "
-        "content type, source, and search."
-    ),
-    response_model=OverlapItemsResponse,
-)
-async def overlap_report(
-    request: Request,
-    user: str = Depends(require_admin),
-    min_score: float = Query(0.85, ge=0.0, le=1.0),
-    stage: str | None = Query(None, description="Filter by stage"),
-    content_type: str | None = Query(None, description="Filter by content type"),
-    source: str | None = Query(None, description="Filter by source"),
-    search: str | None = Query(None, description="Search by display name"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=1, le=500),
-    relationship_type: str = Query("overlap", description="overlap or related"),
-):
-    db = request.app.state.db
-    settings = Settings()
-    result = get_overlap_items(
-        db.pool,
-        min_score=min_score,
-        stage=stage,
-        content_type=content_type,
-        source=source,
-        search=search,
-        page=page,
-        page_size=page_size,
-        relationship_type=relationship_type,
-        near_dup_threshold=settings.similarity_high_threshold,
-        display_threshold=settings.similarity_threshold,
-    )
-    stats = get_similarity_stats(
-        db.pool,
-        stage=stage,
-        relationship_type=relationship_type,
-        near_dup_threshold=settings.similarity_high_threshold,
-        display_threshold=settings.similarity_threshold,
-        storage_threshold=settings.similarity_storage_threshold,
-    )
-    return {
-        **result,
-        "stats": stats,
-        "thresholds": {
-            "display": settings.similarity_threshold,
-            "near_duplicate": settings.similarity_high_threshold,
-        },
-    }
-
-
-@router.post(
-    "/compute-similarity",
-    summary="Compute content similarity",
-    description="Computes pairwise content embedding similarity across all stages (or filter to one stage). Admin-only.",
-)
-async def compute_similarity(
-    request: Request,
-    user: str = Depends(require_admin),
-    threshold: float = Query(0.75, ge=0.0, le=1.0),
-    stage: str | None = Query(None, description="Stage filter (optional, omit for all stages)"),
-):
-    db = request.app.state.db
-    logger.info("compute_similarity_started", component="rcars", action="compute_similarity",
-                threshold=threshold, stage=stage, triggered_by=user)
-    result = compute_content_similarity(db.pool, threshold=threshold, stage=stage)
-    return result
 
 
 @router.get(

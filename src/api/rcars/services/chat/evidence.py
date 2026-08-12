@@ -15,20 +15,24 @@ MAX_NEIGHBORS = 15
 def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
     if not anchor_ids:
         return []
+    from psycopg.rows import dict_row
     with db.pool.connection() as conn:
+        conn.row_factory = dict_row
         sim_rows = conn.execute(
-            """SELECT cs.content_id_a, cs.content_id_b, cs.similarity_score, cs.relationship_type,
+            """SELECT oc.content_id_a, oc.content_id_b,
+                      oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.stage, sa.products_json,
                       (SELECT pc.provisions FROM performance_channels pc
                        WHERE pc.content_id = ce.content_id AND pc.channel = 'rhdp') AS provisions
-               FROM content_similarity cs
+               FROM overlap_candidates oc
                JOIN content_entities ce ON ce.content_id =
-                    CASE WHEN cs.content_id_a = ANY(%(ids)s) THEN cs.content_id_b
-                         ELSE cs.content_id_a END
+                    CASE WHEN oc.content_id_a = ANY(%(ids)s) THEN oc.content_id_b
+                         ELSE oc.content_id_a END
                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
                LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
-               WHERE cs.content_id_a = ANY(%(ids)s) OR cs.content_id_b = ANY(%(ids)s)
-               ORDER BY cs.similarity_score DESC
+               WHERE (oc.content_id_a = ANY(%(ids)s) OR oc.content_id_b = ANY(%(ids)s))
+                 AND NOT (oc.content_id_a = ANY(%(ids)s) AND oc.content_id_b = ANY(%(ids)s))
+               ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT %(cap)s""",
             {"ids": anchor_ids, "cap": MAX_NEIGHBORS}).fetchall()
 
@@ -55,9 +59,12 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
         if isinstance(products, str):
             products = json.loads(products)
         products = (products or [])[:3]
+        assessment = r["llm_assessment"] or {}
         pack.append({"anchor": anchor, "name": r["display_name"], "stage": r["stage"],
-                     "similarity_pct": round(r["similarity_score"] * 100),
-                     "relationship": r["relationship_type"],
+                     "shared_products": r["shared_products"],
+                     "shared_topics": r["shared_topics"],
+                     "verdict": assessment.get("verdict"),
+                     "relationship": "overlap",
                      "products": products,
                      "provisions": r["provisions"]})
     for r in wl_rows:
