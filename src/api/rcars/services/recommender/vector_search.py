@@ -30,7 +30,7 @@ STOP_WORDS = frozenset({
 EMBEDDING_STOP_WORDS = frozenset({
     "a", "an", "the", "is", "it", "to", "for", "of", "and", "or", "in", "on",
     "with", "that", "this", "be", "are", "was", "i", "we", "my", "our", "me",
-    "do", "does", "not", "no", "but", "have", "has", "had", "can", "could",
+    "do", "does", "but", "have", "has", "had", "can", "could",
     "should", "would", "will", "what", "which", "how", "about",
     "any", "some", "more", "also", "just", "very", "too", "so", "than",
     "something", "anything", "there",
