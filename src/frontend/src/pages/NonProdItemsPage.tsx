@@ -39,8 +39,10 @@ export function NonProdItemsPage() {
   const [actionError, setActionError] = useState<string | null>(null)
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestRef = useRef(0)
 
   const loadData = useCallback(async () => {
+    const reqId = ++requestRef.current
     setLoading(true)
     try {
       const data = await api.getNonprodItems({
@@ -49,9 +51,12 @@ export function NonProdItemsPage() {
         window: window_,
         status: statusFilter !== 'all' ? statusFilter : undefined,
       })
+      if (reqId !== requestRef.current) return
       setAllItems(data.items)
       setSyncedAt(data.synced_at)
-    } finally { setLoading(false) }
+    } finally {
+      if (reqId === requestRef.current) setLoading(false)
+    }
   }, [sortBy, sortDir, search, window_, statusFilter])
 
   useEffect(() => { loadData() }, [loadData])

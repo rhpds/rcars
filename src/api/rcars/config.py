@@ -131,6 +131,8 @@ class Settings(BaseSettings):
             raise ValueError(f"overlap_min_products must be >= 0, got {self.overlap_min_products}")
         if self.overlap_min_topics < 0:
             raise ValueError(f"overlap_min_topics must be >= 0, got {self.overlap_min_topics}")
+        if self.overlap_min_products == 0 and self.overlap_min_topics == 0:
+            raise ValueError("at least one overlap threshold must be greater than 0")
         if self.workload_scan_interval_days < 1:
             raise ValueError(f"workload_scan_interval_days must be positive, got {self.workload_scan_interval_days}")
 

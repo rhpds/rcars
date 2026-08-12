@@ -205,11 +205,13 @@ def get_overlap_items(
         """
         item_rows = conn.execute(items_sql, params).fetchall()
 
-        # Step 2: For each item, fetch its neighbors from matching candidates
-        items = []
-        for ir in item_rows:
-            cid = ir["content_id"]
-            neighbor_sql = f"""
+        # Step 2: Batch-fetch all neighbors for page items in one query
+        page_cids = [ir["content_id"] for ir in item_rows]
+        neighbors_by_item: dict[str, list] = {cid: [] for cid in page_cids}
+
+        if page_cids:
+            batch_params = {**params, "cids": page_cids}
+            batch_sql = f"""
                 SELECT oc.content_id_a, oc.content_id_b,
                        oc.shared_products, oc.shared_topics,
                        oc.llm_assessment, oc.assessed_at,
@@ -217,21 +219,16 @@ def get_overlap_items(
                        bi.ci_name, bi.category, bi.stage
                 FROM overlap_candidates oc
                 JOIN content_entities ce ON ce.content_id =
-                    CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
+                    CASE WHEN oc.content_id_a = ANY(%(cids)s) THEN oc.content_id_b
                          ELSE oc.content_id_a END
                 LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
-                WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
+                WHERE (oc.content_id_a = ANY(%(cids)s) OR oc.content_id_b = ANY(%(cids)s))
                 {where}
                 ORDER BY oc.shared_products DESC, oc.shared_topics DESC
             """
-            n_params = {**params, "cid": cid}
-            n_rows = conn.execute(neighbor_sql, n_params).fetchall()
-
-            neighbors = []
-            for nr in n_rows:
+            for nr in conn.execute(batch_sql, batch_params).fetchall():
                 assessment = nr["llm_assessment"] or {}
-                neighbors.append({
-                    "content_id": nr["content_id_a"] if nr["content_id_a"] != cid else nr["content_id_b"],
+                row = {
                     "display_name": nr["display_name"],
                     "content_type": nr["content_type"],
                     "source": nr["source"],
@@ -243,8 +240,15 @@ def get_overlap_items(
                     "verdict": assessment.get("verdict"),
                     "recommendation": assessment.get("recommendation"),
                     "assessed_at": str(nr["assessed_at"]) if nr["assessed_at"] else None,
-                })
+                }
+                for anchor in page_cids:
+                    if nr["content_id_a"] == anchor or nr["content_id_b"] == anchor:
+                        other = nr["content_id_b"] if nr["content_id_a"] == anchor else nr["content_id_a"]
+                        neighbors_by_item[anchor].append({**row, "content_id": other})
 
+        items = []
+        for ir in item_rows:
+            neighbors = neighbors_by_item[ir["content_id"]]
             items.append({
                 **dict(ir),
                 "neighbor_count": len(neighbors),
