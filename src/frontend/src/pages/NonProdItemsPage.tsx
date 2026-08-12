@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, NonProdItem } from '../services/api'
-import { WorkflowDrawer } from '../components/performance/WorkflowDrawer'
+import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '6m' | '12m'
@@ -35,7 +35,7 @@ export function NonProdItemsPage() {
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [drawerItem, setDrawerItem] = useState<NonProdItem | null>(null)
+  const [drawerItem, setDrawerItem] = useState<WorkflowItem | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -436,7 +436,7 @@ export function NonProdItemsPage() {
                                 </button>
                               )}
                               <button className="ret-action-btn ret-action-btn--primary"
-                                onClick={(e) => { e.stopPropagation(); setDrawerItem(item as any) }}>
+                                onClick={(e) => { e.stopPropagation(); setDrawerItem(item) }}>
                                 Retirement Workflow
                               </button>
                             </div>

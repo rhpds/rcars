@@ -1,8 +1,27 @@
 import { useState, useEffect, useRef } from 'react'
-import { api, PerformanceItem } from '../../services/api'
+import { api } from '../../services/api'
 import type { RetirementWorkflow } from '../../services/api'
 import { useAuth } from '../../hooks/useAuth'
 import { fmt, num, scoreColor } from './ScoreBreakdownPopover'
+
+export interface WorkflowItem {
+  catalog_base_name: string
+  display_name: string
+  provisions: number
+  unique_users: number
+  completions: number
+  success_ratio: number
+  failure_ratio: number
+  performance_score?: number
+  pipeline_touched?: number
+  closed_amount?: number
+  total_cost?: number
+  avg_cost_per_provision?: number
+  first_activity?: string | null
+  last_activity?: string | null
+  owners?: Array<{ name: string; email: string }>
+  stages?: Array<{ stage: string; ci_name: string; catalog_url: string }>
+}
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -158,7 +177,7 @@ function StepperStep({
   )
 }
 
-export function WorkflowDrawer({ item, onClose, onChanged }: { item: PerformanceItem; onClose: () => void; onChanged: () => void }) {
+export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowItem; onClose: () => void; onChanged: () => void }) {
   const { isAdmin } = useAuth()
   const [drawerWorkflow, setDrawerWorkflow] = useState<RetirementWorkflow | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
@@ -287,10 +306,12 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: Performance
     const ownerNames = owners.map(o => o.name || o.email).join(', ') || 'Content Owner'
     const reason = drawerWorkflow?.approval_reason || approvalReason || 'See RCARS retirement analysis'
     const replacement = drawerWorkflow?.replacement_name || replacementName
-    const score = item.performance_score
     const provs = num(item.provisions).toLocaleString()
-    const cost = fmt(item.total_cost)
-    const touched = fmt(item.pipeline_touched)
+
+    const metrics = [`- Provisions: ${provs}`]
+    if (item.performance_score != null) metrics.push(`- Performance Score: ${item.performance_score}`)
+    if (item.total_cost != null) metrics.push(`- Total Cost: ${fmt(item.total_cost)}`)
+    if (item.pipeline_touched != null) metrics.push(`- Pipeline Touched: ${fmt(item.pipeline_touched)}`)
 
     const template = `Hi ${ownerNames},
 
@@ -300,10 +321,7 @@ Reason:
 ${reason.split('\n').filter(l => l.trim()).map(l => `- ${l.trim()}`).join('\n')}
 
 Key metrics (last 12 months):
-- Performance Score: ${score}
-- Provisions: ${provs}
-- Total Cost: ${cost}
-- Pipeline Touched: ${touched}
+${metrics.join('\n')}
 ${replacement ? `\nReplacement: ${replacement}` : ''}
 ${drawerWorkflow?.jira_key ? `\nJira: https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}` : ''}
 If you have questions or concerns about this retirement, please reach out to Nate Stephany (nstephan@redhat.com).
@@ -340,12 +358,14 @@ RHDP Content Team`
               {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
               <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
               <div className="ret-data-grid">
+                {item.performance_score != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Score</div>
                   <div className="ret-data-value" style={{ color: scoreColor(item.performance_score) }}>
                     {item.performance_score}
                   </div>
                 </div>
+                )}
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Provisions</div>
                   <div className="ret-data-value">{item.provisions.toLocaleString()}</div>
@@ -358,22 +378,30 @@ RHDP Content Team`
                   <div className="ret-data-label">Completions</div>
                   <div className="ret-data-value">{item.completions.toLocaleString()}</div>
                 </div>
+                {item.pipeline_touched != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Touched</div>
                   <div className="ret-data-value">{fmt(item.pipeline_touched)}</div>
                 </div>
+                )}
+                {item.closed_amount != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Closed</div>
                   <div className="ret-data-value ret-data-value--green">{fmt(item.closed_amount)}</div>
                 </div>
+                )}
+                {item.total_cost != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Total Cost</div>
                   <div className="ret-data-value">{fmt(item.total_cost)}</div>
                 </div>
+                )}
+                {item.avg_cost_per_provision != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Cost / Provision</div>
                   <div className="ret-data-value ret-data-value--small">${num(item.avg_cost_per_provision).toFixed(2)}</div>
                 </div>
+                )}
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Success Rate</div>
                   <div className="ret-data-value ret-data-value--green ret-data-value--small">{(num(item.success_ratio) * 100).toFixed(1)}%</div>
@@ -384,14 +412,19 @@ RHDP Content Team`
                     {(num(item.failure_ratio) * 100).toFixed(1)}%
                   </div>
                 </div>
+                {'first_activity' in item && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">First Activity</div>
                   <div className="ret-data-value ret-data-value--small">{item.first_activity || 'N/A'}</div>
                 </div>
+                )}
+                {'last_activity' in item && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Last Activity</div>
                   <div className="ret-data-value ret-data-value--small">{item.last_activity || 'N/A'}</div>
                 </div>
+                )}
+                {item.stages && (
                 <div className="ret-data-cell ret-data-cell--wide">
                   <div className="ret-data-label">Environments</div>
                   <div style={{ marginTop: '4px' }}>
@@ -405,6 +438,7 @@ RHDP Content Team`
                     {item.stages.length === 0 && <span className="ca-color-muted">none</span>}
                   </div>
                 </div>
+                )}
               </div>
               </div>
 
