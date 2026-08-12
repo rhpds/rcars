@@ -5,7 +5,7 @@
 **Status:** Design
 **Author:** M. Rudisill
 **Depends on:** RHDPCD-359 (Generalized Content Model — vocabulary contract sketched; not delivered)
-**Related:** [RHDPCD-28 / Portfolio Architecture Ingest](2026-08-06-rcars-oppsa-injestion.md) (consumer; does not own this work)
+**Related:** [RHDPCD-28 / Portfolio Architecture Ingest](2026-08-06-portfolio-architecture-ingest-design.md) (consumer; does not own this work)
 
 ## Problem
 
