@@ -386,7 +386,7 @@ export interface ScoreBreakdown {
 export interface MarketingMetrics {
   provisions: number
   unique_users: number
-  completions: number
+  experiences: number
   page_views: number
   score: number | null
 }
@@ -394,7 +394,7 @@ export interface MarketingMetrics {
 export interface SalesMetrics {
   provisions: number
   unique_users: number
-  completions: number
+  experiences: number
   page_views: number
   pipeline_touched: number
   closed_amount: number
@@ -415,7 +415,7 @@ export interface PerformanceItem {
   marketing?: MarketingMetrics | null
   sales?: SalesMetrics | null
   provisions: number
-  completions: number
+  experiences: number
   requests: number
   unique_users: number
   success_ratio: number
@@ -456,7 +456,7 @@ export interface NonProdItem {
   ci_name: string | null
   provisions: number
   requests: number
-  completions: number
+  experiences: number
   unique_users: number
   success_ratio: number
   failure_ratio: number

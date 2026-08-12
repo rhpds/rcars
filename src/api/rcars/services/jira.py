@@ -119,9 +119,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     if score is None:
         score = snapshot.get("retirement_score", "N/A")
     provisions = snapshot.get("provisions", "N/A")
-    completions = snapshot.get("completions")
-    if completions is None:
-        completions = snapshot.get("experiences", "N/A")
+    experiences = snapshot.get("experiences", "N/A")
     unique_users = snapshot.get("unique_users", "N/A")
     touched = snapshot.get("pipeline_touched")
     if touched is None:
@@ -170,7 +168,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         f"||Metric||Value||\n"
         f"|Performance Score|{score}|\n"
         f"|Provisions|{provisions}|\n"
-        f"|Completions|{completions}|\n"
+        f"|Experiences|{experiences}|\n"
         f"|Unique Users|{unique_users}|\n"
         f"|Pipeline Touched|{fmt_dollar(touched)}|\n"
         f"|Closed Amount|{fmt_dollar(closed)}|\n"

@@ -261,7 +261,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
                 "provisions": rhdp.get("provisions", 0),
                 "unique_users": rhdp.get("unique_users", 0),
                 "requests": rhdp.get("requests", 0),
-                "completions": rhdp.get("completions", 0),
+                "experiences": rhdp.get("experiences", 0),
                 "pipeline_touched": rhdp.get("pipeline_touched", 0),
                 "closed_amount": rhdp.get("closed_amount", 0),
                 "total_cost": rhdp.get("total_cost", 0),

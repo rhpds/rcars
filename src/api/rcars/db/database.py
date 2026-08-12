@@ -162,7 +162,7 @@ CREATE TABLE IF NOT EXISTS performance_channels (
     requests                INTEGER DEFAULT 0,
     page_views              INTEGER DEFAULT 0,
     downloads               INTEGER DEFAULT 0,
-    completions             INTEGER DEFAULT 0,
+    experiences             INTEGER DEFAULT 0,
 
     pipeline_touched        NUMERIC,
     closed_amount           NUMERIC,
@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS nonprod_usage (
     catalog_base_name TEXT NOT NULL,
     provisions        INTEGER DEFAULT 0,
     requests          INTEGER DEFAULT 0,
-    completions       INTEGER DEFAULT 0,
+    experiences       INTEGER DEFAULT 0,
     unique_users      INTEGER DEFAULT 0,
     success_ratio     REAL DEFAULT 0,
     failure_ratio     REAL DEFAULT 0,
@@ -2079,13 +2079,13 @@ class Database:
         sql = """
             INSERT INTO performance_channels (
                 content_id, channel,
-                provisions, unique_users, requests, completions,
+                provisions, unique_users, requests, experiences,
                 pipeline_touched, closed_amount, total_cost, avg_cost_per_provision,
                 success_ratio, first_activity, last_activity,
                 windowed_metrics, synced_at
             ) VALUES (
                 %(content_id)s, %(channel)s,
-                %(provisions)s, %(unique_users)s, %(requests)s, %(completions)s,
+                %(provisions)s, %(unique_users)s, %(requests)s, %(experiences)s,
                 %(pipeline_touched)s, %(closed_amount)s, %(total_cost)s, %(avg_cost_per_provision)s,
                 %(success_ratio)s, %(first_activity)s, %(last_activity)s,
                 %(windowed_metrics)s::jsonb, NOW()
@@ -2094,7 +2094,7 @@ class Database:
                 provisions = EXCLUDED.provisions,
                 unique_users = EXCLUDED.unique_users,
                 requests = EXCLUDED.requests,
-                completions = EXCLUDED.completions,
+                experiences = EXCLUDED.experiences,
                 pipeline_touched = EXCLUDED.pipeline_touched,
                 closed_amount = EXCLUDED.closed_amount,
                 total_cost = EXCLUDED.total_cost,
@@ -2355,7 +2355,7 @@ class Database:
                    ps.channel_scores, ps.ignored_until,
                    ce.display_name, ce.content_type,
                    bi.ci_name, bi.category, bi.stage, bi.is_prod,
-                   pc.provisions, pc.unique_users, pc.requests, pc.completions,
+                   pc.provisions, pc.unique_users, pc.requests, pc.experiences,
                    pc.pipeline_touched, pc.closed_amount, pc.total_cost,
                    pc.avg_cost_per_provision, pc.success_ratio,
                    pc.first_activity, pc.last_activity,
@@ -2540,13 +2540,13 @@ class Database:
         sql = """
             INSERT INTO nonprod_usage (
                 content_id, catalog_base_name,
-                provisions, requests, completions, unique_users,
+                provisions, requests, experiences, unique_users,
                 success_ratio, failure_ratio,
                 first_provision, last_provision,
                 windowed_metrics, synced_at
             ) VALUES (
                 %(content_id)s, %(catalog_base_name)s,
-                %(provisions)s, %(requests)s, %(completions)s, %(unique_users)s,
+                %(provisions)s, %(requests)s, %(experiences)s, %(unique_users)s,
                 %(success_ratio)s, %(failure_ratio)s,
                 %(first_provision)s, %(last_provision)s,
                 %(windowed_metrics)s::jsonb, NOW()
@@ -2555,7 +2555,7 @@ class Database:
                 catalog_base_name = EXCLUDED.catalog_base_name,
                 provisions = EXCLUDED.provisions,
                 requests = EXCLUDED.requests,
-                completions = EXCLUDED.completions,
+                experiences = EXCLUDED.experiences,
                 unique_users = EXCLUDED.unique_users,
                 success_ratio = EXCLUDED.success_ratio,
                 failure_ratio = EXCLUDED.failure_ratio,
@@ -2611,7 +2611,7 @@ class Database:
 
         sql = f"""
             SELECT nu.content_id, nu.catalog_base_name,
-                   nu.provisions, nu.requests, nu.completions, nu.unique_users,
+                   nu.provisions, nu.requests, nu.experiences, nu.unique_users,
                    nu.success_ratio, nu.failure_ratio,
                    nu.first_provision, nu.last_provision,
                    nu.windowed_metrics, nu.ignored_until, nu.synced_at,

@@ -121,7 +121,7 @@ async def performance_dashboard(
         w = wm.get(window, {})
         if w:
             item["provisions"] = w.get("provisions", 0)
-            item["completions"] = w.get("completions", 0)
+            item["experiences"] = w.get("experiences", 0)
             item["requests"] = w.get("requests", 0)
             item["unique_users"] = w.get("unique_users", 0)
             item["success_ratio"] = w.get("success_ratio", 0)
@@ -134,7 +134,7 @@ async def performance_dashboard(
             item["sales_impact"] = w.get("sales_impact", "low")
         else:
             item["provisions"] = 0
-            item["completions"] = 0
+            item["experiences"] = 0
             item["requests"] = 0
             item["unique_users"] = 0
             item["success_ratio"] = 0
@@ -217,7 +217,7 @@ async def performance_dashboard(
                 item["marketing"] = {
                     "provisions": mw.get("provisions", mrow.get("provisions", 0)),
                     "unique_users": mw.get("unique_users", mrow.get("unique_users", 0)),
-                    "completions": mw.get("completions", mrow.get("completions", 0)),
+                    "experiences": mw.get("experiences", mrow.get("experiences", 0)),
                     "page_views": mrow.get("page_views", 0),
                     "score": mw.get("performance_score"),
                 }
@@ -240,7 +240,7 @@ async def performance_dashboard(
                 item["sales"] = {
                     "provisions": sw.get("provisions", srow.get("provisions", 0)),
                     "unique_users": sw.get("unique_users", srow.get("unique_users", 0)),
-                    "completions": sw.get("completions", srow.get("completions", 0)),
+                    "experiences": sw.get("experiences", srow.get("experiences", 0)),
                     "page_views": srow.get("page_views", 0),
                     "pipeline_touched": float(sw.get("pipeline_touched") or 0),
                     "closed_amount": float(sw.get("closed_amount") or 0),
@@ -327,7 +327,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
                       else (channel_scores.get(ch.get("channel"), {}) or {}).get("score", 0)),
             "provisions": ch.get("provisions", 0),
             "unique_users": ch.get("unique_users", 0),
-            "completions": ch.get("completions", 0),
+            "experiences": ch.get("experiences", 0),
             "pipeline_touched": float(ch.get("pipeline_touched") or 0),
             "closed_amount": float(ch.get("closed_amount") or 0),
             "total_cost": float(ch.get("total_cost") or 0),
@@ -681,7 +681,7 @@ async def nonprod_dashboard(
         w = wm.get(window, {})
         item["provisions"] = w.get("provisions", 0)
         item["requests"] = w.get("requests", 0)
-        item["completions"] = w.get("completions", 0)
+        item["experiences"] = w.get("experiences", 0)
         item["unique_users"] = w.get("unique_users", 0)
         item["success_ratio"] = w.get("success_ratio", 0)
         item["failure_ratio"] = w.get("failure_ratio", 0)

@@ -736,7 +736,7 @@ def reporting_db_show(ctx, identifier: str):
         _print(f"  Performance score: {score['performance_score']}")
     if rhdp:
         _print(f"  Provisions:        {rhdp.get('provisions', 0)}")
-        _print(f"  Completions:       {rhdp.get('completions', 0)}")
+        _print(f"  Experiences:       {rhdp.get('experiences', 0)}")
         _print(f"  Unique users:      {rhdp.get('unique_users', 0)}")
         _print(f"  Pipeline touched:  ${float(rhdp.get('pipeline_touched') or 0):,.0f}")
         _print(f"  Closed amount:     ${float(rhdp.get('closed_amount') or 0):,.0f}")

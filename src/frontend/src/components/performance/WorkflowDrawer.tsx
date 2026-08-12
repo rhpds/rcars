@@ -9,7 +9,7 @@ export interface WorkflowItem {
   display_name: string
   provisions: number
   unique_users: number
-  completions: number
+  experiences: number
   success_ratio: number
   failure_ratio: number
   performance_score?: number
@@ -375,8 +375,8 @@ RHDP Content Team`
                   <div className="ret-data-value">{item.unique_users.toLocaleString()}</div>
                 </div>
                 <div className="ret-data-cell">
-                  <div className="ret-data-label">Completions</div>
-                  <div className="ret-data-value">{item.completions.toLocaleString()}</div>
+                  <div className="ret-data-label">Experiences</div>
+                  <div className="ret-data-value">{item.experiences.toLocaleString()}</div>
                 </div>
                 {item.pipeline_touched != null && (
                 <div className="ret-data-cell">
@@ -723,7 +723,7 @@ RHDP Content Team`
                         ['score', 'Score', item.performance_score],
                         ['provisions', 'Provisions', item.provisions],
                         ['unique_users', 'Users', item.unique_users],
-                        ['completions', 'Completions', item.completions],
+                        ['experiences', 'Experiences', item.experiences],
                         ['total_cost', 'Cost', item.total_cost],
                         ['pipeline_touched', 'Touched', item.pipeline_touched],
                         ['closed_amount', 'Closed', item.closed_amount],

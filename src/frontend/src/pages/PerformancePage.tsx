@@ -238,8 +238,8 @@ export function PerformancePage() {
       if (r.closedMax && i.closed_amount > n(r.closedMax)) return false
       if (r.costMin && i.total_cost < n(r.costMin)) return false
       if (r.costMax && i.total_cost > n(r.costMax)) return false
-      if (r.expMin && (i.completions || 0) < n(r.expMin)) return false
-      if (r.expMax && (i.completions || 0) > n(r.expMax)) return false
+      if (r.expMin && (i.experiences || 0) < n(r.expMin)) return false
+      if (r.expMax && (i.experiences || 0) > n(r.expMax)) return false
       if (r.usersMin && (i.unique_users || 0) < n(r.usersMin)) return false
       if (r.usersMax && (i.unique_users || 0) > n(r.usersMax)) return false
       return true
@@ -326,7 +326,7 @@ export function PerformancePage() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
             {([
               ['Provisions', 'provMin', 'provMax'],
-              ['Completions', 'expMin', 'expMax'],
+              ['Experiences', 'expMin', 'expMax'],
               ['Unique Users', 'usersMin', 'usersMax'],
               ['Touched ($)', 'touchedMin', 'touchedMax'],
               ['Closed ($)', 'closedMin', 'closedMax'],
@@ -573,8 +573,8 @@ export function PerformancePage() {
                                 <span className="ca-detail-value">{item.unique_users.toLocaleString()}</span>
                               </div>
                               <div className="ca-detail-item">
-                                <span className="ca-detail-label">Completions</span>
-                                <span className="ca-detail-value">{item.completions.toLocaleString()}</span>
+                                <span className="ca-detail-label">Experiences</span>
+                                <span className="ca-detail-value">{item.experiences.toLocaleString()}</span>
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Cost / Provision</span>
@@ -628,8 +628,8 @@ export function PerformancePage() {
                                       <span className="ca-detail-value">{item.marketing.unique_users.toLocaleString()}</span>
                                     </div>
                                     <div className="ca-detail-item">
-                                      <span className="ca-detail-label">Completions</span>
-                                      <span className="ca-detail-value">{item.marketing.completions.toLocaleString()}</span>
+                                      <span className="ca-detail-label">Experiences</span>
+                                      <span className="ca-detail-value">{item.marketing.experiences.toLocaleString()}</span>
                                     </div>
                                     <div className="ca-detail-item">
                                       <span className="ca-detail-label">Page Views</span>

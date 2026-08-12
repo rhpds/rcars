@@ -376,7 +376,7 @@ export function NonProdItemsPage() {
                         </td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
                         <td className="num">{item.unique_users.toLocaleString()}</td>
-                        <td className="num">{item.completions.toLocaleString()}</td>
+                        <td className="num">{item.experiences.toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
                         <td className="num">{(item.failure_ratio * 100).toFixed(1)}%</td>
                         <td style={{ fontSize: '11px' }}>{item.first_provision || '—'}</td>

@@ -401,7 +401,7 @@ def _merge_published_base_pairs(
             continue
 
         for field in ("provisions", "provisions_quarter", "requests",
-                      "completions", "unique_users",
+                      "experiences", "unique_users",
                       "pipeline_touched", "closed_amount", "total_cost"):
             pub_row[field] += base_row[field]
 
@@ -539,7 +539,7 @@ def _build_windowed_metrics(
 
             entry = {
                 "provisions": provisions,
-                "completions": int(p.get("experiences", 0)),
+                "experiences": int(p.get("experiences", 0)),
                 "requests": int(p.get("requests", 0)),
                 "unique_users": uu_w.get(name, 0),
                 "success_ratio": float(p.get("success_ratio", 0) or 0),
@@ -594,7 +594,7 @@ def _build_nonprod_provisions_sql(start_date: str) -> str:
             ci.name AS catalog_base_name,
             COUNT(DISTINCT ps.uuid) AS provisions,
             COUNT(DISTINCT ps.request_id) AS requests,
-            COALESCE(SUM(ps.user_experiences), 0) AS completions,
+            COALESCE(SUM(ps.user_experiences), 0) AS experiences,
             COUNT(DISTINCT ps.user_id) AS unique_users,
             ROUND(
                 SUM(ps.provision_success)::numeric
@@ -644,7 +644,7 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
             windowed[wk] = {
                 "provisions": int(r.get("provisions", 0)),
                 "requests": int(r.get("requests", 0)),
-                "completions": int(r.get("completions", 0)),
+                "experiences": int(r.get("experiences", 0)),
                 "unique_users": int(r.get("unique_users", 0)),
                 "success_ratio": float(r.get("success_ratio", 0) or 0),
                 "failure_ratio": float(r.get("failure_ratio", 0) or 0),
@@ -655,7 +655,7 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
             "catalog_base_name": base_name,
             "provisions": int(row_12m.get("provisions", 0)),
             "requests": int(row_12m.get("requests", 0)),
-            "completions": int(row_12m.get("completions", 0)),
+            "experiences": int(row_12m.get("experiences", 0)),
             "unique_users": int(row_12m.get("unique_users", 0)),
             "success_ratio": float(row_12m.get("success_ratio", 0) or 0),
             "failure_ratio": float(row_12m.get("failure_ratio", 0) or 0),
@@ -769,7 +769,7 @@ def run_reporting_sync(db, settings) -> dict:
             "provisions": provisions,
             "provisions_quarter": quarter_data.get(name, 0),
             "requests": int(prov.get("requests", 0)),
-            "completions": int(prov.get("experiences", 0)),
+            "experiences": int(prov.get("experiences", 0)),
             "unique_users": int(prov.get("unique_users", 0)),
             "success_ratio": float(prov.get("success_ratio", 0) or 0),
             "failure_ratio": float(prov.get("failure_ratio", 0) or 0),
@@ -807,7 +807,7 @@ def run_reporting_sync(db, settings) -> dict:
             "provisions": 0,
             "provisions_quarter": 0,
             "requests": 0,
-            "completions": 0,
+            "experiences": 0,
             "unique_users": 0,
             "success_ratio": 0,
             "failure_ratio": 0,
@@ -872,7 +872,7 @@ def run_reporting_sync(db, settings) -> dict:
             "provisions": row["provisions"],
             "unique_users": row["unique_users"],
             "requests": row["requests"],
-            "completions": row["completions"],
+            "experiences": row["experiences"],
             "pipeline_touched": row["pipeline_touched"],
             "closed_amount": row["closed_amount"],
             "total_cost": row["total_cost"],
