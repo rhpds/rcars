@@ -113,6 +113,7 @@ export function NonProdItemsPage() {
   }
 
   const isIgnored = (i: NonProdItem) => !!i.ignored_until
+  const extractNs = (name: string) => name.split('.')[0]
 
   // Client-side filters
   const filteredItems = allItems.filter(i => {
@@ -146,8 +147,6 @@ export function NonProdItemsPage() {
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
-
-  const extractNs = (name: string) => name.split('.')[0]
 
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
