@@ -450,6 +450,10 @@ CREATE TABLE IF NOT EXISTS role_assignments (
     UNIQUE(type, value)
 );
 
+-- Rename completions → experiences — RHDPCD-74
+ALTER TABLE performance_channels ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
+ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
+
 """
 
 
