@@ -4,40 +4,36 @@
 # content (Babylon labs AND OSSPA architectures). Deliberately source-agnostic
 # so both converge on the same terms over time.
 #
-# Owned by the Controlled Vocabulary design spec (NOT Portfolio Architecture
-# ingest — that feature consumes this; it does not own it):
+# Owned by the Controlled Vocabulary design spec:
 #   docs/superpowers/specs/2026-08-10-controlled-vocabulary-design.md
 #
 # DESIGN INTENT (per Nate, 2026-08-06):
 #   This list exists to NORMALIZE — collapse near-duplicate product names,
 #   solution areas, and learning-objective verbs so triage/Browse/similarity
 #   stay consistent across sources. It is NOT meant to cage the LLM's ability
-#   to detect fine-grained topics. Keep `topics` BROAD; let the model coin
-#   specific topics on its own (e.g. "web search augmentation") — do not try to
-#   enumerate every niche capability here.
-#   (The OSSPA PAList.csv `metaKeyword` column proves the point: 186 distinct
-#    keywords, almost all one-offs like "granite 3.2 8b instruct" — never codify.)
+#   to detect fine-grained topics.
 #
-# How it is used (once the vocab spec ships):
+# How it is used:
 #   1. Loaded once per process by rcars/services/vocabulary.py (@lru_cache).
-#   2. Interpolated into the analysis prompts (architecture_analyze.txt and
-#      analyze_showroom.txt). The model is told to PREFER a listed term where
-#      one fits and only coin a new term when nothing matches.
-#   3. A post-analysis normalization pass snaps obvious near-misses (and
-#      aliases) to the canonical form before write.
+#   2. ONLY products are injected into the analysis prompt. The model is told
+#      to PREFER a listed product name and only coin a new one when nothing
+#      matches. All other dimensions stay OUT of the prompt.
+#   3. A post-analysis normalization pass snaps aliases to canonical forms
+#      (exact match, case-insensitive) and deduplicates topics (fuzzy).
 #
-# Layout mirrors the Publishing House ph-validation-policy ConfigMap: products
-# (and solutions) carry {name, aliases}; learning-objective verbs are split into
-# valid / rejected. To update: edit this file, open a PR, merge. Ops can
-# override per-environment via the mounted ConfigMap without an image rebuild.
+# To update: edit this file, open a PR, merge. Ops can override
+# per-environment via the mounted ConfigMap without an image rebuild.
 #
 # Grounding sources: Publishing House ph-validation-policy; RCARS
 # data/product-terms.yaml + data/workload_mapping.yaml; and the live OSSPA
-# PAList.csv Product/Solutions/Vertical/Platform columns (39 in-scope rows).
+# PAList.csv Product/Solutions/Vertical/Platform columns.
 
 # ---------------------------------------------------------------------------
 # products — official Red Hat product names, each with the aliases/acronyms
 # and OSSPA short-forms that should normalize to it.
+#
+# THIS IS THE ONLY DIMENSION INJECTED INTO THE LLM PROMPT.
+# All other dimensions are post-analysis normalization only.
 # ---------------------------------------------------------------------------
 products:
   - name: Red Hat OpenShift Container Platform
@@ -109,12 +105,9 @@ products:
   - name: Red Hat OpenStack Services on OpenShift
     aliases: [OpenStack, RHOSO]
   - name: Red Hat Application Foundations
-    # OSSPA "Runtimes" is the former name of this middleware/integration bundle;
-    # the two tokens co-occur and normalize to one product.
     aliases: [Application Foundations, Runtimes, Red Hat Runtimes]
   - name: Red Hat Identity Management
     aliases: [IdM, FreeIPA]
-
   - name: Red Hat JBoss Enterprise Application Platform
     aliases: [JBoss EAP, EAP, JBoss]
   - name: Red Hat Build of Apache Camel
@@ -132,24 +125,35 @@ products:
   # intentionally excluded from this list.
 
 # ---------------------------------------------------------------------------
-# solutions — high-level solution areas an item advances. Maps to
-# architecture_analysis.solution_areas_json AND portfolio_architectures.solutions.
-# Anchored on the OSSPA PAList `Solutions` taxonomy; aliases collapse the
-# CamelCase / spacing / marketing variants seen in the real data.
+# solutions — high-level solution areas an item advances.
+#
+# A subset of these are official Red Hat Technology Decision Points (TDPs),
+# marked below. The others are solution areas that don't map to a TDP.
+# This distinction is informational — it does not change normalization.
+# Post-analysis alias snap only, NOT injected into the prompt.
 # ---------------------------------------------------------------------------
 solutions:
+  # TDPs (official Red Hat Technology Decision Points)
   - name: Application Platform
     aliases: [ApplicationPlatform, Application Development, ApplicationDevelopment]
+    is_tdp: true
   - name: Automation
     aliases: [Mission Critical IT Automation, ProcessAutomation, Process Automation]
+    is_tdp: true
   - name: Container Management
     aliases: [ContainerManagement, Multicluster Management]
+    is_tdp: true
   - name: Virtualization
     aliases: []
+    is_tdp: true
   - name: AI
     aliases: [AI Platform, AI/ML, AI ML, Machine Learning]
+    is_tdp: true
   - name: Operating System
     aliases: [OperatingSystem, Cloud Operating System]
+    is_tdp: true
+
+  # Non-TDP solution areas
   - name: Integration
     aliases: [Integration & Messaging, Messaging]
   - name: Security
@@ -162,10 +166,8 @@ solutions:
     aliases: [Storage, Data Services]
 
 # ---------------------------------------------------------------------------
-# verticals — industry verticals. Maps to portfolio_architectures.verticals.
-# Closed set derived from the OSSPA PAList `Vertical` column; canonical names
-# are human-readable, with the CSV short-forms as aliases. "All"
-# (industry-agnostic) is the default when no specific vertical applies.
+# verticals — industry verticals.
+# Post-analysis alias snap only, NOT injected into the prompt.
 # ---------------------------------------------------------------------------
 verticals:
   # "All" is a meta-value meaning "industry-agnostic" — the null case, not an
@@ -188,8 +190,15 @@ verticals:
     aliases: [Utilities, Energy]
 
 # ---------------------------------------------------------------------------
-# platforms — deployment target. OSSPA-native (PAList `Platform` column); the
-# LLM is not asked to generate these, but canonical forms aid normalization.
+# platforms — deployment target. What the content demonstrates deploying ONTO.
+#
+# DISTINCT from Babylon cloud_provider (where infrastructure is provisioned).
+# A lab with cloud_provider=azure might deploy VMs, not ARO. A lab with
+# cloud_provider=azure and platform=On-Premise is valid (Azure-provisioned
+# lab demonstrating on-prem patterns). No mapping between the two.
+#
+# Applies to all content types (Babylon and OSSPA).
+# Post-analysis alias snap only, NOT injected into the prompt.
 # ---------------------------------------------------------------------------
 platforms:
   - name: On-Premise
@@ -204,62 +213,39 @@ platforms:
     aliases: []
 
 # ---------------------------------------------------------------------------
-# topics — BROAD topic areas only (see DESIGN INTENT above). This is a light
-# guide, not an exhaustive taxonomy. The LLM is expected to add its own, more
-# specific topics beyond this list — do not codify niche capabilities here.
+# topics — NOT ENUMERATED. Fully open dimension.
+#
+# The LLM generates as many specific topic phrases as the content warrants.
+# No count cap. No enumerated list. Format guidance only: short phrases
+# (2-4 words each), not sentences.
+#
+# Post-analysis: fuzzy dedup collapses near-identical topics on the same item
+# (case-fold + token overlap >80% → keep the longer form). No flagging.
 # ---------------------------------------------------------------------------
-topics:
-  - gitops
-  - ci-cd
-  - kubernetes-operators
-  - service-mesh
-  - serverless
-  - observability
-  - security
-  - compliance
-  - authentication
-  - virtualization
-  - storage
-  - high-availability
-  - disaster-recovery
-  - business-continuity
-  - ai-ml
-  - model-serving
-  - automation
-  - infrastructure-as-code
-  - api-management
-  - messaging
-  - multicluster-management
-  - multitenancy
-  - edge
-  - hybrid-cloud
-  - data-sovereignty
-  - developer-experience
-  - supply-chain-security
-  - networking
+# (no topics list — this comment documents the design decision)
 
 # ---------------------------------------------------------------------------
-# audience — target audience descriptors (ROLES). Distinct from difficulty.
-# Open-ended; seed set only.
+# audience — two sub-dimensions, both fully open.
+#
+# target_audience: who the content is FOR (external consumers)
+#   Examples: platform engineers, developers, data scientists, ml engineers,
+#   application developers, devops engineers, site reliability engineers,
+#   security engineers, system administrators, IT decision makers
+#
+# recommender_audience: who at Red Hat should know about this content
+#   Examples: solution architects, consultants, TAMs, field engineers,
+#   account executives, partner engineers
+#
+# Both are open — no flagging, no normalization. These are seed examples
+# for the LLM prompt, not a closed list.
 # ---------------------------------------------------------------------------
-audience:
-  - platform engineers
-  - developers
-  - application developers
-  - devops engineers
-  - site reliability engineers
-  - security engineers
-  - data scientists
-  - ml engineers
-  - system administrators
-  - solution architects
-  - IT decision makers
-  - automation engineers
+# (no audience list — seed examples are in the comment above and in the
+#  analysis prompt templates)
 
 # ---------------------------------------------------------------------------
-# difficulty — closed set. Snap any near-miss to one of these.
-# ---------------------------------------------------------------------------
+# difficulty — closed set. Post-analysis alias snap only.
 # Normalization is case-insensitive. Aliases handle common variants.
+# ---------------------------------------------------------------------------
 difficulty:
   - name: beginner
     aliases: [introductory, basic, beginner-level, entry-level]
@@ -269,39 +255,78 @@ difficulty:
     aliases: [expert, advanced-level]
 
 # ---------------------------------------------------------------------------
-# Learning-objective verbs (Babylon labs). Not requested for OSSPA
-# architectures in Phase 1; lives here for the shared Babylon analyzer.
-# Mirrors the Publishing House valid/rejected split — rejected verbs are
-# non-measurable and should be flagged/replaced.
+# Action verbs — organized by content mode.
+#
+# Different content types have different measurability criteria:
+#   hands_on:     labs, sandboxes — verify via observable state change
+#   read_through: reference architectures — verify via identifiable output
+#   interactive:  interactive demos (future) — verify via guided completion
+#
+# A verb is "measurable" if completion can be verified through an observable
+# artifact or state change, not an internal cognitive state. Aligns with
+# Bloom's taxonomy: Apply-Create for hands-on, Analyze-Evaluate for
+# read-through.
+#
+# The rejected list is the same everywhere — non-measurable cognitive-state
+# verbs are non-measurable regardless of content format.
 # ---------------------------------------------------------------------------
-action_verbs_valid:
-  - configure
-  - deploy
-  - create
-  - implement
-  - troubleshoot
-  - monitor
-  - scale
-  - install
-  - build
-  - integrate
-  - automate
-  - manage
-  - observe
-  - migrate
-  - secure
-  - provision
-  - verify
-  - demonstrate
-  - explore
-  - analyze
+action_verbs:
+  hands_on:
+    valid:
+      - configure
+      - deploy
+      - create
+      - build
+      - install
+      - implement
+      - integrate
+      - automate
+      - manage
+      - scale
+      - troubleshoot
+      - monitor
+      - observe
+      - migrate
+      - secure
+      - provision
+      - verify
+      - diagnose
+      - validate
+      - design
+    rejected: &rejected_verbs
+      - understand
+      - learn
+      - know
+      - be familiar with
+      - appreciate
+      - become aware
+      - realize
+      - recognize
 
-action_verbs_rejected:
-  - understand
-  - learn
-  - know
-  - be familiar with
-  - appreciate
-  - become aware
-  - realize
-  - recognize
+  read_through:
+    valid:
+      - compare
+      - evaluate
+      - assess
+      - identify
+      - distinguish
+      - review
+      - classify
+      - diagram
+      - summarize
+      - contrast
+      - analyze
+    rejected: *rejected_verbs
+
+  interactive:
+    valid:
+      - navigate
+      - interact
+      - follow
+      - demonstrate
+      - observe
+      - complete
+      - select
+      - submit
+      - verify
+    rejected: *rejected_verbs
