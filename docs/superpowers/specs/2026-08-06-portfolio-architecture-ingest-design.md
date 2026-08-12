@@ -690,6 +690,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 - **Writing back to OSSPA GitLab** — read-only.
 - **Interactive Labs performance channel** — separate spec.
 - **Dedicated model selection** — Phase 1 reuses the existing Showroom-analysis model. Choosing a dedicated architecture-analysis model (frontier now vs. open-source later, with cost/quality trade-offs) needs a team discussion — including Ashok on open-source options — before a `pa_model`-style config lever is added. Deferred to Phase 2.
+- **Overlap detection** — architecture items are excluded from `generate_overlap_candidates`. The current overlap system is negative matching (duplicate detection within Babylon) and is still being refined. Cross-type "good similarity" (related content recommendations) is a separate future feature.
 - **Advisor integration** — surfacing architecture items in the Advisor chat rationale flow is deferred. Items land in embeddings and are retrievable by vector search, but the Advisor UI (recommendation cards, rationale formatting, CTA rendering) ships separately.
 - **Advanced Browse filters** — additional filter dimensions beyond the Phase 1 set (see 3j) are future work. Candidates: recommender audience, platform, difficulty.
 
@@ -699,7 +700,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 
 - **RHDPCD-359 (Generalized Content Model)** — prerequisite; deployed. This spec creates the tables that 359 planned but did not create.
 - **Controlled vocabulary ([RHDPCD-507](2026-08-10-controlled-vocabulary-design.md))** — assumed implemented. This spec consumes it: product prompt injection, post-analysis normalization, `recommender_audience_json` field, `read_through` verb set.
-- **Overlap analysis** — `generate_overlap_candidates` (`src/api/rcars/db/overlap.py`) must be scoped to same-type comparisons only. Cross-type pairs (a reference architecture and a hands-on lab covering the same product) are **good similarity**, not overlap — they're complementary content, not duplicates. The overlap query should filter on `content_type` so architecture items are compared only against other architecture items. Babylon items already only compare against Babylon items. No cross-source overlap detection.
+- **Overlap analysis** — architecture items are **excluded** from overlap detection in Phase 1. The current overlap system is tuned for negative matching (duplicate detection within Babylon) and is still being iterated on. Adding a second content type would complicate that work. Cross-type similarity (a reference architecture and a hands-on lab covering the same product) is **good similarity**, not overlap — that's a different feature (content recommendations / "related content") with different UX, not part of the overlap pipeline. `generate_overlap_candidates` must filter `source = 'babylon'` to exclude architecture items until a deliberate cross-type or same-type-architecture overlap strategy is designed.
 - **Interactive Experience ingest** — future spec. Phase 1 excludes all `ProductType=IE` rows.
 - **Browse/Advisor UI redesign** — Phase 2; architecture content type cards and filters ship alongside new content types.
 
