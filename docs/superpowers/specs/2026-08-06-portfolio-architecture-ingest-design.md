@@ -474,6 +474,82 @@ WHERE retired_at IS NULL
 
 3. **`_format_single_candidate`** (`services/recommender/rationale.py`) — the rationale formatter. Currently handles `lab`/`demo` and `sandbox` content types only. `live` OSSPA items WILL reach this function via vector search in Phase 1. Without an `architecture` branch, they get bare-minimum formatting (no solution areas, use cases, or key components context). **Phase 1 must add a minimal `architecture` branch** that formats the available fields — this is not a UI concern; it's a data-quality concern for the rationale prompt.
 
+### 3j. Browse integration (Phase 1)
+
+Architecture items must be visible in the Browse catalog and accessible via the API as soon as they're ingested. Without this, validation requires raw SQL. Advisor integration (chat recommendations, rationale) is deferred — this section covers catalog visibility only.
+
+#### API
+
+No new endpoints needed. Architecture items are returned by the existing `GET /api/v1/catalog` endpoint via `list_content_entities_filtered` — OSSPA items are in `content_entities` and fall through the `bi.content_id IS NULL` branch in the query. The `content_type`, `source`, `products_json`, and `topics_json` fields are all available in the response.
+
+The existing query needs the status filter from 3i applied so non-`live` items don't appear in default responses.
+
+#### Content format filter
+
+The Browse page currently has no content-format filter because all items are Babylon (labs, demos, sandboxes). With architecture items in the catalog, add a **Content Format** filter group:
+
+| Filter label | `content_type` values | `is_hands_on` |
+| ------------ | --------------------- | ------------- |
+| Hands-on Labs | `lab`, `demo`, `sandbox` | `TRUE` |
+| Reference Architectures | `architecture` | `FALSE` |
+| Interactive Demos | (future — `interactive`) | `FALSE` |
+
+The filter maps to a `content_type IN (...)` clause on the existing query. Default: all formats shown. "Interactive Demos" is grayed/hidden until that content type ships.
+
+#### Vocabulary-based filters
+
+Add filters for the vocabulary dimensions that have value for catalog browsing:
+
+| Filter | Source field | Type | Notes |
+| ------ | ----------- | ---- | ----- |
+| **Solutions / TDPs** | `solutions` on `portfolio_architectures`, or `solution_areas_json` on analysis tables | Multi-select | Values from vocabulary. Applies to architecture items; for Babylon items, populated when vocabulary normalization runs on their analysis. |
+| **Verticals** | `verticals` on `portfolio_architectures` | Multi-select | Values from vocabulary. Architecture-specific in Phase 1; could extend to Babylon if vertical tagging is added. |
+| **Target Audience** | `audience_json` on `content_entities` | Multi-select | Open dimension — filter values derived from the distinct values in the database, not the vocabulary file. Applies to all content types. |
+
+These filters are additive — they refine the result set alongside existing filters (search, stage, cloud provider, workloads). Vocabulary-based filters apply across content types where the data exists; items without a value for a filter dimension are excluded when that filter is active.
+
+#### Architecture card rendering
+
+Browse cards for architecture items render a subset of the standard card fields:
+
+| Field | Source | Notes |
+| ----- | ------ | ----- |
+| Display name | `content_entities.display_name` | Standard |
+| Summary | `content_entities.summary` | Standard |
+| Products | `content_entities.products_json` | Standard chips |
+| Topics | `content_entities.topics_json` | Standard chips |
+| Content type badge | `content_entities.content_type` | "Reference Architecture" badge (distinct from "Lab" / "Demo" / "Sandbox") |
+| Difficulty | `content_entities.difficulty` | Standard, if present |
+| CTA button | Constructed from `portfolio_architectures.pa_name` | **"View Architecture"** → `https://www.redhat.com/architect/portfolio/detail/{pa_name}/` |
+| Solutions | `portfolio_architectures.solutions` | Additional chips, if present |
+| Verticals | `portfolio_architectures.verticals` | Additional chips, if present |
+
+**Hidden / not applicable** for architecture cards:
+- Duration (no `curated_duration_min` / `estimated_duration_min`)
+- Showroom link / "Start Lab" button
+- Stage badge (architecture items don't have Babylon stages)
+- Cloud provider
+- Curator duration override controls
+
+#### Curator controls
+
+- **"Show non-live" toggle** — surfaces `in_progress` and `draft` architecture items, mirroring the existing "Show Retired" pattern. Non-`live` items get a status badge (`In Progress` / `Draft`).
+- **"Show Retired" toggle** — works as-is; soft-retired architecture items appear when toggled.
+- **Enrichment review flag** — items with `enrichment_review_needed = TRUE` show a review indicator on the card (same pattern as Babylon items with review flags).
+
+#### Testing (Browse)
+
+| Test | Type | Assertion |
+| ---- | ---- | --------- |
+| API returns architecture items in catalog | Integration | `GET /api/v1/catalog` includes `source='portfolio_arch'` items |
+| Content format filter: "Reference Architectures" | Integration | Only `content_type='architecture'` items returned |
+| Content format filter: "Hands-on Labs" | Integration | Only `lab`/`demo`/`sandbox` items returned |
+| Solutions filter | Integration | Filter by solution returns matching items |
+| Non-live items hidden by default | Integration | `in_progress`/`draft` items absent from default catalog response |
+| Non-live items visible with toggle | Integration | `in_progress`/`draft` items appear when "Show non-live" active |
+| Architecture card CTA link | Unit | URL constructed correctly from `pa_name` |
+| Architecture card hides lab-specific fields | Unit | No duration, no Showroom link, no stage badge |
+
 ### 4. Worker Integration
 
 **Queue:** `arq:queue:scan` (same as Babylon scan worker — reuses existing scan worker process)
@@ -614,8 +690,8 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 - **Writing back to OSSPA GitLab** — read-only.
 - **Interactive Labs performance channel** — separate spec.
 - **Dedicated model selection** — Phase 1 reuses the existing Showroom-analysis model. Choosing a dedicated architecture-analysis model (frontier now vs. open-source later, with cost/quality trade-offs) needs a team discussion — including Ashok on open-source options — before a `pa_model`-style config lever is added. Deferred to Phase 2.
-- **Advisor & Browse UI** — surfacing architecture items in the Advisor rationale flow and dedicated Browse UI (content-type filter, architecture cards, CTA/detail links, curator-control handling) is deferred to a future spec. Phase 1 ends at ingest: items land in `content_entities` + `embeddings` and are retrievable by vector search, but the consuming UI work ships separately. **Not deferred:** the default-visibility query filter (3i) that keeps non-`live` items out of Advisor recommendations and default Browse results — that's a small change to existing shared retrieval code, and ships in Phase 1 so the status-visibility contract in Ingestion Scope & Status Tagging is actually enforced.
-- **Full Browse UI for architecture content type** — Phase 2, ships alongside actual items.
+- **Advisor integration** — surfacing architecture items in the Advisor chat rationale flow is deferred. Items land in embeddings and are retrievable by vector search, but the Advisor UI (recommendation cards, rationale formatting, CTA rendering) ships separately.
+- **Advanced Browse filters** — additional filter dimensions beyond the Phase 1 set (see 3j) are future work. Candidates: recommender audience, platform, difficulty.
 
 
 
@@ -623,7 +699,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 
 - **RHDPCD-359 (Generalized Content Model)** — prerequisite; deployed. This spec creates the tables that 359 planned but did not create.
 - **Controlled vocabulary ([RHDPCD-507](2026-08-10-controlled-vocabulary-design.md))** — assumed implemented. This spec consumes it: product prompt injection, post-analysis normalization, `recommender_audience_json` field, `read_through` verb set.
-- **Overlap analysis redesign** — `overlap_candidates` pairs between Babylon and OSSPA will populate automatically once embeddings exist via `generate_overlap_candidates` (`src/api/rcars/db/overlap.py`). No overlap spec changes needed.
+- **Overlap analysis** — `generate_overlap_candidates` (`src/api/rcars/db/overlap.py`) must be scoped to same-type comparisons only. Cross-type pairs (a reference architecture and a hands-on lab covering the same product) are **good similarity**, not overlap — they're complementary content, not duplicates. The overlap query should filter on `content_type` so architecture items are compared only against other architecture items. Babylon items already only compare against Babylon items. No cross-source overlap detection.
 - **Interactive Experience ingest** — future spec. Phase 1 excludes all `ProductType=IE` rows.
 - **Browse/Advisor UI redesign** — Phase 2; architecture content type cards and filters ship alongside new content types.
 
