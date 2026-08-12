@@ -42,7 +42,7 @@ def _item_card(db: Database, item: dict) -> dict:
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                            stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = RecommendArgs.model_validate(res.output.args)
-    query = args.search_query or " ".join(str(v) for v in args.constraints.values())
+    query = res.message or args.search_query or " ".join(str(v) for v in args.constraints.values())
     if not query and res.scope_ids:
         query = " ".join(i.get("display_name", "") for i in (res.items or []) if i.get("display_name")) or "recommend similar content"
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
@@ -171,7 +171,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "cost_per_provision": float(rhdp.get("avg_cost_per_provision") or 0) or None,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
-                     "score": (w.get("score_breakdown") or {}).get("score") or scores.get(cid)})
+                     "score": (lambda s: s if s is not None else scores.get(cid))((w.get("score_breakdown") or {}).get("score"))})
     if not res.scope_ids:
         rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1

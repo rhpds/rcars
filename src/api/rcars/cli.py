@@ -366,6 +366,7 @@ def overlap_candidates_cmd(min_products: int, min_topics: int):
     click.echo(f"\nGenerated overlap candidates (min_products={min_products}, min_topics={min_topics}):")
     click.echo(f"  Pairs inserted:  {result['pairs_inserted']}")
     click.echo(f"  Pairs updated:   {result['pairs_updated']}")
+    click.echo(f"  Pairs pruned:    {result['pairs_pruned_threshold']}")
     click.echo(f"  Total candidates: {result['total_candidates']}")
 
     stats = get_overlap_stats(db.pool)

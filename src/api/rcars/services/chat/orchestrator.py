@@ -29,8 +29,7 @@ def _scope_echo(output: RouterOutput, res: Resolution, message: str) -> str:
     if res.items:
         return f"{output.intent.replace('_', ' ').title()} for {res.items[0].get('display_name')}"
     if output.intent == "recommend":
-        q = output.args.get("search_query") or message
-        return f'Searched the full catalog for "{q[:80]}"'
+        return f'Searched the full catalog for "{message[:80]}"'
     return output.intent.replace("_", " ").title()
 
 
@@ -70,7 +69,8 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                             answer=OUT_OF_SCOPE_ANSWER,
                             blocks=[Block(type="notice", data={"kind": "out_of_scope"})])
     else:
-        res = await resolve_and_verify(output, context, db, settings, user_email)
+        res = await resolve_and_verify(output, context, db, settings, user_email,
+                                       message=message)
         if res.kind == "clarify":
             intent_for_log = "clarify"
             envelope = Envelope(intent="clarify", scope_echo="Needs clarification",

@@ -62,7 +62,7 @@ def _load_analysis_pair(pool, content_id_a: str, content_id_b: str) -> tuple[dic
                  sa.summary, sa.products_json, sa.modules_json,
                  sa.learning_objectives_json, sa.audience_json,
                  sa.difficulty, sa.estimated_duration_min, sa.use_cases_json,
-                 sa.topics_json
+                 sa.topics_json, sa.content_hash
                FROM content_entities ce
                JOIN showroom_analysis sa ON sa.content_id = ce.content_id
                WHERE ce.content_id = ANY(%s)""",
@@ -204,15 +204,10 @@ def assess_overlap(
         "output": result.output_tokens,
     }
 
-    # Persist — refresh content_hashes at write time for future cache checks
+    # Persist — use hashes from prompt-time analysis, not re-queried values,
+    # so concurrent analysis updates invalidate rather than mask staleness
     import json as json_module
     with pool.connection() as conn:
-        ha = conn.execute(
-            "SELECT content_hash FROM showroom_analysis WHERE content_id = %s", (content_id_a,)
-        ).fetchone()
-        hb = conn.execute(
-            "SELECT content_hash FROM showroom_analysis WHERE content_id = %s", (content_id_b,)
-        ).fetchone()
         conn.execute(
             """UPDATE overlap_candidates
                SET llm_assessment = %s::jsonb, assessed_at = NOW(),
@@ -220,8 +215,8 @@ def assess_overlap(
                WHERE content_id_a = %s AND content_id_b = %s""",
             (
                 json_module.dumps(validated),
-                ha["content_hash"] if ha else None,
-                hb["content_hash"] if hb else None,
+                analysis_a.get("content_hash"),
+                analysis_b.get("content_hash"),
                 content_id_a,
                 content_id_b,
             ),

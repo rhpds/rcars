@@ -113,6 +113,7 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
 class Resolution:
     kind: Literal["execute", "clarify", "redirect"]
     output: RouterOutput
+    message: str = ""
     scope_ids: list[str] = field(default_factory=list)
     scope_turn: int | None = None
     items: list[dict] = field(default_factory=list)
@@ -134,7 +135,8 @@ def _turn_chips(context: list[dict], output: RouterOutput) -> list[Chip]:
 
 
 async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
-                             settings: Settings, user_email: str) -> Resolution:
+                             settings: Settings, user_email: str,
+                             message: str = "") -> Resolution:
     # Ladder 2: symbolic scope → content_ids from session turns
     scope_ids: list[str] = []
     scope_turn: int | None = None
@@ -198,8 +200,8 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
                                             f"available to {required}s. Ask a curator, or use the "
                                             f"Browse page for catalog details."))
 
-    return Resolution(kind="execute", output=output, scope_ids=scope_ids,
-                      scope_turn=scope_turn, items=items)
+    return Resolution(kind="execute", output=output, message=message,
+                      scope_ids=scope_ids, scope_turn=scope_turn, items=items)
 
 
 def _extract_json(text: str) -> dict:

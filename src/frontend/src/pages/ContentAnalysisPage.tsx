@@ -114,11 +114,15 @@ export function ContentOverlapPage() {
   const [items, setItems] = useState<OverlapItem[]>([])
   const [stats, setStats] = useState<OverlapStats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [totalItems, setTotalItems] = useState(0)
+  const [pageSize, setPageSize] = useState(100)
   const [page, setPage] = useState(1)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const [verdict, setVerdict] = useState<string>(searchParams.get('verdict') || '')
   const [search, setSearch] = useState(searchParams.get('search') || '')
+  const [searchDisplay, setSearchDisplay] = useState(searchParams.get('search') || '')
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [stage, setStage] = useState<string>('')
   const [drawer, setDrawer] = useState<DrawerPair | null>(null)
   const detailCache = useRef<Record<string, ItemSummary>>({})
@@ -127,6 +131,7 @@ export function ContentOverlapPage() {
   const loadData = useCallback(async () => {
     const reqId = ++requestRef.current
     setLoading(true)
+    setError(null)
     try {
       const data = await api.getOverlapReport({
         verdict: verdict || undefined,
@@ -138,6 +143,10 @@ export function ContentOverlapPage() {
       setItems(data.items)
       setStats(data.stats)
       setTotalItems(data.total_items)
+      setPageSize(data.page_size)
+    } catch (e) {
+      if (reqId !== requestRef.current) return
+      setError(e instanceof Error ? e.message : 'Failed to load overlap data')
     } finally {
       if (reqId === requestRef.current) setLoading(false)
     }
@@ -151,9 +160,12 @@ export function ContentOverlapPage() {
   }
 
   const handleSearchChange = (_e: React.FormEvent, v: string) => {
-    setSearch(v)
-    setPage(1)
+    setSearchDisplay(v)
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => { setSearch(v); setPage(1) }, 300)
   }
+
+  useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current) }, [])
 
   const handleStageChange = (_e: React.FormEvent, v: string) => {
     setStage(v)
@@ -220,22 +232,22 @@ export function ContentOverlapPage() {
 
       {stats && (
         <div className="ca-stats-grid">
-          <div className="ca-stat-card ca-stat-red" onClick={() => { setVerdict('redundant'); setPage(1) }} style={{ cursor: 'pointer' }}>
+          <button className="ca-stat-card ca-stat-red" onClick={() => { setVerdict('redundant'); setPage(1) }} aria-label="Filter by redundant">
             <div className="ca-stat-value">{stats.redundant}</div>
             <div className="ca-stat-label">Redundant</div>
-          </div>
-          <div className="ca-stat-card ca-stat-amber" onClick={() => { setVerdict('complementary'); setPage(1) }} style={{ cursor: 'pointer' }}>
+          </button>
+          <button className="ca-stat-card ca-stat-amber" onClick={() => { setVerdict('complementary'); setPage(1) }} aria-label="Filter by complementary">
             <div className="ca-stat-value">{stats.complementary}</div>
             <div className="ca-stat-label">Complementary</div>
-          </div>
-          <div className="ca-stat-card" onClick={() => { setVerdict('differentiated'); setPage(1) }} style={{ cursor: 'pointer' }}>
+          </button>
+          <button className="ca-stat-card" onClick={() => { setVerdict('differentiated'); setPage(1) }} aria-label="Filter by differentiated">
             <div className="ca-stat-value">{stats.differentiated}</div>
             <div className="ca-stat-label">Differentiated</div>
-          </div>
-          <div className="ca-stat-card ca-stat-blue" onClick={() => { setVerdict('unassessed'); setPage(1) }} style={{ cursor: 'pointer' }}>
+          </button>
+          <button className="ca-stat-card ca-stat-blue" onClick={() => { setVerdict('unassessed'); setPage(1) }} aria-label="Filter by unassessed">
             <div className="ca-stat-value">{stats.unassessed}</div>
             <div className="ca-stat-label">Unassessed</div>
-          </div>
+          </button>
         </div>
       )}
 
@@ -257,14 +269,16 @@ export function ContentOverlapPage() {
 
         <SearchInput
           placeholder="Search by name…"
-          value={search}
+          value={searchDisplay}
           onChange={handleSearchChange}
-          onClear={() => { setSearch(''); setPage(1) }}
+          onClear={() => { setSearchDisplay(''); setSearch(''); setPage(1) }}
         />
       </div>
 
       {loading ? (
         <div className="browse-loading"><Spinner size="lg" /> Loading overlap data…</div>
+      ) : error ? (
+        <div className="browse-loading" style={{ color: 'var(--score-red)' }}>Error: {error}</div>
       ) : items.length === 0 ? (
         <div className="browse-loading">No overlap candidates found{verdict ? ` with verdict "${verdict}"` : ''}.</div>
       ) : (
@@ -281,7 +295,7 @@ export function ContentOverlapPage() {
         </div>
       )}
 
-      {totalItems > 100 && (
+      {totalItems > pageSize && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 0', justifyContent: 'center' }}>
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
                   style={{ padding: '4px 12px', cursor: page === 1 ? 'default' : 'pointer' }}>
@@ -290,8 +304,8 @@ export function ContentOverlapPage() {
           <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
             Page {page} · {totalItems} items
           </span>
-          <button onClick={() => setPage(p => p + 1)} disabled={page * 100 >= totalItems}
-                  style={{ padding: '4px 12px', cursor: page * 100 >= totalItems ? 'default' : 'pointer' }}>
+          <button onClick={() => setPage(p => p + 1)} disabled={page * pageSize >= totalItems}
+                  style={{ padding: '4px 12px', cursor: page * pageSize >= totalItems ? 'default' : 'pointer' }}>
             Next →
           </button>
         </div>

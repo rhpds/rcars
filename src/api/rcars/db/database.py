@@ -2549,7 +2549,7 @@ class Database:
                 %(provisions)s, %(requests)s, %(completions)s, %(unique_users)s,
                 %(success_ratio)s, %(failure_ratio)s,
                 %(first_provision)s, %(last_provision)s,
-                %(windowed_metrics)s, NOW()
+                %(windowed_metrics)s::jsonb, NOW()
             )
             ON CONFLICT (content_id) DO UPDATE SET
                 catalog_base_name = EXCLUDED.catalog_base_name,
@@ -2654,15 +2654,14 @@ class Database:
         return ok
 
     def delete_orphan_nonprod_data(self, valid_content_ids: set[str]) -> int:
+        if not valid_content_ids:
+            return 0
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                if valid_content_ids:
-                    cur.execute(
-                        "DELETE FROM nonprod_usage WHERE content_id != ALL(%s)",
-                        (list(valid_content_ids),),
-                    )
-                else:
-                    cur.execute("DELETE FROM nonprod_usage")
+                cur.execute(
+                    "DELETE FROM nonprod_usage WHERE content_id != ALL(%s)",
+                    (list(valid_content_ids),),
+                )
                 deleted = cur.rowcount
             conn.commit()
         return deleted

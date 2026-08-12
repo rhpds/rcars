@@ -78,7 +78,7 @@ def test_generates_candidates_above_threshold(db, seed_items):
 def test_idempotent_upsert(db, seed_items):
     generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
     result = generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
-    assert result["pairs_updated"] >= 0
+    assert result["pairs_updated"] == 1
 
     with db.pool.connection() as conn:
         rows = conn.execute("SELECT * FROM overlap_candidates").fetchall()

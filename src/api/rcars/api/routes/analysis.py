@@ -679,13 +679,12 @@ async def nonprod_dashboard(
             except (ValueError, TypeError):
                 wm = {}
         w = wm.get(window, {})
-        if w:
-            item["provisions"] = w.get("provisions", 0)
-            item["requests"] = w.get("requests", 0)
-            item["completions"] = w.get("completions", 0)
-            item["unique_users"] = w.get("unique_users", 0)
-            item["success_ratio"] = w.get("success_ratio", 0)
-            item["failure_ratio"] = w.get("failure_ratio", 0)
+        item["provisions"] = w.get("provisions", 0)
+        item["requests"] = w.get("requests", 0)
+        item["completions"] = w.get("completions", 0)
+        item["unique_users"] = w.get("unique_users", 0)
+        item["success_ratio"] = w.get("success_ratio", 0)
+        item["failure_ratio"] = w.get("failure_ratio", 0)
 
         # Enrich with stages from all variants of this base name
         item["stages"] = stages_map.get(item["catalog_base_name"], [])
@@ -708,7 +707,7 @@ async def nonprod_dashboard(
         else:
             items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
 
-    synced_at = items[0]["synced_at"] if items and items[0].get("synced_at") else None
+    synced_at = max((i["synced_at"] for i in items if i.get("synced_at")), default=None) if items else None
 
     return {
         "items": items,
@@ -801,7 +800,7 @@ async def overlap_assess(
 
 @router.get(
     "/overlap/{content_id_a}/{content_id_b}",
-    summary="Get or compute LLM overlap assessment for a pair",
+    summary="Get cached LLM overlap assessment for a pair",
 )
 async def overlap_assessment_detail(
     request: Request,
@@ -810,21 +809,17 @@ async def overlap_assessment_detail(
     user: str = Depends(require_auth),
 ):
     db = request.app.state.db
-    settings = Settings()
-    import asyncio
-    result, reason = await asyncio.to_thread(
-        assess_overlap, db.pool, settings, content_id_a, content_id_b
-    )
-    if result is None:
-        return {"assessment": None, "assessed_at": None, "reason": reason}
     a, b = (content_id_a, content_id_b) if content_id_a < content_id_b else (content_id_b, content_id_a)
     with db.pool.connection() as conn:
-        cur = conn.execute(
-            "SELECT assessed_at FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
+        from psycopg.rows import dict_row
+        conn.row_factory = dict_row
+        row = conn.execute(
+            "SELECT llm_assessment, assessed_at FROM overlap_candidates WHERE content_id_a = %s AND content_id_b = %s",
             (a, b),
-        )
-        row = cur.fetchone()
-    return {"assessment": result, "assessed_at": row["assessed_at"] if row else None}
+        ).fetchone()
+    if not row:
+        return {"assessment": None, "assessed_at": None, "reason": "not_overlap"}
+    return {"assessment": row["llm_assessment"], "assessed_at": row["assessed_at"]}
 
 
 @router.post(
