@@ -22,6 +22,7 @@ interface CatalogItem {
   stage: string
   catalog_namespace: string
   showroom_url: string | null
+  showroom_ref: string | null
   scan_status: string
   is_published?: boolean
   is_stale?: boolean
@@ -52,6 +53,7 @@ interface ItemDetail {
   stage: string
   catalog_namespace: string
   showroom_url: string | null
+  showroom_ref: string | null
   scan_status: string
   content_path: string | null
   showroom_url_override: string | null
@@ -927,7 +929,7 @@ export function BrowsePage() {
                           RHDP Catalog
                         </a>
                         {item.showroom_url && (
-                          <a href={safeHref(item.showroom_url)} target="_blank" rel="noopener noreferrer">
+                          <a href={safeHref(item.showroom_ref ? `${item.showroom_url}/tree/${item.showroom_ref}` : item.showroom_url)} target="_blank" rel="noopener noreferrer">
                             Showroom Repo
                           </a>
                         )}
