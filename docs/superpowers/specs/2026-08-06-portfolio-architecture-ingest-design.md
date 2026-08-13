@@ -502,11 +502,15 @@ Add filters for the vocabulary dimensions that have value for catalog browsing:
 
 | Filter | Source field | Type | Notes |
 | ------ | ----------- | ---- | ----- |
-| **Solutions / TDPs** | `solutions` on `portfolio_architectures`, or `solution_areas_json` on analysis tables | Multi-select | Values from vocabulary. Applies to architecture items; for Babylon items, populated when vocabulary normalization runs on their analysis. |
-| **Verticals** | `verticals` on `portfolio_architectures` | Multi-select | Values from vocabulary. Architecture-specific in Phase 1; could extend to Babylon if vertical tagging is added. |
+| **Solutions / TDPs** | `solutions` on `portfolio_architectures`, or `solution_areas_json` on analysis tables | Multi-select | Values from vocabulary. **Architecture items only** — Babylon labs are not tagged with solutions (see below). |
+| **Verticals** | `verticals` on `portfolio_architectures` | Multi-select | Values from vocabulary. **Architecture items only** (see below). |
 | **Target Audience** | `audience_json` on `content_entities` | Multi-select | Open dimension — filter values derived from the distinct values in the database, not the vocabulary file. Applies to all content types. |
 
 These filters are additive — they refine the result set alongside existing filters (search, stage, cloud provider, workloads). Vocabulary-based filters apply across content types where the data exists; items without a value for a filter dimension are excluded when that filter is active.
+
+> **Solutions and verticals do not extend to Babylon.** The [Controlled Vocabulary spec](2026-08-10-controlled-vocabulary-design.md) scopes `solutions`, `verticals`, and `platforms` to architecture items deliberately — Babylon labs are product-centric and industry-agnostic, so asking the analyzer for those dimensions would fill the columns with guesses. `showroom_analysis` has no columns for them and none are planned. Selecting either filter therefore narrows results to architecture items. Extending them to Babylon later is a column plus a field-map entry, not a redesign — but it is not part of either spec today.
+>
+> What Babylon items *do* gain from the vocabulary is normalization of the dimensions they already carry: canonical product names, snapped difficulty, and deduplicated topics. Those improve the existing Products and Difficulty filters rather than adding new ones.
 
 #### Architecture card rendering
 
