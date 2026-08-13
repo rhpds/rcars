@@ -2042,10 +2042,25 @@ class Database:
             conn.commit()
         return count
 
-    def get_queued_job_ids(self) -> list[str]:
+    def get_queued_job_ids(self) -> list[dict]:
+        """Return queued jobs that are backed by an arq queue.
+
+        Excludes aggregate parent jobs (scan, rescan_all) and inline pipeline
+        sub-jobs that are never dispatched to arq. Applies a 60-second grace
+        period so jobs in the create_job→enqueue_job window are not mistaken
+        for orphans.
+        """
         with self._pool.connection() as conn:
-            cur = conn.execute("SELECT id FROM jobs WHERE status = 'queued'")
-            return [row["id"] for row in cur.fetchall()]
+            cur = conn.execute(
+                "SELECT id, queue FROM jobs"
+                " WHERE status = 'queued'"
+                "   AND created_at < NOW() - INTERVAL '10 seconds'"
+                "   AND ("
+                "     (queue = 'analyze' AND job_type NOT IN ('scan', 'rescan_all'))"
+                "     OR queue = 'recommend'"
+                "   )"
+            )
+            return cur.fetchall()
 
     def fail_queued_orphans(self, job_ids: list[str]) -> int:
         if not job_ids:
