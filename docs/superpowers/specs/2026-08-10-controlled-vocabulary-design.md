@@ -60,11 +60,11 @@ Today those two paths use different files with different answers. After this wor
 
 Per Nate (2026-08-06, refined 2026-08-13): the list exists to **normalize** — collapse near-duplicate product names and solution areas so triage / Browse / similarity / query expansion stay consistent across sources. It is **not** meant to cage the LLM's ability to detect fine-grained topics, and it is **not** a quality gate on LLM output.
 
-- **Products are the strict dimension** — injected into the prompt, alias-snapped post-analysis, unknowns flagged. Also the source for Advisor query expansion.
+- **Products are the strict dimension** — injected into the prompt, alias-snapped post-analysis, unknowns queued for admin review. Also the source for Advisor query expansion.
 - Keep `topics` fully **open** — no enumerated list, no count cap. The LLM generates as many specific topic phrases as the content warrants (current average ~11/item, range 0–39). Post-analysis dedup collapses spelling variants of the same topic on the same item.
 - Normalize the *stable* dimensions (solutions, verticals, platforms, difficulty) via post-analysis alias matching only — never in the prompt.
 - **Action verbs are guidance, not enforcement.** The mode-appropriate verb list goes into the prompt as a nudge toward measurable objectives. Nothing is validated, rejected, or flagged. See "Action verbs" below for why.
-- Values outside the vocabulary are accepted but flaggable for curator review (`enrichment_review_needed` / `review_reasons`) — matching the RHDPCD-359 contract. Nothing is silently dropped.
+- Values outside the vocabulary are **always accepted and stored verbatim** — nothing is ever dropped or rejected. Unknown terms are recorded once per *term*, not flagged per item, and resolved through an admin review queue. See "Unknown terms".
 
 ## Source of Truth
 
@@ -81,14 +81,14 @@ A draft of this file already exists in-tree (seeded from Publishing House `ph-va
 
 | Dimension | Closed? | In prompt? | Post-analysis action | Applies to |
 | --------- | ------- | ---------- | -------------------- | ---------- |
-| `products` | Soft-closed | **Yes** | Alias snap + flag unknowns | All content |
+| `products` | Soft-closed | **Yes** | Alias snap; unknowns recorded | All content |
 | `action_verbs` | n/a | **Yes — hints only** | **None** | All content |
-| `difficulty` | Closed | No | Alias snap + flag unknowns | All content |
+| `difficulty` | Closed | No | Alias snap; unknowns recorded | All content |
 | `topics` | Open | No | Dedup only (no flagging) | All content |
 | `audience` | Open | No | None | All content |
-| `solutions` | Soft-closed | No | Alias snap + flag unknowns | **Architecture only** |
-| `verticals` | Soft-closed | No | Alias snap + flag unknowns | **Architecture only** |
-| `platforms` | Soft-closed | No | Alias snap + flag unknowns | **Architecture only** |
+| `solutions` | Soft-closed | No | Alias snap; unknowns recorded | **Architecture only** |
+| `verticals` | Soft-closed | No | Alias snap; unknowns recorded | **Architecture only** |
+| `platforms` | Soft-closed | No | Alias snap; unknowns recorded | **Architecture only** |
 
 **The mechanism is source-agnostic; only the wiring is architecture-first.** The normalizer is driven by the dimensions declared in the YAML and a field-mapping table — not by hardcoded per-source logic. Extending any dimension to Babylon later is a column plus a mapping entry, not new normalizer code.
 
@@ -296,21 +296,46 @@ Driven by a module-level field map from analyzer output key → vocabulary dimen
 | `verticals` | `verticals` |
 | `platforms` | `platforms` |
 
-**Alias snap** — build a case-insensitive `{alias → canonical}` lookup per dimension from the YAML. Exact match only. Unknown values are kept and flagged.
+**Alias snap — a match ladder.** Most drift is spelling and formatting, which resolves without any human looking. Each value is tried against the rungs in order; the first hit wins:
+
+| Rung | Rule | Catches |
+| ---- | ---- | ------- |
+| 1 | Exact match on canonical name or alias, case-insensitive | `RHACS`, `rhacs` |
+| 2 | **Squash key** — casefold, strip all non-alphanumerics | `Openshift`/`OpenShift`, `on-prem`/`on prem`, `ArgoCD`/`Argo CD` |
+| 3 | Strip known noise, then retry rungs 1–2 | trailing parentheticals (`OpenShift Container Platform (OCP)`), version suffixes (`RHEL 9`), a leading or missing `Red Hat ` |
+| 4 | No match | Value stored verbatim; term recorded in the unknown-terms queue |
+
+Rung 2 reuses the same squash key defined for topic dedup — one mechanism, two uses.
 
 **Topic dedup** — squash key collapse, as specified above.
 
-The normalizer sets `analysis["review_reasons"]` and `analysis["enrichment_review_needed"]`; the write paths (`scan.py`, `cli.py`, OSSPA's analyzer) persist them to the existing columns. Sibling propagation (`analyzer.py:643-680`) copies already-normalized values and needs no change.
+#### Unknown terms
 
-| `review_reasons` reason | Dimension | When |
-| ----------------------- | --------- | ---- |
-| `unknown_product` | products | Not in vocabulary and not an alias |
-| `unknown_difficulty` | difficulty | Doesn't snap to beginner/intermediate/advanced |
-| `unknown_solution` | solutions | Architecture only |
-| `unknown_vertical` | verticals | Architecture only |
-| `unknown_platform` | platforms | Architecture only |
+**Vocabulary work never sets `enrichment_review_needed` and never writes to `review_reasons`.** That badge keeps whatever non-vocabulary meaning it already has, and vocabulary drift stays out of it.
 
-`topics`, `audience`, `recommender_audience`, and learning objectives are never flagged. In all cases the original value is **preserved** alongside the flag — nothing is silently dropped.
+The reason is that **the defect is in the vocabulary, not in the item.** An unknown product means the *list* is missing a term. Flagging 400 items for one missing alias produces 400 badges nobody browses for, to prompt a single YAML edit. So the unit of review is the **term**.
+
+A rung-4 miss upserts one row per distinct term:
+
+```sql
+CREATE TABLE IF NOT EXISTS vocabulary_unknown_terms (
+    dimension       TEXT NOT NULL,
+    term            TEXT NOT NULL,
+    occurrences     INTEGER NOT NULL DEFAULT 1,
+    first_seen      TIMESTAMPTZ DEFAULT NOW(),
+    last_seen       TIMESTAMPTZ DEFAULT NOW(),
+    example_content_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',   -- pending | aliased | promoted | rejected
+    resolved_to     TEXT,        -- canonical name, when status = 'aliased'
+    resolved_by     TEXT,        -- admin email
+    resolved_at     TIMESTAMPTZ,
+    PRIMARY KEY (dimension, term)
+);
+```
+
+Re-seeing a term bumps `occurrences` and `last_seen`. A term whose status is `rejected` is never re-surfaced. When a resolved term later appears in `vocabulary.yaml`, rung 1 or 2 matches it and the row goes dormant.
+
+`topics`, `audience`, `recommender_audience`, and learning objectives are never recorded — they are open dimensions with no canonical list to be missing from.
 
 ### Advisor query expansion
 
@@ -325,6 +350,48 @@ The normalizer sets `analysis["review_reasons"]` and `analysis["enrichment_revie
 1. **Coverage.** Every term in `product-terms.yaml` must survive. Several are not yet among the vocabulary's 42 products — `ARO`, `ROSA`, `RHEL`, `SNO`, `RHSSO`, `EDA`, `TAP`, `AMQ`, `CRW`, `RHBK`, `3scale`, `Service Mesh`, `Serverless`, `Dev Spaces`, `MaaS` — and must be added as products or aliases.
 2. **One canonical spelling per product.** Resolve the drift documented in Problem. Vocabulary canonical names win (they carry the "Red Hat" prefix consistently).
 3. **Recall terms preserved.** Query expansion deliberately widens recall beyond canonical naming — `GitOps` currently expands to `"Red Hat OpenShift GitOps ArgoCD Argo CD"`, which is a bag of search terms, not a name. Where a product needs extra recall terms beyond its aliases, it gets an optional `search_terms:` list on that product entry. Expansion appends aliases **and** `search_terms`; normalization ignores `search_terms` entirely.
+
+### Admin vocabulary page
+
+The unknown-terms queue is only useful if resolving a term is easy, so the UI ships with this work rather than after it. It is **admin-only and deliberately plain** — a table, three buttons, and a download. No new design language.
+
+Route `/system/vocabulary`, inside the existing `auth.isAdmin` block in `App.tsx:61`, alongside `/system/roles`. Sidebar entry under the existing **System** section.
+
+**Two panels:**
+
+1. **Current vocabulary** — read-only. Dimensions, canonical names, aliases, as loaded. Confirms what the running processes actually have, which matters when a ConfigMap override is in play.
+2. **Pending terms** — the `vocabulary_unknown_terms` rows with `status = 'pending'`, ranked by `occurrences` descending, with dimension, count, and one example item. Each row offers three actions:
+
+| Action | Effect | Generated YAML |
+| ------ | ------ | -------------- |
+| **Alias to…** | Pick an existing canonical in that dimension | Term appended to that entry's `aliases` |
+| **Promote** | Becomes a new canonical name in that dimension | New entry created |
+| **Reject** | Not a real term; never surface again | Term appended to `ignored_terms` |
+
+**Decisions are staged, not applied.** Resolving a term writes to the DB and changes nothing about how analysis behaves. A **Generate `vocabulary.yaml`** button emits the complete merged file — current vocabulary plus all staged decisions — for download, commit, PR, and deploy. The change takes effect on the next rollout.
+
+> **Why staged rather than live?** The source of truth is a file in git. If the UI mutated a running ConfigMap, the change would be lost on the next deploy and the DB would become a second, divergent source of truth. Staging keeps git authoritative and every change reviewable in a PR. The cost is latency — an approved term does nothing until the file ships. That is acceptable: vocabulary drift is never urgent, and the value was already captured the moment the term was recorded.
+
+**`ignored_terms` must round-trip.** Rejections have to survive regeneration, or a rejected term reappears in the queue on the next scan and the queue never drains. The YAML therefore carries:
+
+```yaml
+ignored_terms:
+  products: [Kubernetes, Linux, YAML]
+  solutions: []
+```
+
+The loader reads it; the generator writes it; rung 4 checks it before recording anything.
+
+**Endpoints** (all `require_admin`, in `api/routes/admin.py`):
+
+| Endpoint | Purpose |
+| -------- | ------- |
+| `GET /api/v1/admin/vocabulary` | Current loaded vocabulary |
+| `GET /api/v1/admin/vocabulary/unknowns` | Queue, filterable by `status` and `dimension` |
+| `PUT /api/v1/admin/vocabulary/unknowns/{dimension}/{term}` | Record a decision (`alias` / `promote` / `reject`) |
+| `GET /api/v1/admin/vocabulary/generate` | Merged YAML as a downloadable file |
+
+A `rcars vocab unknowns` CLI command prints the same queue, for use before the page exists and in scripted contexts.
 
 ## Configuration
 
@@ -341,6 +408,8 @@ Appended to `SCHEMA_SQL` in `src/api/rcars/db/database.py` as idempotent `ALTER 
 ```sql
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS recommender_audience_json JSONB;
 ```
+
+Plus the new `vocabulary_unknown_terms` table defined under "Unknown terms", added to `SCHEMA_SQL` as a `CREATE TABLE IF NOT EXISTS`.
 
 `architecture_analysis.recommender_audience_json` is created by RHDPCD-28 and is not this spec's responsibility.
 
@@ -360,8 +429,10 @@ OSSPA architecture items need no backfill — they are analyzed on arrival.
 - Finalize `vocabulary.yaml` — products (merged with `product-terms.yaml`, with `search_terms`), solutions with TDP mapping, verticals, platforms, difficulty, action verbs by mode, `content_modes`.
 - `vocabulary.py` loader + cache + fail-fast validation.
 - Shared `render_vocabulary_block()`; products + verb hints injected into both analysis prompts.
-- `normalize_analysis()` — dimension-driven alias snap + topic squash dedup, called once after parse.
-- `enrichment_review_needed` / `review_reasons` flagging for unknowns.
+- `normalize_analysis()` — dimension-driven match ladder + topic squash dedup, called once after parse.
+- `vocabulary_unknown_terms` table + upsert on rung-4 misses; `ignored_terms` round-trip.
+- Admin vocabulary page at `/system/vocabulary` — current list, pending queue, alias/promote/reject, YAML generator.
+- Four admin endpoints + `rcars vocab unknowns` CLI.
 - `recommender_audience_json` column on `showroom_analysis` + field in both prompts.
 - Merge `product-terms.yaml` into the vocabulary; refactor `_expand_query_terms()`; delete the old file.
 - ConfigMap mount via Ansible on all three deployments.
@@ -373,12 +444,13 @@ OSSPA architecture items need no backfill — they are analyzed on arrival.
 - **Verb validation, rejection, or flagging** — verbs are prompt guidance only. See "Action verbs".
 - **A vocabulary reload endpoint** — ConfigMap change requires a rolling restart. See "Loading".
 - **Solutions / verticals / platforms for Babylon** — architecture-only; extensible later via a column plus a field-map entry.
-- **A curator UI for editing the vocabulary** — file + PR, or ConfigMap for per-env override.
+- **Editing existing vocabulary entries in the UI** — the admin page resolves *unknown* terms and generates the file. Renaming a canonical or removing an entry is a direct edit to `vocabulary.yaml` via PR.
+- **Applying approvals at runtime** — decisions are staged and take effect on deploy. No live ConfigMap mutation, no DB overlay in the loader.
 - **Consumers of `recommender_audience_json`** — the field is populated but nothing reads it yet. Role-aware Advisor routing is separate work.
 
 ## Relationship to Other Specs
 
-- **RHDPCD-359 (Generalized Content Model)** — sketched the vocabulary contract (`vocabularies.yaml`, unknown-term review flags). This spec delivers that contract under the concrete path `data/vocabulary.yaml`.
+- **RHDPCD-359 (Generalized Content Model)** — sketched the vocabulary contract (`vocabularies.yaml`, unknown-term review flags). This spec delivers that contract under the concrete path `data/vocabulary.yaml`, with one deliberate departure: 359's per-item review flags are replaced by a per-term admin queue, because the fix for an unknown term is an edit to the vocabulary, not to the item.
 - **RHDPCD-28 (Portfolio Architecture Ingest)** — consumes the vocabulary. **No ordering dependency.** The only coupling is that `architecture_analyze.txt` is created by RHDPCD-28; if this spec ships first, it wires into `analyze_showroom.txt` and RHDPCD-28 adds the same `render_vocabulary_block()` call when it creates its prompt. RHDPCD-28 also owns `recommender_audience_json` on `architecture_analysis`.
 - **RHDPCD-28's Browse filter section** claims solutions/verticals filters are "populated when vocabulary normalization runs" for Babylon items. That is inaccurate under this design and should be corrected there — those filters apply to architecture items only.
 
@@ -393,8 +465,16 @@ OSSPA architecture items need no backfill — they are analyzed on arrival.
 | Loader rejects `content_modes` value with no verb list | Unit | Raises at load |
 | Alias snap: `RHACS` → canonical product | Unit | Normalized before write |
 | Alias snap: `FSI` → `Financial Services` vertical | Unit | Case-insensitive exact match |
-| Unknown product flagged, not dropped | Unit | Value kept; `enrichment_review_needed`; `unknown_product` reason |
-| Unknown solution flagged | Unit | `unknown_solution` reason |
+| Ladder rung 2: squash match | Unit | `Openshift Container Platform` snaps to canonical |
+| Ladder rung 3: noise strip | Unit | `OpenShift Container Platform (OCP)` and `RHEL 9` snap to canonical |
+| Unknown product recorded, not dropped | Unit | Value stored verbatim; one `vocabulary_unknown_terms` row |
+| Re-seeing a term bumps the counter | Unit | `occurrences` = 2, one row, `last_seen` advanced |
+| Vocabulary never sets the review badge | Unit | `enrichment_review_needed` unchanged; `review_reasons` untouched |
+| Rejected term never re-surfaces | Unit | `status = 'rejected'` → excluded from pending queue and not re-upserted |
+| `ignored_terms` suppresses recording | Unit | Term listed in YAML → no row created |
+| Generator round-trips | Unit | Generate → parse → load produces the same vocabulary plus staged decisions |
+| Generator preserves rejections | Unit | Rejected term appears in `ignored_terms` in generated YAML |
+| Admin endpoints reject non-admins | Integration | Curator token → 403 on all four |
 | Empty vertical normalizes to `All` | Unit | Null case handled |
 | Topic dedup, canonical case | Unit | "GitOps with ArgoCD" + "GitOps with Argo CD" → one, longer form survives |
 | Topic count not capped | Unit | Item with 20+ legitimate topics keeps all |
