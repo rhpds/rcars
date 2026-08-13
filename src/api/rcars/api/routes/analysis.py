@@ -534,7 +534,7 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             sha_siblings=sha_siblings_map.get(item["content_id"]),
-            _queue_name="arq:queue:scan"
+            _job_id=sub_job_id, _queue_name="arq:queue:scan"
         )
 
     result = {"enqueued": len(scan_items), **dedup_stats, **sha_stats}
@@ -553,7 +553,7 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="check_stale", queue="ops", created_by=user)
-    await arq_redis.enqueue_job("run_stale_check", job_id=job_id, _queue_name="arq:queue:scan")
+    await arq_redis.enqueue_job("run_stale_check", job_id=job_id, _job_id=job_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}
 
 
@@ -581,7 +581,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             sha_siblings=sha_siblings_map.get(item["content_id"]),
-            _queue_name="arq:queue:scan"
+            _job_id=sub_job_id, _queue_name="arq:queue:scan"
         )
 
     result = {"marked_stale": marked, "enqueued": len(scan_items), **dedup_stats, **sha_stats}
@@ -837,7 +837,7 @@ async def analyze_single(identifier: str, request: Request, user: str = Depends(
     if not entity:
         raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")
     job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
-    await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, _queue_name="arq:queue:scan")
+    await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, _job_id=job_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}
 
 

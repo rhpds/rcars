@@ -311,7 +311,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                 await arq_redis.enqueue_job(
                     "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
                     sha_siblings=sha_siblings_map.get(item["content_id"]),
-                    _queue_name="arq:queue:scan"
+                    _job_id=sub_job_id, _queue_name="arq:queue:scan"
                 )
             analysis_enqueued = len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,

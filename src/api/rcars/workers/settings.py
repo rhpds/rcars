@@ -55,6 +55,14 @@ async def startup(ctx: dict) -> None:
     if orphaned:
         log.info("orphaned_jobs_cleaned", action="orphaned_jobs_cleaned", count=orphaned)
 
+    queued_ids = db.get_queued_job_ids()
+    if queued_ids:
+        in_redis = set(await redis.zrange("arq:queue:scan", 0, -1))
+        orphaned_queued = [jid for jid in queued_ids if jid not in in_redis]
+        queued_count = db.fail_queued_orphans(orphaned_queued)
+        if queued_count:
+            log.info("orphaned_queued_jobs_cleaned", action="orphaned_queued_jobs_cleaned", count=queued_count)
+
     if settings.use_litemaas:
         from rcars.config import fetch_litemaas_models
         models = fetch_litemaas_models(settings)
@@ -74,6 +82,13 @@ async def shutdown(ctx: dict) -> None:
 async def cleanup_orphaned_jobs(ctx: dict) -> int:
     wctx: WorkerContext = ctx["worker_ctx"]
     count = wctx.db.cleanup_orphaned_jobs()
+
+    queued_ids = wctx.db.get_queued_job_ids()
+    if queued_ids:
+        in_redis = set(await wctx.redis.zrange("arq:queue:scan", 0, -1))
+        orphaned_queued = [jid for jid in queued_ids if jid not in in_redis]
+        count += wctx.db.fail_queued_orphans(orphaned_queued)
+
     if count:
         get_logger().info("orphaned_jobs_sweep", action="orphaned_jobs_sweep", count=count)
     return count

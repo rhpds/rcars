@@ -2042,6 +2042,24 @@ class Database:
             conn.commit()
         return count
 
+    def get_queued_job_ids(self) -> list[str]:
+        with self._pool.connection() as conn:
+            cur = conn.execute("SELECT id FROM jobs WHERE status = 'queued'")
+            return [row["id"] for row in cur.fetchall()]
+
+    def fail_queued_orphans(self, job_ids: list[str]) -> int:
+        if not job_ids:
+            return 0
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status = 'failed', error = 'Orphaned: not found in arq queue' "
+                "WHERE id = ANY(%s) AND status = 'queued' RETURNING id",
+                (job_ids,),
+            )
+            count = len(cur.fetchall())
+            conn.commit()
+        return count
+
     def prune_old_jobs(self, retain_days: int = 30) -> int:
         """Delete completed/failed jobs older than retain_days, except advisor queries and maintenance.
 
