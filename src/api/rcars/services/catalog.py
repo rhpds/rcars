@@ -175,7 +175,7 @@ def _extract_from_dict(
             candidate = value.split(" #")[0].strip()
             if _is_template_repo(candidate):
                 continue
-            url = candidate
+            url = candidate.removesuffix(".git")
             break
 
     for var in REF_VARS:
