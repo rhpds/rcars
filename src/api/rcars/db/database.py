@@ -1656,6 +1656,15 @@ class Database:
             )
             conn.commit()
 
+    def get_infrastructure_scan_sha(self, collection: str) -> str | None:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT source_sha FROM infrastructure WHERE collection = %s LIMIT 1",
+                (collection,),
+            )
+            row = cur.fetchone()
+            return row["source_sha"] if row else None
+
     def get_infrastructure(self, role_name: str) -> dict | None:
         with self._pool.connection() as conn:
             cur = conn.execute(

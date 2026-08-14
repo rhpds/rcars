@@ -22,15 +22,18 @@ AGDV2_COLLECTIONS = [
 
 WORKLOAD_SYSTEM_PROMPT = """\
 You are analyzing an Ansible role from the AgnosticD v2 automation framework.
-Your job is to determine what Red Hat product, operator, or service this role installs or configures on an OpenShift cluster or RHEL system.
+Your job is to determine what this role installs, configures, or enables on an OpenShift cluster or RHEL system.
 
 Use ONLY the code provided to determine what the role does — do not guess from the name.
 
 Respond with a JSON object:
 {
   "product_name": "Human-readable product name (e.g. 'OpenShift AI', 'Advanced Cluster Security')",
-  "description": "One sentence describing what this role installs/configures",
+  "description": "Multi-sentence narrative covering what this role installs, configures, and enables, including default configuration choices discovered from the code (e.g. 'default authentication provider is KeyCloak')",
+  "products": ["Array of products/operators/services this installs"],
+  "capabilities": ["Array of capabilities this enables (e.g. 'model-serving', 'notebook-hosting')"],
   "category": "One of: ai_ml, cicd, security, storage, virtualization, networking, runtime, developer_tools, registry, management, automation, messaging, auth, platform, monitoring, other",
+  "requires": ["Array of prerequisites (e.g. 'openshift 4.14+', 'gpu-nodes')"],
   "is_infrastructure_plumbing": true/false
 }
 
@@ -166,8 +169,8 @@ def scan_collection(
     if not force:
         remote_sha = ls_remote_sha(collection_url, "main")
         if remote_sha:
-            state = db.get_scan_state(collection_name)
-            if state and state.get("last_sha") == remote_sha:
+            existing = db.get_infrastructure_scan_sha(collection_name)
+            if existing == remote_sha:
                 rlog.info("workload_scan: unchanged (SHA %s), skipping", remote_sha[:12])
                 return {"collection": collection_name, "status": "unchanged", "roles_scanned": 0}
 
@@ -206,19 +209,20 @@ def scan_collection(
                     skipped_plumbing += 1
                     rlog.info("workload_scan: %s → plumbing, not mapping", role_name)
                 else:
-                    db.upsert_workload_mapping(
-                        workload_role=role_name,
-                        product_name=result["product_name"],
+                    fqcn = f"{collection_name}.{role_name}"
+                    db.upsert_infrastructure(
+                        role_name=role_name,
+                        fqcn=fqcn,
+                        collection=collection_name,
+                        type="workload",
                         description=result.get("description"),
+                        products=result.get("products", [result["product_name"]]),
+                        capabilities=result.get("capabilities", []),
                         category=result.get("category"),
-                        source_collection=collection_name,
-                        verified=True,
-                        added_by="workload_scanner",
+                        requires=result.get("requires", []),
+                        source_sha=local_sha,
                     )
                     mapped += 1
-
-        if local_sha:
-            db.upsert_scan_state(collection_name, local_sha)
 
         stats = {
             "collection": collection_name,
