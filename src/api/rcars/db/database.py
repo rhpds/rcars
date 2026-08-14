@@ -329,6 +329,25 @@ CREATE TABLE IF NOT EXISTS workload_scan_state (
 );
 
 -- ═══════════════════════════════════════════════════════════════════
+-- infrastructure — unified workload roles + base configs catalog
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS infrastructure (
+    role_name   TEXT PRIMARY KEY,
+    fqcn        TEXT,
+    collection  TEXT,
+    type        TEXT NOT NULL,
+    description TEXT,
+    products    JSONB DEFAULT '[]',
+    capabilities JSONB DEFAULT '[]',
+    category    TEXT,
+    requires    JSONB DEFAULT '[]',
+    source_sha  TEXT,
+    scanned_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_infrastructure_type ON infrastructure(type);
+CREATE INDEX IF NOT EXISTS idx_infrastructure_category ON infrastructure(category);
+
+-- ═══════════════════════════════════════════════════════════════════
 -- enrichment_tags — re-keyed from ci_name to content_id
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS enrichment_tags (
@@ -499,6 +518,16 @@ class Database:
                     cur.execute(
                         f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                         f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
+                # Migrate workload_mapping → infrastructure (idempotent)
+                cur.execute("""
+                    INSERT INTO infrastructure (role_name, fqcn, collection, type, description,
+                        products, capabilities, category, requires, source_sha, scanned_at)
+                    SELECT wm.workload_role, NULL, wm.source_collection, 'workload', wm.description,
+                        jsonb_build_array(wm.product_name), '[]'::jsonb, wm.category, '[]'::jsonb,
+                        NULL, wm.added_at
+                    FROM workload_mapping wm
+                    WHERE NOT EXISTS (SELECT 1 FROM infrastructure i WHERE i.role_name = wm.workload_role)
+                """)
             conn.commit()
 
     def drop_schema(self):
@@ -520,7 +549,7 @@ class Database:
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
-            "workload_aliases", "workload_mapping", "workload_scan_state",
+            "workload_aliases", "workload_mapping", "workload_scan_state", "infrastructure",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -1602,6 +1631,122 @@ class Database:
                 (collection, last_sha, datetime.now(timezone.utc)),
             )
             conn.commit()
+
+    # ── Infrastructure catalog ──
+
+    def upsert_infrastructure(
+        self, role_name: str, fqcn: str | None, collection: str | None,
+        type: str, description: str | None, products: list, capabilities: list,
+        category: str | None, requires: list, source_sha: str | None,
+    ) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO infrastructure "
+                "(role_name, fqcn, collection, type, description, products, capabilities, "
+                "category, requires, source_sha, scanned_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) "
+                "ON CONFLICT (role_name) DO UPDATE SET "
+                "fqcn = EXCLUDED.fqcn, collection = EXCLUDED.collection, type = EXCLUDED.type, "
+                "description = EXCLUDED.description, products = EXCLUDED.products, "
+                "capabilities = EXCLUDED.capabilities, category = EXCLUDED.category, "
+                "requires = EXCLUDED.requires, source_sha = EXCLUDED.source_sha, "
+                "scanned_at = EXCLUDED.scanned_at",
+                (role_name, fqcn, collection, type, description,
+                 Jsonb(products), Jsonb(capabilities), category, Jsonb(requires), source_sha),
+            )
+            conn.commit()
+
+    def get_infrastructure(self, role_name: str) -> dict | None:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM infrastructure WHERE role_name = %s", (role_name,)
+            )
+            return cur.fetchone()
+
+    def list_infrastructure(
+        self, type_filter: str | None = None, category_filter: str | None = None,
+        collection_filter: str | None = None, search: str | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        conditions = []
+        params: dict[str, Any] = {}
+        if type_filter:
+            conditions.append("i.type = %(type)s")
+            params["type"] = type_filter
+        if category_filter:
+            conditions.append("i.category = %(category)s")
+            params["category"] = category_filter
+        if collection_filter:
+            conditions.append("i.collection = %(collection)s")
+            params["collection"] = collection_filter
+        if search:
+            conditions.append(
+                "(i.role_name ILIKE %(search)s OR i.description ILIKE %(search)s "
+                "OR i.products::text ILIKE %(search)s OR i.capabilities::text ILIKE %(search)s)"
+            )
+            params["search"] = f"%{search}%"
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT * FROM infrastructure i {where} ORDER BY i.role_name LIMIT %(limit)s"
+        params["limit"] = limit
+        with self._pool.connection() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def get_infrastructure_with_item_counts(
+        self, type_filter: str | None = None, category_filter: str | None = None,
+        collection_filter: str | None = None, search: str | None = None,
+        has_mappings: bool | None = None, limit: int = 500,
+    ) -> list[dict]:
+        conditions = []
+        params: dict[str, Any] = {}
+        if type_filter:
+            conditions.append("i.type = %(type)s")
+            params["type"] = type_filter
+        if category_filter:
+            conditions.append("i.category = %(category)s")
+            params["category"] = category_filter
+        if collection_filter:
+            conditions.append("i.collection = %(collection)s")
+            params["collection"] = collection_filter
+        if search:
+            conditions.append(
+                "(i.role_name ILIKE %(search)s OR i.description ILIKE %(search)s "
+                "OR i.products::text ILIKE %(search)s OR i.capabilities::text ILIKE %(search)s)"
+            )
+            params["search"] = f"%{search}%"
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Count linked CIs: workloads via babylon_item_workloads, configs via babylon_items.agd_config
+        inner_sql = f"""
+            SELECT i.*,
+                COALESCE(wc.cnt, 0) + COALESCE(cc.cnt, 0) AS item_count
+            FROM infrastructure i
+            LEFT JOIN (
+                SELECT biw.workload_role AS role_name, COUNT(DISTINCT biw.content_id) AS cnt
+                FROM babylon_item_workloads biw
+                JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
+                GROUP BY biw.workload_role
+            ) wc ON wc.role_name = i.role_name AND i.type = 'workload'
+            LEFT JOIN (
+                SELECT bi.agd_config AS role_name, COUNT(DISTINCT bi.content_id) AS cnt
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE bi.agd_config IS NOT NULL
+                GROUP BY bi.agd_config
+            ) cc ON cc.role_name = i.role_name AND i.type = 'config'
+            {where}
+            ORDER BY i.role_name
+            LIMIT %(limit)s
+        """
+        params["limit"] = limit
+
+        if has_mappings is not None:
+            having = "> 0" if has_mappings else "= 0"
+            sql = f"WITH infra AS ({inner_sql}) SELECT * FROM infra WHERE item_count {having}"
+        else:
+            sql = inner_sql
+
+        with self._pool.connection() as conn:
+            return conn.execute(sql, params).fetchall()
 
     # ── Token usage ──
 
