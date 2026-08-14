@@ -332,3 +332,37 @@ class TestNormalizeAnalysis:
         out = normalize_analysis({"summary": "hello", "estimated_duration_min": 60}, "lab")
         assert out["summary"] == "hello"
         assert out["estimated_duration_min"] == 60
+
+
+class TestIgnoredTermsSuppression:
+    def test_ignored_term_creates_no_row(self):
+        """A term in ignored_terms is stored verbatim but never recorded."""
+
+        class RecordingDb:
+            def __init__(self):
+                self.calls = []
+
+            def record_unknown_term(self, dimension, term, example_content_id=None):
+                self.calls.append((dimension, term))
+
+        db = RecordingDb()
+        out = normalize_analysis(
+            {"products": ["Kubernetes", "Wombat Server 3000"]},
+            "lab",
+            db=db,
+            content_id="babylon:lb1",
+        )
+        assert out["products"] == ["Kubernetes", "Wombat Server 3000"]
+        assert db.calls == [("products", "Wombat Server 3000")]
+
+    def test_duplicate_unknowns_recorded_once_per_call(self):
+        class RecordingDb:
+            def __init__(self):
+                self.calls = []
+
+            def record_unknown_term(self, dimension, term, example_content_id=None):
+                self.calls.append((dimension, term))
+
+        db = RecordingDb()
+        normalize_analysis({"products": ["Wombat", "Wombat"]}, "lab", db=db)
+        assert db.calls == [("products", "Wombat")]
