@@ -590,6 +590,21 @@ def build_module_embedding_text(module: dict[str, Any]) -> str:
     return " ".join(str(p) for p in parts if p)
 
 
+def build_infrastructure_embedding_text(row: dict[str, Any]) -> str:
+    """Build text for infrastructure embedding from an infrastructure table row."""
+    parts = []
+    if row.get("description"):
+        parts.append(row["description"])
+    for field in ("products", "capabilities"):
+        val = row.get(field, [])
+        if isinstance(val, list):
+            parts.extend(val)
+    if row.get("category"):
+        parts.append(row["category"])
+    parts.append(row["role_name"])
+    return " ".join(str(p) for p in parts if p)
+
+
 def analyze_showroom(
     ci_name: str,
     display_name: str,

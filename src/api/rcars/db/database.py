@@ -347,6 +347,9 @@ CREATE TABLE IF NOT EXISTS infrastructure (
 CREATE INDEX IF NOT EXISTS idx_infrastructure_type ON infrastructure(type);
 CREATE INDEX IF NOT EXISTS idx_infrastructure_category ON infrastructure(category);
 
+-- Allow infrastructure embeddings (no content_entities row)
+ALTER TABLE embeddings DROP CONSTRAINT IF EXISTS embeddings_content_id_fkey;
+
 -- ═══════════════════════════════════════════════════════════════════
 -- enrichment_tags — re-keyed from ci_name to content_id
 -- ═══════════════════════════════════════════════════════════════════
@@ -1756,6 +1759,17 @@ class Database:
 
         with self._pool.connection() as conn:
             return conn.execute(sql, params).fetchall()
+
+    def get_infrastructure_needing_embeddings(self) -> list[dict]:
+        """Return infrastructure rows that have no summary embedding yet."""
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT i.* FROM infrastructure i
+                LEFT JOIN embeddings e ON e.content_id = i.role_name
+                    AND e.content_type = 'infrastructure' AND e.embed_type = 'summary'
+                WHERE e.id IS NULL AND i.description IS NOT NULL
+            """)
+            return cur.fetchall()
 
     # ── Token usage ──
 
