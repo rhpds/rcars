@@ -211,8 +211,9 @@ def _seed_items(db):
             ("babylon:ns.ocp-ai-workshop.prod", "agnosticd.ai_workloads.openshift_ai", "openshift_ai", "ai_workloads"),
         )
         conn.execute(
-            "INSERT INTO workload_mapping (workload_role, product_name, verified) VALUES (%s, %s, %s)",
-            ("openshift_ai", "OpenShift AI", True),
+            "INSERT INTO infrastructure (role_name, type, products) VALUES (%s, %s, %s::jsonb) "
+            "ON CONFLICT (role_name) DO UPDATE SET products = EXCLUDED.products",
+            ("openshift_ai", "workload", '["OpenShift AI"]'),
         )
         conn.execute(
             "INSERT INTO workload_aliases (product_name, alias) VALUES (%s, %s)",
