@@ -341,6 +341,22 @@ export const api = {
     }),
   deleteRoleAssignment: (id: number) =>
     request<void>(`/admin/role-assignments/${id}`, { method: 'DELETE' }),
+  getVocabulary: () => request<VocabularyData>('/admin/vocabulary'),
+  getVocabularyUnknowns: (status = 'pending') =>
+    request<{ terms: UnknownTerm[] }>(
+      `/admin/vocabulary/unknowns?status=${encodeURIComponent(status)}`
+    ),
+  resolveVocabularyTerm: (
+    dimension: string,
+    term: string,
+    action: 'alias' | 'promote' | 'reject',
+    resolvedTo?: string,
+  ) =>
+    request<UnknownTerm>(
+      `/admin/vocabulary/unknowns/${encodeURIComponent(dimension)}/${encodeURIComponent(term)}`,
+      { method: 'PUT', body: JSON.stringify({ action, resolved_to: resolvedTo ?? null }) },
+    ),
+  vocabularyGenerateUrl: () => '/api/v1/admin/vocabulary/generate',
 };
 
 export interface RetirementWorkflow {
@@ -483,4 +499,30 @@ export interface RoleAssignment {
   source: string
   added_by: string | null
   added_at: string | null
+}
+
+export interface VocabEntry {
+  name: string
+  aliases: string[]
+  search_terms: string[]
+  is_tdp: boolean
+}
+
+export interface VocabularyData {
+  dimensions: Record<string, VocabEntry[]>
+  content_modes: Record<string, string>
+  ignored_terms: Record<string, string[]>
+}
+
+export interface UnknownTerm {
+  dimension: string
+  term: string
+  occurrences: number
+  first_seen: string | null
+  last_seen: string | null
+  example_content_id: string | null
+  status: string
+  resolved_to: string | null
+  resolved_by: string | null
+  resolved_at: string | null
 }
