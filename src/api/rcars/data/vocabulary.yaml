@@ -58,7 +58,7 @@ products:
     aliases: [Pipelines, Tekton]
     search_terms: [Tekton]
   - name: Red Hat OpenShift Virtualization
-    aliases: [OpenShift Virtualization, CNV, KubeVirt]
+    aliases: [OpenShift Virtualization, Virtualization, CNV, KubeVirt]
     search_terms: [KubeVirt, virtual machines]
   - name: Red Hat OpenShift Data Foundation
     aliases: [ODF]

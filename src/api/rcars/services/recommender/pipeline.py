@@ -5,8 +5,6 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-import yaml
-from importlib.resources import files as _pkg_files
 from typing import Callable, Awaitable
 from rcars.db import Database
 from rcars.config import Settings
@@ -27,49 +25,49 @@ NO_MATCH_GUIDANCE = (
 )
 
 
-_product_terms_cache: tuple[dict[str, str], dict[str, str]] | None = None
+def _build_expansion_map() -> dict[str, str]:
+    """Invert the vocabulary's product aliases into term -> canonical name.
 
-
-def _load_product_terms() -> tuple[dict[str, str], dict[str, str]]:
-    """Load product term mappings from the bundled YAML file.
-
-    Returns (acronyms, synonyms) dicts. Cached after first call.
+    Aliases normalize AND widen recall; search_terms widen recall only. Both are
+    appended at query time. Longest term first at match time so 'Dev Spaces'
+    wins over 'Spaces'.
     """
-    global _product_terms_cache
-    if _product_terms_cache is not None:
-        return _product_terms_cache
+    from rcars.services.vocabulary import load_vocabulary
 
-    yaml_path = _pkg_files("rcars.data").joinpath("product-terms.yaml")
-    data = yaml.safe_load(yaml_path.read_text())
-    acronyms = {k.upper(): v for k, v in (data.get("acronyms") or {}).items()}
-    synonyms = data.get("synonyms") or {}
-    _product_terms_cache = (acronyms, synonyms)
-    logger.info("product_terms_loaded", acronyms=len(acronyms), synonyms=len(synonyms))
-    return _product_terms_cache
+    expansion: dict[str, str] = {}
+    for entry in load_vocabulary().entries("products"):
+        extras = " ".join(entry.search_terms)
+        target = f"{entry.name} {extras}".strip() if extras else entry.name
+        for term in (entry.name, *entry.aliases, *entry.search_terms):
+            expansion.setdefault(term, target)
+    return expansion
 
 
 def _expand_query_terms(query: str) -> str:
-    """Expand product acronyms and synonyms for better embedding match."""
-    acronyms, synonyms = _load_product_terms()
+    """Expand product names, acronyms, and synonyms for better embedding match.
 
-    # Synonym expansion first (phrase match, case-insensitive, longest first)
-    for phrase in sorted(synonyms, key=len, reverse=True):
-        pattern = re.compile(r'\b' + re.escape(phrase) + r'\b', re.IGNORECASE)
-        if pattern.search(query):
-            query = pattern.sub(lambda m: f"{m.group(0)} ({synonyms[phrase]})", query)
+    One list, two consumers: this reads the same vocabulary the analyzer writes
+    canonical names from, so the query side and the analysis side cannot drift.
+    """
+    expansion = _build_expansion_map()
+    if not expansion:
+        return query
 
-    # Acronym expansion second (word-boundary, case-insensitive)
-    # This runs after synonym expansion to avoid double-expansion
-    if acronyms:
-        acronym_re = re.compile(
-            r'\b(' + '|'.join(sorted(acronyms, key=len, reverse=True)) + r')\b',
-            re.IGNORECASE,
-        )
-        def _replace_acronym(m: re.Match) -> str:
-            return f"{m.group(0)} ({acronyms[m.group(0).upper()]})"
-        query = acronym_re.sub(_replace_acronym, query)
+    pattern = re.compile(
+        r"\b(" + "|".join(re.escape(t) for t in sorted(expansion, key=len, reverse=True)) + r")\b",
+        re.IGNORECASE,
+    )
+    lookup = {t.casefold(): v for t, v in expansion.items()}
 
-    return query
+    def _replace(m: re.Match) -> str:
+        matched = m.group(0)
+        target = lookup[matched.casefold()]
+        # Do not append an expansion the user already typed.
+        if target.casefold() == matched.casefold():
+            return matched
+        return f"{matched} ({target})"
+
+    return pattern.sub(_replace, query)
 
 
 _URL_RE = re.compile(r'(?:https?://\S+|www\.\S+\.\S+)', re.IGNORECASE)

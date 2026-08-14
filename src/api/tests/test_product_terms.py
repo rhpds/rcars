@@ -1,72 +1,91 @@
+"""Advisor query expansion, now backed by the controlled vocabulary.
+
+Formerly tested data/product-terms.yaml, which was merged into
+data/vocabulary.yaml and deleted (RHDPCD-507).
+"""
+
+from __future__ import annotations
+
 import pytest
-from rcars.services.recommender.pipeline import _load_product_terms, _expand_query_terms
+
+from rcars.services.recommender.pipeline import _expand_query_terms
+from rcars.services.vocabulary import load_vocabulary
+
+# Every acronym and synonym key from the deleted product-terms.yaml.
+# Coverage requirement from the spec: every term must survive the merge.
+LEGACY_PRODUCT_TERMS = [
+    "AAP", "ACM", "RHACM", "ACS", "RHACS", "RHOAI", "OCP", "ARO", "ROSA",
+    "RHEL", "RHDH", "SNO", "RHSSO", "EDA", "TAP", "AMQ", "CRW", "RHBK",
+    "Red Hat AI", "OpenShift AI", "DevSpaces", "Dev Spaces", "Developer Hub",
+    "Quay", "3scale", "Service Mesh", "Serverless", "GitOps", "Virtualization",
+    "MaaS",
+]
 
 
-class TestLoadProductTerms:
-    def test_loads_both_sections(self):
-        acronyms, synonyms = _load_product_terms()
-        assert isinstance(acronyms, dict)
-        assert isinstance(synonyms, dict)
-        assert len(acronyms) > 0
-        assert len(synonyms) > 0
-
-    def test_acronyms_include_known_entries(self):
-        acronyms, _ = _load_product_terms()
-        assert acronyms["RHOAI"] == "Red Hat OpenShift AI"
-        assert acronyms["AAP"] == "Ansible Automation Platform"
-        assert acronyms["RHBK"] == "Red Hat Build of Keycloak"
-
-    def test_synonyms_include_known_entries(self):
-        _, synonyms = _load_product_terms()
-        assert synonyms["Red Hat AI"] == "Red Hat OpenShift AI"
-        assert synonyms["MaaS"] == "Models as a Service model serving"
+@pytest.fixture(autouse=True)
+def clear_vocabulary_cache():
+    load_vocabulary.cache_clear()
+    yield
+    load_vocabulary.cache_clear()
 
 
-class TestExpandQueryTerms:
-    def test_acronym_expansion(self):
-        result = _expand_query_terms("show me RHOAI labs")
-        assert "Red Hat OpenShift AI" in result
-        assert result.startswith("show me RHOAI")
+class TestExpansionReadsVocabulary:
+    def test_acronym_expands_to_canonical_name(self):
+        result = _expand_query_terms("show me RHACS labs")
+        assert "Red Hat Advanced Cluster Security" in result
+        assert result.startswith("show me RHACS")
 
-    def test_synonym_expansion(self):
-        result = _expand_query_terms("Red Hat AI 101 content")
-        assert "Red Hat OpenShift AI" in result
-        assert "Red Hat AI" in result
+    def test_case_insensitive(self):
+        assert "Red Hat OpenShift AI" in _expand_query_terms("rhoai content")
+
+    def test_canonical_name_in_query_still_recognised(self):
+        result = _expand_query_terms("Red Hat Quay setup")
+        assert "Red Hat Quay" in result
 
     def test_no_match_returns_unchanged(self):
-        query = "something completely unrelated"
-        assert _expand_query_terms(query) == query
+        assert _expand_query_terms("wombat husbandry") == "wombat husbandry"
 
-    def test_case_insensitive_acronym(self):
-        result = _expand_query_terms("tell me about rhoai")
-        assert "Red Hat OpenShift AI" in result
+    def test_partial_word_is_not_expanded(self):
+        """Word-boundary matching — RHOAI inside RHOAIX must not expand."""
+        assert "Red Hat OpenShift AI" not in _expand_query_terms("RHOAIX platform")
 
-    def test_case_insensitive_synonym(self):
-        result = _expand_query_terms("red hat ai for beginners")
-        assert "Red Hat OpenShift AI" in result
+    def test_no_double_expansion(self):
+        result = _expand_query_terms("RHACS")
+        assert result.count("Red Hat Advanced Cluster Security") == 1
 
-    def test_acronym_word_boundary(self):
-        result = _expand_query_terms("the RHOACIM project")
-        assert "Red Hat OpenShift AI" not in result
 
-    def test_synonym_does_not_match_partial_words(self):
-        result = _expand_query_terms("QuayIO registry setup")
-        # "Quay" synonym should not match inside "QuayIO"
-        # but this depends on implementation — phrase match should
-        # use word boundaries or exact phrase matching
-        assert result == "QuayIO registry setup"
+class TestMigrationCoverage:
+    @pytest.mark.parametrize("term", LEGACY_PRODUCT_TERMS)
+    def test_every_legacy_term_still_expands(self, term):
+        result = _expand_query_terms(f"find {term} content")
+        assert result != f"find {term} content", f"'{term}' no longer expands"
 
-    def test_multiple_expansions(self):
-        result = _expand_query_terms("RHOAI and Red Hat AI labs")
-        assert result.count("Red Hat OpenShift AI") >= 2
 
-    def test_synonym_longest_match_first(self):
-        result = _expand_query_terms("Dev Spaces environment")
-        assert "Red Hat OpenShift Dev Spaces" in result
+class TestSearchTerms:
+    def test_search_terms_widen_expansion(self):
+        """GitOps must still pull in ArgoCD and Argo CD as recall terms."""
+        result = _expand_query_terms("GitOps demos")
+        assert "Red Hat OpenShift GitOps" in result
+        assert "Argo CD" in result
 
-    def test_expansion_format_parenthetical(self):
-        result = _expand_query_terms("deploy on OCP")
-        assert "OCP (OpenShift Container Platform)" in result
+    def test_search_terms_ignored_by_normalization(self):
+        """search_terms widen recall only — they never snap a value."""
+        from rcars.services.vocabulary import normalize_analysis
+
+        out = normalize_analysis({"products": ["container registry"]}, "lab")
+        assert out["products"] == ["container registry"]
+
+
+class TestOldFileGone:
+    def test_product_terms_yaml_is_deleted(self):
+        from importlib.resources import files as pkg_files
+
+        assert not pkg_files("rcars.data").joinpath("product-terms.yaml").is_file()
+
+    def test_loader_function_removed(self):
+        import rcars.services.recommender.pipeline as pipeline
+
+        assert not hasattr(pipeline, "_load_product_terms")
 
 
 from rcars.services.analyzer import build_embedding_text
@@ -87,7 +106,6 @@ class TestBuildEmbeddingText:
             "use_cases": ["model training"],
         }
         result = build_embedding_text(analysis, display_name="My Great Workshop")
-        # display_name should appear after content fields but before any keywords
         summary_pos = result.index("A workshop about AI.")
         name_pos = result.index("My Great Workshop")
         assert name_pos > summary_pos
