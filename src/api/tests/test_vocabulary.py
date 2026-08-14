@@ -199,3 +199,136 @@ class TestValidation:
         vocab = load_vocabulary()
         assert vocab is not None
         assert "mystery_section" in caplog.text
+
+
+from rcars.services.vocabulary import dedup_topics, normalize_analysis, snap_term
+
+
+class TestMatchLadder:
+    def test_rung1_exact_alias_case_insensitive(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "RHACS") == ("Red Hat Advanced Cluster Security", True)
+        assert snap_term(vocab, "products", "rhacs") == ("Red Hat Advanced Cluster Security", True)
+
+    def test_rung1_vertical_alias(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "verticals", "FSI") == ("Financial Services", True)
+
+    def test_rung2_squash_match(self):
+        """Punctuation and spacing differences resolve without a human."""
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "platforms", "on prem") == ("On-Premise", True)
+        assert snap_term(vocab, "products", "Red-Hat Quay") == ("Red Hat Quay", True)
+
+    def test_casing_and_spacing_variants_all_resolve(self):
+        """The spec's worked examples, wherever on the ladder they land."""
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "Openshift Container Platform")[0] == (
+            "Red Hat OpenShift Container Platform"
+        )
+        assert snap_term(vocab, "platforms", "On-Premises") == ("On-Premise", True)
+        assert snap_term(vocab, "products", "Argo CD")[0] == "Red Hat OpenShift GitOps"
+
+    def test_rung3_trailing_parenthetical(self):
+        vocab = load_vocabulary()
+        result, matched = snap_term(vocab, "products", "OpenShift Container Platform (OCP)")
+        assert (result, matched) == ("Red Hat OpenShift Container Platform", True)
+
+    def test_rung3_version_suffix(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "RHEL 9") == ("Red Hat Enterprise Linux", True)
+        assert snap_term(vocab, "products", "OpenShift 4.16")[0] == (
+            "Red Hat OpenShift Container Platform"
+        )
+
+    def test_rung3_missing_red_hat_prefix(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "Quay") == ("Red Hat Quay", True)
+
+    def test_rung3_extra_red_hat_prefix(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "Red Hat Satellite") == ("Red Hat Satellite", True)
+        assert snap_term(vocab, "platforms", "Red Hat AWS") == ("AWS", True)
+
+    def test_rung4_no_match_returns_verbatim(self):
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "Wombat Server 3000") == ("Wombat Server 3000", False)
+
+    def test_search_terms_do_not_snap(self):
+        """search_terms widen query expansion only — the normalizer ignores them."""
+        vocab = load_vocabulary()
+        assert snap_term(vocab, "products", "container registry")[1] is False
+
+
+class TestTopicDedup:
+    def test_collapses_spelling_variants_keeping_longest(self):
+        assert dedup_topics(["GitOps with ArgoCD", "GitOps with Argo CD"]) == [
+            "GitOps with Argo CD"
+        ]
+
+    def test_tie_broken_by_first_appearance(self):
+        assert dedup_topics(["ArgoCD", "argocd"]) == ["ArgoCD"]
+
+    def test_preserves_order_of_survivors(self):
+        assert dedup_topics(["Pipelines", "GitOps", "pipelines"]) == ["Pipelines", "GitOps"]
+
+    def test_no_count_cap(self):
+        topics = [f"topic number {i}" for i in range(25)]
+        assert len(dedup_topics(topics)) == 25
+
+    def test_drops_empty_values(self):
+        assert dedup_topics(["GitOps", "", None]) == ["GitOps"]
+
+
+class TestNormalizeAnalysis:
+    def test_snaps_products_in_place(self):
+        out = normalize_analysis({"products": ["RHACS", "OCP"]}, "lab")
+        assert out["products"] == [
+            "Red Hat Advanced Cluster Security",
+            "Red Hat OpenShift Container Platform",
+        ]
+
+    def test_unknown_product_stored_verbatim(self):
+        out = normalize_analysis({"products": ["Wombat Server 3000"]}, "lab")
+        assert out["products"] == ["Wombat Server 3000"]
+
+    def test_snaps_difficulty_scalar(self):
+        assert normalize_analysis({"difficulty": "Introductory"}, "lab")["difficulty"] == "beginner"
+
+    def test_empty_vertical_normalizes_to_all(self):
+        assert normalize_analysis({"verticals": []}, "architecture")["verticals"] == ["All"]
+        assert normalize_analysis({"verticals": None}, "architecture")["verticals"] == ["All"]
+
+    def test_missing_vertical_key_is_not_invented(self):
+        """Keys absent from an analyzer's output are skipped — one map, two sources."""
+        assert "verticals" not in normalize_analysis({"products": ["OCP"]}, "lab")
+
+    def test_dedups_topics(self):
+        out = normalize_analysis({"topics": ["GitOps with ArgoCD", "GitOps with Argo CD"]}, "lab")
+        assert out["topics"] == ["GitOps with Argo CD"]
+
+    def test_learning_objectives_untouched(self):
+        objectives = {
+            "stated": ["Understand how GitOps works"],
+            "inferred": ["Deploy an application with Argo CD"],
+        }
+        out = normalize_analysis({"learning_objectives": objectives}, "lab")
+        assert out["learning_objectives"] == objectives
+
+    def test_no_verb_ever_produces_a_review_reason(self):
+        out = normalize_analysis(
+            {"learning_objectives": {"stated": ["Understand containers"]}, "products": ["OCP"]},
+            "lab",
+        )
+        assert "review_reasons" not in out
+        assert "enrichment_review_needed" not in out
+
+    def test_does_not_mutate_input(self):
+        original = {"products": ["RHACS"]}
+        normalize_analysis(original, "lab")
+        assert original == {"products": ["RHACS"]}
+
+    def test_unrelated_keys_pass_through(self):
+        out = normalize_analysis({"summary": "hello", "estimated_duration_min": 60}, "lab")
+        assert out["summary"] == "hello"
+        assert out["estimated_duration_min"] == 60
