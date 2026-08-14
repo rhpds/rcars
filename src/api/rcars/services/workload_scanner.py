@@ -1,6 +1,7 @@
 """Workload repo scanner — clone agDv2 collection repos, read role code, LLM-analyze."""
 
 import json
+import re
 import shutil
 import structlog
 from pathlib import Path
@@ -48,7 +49,19 @@ Collection: {collection_name}
 {code_content}"""
 
 
-def read_role_code(role_path: Path, max_chars: int = 12000) -> str:
+_INCLUDE_RE = re.compile(r'(?:include_tasks|import_tasks):\s*["\']?([^\s"\']+\.ya?ml)', re.MULTILINE)
+
+
+def _follow_task_includes(tasks_content: str, tasks_dir: Path, sections: list[str]) -> None:
+    """Read files referenced by include_tasks/import_tasks in tasks/main — one level only."""
+    for match in _INCLUDE_RE.findall(tasks_content):
+        fp = tasks_dir / match
+        if fp.exists() and fp.is_file():
+            content = fp.read_text(errors="replace")[:4000]
+            sections.append(f"=== TASKS ({match}) ===\n{content}")
+
+
+def read_role_code(role_path: Path, max_chars: int = 40000) -> str:
     """Read key files from an Ansible role for LLM analysis."""
     sections = []
     files_to_read = [
@@ -64,6 +77,8 @@ def read_role_code(role_path: Path, max_chars: int = 12000) -> str:
         if fp.exists():
             content = fp.read_text(errors="replace")[:4000]
             sections.append(f"=== {label} ({rel_path}) ===\n{content}")
+            if label == "TASKS":
+                _follow_task_includes(content, fp.parent, sections)
 
     template_dir = role_path / "templates"
     if template_dir.is_dir():
@@ -271,7 +286,7 @@ Config name: {config_name}
 {code_content}"""
 
 
-def read_config_code(config_path: Path, max_chars: int = 15000) -> str:
+def read_config_code(config_path: Path, max_chars: int = 40000) -> str:
     """Read key files from a config directory for LLM analysis."""
     sections = []
     files_to_read = [
@@ -289,6 +304,8 @@ def read_config_code(config_path: Path, max_chars: int = 15000) -> str:
         if fp.exists() and fp.is_file():
             content = fp.read_text(errors="replace")[:4000]
             sections.append(f"=== {label} ({rel_path}) ===\n{content}")
+            if "PLAYBOOK" in label:
+                _follow_task_includes(content, fp.parent, sections)
 
     # Provider-specific default_vars in subdirectories
     for subdir in sorted(config_path.iterdir()) if config_path.is_dir() else []:

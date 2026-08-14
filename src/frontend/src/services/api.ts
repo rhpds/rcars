@@ -156,17 +156,6 @@ export const api = {
   }>('/admin/reporting-status'),
 
   // Infrastructure
-  searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.workloads) qs.set('workloads', params.workloads);
-    if (params?.agd_config) qs.set('agd_config', params.agd_config);
-    if (params?.cloud_provider) qs.set('cloud_provider', params.cloud_provider);
-    if (params?.ocp_version) qs.set('ocp_version', params.ocp_version);
-    if (params?.os_image) qs.set('os_image', params.os_image);
-    if (params?.stage) qs.set('stage', params.stage);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    return request<{ items: unknown[]; total: number }>(`/catalog/search/infrastructure?${qs}`);
-  },
   getCatalogFacets: () => request<{
     workloads: string[];
     agd_configs: string[];

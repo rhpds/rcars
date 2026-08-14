@@ -140,11 +140,6 @@ class CatalogStatsResponse(BaseModel):
     model_config = {"extra": "allow"}
 
 
-class InfraSearchResponse(BaseModel):
-    items: list[dict]
-    total: int
-
-
 class FacetsResponse(BaseModel):
     workloads: list[str] = []
     agd_configs: list[str] = []

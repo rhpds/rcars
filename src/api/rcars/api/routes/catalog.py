@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 from rcars.api.schemas import (
     StatusResponse, JobResponse, CatalogItemResponse, CatalogStatsResponse,
-    InfraSearchResponse, FacetsResponse,
+    FacetsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
@@ -99,52 +99,6 @@ async def catalog_stats(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/search/infrastructure",
-    summary="Search by infrastructure metadata",
-    description=(
-        "Searches catalog items by infrastructure attributes: workload products, "
-        "AgnosticD config type, cloud provider, OCP version, and OS image. "
-        "Returns items with their resolved workload mappings."
-    ),
-    response_model=InfraSearchResponse,
-)
-async def search_infrastructure(
-    request: Request,
-    user: str = Depends(require_auth),
-    workloads: str | None = Query(None, description="Comma-separated product names or aliases (AND)"),
-    agd_config: str | None = Query(None, description="Config type: openshift-workloads, openshift-cluster, etc."),
-    cloud_provider: str | None = Query(None),
-    ocp_version: str | None = Query(None, description="OCP version prefix, e.g. 4.20"),
-    os_image: str | None = Query(None, description="OS image prefix, e.g. rhel-9"),
-    stage: str | None = None,
-    limit: int = Query(50, le=200),
-):
-    db = request.app.state.db
-    workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
-    items = db.search_by_infrastructure(
-        workloads=workload_list,
-        agd_config=agd_config,
-        cloud_provider=cloud_provider,
-        ocp_version=ocp_version,
-        os_image=os_image,
-        stage=stage,
-        limit=limit,
-    )
-    infra_by_role = {i["role_name"]: i for i in db.list_infrastructure(type_filter="workload")}
-    for item in items:
-        raw_workloads = db.get_workloads(item["content_id"])
-        item["workloads"] = [
-            {
-                "role": w["workload_role"],
-                "product_name": ((infra_by_role.get(w["workload_role"]) or {}).get("products") or [None])[0],
-                "mapped": w["workload_role"] in infra_by_role,
-            }
-            for w in raw_workloads
-        ]
-    return {"items": items, "total": len(items)}
-
-
-@router.get(
     "/facets",
     summary="Get filter facets",
     description="Returns distinct values for filter dropdowns: workloads, AgnosticD configs, cloud providers, OS images.",
@@ -191,6 +145,42 @@ async def list_infrastructure(
 async def infra_stats(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return db.get_infra_stats()
+
+
+@router.get(
+    "/infrastructure/{role_name}/items",
+    summary="Catalog items using this infrastructure",
+    description="Returns catalog items that deploy or use the given infrastructure entry.",
+)
+async def infrastructure_items(
+    role_name: str, request: Request, user: str = Depends(require_auth),
+):
+    db = request.app.state.db
+    infra = db.get_infrastructure(role_name)
+    if not infra:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Infrastructure entry '{role_name}' not found")
+
+    with db.pool.connection() as conn:
+        if infra["type"] == "config":
+            rows = conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE bi.agd_config = %(role_name)s
+                ORDER BY ce.display_name
+            """, {"role_name": role_name}).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_item_workloads biw
+                JOIN babylon_items bi ON bi.content_id = biw.content_id
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE biw.workload_role = %(role_name)s
+                ORDER BY ce.display_name
+            """, {"role_name": role_name}).fetchall()
+
+    return {"role_name": role_name, "type": infra["type"], "items": rows, "total": len(rows)}
 
 
 @router.get(
