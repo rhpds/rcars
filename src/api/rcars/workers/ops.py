@@ -401,6 +401,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                 text = build_infrastructure_embedding_text(row)
                 if text.strip():
                     emb = generate_embedding(text, prefix="search_document")
+                    wctx.db.clear_embeddings(row["role_name"])
                     wctx.db.store_embedding(
                         content_id=row["role_name"],
                         content_type="infrastructure",
