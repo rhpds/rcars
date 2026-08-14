@@ -1016,7 +1016,7 @@ class Database:
     def upsert_showroom_analysis(self, analysis: dict[str, Any]):
         fields = [
             "content_id", "content_type", "summary",
-            "products_json", "audience_json", "topics_json",
+            "products_json", "audience_json", "recommender_audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
             "difficulty", "estimated_duration_min",
             "format_suitability_json", "use_cases_json",
@@ -1029,7 +1029,7 @@ class Database:
             present["last_analyzed"] = datetime.now(timezone.utc)
 
         jsonb_fields = [
-            "products_json", "audience_json", "topics_json",
+            "products_json", "audience_json", "recommender_audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
             "format_suitability_json", "use_cases_json",
             "review_reasons",

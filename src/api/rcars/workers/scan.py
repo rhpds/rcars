@@ -75,6 +75,7 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 db=wctx.db,
                 content_path=item.get("content_path"),
                 keywords=item.get("keywords") or [],
+                entity_content_type=item.get("content_type") or "lab",
             )
         )
 
@@ -96,6 +97,7 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 "summary": analysis.get("summary"),
                 "products_json": analysis.get("products"),
                 "audience_json": analysis.get("audience"),
+                "recommender_audience_json": analysis.get("recommender_audience"),
                 "topics_json": analysis.get("topics"),
                 "modules_json": analysis.get("modules"),
                 "learning_objectives_json": analysis.get("learning_objectives"),

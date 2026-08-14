@@ -472,3 +472,53 @@ class TestPromptInjection:
         from rcars.services.analyzer import PROMPT_TEMPLATE_PATH
 
         assert "recommender_audience" in PROMPT_TEMPLATE_PATH.read_text()
+
+
+class TestAnalyzerNormalizesOnce:
+    def test_analysis_is_normalized_before_return(self, monkeypatch):
+        """analyze_showroom normalizes right after parse — not at the write sites."""
+        from pathlib import Path
+
+        from rcars.services import analyzer
+
+        monkeypatch.setattr(analyzer, "clone_showroom", lambda *a, **k: Path("/tmp"))
+        monkeypatch.setattr(analyzer, "get_repo_head", lambda *a, **k: ("abc123", "2026-01-01"))
+        monkeypatch.setattr(
+            analyzer, "read_showroom_content", lambda *a, **k: {"m1.adoc": "content"}
+        )
+        monkeypatch.setattr(analyzer, "filter_boilerplate_files", lambda files: files)
+        monkeypatch.setattr(analyzer, "generate_embedding", lambda *a, **k: [0.0] * 768)
+
+        class FakeResult:
+            text = (
+                '{"content_type": "workshop", "summary": "s", '
+                '"products": ["RHACS", "OCP"], "difficulty": "Introductory", '
+                '"topics": ["GitOps with ArgoCD", "GitOps with Argo CD"], '
+                '"recommender_audience": ["solution architects"], "modules": []}'
+            )
+            input_tokens = 1
+            output_tokens = 1
+            provider = "test"
+
+        monkeypatch.setattr("rcars.config.call_llm", lambda *a, **k: FakeResult())
+
+        result = analyzer.analyze_showroom(
+            ci_name="lb1",
+            display_name="Lab One",
+            category="workshop",
+            product="OpenShift",
+            showroom_url="https://example.com/x.git",
+            showroom_ref=None,
+            settings=object(),
+            entity_content_type="lab",
+        )
+
+        analysis = result["analysis"]
+        assert analysis["products"] == [
+            "Red Hat Advanced Cluster Security",
+            "Red Hat OpenShift Container Platform",
+        ]
+        assert analysis["difficulty"] == "beginner"
+        assert analysis["topics"] == ["GitOps with Argo CD"]
+        assert analysis["recommender_audience"] == ["solution architects"]
+        assert "review_reasons" not in analysis

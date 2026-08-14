@@ -185,6 +185,7 @@ def scan(max_analyze: int | None):
             db=db,
             content_path=item.get("content_path"),
             keywords=item.get("keywords") or [],
+            entity_content_type=item.get("content_type") or "lab",
         )
 
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
@@ -207,6 +208,7 @@ def scan(max_analyze: int | None):
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
                         "audience_json": analysis.get("audience"),
+                        "recommender_audience_json": analysis.get("recommender_audience"),
                         "topics_json": analysis.get("topics"),
                         "modules_json": analysis.get("modules"),
                         "learning_objectives_json": analysis.get("learning_objectives"),
@@ -237,6 +239,7 @@ def scan(max_analyze: int | None):
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
                         "audience_json": analysis.get("audience"),
+                        "recommender_audience_json": analysis.get("recommender_audience"),
                         "topics_json": analysis.get("topics"),
                         "modules_json": analysis.get("modules"),
                         "learning_objectives_json": analysis.get("learning_objectives"),

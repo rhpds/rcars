@@ -663,6 +663,7 @@ def analyze_showroom(
     db=None,
     content_path: str | None = None,
     keywords: list[str] | None = None,
+    entity_content_type: str = "lab",
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -734,6 +735,15 @@ def analyze_showroom(
                     "use_cases": donor.get("use_cases_json"),
                 }
 
+                # Normalize the borrowed analysis too — the donor may predate a
+                # vocabulary change, and normalization is idempotent.
+                from rcars.services.vocabulary import normalize_analysis
+                donor_analysis["recommender_audience"] = donor.get("recommender_audience_json")
+                donor_analysis = normalize_analysis(
+                    donor_analysis, entity_content_type,
+                    db=db, content_id=f"babylon:{ci_name}",
+                )
+
                 # Rebuild CI embedding with this CI's own keywords
                 ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords, display_name=display_name)
                 ci_embedding = generate_embedding(ci_embedding_text)
@@ -768,7 +778,8 @@ def analyze_showroom(
 
         # Build prompt and call Sonnet
         system_prompt, user_message = build_analysis_prompt(
-            ci_name, display_name, category, product, content_files
+            ci_name, display_name, category, product, content_files,
+            entity_content_type=entity_content_type,
         )
         log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(system_prompt) + len(user_message))
 
@@ -795,6 +806,12 @@ def analyze_showroom(
         if not analysis:
             log.error("analyze %s: failed to parse Sonnet response", ci_name)
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
+
+        # Normalize ONCE, here — never at the individual write sites.
+        from rcars.services.vocabulary import normalize_analysis
+        analysis = normalize_analysis(
+            analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
+        )
 
         # Generate embeddings (include catalog keywords for event/metadata signal)
         ci_embedding_text = build_embedding_text(analysis, keywords=keywords, display_name=display_name)
