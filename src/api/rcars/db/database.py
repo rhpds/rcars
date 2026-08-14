@@ -1477,35 +1477,27 @@ class Database:
                     "JOIN content_entities ce ON ce.content_id = biw.content_id WHERE ce.retired_at IS NULL"
                 )
                 with_workloads = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping")
-                mapped_count = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping WHERE verified = TRUE")
-                verified_count = cur.fetchone()["count"]
-                cur.execute("""
-                    SELECT COUNT(DISTINCT biw.workload_role) AS count
-                    FROM babylon_item_workloads biw
-                    JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
-                    LEFT JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
-                    WHERE wm.id IS NULL
-                """)
-                unmapped_count = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM infrastructure WHERE type = 'workload'")
+                workload_count = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM infrastructure WHERE type = 'config'")
+                config_count = cur.fetchone()["count"]
         return {
             "v2_items": v2_items,
             "with_workloads": with_workloads,
-            "mapped_workloads": mapped_count,
-            "verified_workloads": verified_count,
-            "unmapped_workloads": unmapped_count,
+            "infrastructure_workloads": workload_count,
+            "infrastructure_configs": config_count,
         }
 
     def get_catalog_facets(self) -> dict:
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT wm.product_name, wm.category, COUNT(DISTINCT biw.content_id) AS ci_count
-                FROM workload_mapping wm
-                JOIN babylon_item_workloads biw ON biw.workload_role = wm.workload_role
+                SELECT i.role_name, i.products, i.category, COUNT(DISTINCT biw.content_id) AS ci_count
+                FROM infrastructure i
+                JOIN babylon_item_workloads biw ON biw.workload_role = i.role_name
                 JOIN babylon_items bi ON bi.content_id = biw.content_id AND bi.is_prod = TRUE
                 JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
-                GROUP BY wm.product_name, wm.category
+                WHERE i.type = 'workload'
+                GROUP BY i.role_name, i.products, i.category
                 ORDER BY ci_count DESC
             """)
             workloads = cur.fetchall()
@@ -1539,8 +1531,16 @@ class Database:
             """)
             os_images = cur.fetchall()
 
+        # Flatten products JSONB arrays from infrastructure rows into a deduped ordered list
+        seen: set[str] = set()
+        product_names: list[str] = []
+        for row in workloads:
+            for p in (row["products"] or []):
+                if p not in seen:
+                    seen.add(p)
+                    product_names.append(p)
         return {
-            "workloads": [row["product_name"] for row in workloads],
+            "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
             "cloud_providers": [row["cloud_provider"] for row in cloud_providers],
             "os_images": [row["os_image"] for row in os_images],
@@ -1583,15 +1583,16 @@ class Database:
             resolved = self._resolve_workload_aliases(workloads)
             for i, wl in enumerate(resolved):
                 alias_w = f"w{i}"
-                alias_m = f"m{i}"
+                alias_i = f"i{i}"
                 joins.append(
                     f"JOIN babylon_item_workloads {alias_w} "
                     f"ON {alias_w}.content_id = ce.content_id "
-                    f"JOIN workload_mapping {alias_m} "
-                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
-                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
+                    f"JOIN infrastructure {alias_i} "
+                    f"ON {alias_i}.role_name = {alias_w}.workload_role "
+                    f"AND {alias_i}.type = 'workload' "
+                    f"AND {alias_i}.products @> %({alias_i}_name)s::jsonb"
                 )
-                params[f"{alias_m}_name"] = wl
+                params[f"{alias_i}_name"] = json.dumps([wl])
 
         join_sql = "\n".join(joins)
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""

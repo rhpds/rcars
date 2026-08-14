@@ -469,11 +469,8 @@ def infra_stats():
     table.add_column("Count", justify="right")
     table.add_row("AgnosticD v2 items", str(stats["v2_items"]))
     table.add_row("Items with workloads", str(stats["with_workloads"]))
-    table.add_row("Mapped workload roles", str(stats["mapped_workloads"]))
-    table.add_row("Verified workload roles", str(stats["verified_workloads"]))
-    unmapped = stats["unmapped_workloads"]
-    style = "red" if unmapped > 0 else "green"
-    table.add_row("Unmapped workload roles", f"[{style}]{unmapped}[/{style}]")
+    table.add_row("Infrastructure workloads", str(stats["infrastructure_workloads"]))
+    table.add_row("Infrastructure configs", str(stats["infrastructure_configs"]))
     console.print(table)
     db.close()
 

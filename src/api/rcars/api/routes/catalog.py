@@ -8,7 +8,6 @@ from rcars.api.middleware.auth import require_auth, require_curator, require_adm
 from rcars.api.schemas import (
     StatusResponse, JobResponse, CatalogItemResponse, CatalogStatsResponse,
     InfraSearchResponse, FacetsResponse,
-    WorkloadMappingsResponse, UnmappedWorkloadsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
@@ -131,14 +130,14 @@ async def search_infrastructure(
         stage=stage,
         limit=limit,
     )
-    mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
+    infra_by_role = {i["role_name"]: i for i in db.list_infrastructure(type_filter="workload")}
     for item in items:
         raw_workloads = db.get_workloads(item["content_id"])
         item["workloads"] = [
             {
                 "role": w["workload_role"],
-                "product_name": mappings_by_role.get(w["workload_role"], {}).get("product_name"),
-                "mapped": w["workload_role"] in mappings_by_role,
+                "product_name": (infra_by_role.get(w["workload_role"]) or {}).get("products", [None])[0],
+                "mapped": w["workload_role"] in infra_by_role,
             }
             for w in raw_workloads
         ]
@@ -157,64 +156,30 @@ async def catalog_facets(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/workload-mappings",
-    summary="List workload mappings",
-    description="Returns all workload role-to-product mappings and aliases used for infrastructure search.",
-    response_model=WorkloadMappingsResponse,
+    "/infrastructure",
+    summary="List infrastructure catalog",
+    description=(
+        "Returns the infrastructure catalog (workload roles and base configs) "
+        "with item counts showing how many catalog items use each entry."
+    ),
 )
-async def list_workload_mappings(request: Request, user: str = Depends(require_auth)):
-    db = request.app.state.db
-    return {"mappings": db.list_workload_mappings(), "aliases": db.list_workload_aliases()}
-
-
-@router.get(
-    "/workload-mappings/unmapped",
-    summary="List unmapped workload roles",
-    description="Returns workload roles discovered in catalog items that have no product mapping yet. Curator-only.",
-    response_model=UnmappedWorkloadsResponse,
-)
-async def list_unmapped_workloads(request: Request, user: str = Depends(require_curator)):
-    db = request.app.state.db
-    return {"unmapped": db.get_unmapped_workloads()}
-
-
-class WorkloadMappingRequest(BaseModel):
-    workload_role: str = Field(max_length=200)
-    product_name: str = Field(max_length=200)
-    description: str | None = Field(default=None, max_length=500)
-    category: str | None = Field(default=None, max_length=100)
-
-
-@router.post(
-    "/workload-mappings",
-    summary="Add or update workload mapping",
-    description="Creates or updates a workload role-to-product mapping. Curator-only.",
-    response_model=StatusResponse,
-)
-async def add_workload_mapping(
-    body: WorkloadMappingRequest, request: Request, user: str = Depends(require_curator),
+async def list_infrastructure(
+    request: Request,
+    user: str = Depends(require_auth),
+    type: str | None = Query(None, description="Filter by type: 'workload' or 'config'"),
+    category: str | None = Query(None, description="Filter by category"),
+    collection: str | None = Query(None, description="Filter by collection"),
+    search: str | None = Query(None, description="Search across role name, description, products, capabilities"),
+    has_mappings: bool | None = Query(None, description="True = only with linked CIs, False = orphans only"),
+    limit: int = Query(500, le=1000),
 ):
     db = request.app.state.db
-    db.upsert_workload_mapping(
-        workload_role=body.workload_role,
-        product_name=body.product_name,
-        description=body.description,
-        category=body.category,
-        added_by=user,
+    items = db.get_infrastructure_with_item_counts(
+        type_filter=type, category_filter=category,
+        collection_filter=collection, search=search,
+        has_mappings=has_mappings, limit=limit,
     )
-    return {"status": "ok"}
-
-
-@router.delete(
-    "/workload-mappings/{role}",
-    summary="Delete workload mapping",
-    description="Removes a workload role-to-product mapping. Admin-only.",
-    response_model=StatusResponse,
-)
-async def delete_workload_mapping(role: str, request: Request, user: str = Depends(require_admin)):
-    db = request.app.state.db
-    db.delete_workload_mapping(role)
-    return {"status": "ok"}
+    return {"items": items, "total": len(items)}
 
 
 @router.get(
