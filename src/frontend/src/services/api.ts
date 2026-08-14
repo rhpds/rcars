@@ -175,7 +175,7 @@ export const api = {
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;
-    mapped_workloads: number; verified_workloads: number; unmapped_workloads: number;
+    infrastructure_workloads: number; infrastructure_configs: number;
   }>('/catalog/infra-stats'),
   getInfrastructureCatalog: (params?: {
     type?: string; category?: string; collection?: string;

@@ -154,15 +154,6 @@ class FacetsResponse(BaseModel):
     model_config = {"extra": "allow"}
 
 
-class WorkloadMappingsResponse(BaseModel):
-    mappings: list[dict]
-    aliases: list[dict]
-
-
-class UnmappedWorkloadsResponse(BaseModel):
-    unmapped: list[dict]
-
-
 class InfraStatsResponse(BaseModel):
     model_config = {"extra": "allow"}
 

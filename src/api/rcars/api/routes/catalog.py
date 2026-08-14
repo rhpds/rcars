@@ -136,7 +136,7 @@ async def search_infrastructure(
         item["workloads"] = [
             {
                 "role": w["workload_role"],
-                "product_name": (infra_by_role.get(w["workload_role"]) or {}).get("products", [None])[0],
+                "product_name": ((infra_by_role.get(w["workload_role"]) or {}).get("products") or [None])[0],
                 "mapped": w["workload_role"] in infra_by_role,
             }
             for w in raw_workloads
