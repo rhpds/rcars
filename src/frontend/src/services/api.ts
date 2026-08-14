@@ -177,20 +177,29 @@ export const api = {
     v2_items: number; with_workloads: number;
     mapped_workloads: number; verified_workloads: number; unmapped_workloads: number;
   }>('/catalog/infra-stats'),
-  getWorkloadMappings: () => request<{
-    mappings: Array<{ workload_role: string; product_name: string; description: string | null; category: string | null; verified: boolean }>;
-    aliases: Array<{ product_name: string; alias: string }>;
-  }>('/catalog/workload-mappings'),
-  addWorkloadMapping: (body: { workload_role: string; product_name: string; description?: string; category?: string }) =>
-    request<{ status: string }>('/catalog/workload-mappings', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  deleteWorkloadMapping: (role: string) =>
-    request<{ status: string }>(`/catalog/workload-mappings/${encodeURIComponent(role)}`, { method: 'DELETE' }),
-  getUnmappedWorkloads: () => request<{
-    unmapped: Array<{ workload_role: string; workload_collection: string | null; ci_count: number }>;
-  }>('/catalog/workload-mappings/unmapped'),
+  getInfrastructureCatalog: (params?: {
+    type?: string; category?: string; collection?: string;
+    search?: string; has_mappings?: boolean; limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set('type', params.type);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.collection) qs.set('collection', params.collection);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.has_mappings !== undefined) qs.set('has_mappings', String(params.has_mappings));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    return request<{
+      items: Array<{
+        role_name: string; fqcn: string | null; collection: string | null;
+        type: string; description: string | null;
+        products: string[]; capabilities: string[];
+        category: string | null; requires: string[];
+        source_sha: string | null; scanned_at: string | null;
+        item_count: number;
+      }>;
+      total: number;
+    }>(`/catalog/infrastructure?${qs}`);
+  },
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
   // Content overlap
