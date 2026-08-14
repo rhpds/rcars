@@ -363,6 +363,31 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:workload_scan", status="failed", message=msg)
 
+        # Step 4 (continued): Config scan
+        try:
+            from rcars.services.workload_scanner import scan_configs
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="running",
+                                   message="Step 4 (config): Scanning AgnosticD v2 configs...")
+            config_result = await asyncio.to_thread(
+                scan_configs, "/tmp", wctx.settings,
+                wctx.settings.scanning_model or "claude-sonnet-4-6",
+                wctx.db, force=False,
+            )
+            scanned = config_result.get("configs_scanned", 0)
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="complete",
+                                   message=f"Step 4 (config) complete: {scanned} configs scanned")
+            log.info("pipeline_config_scan_complete", action="pipeline_step_complete",
+                     step="config_scan", **config_result)
+        except Exception as e:
+            msg = f"Step 4 (config scan) failed: {e}"
+            warnings.append(msg)
+            log.error("pipeline_config_scan_failed", action="pipeline_step_failed",
+                      step="config_scan", error=str(e), traceback=traceback.format_exc())
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="failed", message=msg)
+
     # Step 4a: Generate embeddings for new/updated infrastructure
     try:
         from rcars.services.analyzer import build_infrastructure_embedding_text, generate_embedding

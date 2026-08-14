@@ -1378,11 +1378,10 @@ class Database:
 
     def get_workload_classifications(self, content_id: str) -> list[dict]:
         sql = """
-            SELECT wm.product_name, wm.description, wm.category
+            SELECT i.products->>0 AS product_name, i.description, i.category
             FROM babylon_item_workloads biw
-            JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
+            JOIN infrastructure i ON i.role_name = biw.workload_role AND i.type = 'workload'
             WHERE biw.content_id = %(content_id)s
-              AND wm.verified = TRUE
         """
         with self._pool.connection() as conn:
             return conn.execute(sql, {"content_id": content_id}).fetchall()
