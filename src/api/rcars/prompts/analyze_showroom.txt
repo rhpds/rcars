@@ -24,6 +24,8 @@ Analyze the Showroom content below and produce a structured JSON assessment. Foc
 - The difficulty level based on prerequisite knowledge needed
 - How long it would realistically take to complete
 
+{{VOCABULARY}}
+
 ### Learning Objectives
 Extract TWO types of learning objectives:
 1. **Stated objectives**: What the Showroom explicitly says you will learn (often in an intro/overview page)
@@ -37,7 +39,8 @@ Return ONLY valid JSON (no markdown fences, no explanation):
   "content_type": "workshop" or "demo",
   "summary": "2-3 sentence summary of what this lab/demo covers and who it's for",
   "products": ["list of official Red Hat product names covered"],
-  "audience": ["target audience descriptors, e.g. 'platform engineers', 'developers', 'IT decision makers'"],
+  "audience": ["who this content is FOR, e.g. 'platform engineers', 'developers', 'IT decision makers'"],
+  "recommender_audience": ["who at Red Hat should know about this content, e.g. 'solution architects', 'consultants', 'TAMs', 'field engineers'"],
   "difficulty": "beginner" or "intermediate" or "advanced",
   "estimated_duration_min": 60,
   "topics": ["specific technical topics covered, e.g. 'Kubernetes operators', 'CI/CD pipelines'"],

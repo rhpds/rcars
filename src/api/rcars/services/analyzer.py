@@ -467,12 +467,28 @@ def build_analysis_prompt(
     category: str,
     product: str,
     content_files: dict[str, str],
+    entity_content_type: str = "lab",
 ) -> tuple[str, str]:
     """Build analysis prompt split into system instructions and user data.
 
+    entity_content_type is content_entities.content_type — NOT the LLM's
+    self-reported content_type, which does not exist yet at this point. It
+    selects the action-verb hints in the injected vocabulary block.
+
     Returns (system_prompt, user_message) for system/user separation (M-1/M-4).
     """
+    from rcars.services.vocabulary import (
+        VOCABULARY_SENTINEL,
+        load_vocabulary,
+        render_vocabulary_block,
+    )
+
     template = PROMPT_TEMPLATE_PATH.read_text()
+
+    # The template contains literal { } from its JSON example, so str.format()
+    # cannot be used — replace an explicit sentinel instead.
+    vocabulary_block = render_vocabulary_block(load_vocabulary(), entity_content_type)
+    template = template.replace(VOCABULARY_SENTINEL, vocabulary_block)
 
     # Concatenate file contents with headers
     content_parts = []

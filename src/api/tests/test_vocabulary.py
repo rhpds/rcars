@@ -366,3 +366,109 @@ class TestIgnoredTermsSuppression:
         db = RecordingDb()
         normalize_analysis({"products": ["Wombat", "Wombat"]}, "lab", db=db)
         assert db.calls == [("products", "Wombat")]
+
+
+from rcars.services.vocabulary import VOCABULARY_SENTINEL, render_vocabulary_block
+
+
+class TestRenderVocabularyBlock:
+    def test_products_are_injected(self):
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "lab")
+        assert "Red Hat OpenShift Container Platform" in block
+        assert "Red Hat Advanced Cluster Security" in block
+
+    def test_solutions_are_not_injected(self):
+        """Only products and verb hints go into the prompt."""
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "lab")
+        assert "Data Services & Storage" not in block
+        assert "Financial Services" not in block
+        assert "On-Premise" not in block
+
+    def test_hands_on_verbs_for_lab(self):
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "lab")
+        assert "deploy" in block
+        assert "troubleshoot" in block
+        assert "compare" not in block
+
+    def test_read_through_verbs_for_architecture(self):
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "architecture")
+        assert "compare" in block
+        assert "evaluate" in block
+        assert "troubleshoot" not in block
+
+    def test_rejected_verbs_appear_as_avoid_hints(self):
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "lab")
+        assert "understand" in block
+        assert "be familiar with" in block
+
+    def test_unmapped_content_type_falls_back_with_warning(self, caplog):
+        import logging
+
+        vocab = load_vocabulary()
+        with caplog.at_level(logging.WARNING):
+            block = render_vocabulary_block(vocab, "podcast")
+        assert "deploy" in block  # hands_on fallback
+        assert "podcast" in caplog.text
+
+    def test_block_contains_no_format_braces(self):
+        """The block is spliced into a template that cannot use str.format()."""
+        vocab = load_vocabulary()
+        block = render_vocabulary_block(vocab, "lab")
+        assert "{" not in block and "}" not in block
+
+
+class TestPromptInjection:
+    def test_sentinel_present_in_template(self):
+        from rcars.services.analyzer import PROMPT_TEMPLATE_PATH
+
+        assert VOCABULARY_SENTINEL in PROMPT_TEMPLATE_PATH.read_text()
+
+    def test_sentinel_sits_inside_the_instructions_section(self):
+        """build_analysis_prompt slices the template; only the Instructions
+        section reaches the system prompt. A sentinel outside it is discarded.
+        """
+        from rcars.services.analyzer import PROMPT_TEMPLATE_PATH
+
+        template = PROMPT_TEMPLATE_PATH.read_text()
+        instructions_start = template.index("\n## Instructions\n")
+        content_start = template.index("\n## Showroom Content\n")
+        assert instructions_start < template.index(VOCABULARY_SENTINEL) < content_start
+
+    def test_vocabulary_block_reaches_the_system_prompt(self):
+        from rcars.services.analyzer import build_analysis_prompt
+
+        system_prompt, user_message = build_analysis_prompt(
+            ci_name="lb1",
+            display_name="Lab One",
+            category="workshop",
+            product="OpenShift",
+            content_files={"m1.adoc": "some content"},
+            entity_content_type="lab",
+        )
+        assert VOCABULARY_SENTINEL not in system_prompt
+        assert "Red Hat OpenShift Container Platform" in system_prompt
+        assert "troubleshoot" in system_prompt
+        assert "some content" in user_message
+
+    def test_architecture_type_selects_read_through_verbs(self):
+        from rcars.services.analyzer import build_analysis_prompt
+
+        system_prompt, _ = build_analysis_prompt(
+            ci_name="lb1",
+            display_name="Lab One",
+            category="workshop",
+            product="OpenShift",
+            content_files={"m1.adoc": "some content"},
+            entity_content_type="architecture",
+        )
+        assert "evaluate" in system_prompt
+
+    def test_prompt_asks_for_recommender_audience(self):
+        from rcars.services.analyzer import PROMPT_TEMPLATE_PATH
+
+        assert "recommender_audience" in PROMPT_TEMPLATE_PATH.read_text()
