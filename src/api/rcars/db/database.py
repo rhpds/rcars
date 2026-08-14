@@ -297,21 +297,8 @@ CREATE INDEX IF NOT EXISTS idx_biacl_content_id ON babylon_item_acl_groups(conte
 CREATE INDEX IF NOT EXISTS idx_biacl_group_name ON babylon_item_acl_groups(group_name);
 
 -- ═══════════════════════════════════════════════════════════════════
--- Independent reference tables (unchanged)
+-- Independent reference tables
 -- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS workload_mapping (
-    id SERIAL PRIMARY KEY,
-    workload_role TEXT NOT NULL UNIQUE,
-    product_name TEXT NOT NULL,
-    description TEXT,
-    category TEXT,
-    source_collection TEXT,
-    verified BOOLEAN DEFAULT FALSE,
-    added_by TEXT,
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    verified_at TIMESTAMPTZ
-);
-
 CREATE TABLE IF NOT EXISTS workload_aliases (
     id SERIAL PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -319,14 +306,7 @@ CREATE TABLE IF NOT EXISTS workload_aliases (
     added_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name);
 CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
-
-CREATE TABLE IF NOT EXISTS workload_scan_state (
-    collection TEXT PRIMARY KEY,
-    last_sha TEXT,
-    last_scanned TIMESTAMPTZ DEFAULT NOW()
-);
 
 -- ═══════════════════════════════════════════════════════════════════
 -- infrastructure — unified workload roles + base configs catalog
@@ -521,16 +501,25 @@ class Database:
                     cur.execute(
                         f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                         f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
-                # Migrate workload_mapping → infrastructure (idempotent)
+                # Migrate workload_mapping → infrastructure (idempotent; skips if table gone)
                 cur.execute("""
-                    INSERT INTO infrastructure (role_name, fqcn, collection, type, description,
-                        products, capabilities, category, requires, source_sha, scanned_at)
-                    SELECT wm.workload_role, NULL, wm.source_collection, 'workload', wm.description,
-                        jsonb_build_array(wm.product_name), '[]'::jsonb, wm.category, '[]'::jsonb,
-                        NULL, wm.added_at
-                    FROM workload_mapping wm
-                    WHERE NOT EXISTS (SELECT 1 FROM infrastructure i WHERE i.role_name = wm.workload_role)
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT FROM information_schema.tables
+                                   WHERE table_schema = 'public' AND table_name = 'workload_mapping') THEN
+                            INSERT INTO infrastructure (role_name, fqcn, collection, type, description,
+                                products, capabilities, category, requires, source_sha, scanned_at)
+                            SELECT wm.workload_role, NULL, wm.source_collection, 'workload', wm.description,
+                                jsonb_build_array(wm.product_name), '[]'::jsonb, wm.category, '[]'::jsonb,
+                                NULL, wm.added_at
+                            FROM workload_mapping wm
+                            WHERE NOT EXISTS (SELECT 1 FROM infrastructure i WHERE i.role_name = wm.workload_role);
+                        END IF;
+                    END $$
                 """)
+                # Drop replaced tables after migration has run
+                cur.execute("DROP TABLE IF EXISTS workload_scan_state")
+                cur.execute("DROP TABLE IF EXISTS workload_mapping CASCADE")
             conn.commit()
 
     def drop_schema(self):
@@ -552,7 +541,7 @@ class Database:
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
-            "workload_aliases", "workload_mapping", "workload_scan_state", "infrastructure",
+            "workload_aliases", "infrastructure",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -839,18 +828,20 @@ class Database:
             params["agd_config"] = agd_config
 
         if workloads:
+            import json as _json
             resolved = self._resolve_workload_aliases(workloads)
             for i, wl in enumerate(resolved):
                 alias_w = f"w{i}"
-                alias_m = f"m{i}"
+                alias_i = f"i{i}"
                 joins.append(
                     f"JOIN babylon_item_workloads {alias_w} "
                     f"ON {alias_w}.content_id = ce.content_id "
-                    f"JOIN workload_mapping {alias_m} "
-                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
-                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
+                    f"JOIN infrastructure {alias_i} "
+                    f"ON {alias_i}.role_name = {alias_w}.workload_role "
+                    f"AND {alias_i}.type = 'workload' "
+                    f"AND {alias_i}.products @> %({alias_i}_name)s::jsonb"
                 )
-                params[f"{alias_m}_name"] = wl
+                params[f"{alias_i}_name"] = _json.dumps([wl])
 
         if content_filter == "unanalyzed":
             conditions.append("bi.showroom_url IS NOT NULL")
@@ -1386,56 +1377,6 @@ class Database:
         with self._pool.connection() as conn:
             return conn.execute(sql, {"content_id": content_id}).fetchall()
 
-    def upsert_workload_mapping(
-        self, workload_role: str, product_name: str,
-        description: str | None = None, category: str | None = None,
-        source_collection: str | None = None, verified: bool = False,
-        added_by: str | None = None,
-    ) -> None:
-        with self._pool.connection() as conn:
-            now = datetime.now(timezone.utc)
-            conn.execute(
-                "INSERT INTO workload_mapping "
-                "(workload_role, product_name, description, category, source_collection, verified, added_by, added_at, verified_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (workload_role) DO UPDATE SET "
-                "product_name = EXCLUDED.product_name, description = EXCLUDED.description, "
-                "category = EXCLUDED.category, source_collection = EXCLUDED.source_collection, "
-                "verified = EXCLUDED.verified, verified_at = EXCLUDED.verified_at",
-                (workload_role, product_name, description, category, source_collection,
-                 verified, added_by, now, now if verified else None),
-            )
-            conn.commit()
-
-    def delete_workload_mapping(self, workload_role: str) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                "DELETE FROM workload_mapping WHERE workload_role = %s",
-                (workload_role,),
-            )
-            conn.commit()
-
-    def list_workload_mappings(self) -> list[dict]:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM workload_mapping ORDER BY product_name"
-            )
-            return cur.fetchall()
-
-    def get_unmapped_workloads(self) -> list[dict]:
-        with self._pool.connection() as conn:
-            cur = conn.execute("""
-                SELECT biw.workload_role, biw.workload_collection,
-                       COUNT(DISTINCT biw.content_id) AS ci_count
-                FROM babylon_item_workloads biw
-                JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
-                LEFT JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
-                WHERE wm.id IS NULL
-                GROUP BY biw.workload_role, biw.workload_collection
-                ORDER BY ci_count DESC
-            """)
-            return cur.fetchall()
-
     def upsert_workload_alias(self, product_name: str, alias: str) -> None:
         with self._pool.connection() as conn:
             conn.execute(
@@ -1614,26 +1555,6 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 return cur.fetchall()
-
-    # ── Workload scan state ──
-
-    def get_scan_state(self, collection: str) -> dict | None:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM workload_scan_state WHERE collection = %s",
-                (collection,),
-            )
-            return cur.fetchone()
-
-    def upsert_scan_state(self, collection: str, last_sha: str) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO workload_scan_state (collection, last_sha, last_scanned) "
-                "VALUES (%s, %s, %s) "
-                "ON CONFLICT (collection) DO UPDATE SET last_sha = EXCLUDED.last_sha, last_scanned = EXCLUDED.last_scanned",
-                (collection, last_sha, datetime.now(timezone.utc)),
-            )
-            conn.commit()
 
     # ── Infrastructure catalog ──
 
@@ -1879,11 +1800,7 @@ class Database:
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE ce.content_type = 'sandbox'
               AND ce.retired_at IS NULL
-              AND (ce.summary IS NULL
-                   OR bi.last_refreshed > (
-                       SELECT COALESCE(MAX(wss.last_scanned), '1970-01-01')
-                       FROM workload_scan_state wss
-                   ))
+              AND ce.summary IS NULL
         """
         with self._pool.connection() as conn:
             return conn.execute(sql).fetchall()
