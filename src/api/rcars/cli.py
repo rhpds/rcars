@@ -12,6 +12,7 @@ from rich.table import Table
 from rcars.config import Settings
 from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
+from rcars.services.analyzer import regenerate_embeddings
 from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
@@ -219,19 +220,11 @@ def scan(max_analyze: int | None):
                         "is_stale": False,
                         "stale_commit": None,
                     })
-                    db.clear_embeddings(content_id)
-                    db.store_embedding(
-                        content_id=content_id, content_type=content_type, source="babylon",
-                        embed_type="summary",
-                        content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                    regenerate_embeddings(
+                        db, content_id, content_type, "babylon",
+                        result["ci_embedding_text"], result["ci_embedding"],
+                        module_embeddings=result.get("module_embeddings"),
                     )
-                    for mod_emb in result.get("module_embeddings", []):
-                        db.store_embedding(
-                            content_id=content_id, content_type=content_type, source="babylon",
-                            embed_type="module",
-                            module_title=mod_emb["module_title"],
-                            content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-                        )
                     db.set_scan_status(content_id, "success")
 
                     # Propagate to siblings with same (url, ref)
@@ -262,19 +255,11 @@ def scan(max_analyze: int | None):
                         sib_data = dict(analysis_data)
                         sib_data["content_id"] = sib_content_id
                         db.upsert_showroom_analysis(sib_data)
-                        db.clear_embeddings(sib_content_id)
-                        db.store_embedding(
-                            content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-                            embed_type="summary",
-                            content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                        regenerate_embeddings(
+                            db, sib_content_id, sib_content_type, "babylon",
+                            result["ci_embedding_text"], result["ci_embedding"],
+                            module_embeddings=result.get("module_embeddings"),
                         )
-                        for mod_emb in result.get("module_embeddings", []):
-                            db.store_embedding(
-                                content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-                                embed_type="module",
-                                module_title=mod_emb["module_title"],
-                                content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-                            )
                         db.set_scan_status(sib_content_id, "success")
 
                     for sibling in siblings:

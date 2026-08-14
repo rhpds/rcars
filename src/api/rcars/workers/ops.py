@@ -388,45 +388,6 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:config_scan", status="failed", message=msg)
 
-    # Step 4a: Generate embeddings for new/updated infrastructure
-    try:
-        from rcars.services.analyzer import build_infrastructure_embedding_text, generate_embedding
-        infra_rows = wctx.db.get_infrastructure_needing_embeddings()
-        if infra_rows:
-            await publish_progress(wctx.relay, job_id, wctx.db,
-                                   phase="pipeline:infra_embeddings", status="running",
-                                   message=f"Step 4a: Generating embeddings for {len(infra_rows)} infrastructure items...")
-            embedded = 0
-            for row in infra_rows:
-                text = build_infrastructure_embedding_text(row)
-                if text.strip():
-                    emb = generate_embedding(text, prefix="search_document")
-                    wctx.db.store_embedding(
-                        content_id=row["role_name"],
-                        content_type="infrastructure",
-                        source="agnosticd",
-                        embed_type="summary",
-                        content_text=text,
-                        embedding=emb,
-                    )
-                    embedded += 1
-            await publish_progress(wctx.relay, job_id, wctx.db,
-                                   phase="pipeline:infra_embeddings", status="complete",
-                                   message=f"Step 4a complete: {embedded} infrastructure embeddings generated")
-        else:
-            await publish_progress(wctx.relay, job_id, wctx.db,
-                                   phase="pipeline:infra_embeddings", status="complete",
-                                   message="Step 4a complete: All infrastructure embeddings current")
-        log.info("pipeline_infra_embeddings_complete", action="pipeline_step_complete",
-                 step="infra_embeddings", embedded=len(infra_rows) if infra_rows else 0)
-    except Exception as e:
-        msg = f"Step 4a failed (infrastructure embeddings): {e}"
-        warnings.append(msg)
-        log.error("pipeline_infra_embeddings_failed", action="pipeline_step_failed",
-                  step="infra_embeddings", error=str(e), traceback=traceback.format_exc())
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline:infra_embeddings", status="failed", message=msg)
-
     # Step 4b: Sandbox summary generation (after workload scan populates classifications)
     sandbox_summary_result = None
     try:

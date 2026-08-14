@@ -7,7 +7,10 @@ import structlog
 from pathlib import Path
 from typing import Any
 
-from rcars.services.analyzer import clone_showroom, ls_remote_sha
+from rcars.services.analyzer import (
+    clone_showroom, ls_remote_sha,
+    build_infrastructure_embedding_text, generate_embedding, regenerate_embeddings,
+)
 from rcars.db import Database
 
 log = structlog.get_logger()
@@ -154,6 +157,20 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+
+        if (result.get("product_name")
+                and not result.get("is_infrastructure_plumbing")):
+            emb_text = build_infrastructure_embedding_text({
+                "role_name": role_name,
+                "description": result.get("description"),
+                "products": result.get("products", [result["product_name"]]),
+                "capabilities": result.get("capabilities", []),
+                "category": result.get("category"),
+            })
+            if emb_text.strip():
+                result["embedding_text"] = emb_text
+                result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+
         log.info("workload_scan_analyzed", component="workload_scan", action="analyzed",
                  collection=collection_name, role=role_name,
                  product_name=result.get("product_name"), category=result.get("category"))
@@ -237,6 +254,11 @@ def scan_collection(
                         requires=result.get("requires", []),
                         source_sha=local_sha,
                     )
+                    if result.get("embedding"):
+                        regenerate_embeddings(
+                            db, role_name, "infrastructure", "agnosticd",
+                            result["embedding_text"], result["embedding"],
+                        )
                     mapped += 1
 
         stats = {
@@ -360,6 +382,17 @@ def analyze_config(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        emb_text = build_infrastructure_embedding_text({
+            "role_name": config_name,
+            "description": result.get("description"),
+            "products": result.get("products", []),
+            "capabilities": result.get("capabilities", []),
+            "category": result.get("category"),
+        })
+        if emb_text.strip():
+            result["embedding_text"] = emb_text
+            result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+
         log.info("config_scan_analyzed", component="config_scan", action="analyzed",
                  config=config_name, category=result.get("category"))
         return result
@@ -436,6 +469,11 @@ def scan_configs(
                     requires=result.get("requires", []),
                     source_sha=local_sha,
                 )
+                if result.get("embedding"):
+                    regenerate_embeddings(
+                        db, config_name, "infrastructure", "agnosticd",
+                        result["embedding_text"], result["embedding"],
+                    )
 
         return {"status": "scanned", "configs_found": len(config_dirs), "configs_scanned": scanned}
 

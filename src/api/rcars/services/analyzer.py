@@ -590,6 +590,35 @@ def build_module_embedding_text(module: dict[str, Any]) -> str:
     return " ".join(str(p) for p in parts if p)
 
 
+def regenerate_embeddings(
+    db,
+    content_id: str,
+    content_type: str,
+    source: str,
+    summary_text: str,
+    summary_embedding: list[float],
+    module_embeddings: list[dict] | None = None,
+) -> int:
+    """Clear old embeddings and store fresh ones for a content_id.
+
+    Returns the number of embeddings stored.
+    """
+    db.clear_embeddings(content_id)
+    db.store_embedding(
+        content_id=content_id, content_type=content_type, source=source,
+        embed_type="summary", content_text=summary_text, embedding=summary_embedding,
+    )
+    stored = 1
+    for mod in module_embeddings or []:
+        db.store_embedding(
+            content_id=content_id, content_type=content_type, source=source,
+            embed_type="module", module_title=mod["module_title"],
+            content_text=mod["content_text"], embedding=mod["embedding"],
+        )
+        stored += 1
+    return stored
+
+
 def build_infrastructure_embedding_text(row: dict[str, Any]) -> str:
     """Build text for infrastructure embedding from an infrastructure table row."""
     parts = []

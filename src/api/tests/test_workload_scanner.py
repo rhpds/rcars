@@ -32,12 +32,13 @@ def test_analyze_role_returns_enriched_fields():
     mock_result.output_tokens = 50
     mock_result.provider = "test"
 
-    with patch("rcars.config.call_llm", return_value=mock_result):
-        with patch("rcars.services.workload_scanner.read_role_code", return_value="some code"):
-            result = analyze_role(
-                "ocp4_workload_rhods", Path("/fake"), "agnosticd.ai_workloads",
-                MagicMock(), "test-model", db=None,
-            )
+    with patch("rcars.config.call_llm", return_value=mock_result), \
+         patch("rcars.services.workload_scanner.generate_embedding", return_value=[0.0] * 768), \
+         patch("rcars.services.workload_scanner.read_role_code", return_value="some code"):
+        result = analyze_role(
+            "ocp4_workload_rhods", Path("/fake"), "agnosticd.ai_workloads",
+            MagicMock(), "test-model", db=None,
+        )
 
     assert result is not None
     assert result["products"] == ["OpenShift AI", "KServe"]
