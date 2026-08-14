@@ -1,6 +1,7 @@
 """Controlled vocabulary — one list, two consumers (analysis + query expansion)."""
 
 from rcars.services.vocabulary.loader import load_vocabulary
+from rcars.services.vocabulary.generate import generate_vocabulary_yaml
 from rcars.services.vocabulary.render import VOCABULARY_SENTINEL, render_vocabulary_block
 from rcars.services.vocabulary.normalize import (
     FIELD_MAP,
@@ -23,6 +24,7 @@ __all__ = [
     "DIFFICULTY_LEVELS",
     "DIMENSIONS",
     "FIELD_MAP",
+    "generate_vocabulary_yaml",
     "VocabEntry",
     "Vocabulary",
     "VocabularyError",
