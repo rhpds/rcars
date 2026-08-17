@@ -89,6 +89,15 @@
 - message: "how does scoring work?"
   expect: {intent: help}
 
+- message: "what does OpenShift AI do?"
+  expect: {intent: out_of_scope}
+
+- message: "what deploys RHOAI?"
+  expect: {intent: infrastructure}
+
+- message: "what automation configures an OpenShift cluster?"
+  expect: {intent: infrastructure}
+
 - message: "what's the weather in Raleigh?"
   expect: {intent: out_of_scope}
 

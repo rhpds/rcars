@@ -107,19 +107,25 @@ INTENTS: dict[str, IntentSpec] = {
         block_types=("infra_detail",),
         followups=({"label": "Items using this", "intent": "recommend", "scope_from": "results"},),
         prompt_fragment=(
-            "infrastructure: questions about what a workload role or base config does, "
-            "its capabilities, requirements, or which catalog items deploy it. "
-            "Put the workload/config name or search terms in args.search_query. "
+            "infrastructure: user asks about an automation component — a workload role or "
+            "base config — by name or by what product it deploys/configures. Signal: the "
+            "subject is automation (a role name like ocp4_workload_rhods, or 'workloads "
+            "that deploy X', 'configs that provision Y'). NOT for product description "
+            "questions ('what does OpenShift AI do?' is out_of_scope — that asks about "
+            "a product, not RCARS automation). "
             "Do NOT put infrastructure names in item_refs — they are not catalog items."),
         examples=(
             {"message": "what does the ocp4_workload_amq_streams workload do?",
              "output": {"intent": "infrastructure", "args": {"search_query": "ocp4_workload_amq_streams"},
                         "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
-            {"message": "what workloads install OpenShift AI?",
-             "output": {"intent": "infrastructure", "args": {"search_query": "OpenShift AI"},
-                        "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
-            {"message": "which catalog items use the RHODS workload?",
-             "output": {"intent": "infrastructure", "args": {"search_query": "RHODS"},
+            {"message": "what deploys RHOAI?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "RHOAI"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "what does the ocp4_workload_openshift_ai role do?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "ocp4_workload_openshift_ai"},
+                        "scope": None, "item_refs": [], "confidence": 0.95, "clarify": None}},
+            {"message": "what automation configures an OpenShift cluster?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "OpenShift cluster provisioning"},
                         "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
         )),
     "help": IntentSpec(
