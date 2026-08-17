@@ -65,3 +65,53 @@ def test_item_facts_handler(db):
     assert card["display_name"] == "OpenShift Virtualization Migration"
     assert "setup_virt" in card["workloads"]
     assert card["neighbors"][0]["display_name"] == "OpenShift Virtualization Roadshow"
+
+
+def test_infrastructure_handler_uses_embedding_search():
+    """Verify handler uses embedding search, not list_infrastructure."""
+    from unittest.mock import MagicMock, patch
+
+    fake_vec = [0.0] * 768
+    mock_db = MagicMock()
+    mock_db.search_infrastructure_embeddings.return_value = [
+        {"role_name": "ocp4_workload_openshift_ai", "similarity": 0.92}
+    ]
+    mock_db.get_infrastructure.return_value = {
+        "role_name": "ocp4_workload_openshift_ai",
+        "type": "workload",
+        "description": "Installs OpenShift AI.",
+        "products": ["OpenShift AI"],
+        "capabilities": [],
+        "category": "ai_ml",
+        "requires": [],
+        "collection": "ocp4",
+    }
+    mock_db.get_infrastructure_linked_items.return_value = []
+
+    with patch("rcars.services.chat.handlers.generate_embedding", return_value=fake_vec):
+        result = asyncio.run(handlers.handle_infrastructure(
+            _res("infrastructure", args={"search_query": "what deploys RHOAI?"}),
+            mock_db, _settings(), ["prod"], True, _noop,
+        ))
+
+    mock_db.list_infrastructure.assert_not_called()
+    mock_db.search_infrastructure_embeddings.assert_called_once_with(fake_vec, limit=10)
+    assert result.blocks[0].type == "infra_detail"
+    assert result.blocks[0].data["role_name"] == "ocp4_workload_openshift_ai"
+
+
+def test_infrastructure_handler_no_match_returns_notice():
+    """Verify handler returns notice when no embeddings match."""
+    from unittest.mock import MagicMock, patch
+
+    mock_db = MagicMock()
+    mock_db.search_infrastructure_embeddings.return_value = []
+
+    with patch("rcars.services.chat.handlers.generate_embedding", return_value=[0.0] * 768):
+        result = asyncio.run(handlers.handle_infrastructure(
+            _res("infrastructure", args={"search_query": "xyzzy nonsense"}),
+            mock_db, _settings(), ["prod"], True, _noop,
+        ))
+
+    assert result.blocks[0].type == "notice"
+    assert result.blocks[0].data["kind"] == "no_items"

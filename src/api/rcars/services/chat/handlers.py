@@ -10,6 +10,7 @@ from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
 from rcars.services.chat.models import Block, InfrastructureArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
+from rcars.services.analyzer import generate_embedding
 from rcars.services.recommender.pipeline import run_query
 from rcars.services.recommender.serialize import candidates_with_performance
 from rcars.services.reporting_sync import compute_sales_impact
@@ -230,15 +231,10 @@ async def handle_infrastructure(res: Resolution, db: Database, settings: Setting
     args = InfrastructureArgs.model_validate(res.output.args)
     query = args.search_query or res.message or ""
 
-    exact = db.get_infrastructure(query)
-    if exact:
-        results = [exact]
-    else:
-        results = db.list_infrastructure(search=query, limit=10)
-        if not results:
-            # "ocp4 authentication workload" → "%ocp4%authentication%workload%"
-            fuzzy = "%".join(query.split())
-            results = db.list_infrastructure(search=fuzzy, limit=10)
+    query_vec = generate_embedding(query, prefix="search_query")
+    matches = db.search_infrastructure_embeddings(query_vec, limit=10)
+    results = [r for rn in [m["role_name"] for m in matches]
+               if (r := db.get_infrastructure(rn))]
 
     if not results:
         return HandlerResult(
