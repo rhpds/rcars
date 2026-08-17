@@ -235,6 +235,10 @@ async def handle_infrastructure(res: Resolution, db: Database, settings: Setting
         results = [exact]
     else:
         results = db.list_infrastructure(search=query, limit=10)
+        if not results:
+            # "ocp4 authentication workload" → "%ocp4%authentication%workload%"
+            fuzzy = "%".join(query.split())
+            results = db.list_infrastructure(search=fuzzy, limit=10)
 
     if not results:
         return HandlerResult(

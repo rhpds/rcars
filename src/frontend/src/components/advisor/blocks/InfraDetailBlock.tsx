@@ -65,17 +65,27 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
         </div>
       )}
 
-      {items.length > 0 && (
-        <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', marginBottom: others.length > 0 ? '12px' : 0 }}>
-          <div style={label}>Used by {items.length} catalog item{items.length !== 1 ? 's' : ''}</div>
-          {items.map((ci, i) => (
-            <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {ci.stage && <span style={{ ...pill, fontSize: '10px' }}>{ci.stage}</span>}
-              <span>{ci.display_name || ci.ci_name}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      {items.length > 0 && (() => {
+        const grouped = new Map<string, { name: string; stages: string[] }>()
+        for (const ci of items) {
+          const name = ci.display_name || ci.ci_name || ''
+          const entry = grouped.get(name)
+          if (entry) { if (ci.stage && !entry.stages.includes(ci.stage)) entry.stages.push(ci.stage) }
+          else grouped.set(name, { name, stages: ci.stage ? [ci.stage] : [] })
+        }
+        return (
+          <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', marginBottom: others.length > 0 ? '12px' : 0 }}>
+            <div style={label}>Used by {grouped.size} catalog item{grouped.size !== 1 ? 's' : ''}</div>
+            {[...grouped.values()].map((g, i) => (
+              <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                {g.stages.map(s => <span key={s} style={{ ...pill, fontSize: '10px' }}>{s}</span>)}
+                <a href={`/browse?search=${encodeURIComponent(g.name)}`}
+                   style={{ color: 'var(--text-link)', textDecoration: 'none' }}>{g.name}</a>
+              </div>
+            ))}
+          </div>
+        )
+      })()}
 
       {others.length > 0 && (
         <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>

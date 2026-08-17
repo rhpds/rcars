@@ -255,20 +255,31 @@ export function WorkloadsPage() {
                     {item.item_count > 0 && (
                       <div className="wl-linked-items">
                         <div className="wl-detail-label" style={{ marginBottom: '0.5rem' }}>
-                          Catalog Items ({item.item_count})
+                          Catalog Items
                         </div>
                         {loadingItems.has(item.role_name) ? (
                           <span className="browse-loading">Loading items...</span>
-                        ) : linkedItems[item.role_name] ? (
-                          <div className="wl-linked-items-list">
-                            {linkedItems[item.role_name].map(ci => (
-                              <div key={ci.content_id} className="wl-linked-item">
-                                <span className={`stage-badge stage-badge--${ci.stage || 'dev'}`}>{ci.stage}</span>
-                                <span className="wl-linked-item-name">{ci.display_name || ci.ci_name}</span>
-                              </div>
-                            ))}
-                          </div>
-                        ) : null}
+                        ) : linkedItems[item.role_name] ? (() => {
+                          const grouped = new Map<string, { name: string; stages: string[] }>()
+                          for (const ci of linkedItems[item.role_name]) {
+                            const name = ci.display_name || ci.ci_name
+                            const entry = grouped.get(name)
+                            if (entry) { if (ci.stage && !entry.stages.includes(ci.stage)) entry.stages.push(ci.stage) }
+                            else grouped.set(name, { name, stages: ci.stage ? [ci.stage] : [] })
+                          }
+                          return (
+                            <div className="wl-linked-items-list">
+                              {[...grouped.values()].map(g => (
+                                <div key={g.name} className="wl-linked-item">
+                                  {g.stages.map(s => (
+                                    <span key={s} className={`stage-badge stage-badge--${s}`}>{s}</span>
+                                  ))}
+                                  <a href={`/browse?search=${encodeURIComponent(g.name)}`} className="wl-linked-item-name">{g.name}</a>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        })() : null}
                       </div>
                     )}
                   </div>
