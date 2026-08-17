@@ -1246,6 +1246,28 @@ class Database:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
+    def search_infrastructure_embeddings(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+        quality_threshold: float = 0.45,
+    ) -> list[dict]:
+        vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT content_id AS role_name,
+                       1 - (embedding <=> %s::vector) AS similarity
+                FROM embeddings
+                WHERE content_type = 'infrastructure'
+                  AND 1 - (embedding <=> %s::vector) >= %s
+                ORDER BY similarity DESC
+                LIMIT %s
+                """,
+                (vec_str, vec_str, quality_threshold, limit),
+            ).fetchall()
+        return rows
+
     # ── Enrichment ──
 
     def add_enrichment_tag(self, content_id: str, tag_type: str, tag_value: str, added_by: str | None = None) -> None:
