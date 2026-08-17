@@ -189,6 +189,12 @@ export const api = {
       total: number;
     }>(`/catalog/infrastructure?${qs}`);
   },
+  getInfrastructureItems: (roleName: string) =>
+    request<{
+      role_name: string; type: string;
+      items: Array<{ content_id: string; display_name: string; content_type: string; ci_name: string; stage: string }>;
+      total: number;
+    }>(`/catalog/infrastructure/${encodeURIComponent(roleName)}/items`),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
   // Content overlap

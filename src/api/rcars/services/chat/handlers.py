@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from rcars.config import Settings
 from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
-from rcars.services.chat.models import Block, ItemFactsArgs, PerformanceArgs, RecommendArgs
+from rcars.services.chat.models import Block, InfrastructureArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.recommender.pipeline import run_query
 from rcars.services.recommender.serialize import candidates_with_performance
@@ -223,3 +223,49 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
         anchor_ids=[item["content_id"]],
         session_results=[{"content_id": item["content_id"],
                           "display_name": card["display_name"]}])
+
+
+async def handle_infrastructure(res: Resolution, db: Database, settings: Settings,
+                                stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    args = InfrastructureArgs.model_validate(res.output.args)
+    query = args.search_query or res.message or ""
+
+    exact = db.get_infrastructure(query)
+    if exact:
+        results = [exact]
+    else:
+        results = db.list_infrastructure(search=query, limit=10)
+
+    if not results:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items",
+                    "message": f"No infrastructure entries match '{query}'."})],
+            scaffold_facts={"error": "no_match", "query": query})
+
+    top = results[0]
+    linked = db.get_infrastructure_linked_items(top["role_name"], top["type"])
+    linked_summary = [{"content_id": r["content_id"], "display_name": r["display_name"],
+                       "ci_name": r.get("ci_name"), "stage": r.get("stage")} for r in linked]
+
+    others = [{"role_name": r["role_name"], "type": r["type"],
+               "description": (r.get("description") or "")[:120],
+               "products": r.get("products", [])} for r in results[1:5]]
+
+    return HandlerResult(
+        blocks=[Block(type="infra_detail", data={
+            "role_name": top["role_name"], "type": top["type"],
+            "description": top.get("description"),
+            "products": top.get("products", []),
+            "capabilities": top.get("capabilities", []),
+            "category": top.get("category"),
+            "requires": top.get("requires", []),
+            "collection": top.get("collection"),
+            "items": linked_summary, "item_count": len(linked_summary),
+            "other_matches": others,
+        })],
+        scaffold_facts={"role_name": top["role_name"], "type": top["type"],
+                        "products": top.get("products", []),
+                        "item_count": len(linked_summary),
+                        "match_count": len(results)},
+        session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
+                         for r in linked[:5]])

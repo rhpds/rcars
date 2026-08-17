@@ -1933,6 +1933,12 @@ details.ca-band-section:not([open]) > .ca-band-header {
   font-size: 13px;
 }
 
+/* ── Linked catalog items ── */
+.wl-linked-items { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-section); }
+.wl-linked-items-list { display: flex; flex-direction: column; gap: 4px; }
+.wl-linked-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.wl-linked-item-name { font-family: var(--ff-body); }
+
 /* ── Card actions row ── */
 .wl-card-actions {
   display: flex;

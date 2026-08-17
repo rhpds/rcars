@@ -20,6 +20,8 @@ export function WorkloadsPage() {
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [linkedItems, setLinkedItems] = useState<Record<string, Array<{ content_id: string; display_name: string; ci_name: string; stage: string }>>>({})
+  const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set())
 
   // Filters
   const [search, setSearch] = useState('')
@@ -72,12 +74,19 @@ export function WorkloadsPage() {
     })
   }, [items, searchLower, typeFilter, categoryFilter, collectionFilter, mappingsFilter])
 
-  const handleExpand = (name: string) => {
+  const handleExpand = (name: string, itemCount: number) => {
     setExpandedItems(prev => {
       const next = new Set(prev)
       next.has(name) ? next.delete(name) : next.add(name)
       return next
     })
+    if (itemCount > 0 && !linkedItems[name] && !loadingItems.has(name)) {
+      setLoadingItems(prev => new Set(prev).add(name))
+      api.getInfrastructureItems(name)
+        .then(data => setLinkedItems(prev => ({ ...prev, [name]: data.items })))
+        .catch(() => {})
+        .finally(() => setLoadingItems(prev => { const n = new Set(prev); n.delete(name); return n }))
+    }
   }
 
   // Active filter chips
@@ -175,9 +184,9 @@ export function WorkloadsPage() {
               <div key={item.role_name} className={`browse-item${isExpanded ? ' expanded' : ''}`}>
                 <div className="browse-item-header">
                   <div className="browse-item-header-left">
-                    <div className="browse-item-title" onClick={() => handleExpand(item.role_name)}
+                    <div className="browse-item-title" onClick={() => handleExpand(item.role_name, item.item_count)}
                       role="button" tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(item.role_name) } }}>
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(item.role_name, item.item_count) } }}>
                       <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
                       <span className="wl-role-name">{item.role_name}</span>
                       <span className={`stage-badge stage-badge--${item.type === 'config' ? 'prod' : 'dev'}`}>
@@ -242,6 +251,26 @@ export function WorkloadsPage() {
                         </div>
                       )}
                     </div>
+
+                    {item.item_count > 0 && (
+                      <div className="wl-linked-items">
+                        <div className="wl-detail-label" style={{ marginBottom: '0.5rem' }}>
+                          Catalog Items ({item.item_count})
+                        </div>
+                        {loadingItems.has(item.role_name) ? (
+                          <span className="browse-loading">Loading items...</span>
+                        ) : linkedItems[item.role_name] ? (
+                          <div className="wl-linked-items-list">
+                            {linkedItems[item.role_name].map(ci => (
+                              <div key={ci.content_id} className="wl-linked-item">
+                                <span className={`stage-badge stage-badge--${ci.stage || 'dev'}`}>{ci.stage}</span>
+                                <span className="wl-linked-item-name">{ci.display_name || ci.ci_name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

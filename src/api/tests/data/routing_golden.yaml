@@ -65,6 +65,30 @@
       results: []
   expect: {intent: item_facts}
 
+- message: "what does the ocp4_workload_amq_streams workload do?"
+  expect: {intent: infrastructure}
+
+- message: "what workloads install OpenShift AI?"
+  expect: {intent: infrastructure}
+
+- message: "which catalog items use the RHODS workload?"
+  expect: {intent: infrastructure}
+
+- message: "what base configs do we have for OpenShift?"
+  expect: {intent: infrastructure}
+
+- message: "what does performance mean?"
+  expect: {intent: help}
+
+- message: "what can you do?"
+  expect: {intent: help}
+
+- message: "what are workloads?"
+  expect: {intent: help}
+
+- message: "how does scoring work?"
+  expect: {intent: help}
+
 - message: "what's the weather in Raleigh?"
   expect: {intent: out_of_scope}
 

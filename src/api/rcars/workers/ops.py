@@ -425,7 +425,6 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:reporting_sync", status="running",
                                    message="Step 5: Syncing reporting metrics from MCP server...")
-            import asyncio
             from rcars.services.reporting_sync import run_reporting_sync
             reporting_result = await asyncio.to_thread(
                 run_reporting_sync, wctx.db, wctx.settings,

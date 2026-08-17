@@ -1612,6 +1612,23 @@ class Database:
         with self._pool.connection() as conn:
             return conn.execute(sql, params).fetchall()
 
+    def get_infrastructure_linked_items(self, role_name: str, infra_type: str) -> list[dict]:
+        with self._pool.connection() as conn:
+            if infra_type == "config":
+                return conn.execute("""
+                    SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                    WHERE bi.agd_config = %(rn)s ORDER BY ce.display_name
+                """, {"rn": role_name}).fetchall()
+            return conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_item_workloads biw
+                JOIN babylon_items bi ON bi.content_id = biw.content_id
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE biw.workload_role = %(rn)s ORDER BY ce.display_name
+            """, {"rn": role_name}).fetchall()
+
     # ── Token usage ──
 
     def log_token_usage(

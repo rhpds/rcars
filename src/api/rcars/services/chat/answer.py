@@ -30,6 +30,11 @@ _SCAFFOLDS = {
     ),
     "item_facts": lambda f: (f"{f.get('display_name', 'Item')} ({f.get('stage', '?')}) — "
                              f"{f.get('neighbor_count', 0)} related items in the catalog."),
+    "infrastructure": lambda f: (
+        f"{f.get('role_name', 'Unknown')} ({f.get('type', '?')}) — "
+        + (f"products: {', '.join(f['products'][:3])}. " if f.get("products") else "")
+        + f"Used by {f.get('item_count', 0)} catalog item(s)."
+        + (f" {f['match_count'] - 1} other matches found." if f.get("match_count", 1) > 1 else "")),
 }
 
 
