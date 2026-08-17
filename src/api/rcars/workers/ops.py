@@ -371,7 +371,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                                    message="Step 4 (config): Scanning AgnosticD v2 configs...")
             config_result = await asyncio.to_thread(
                 scan_configs, "/tmp", wctx.settings,
-                wctx.settings.scanning_model or "claude-sonnet-4-6",
+                wctx.settings.triage_model,
                 wctx.db, force=False,
             )
             scanned = config_result.get("configs_scanned", 0)
