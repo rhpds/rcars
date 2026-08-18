@@ -79,17 +79,28 @@ _HELP_TOPICS = {
 }
 
 
-def _help_answer(topic: str) -> str:
+def _help_answer(topic: str, message: str = "") -> str:
     t = topic.lower().strip().replace(" ", "_").replace("-", "_")
+    combined = t + " " + message.lower().replace("-", "_").replace(" ", "_")
+    keys = ("workload", "infrastructure", "performance", "overlap",
+            "recommend", "item_facts", "scoring", "sales_impact")
+    matched: list[str] = []
+    # Exact topic match gets priority slot
     if t in _HELP_TOPICS and _HELP_TOPICS[t] is not None:
-        return _HELP_TOPICS[t]
-    for key in ("workload", "infrastructure", "performance", "overlap",
-                "recommend", "item_facts", "scoring", "sales_impact"):
-        if key in t or t in key:
-            answer = _HELP_TOPICS[key]
-            if answer is None:
-                answer = _HELP_TOPICS["infrastructure"]
-            return answer
+        matched.append(_HELP_TOPICS[t])
+    # Scan combined text for up to 2 total matches
+    for key in keys:
+        if len(matched) >= 2:
+            break
+        answer = _HELP_TOPICS.get(key)
+        if answer is None:
+            answer = _HELP_TOPICS["infrastructure"]
+        if answer in matched:
+            continue
+        if key in combined:
+            matched.append(answer)
+    if matched:
+        return "\n\n".join(matched)
     return _HELP_TOPICS["general"]
 
 
@@ -141,7 +152,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                             blocks=[Block(type="notice", data={"kind": "out_of_scope"})])
     elif output.intent == "help":
         topic = output.args.get("topic", "")
-        answer = _help_answer(topic)
+        answer = _help_answer(topic, message)
         envelope = Envelope(intent="help", scope_echo="Help",
                             answer=answer,
                             blocks=[Block(type="notice", data={"kind": "help"})])
