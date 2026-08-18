@@ -38,10 +38,7 @@ Respond with a JSON object:
   "capabilities": ["Array of capabilities this enables (e.g. 'model-serving', 'notebook-hosting')"],
   "category": "One of: ai_ml, cicd, security, storage, virtualization, networking, runtime, developer_tools, registry, management, automation, messaging, auth, platform, monitoring, other",
   "requires": ["Array of prerequisites (e.g. 'openshift 4.14+', 'gpu-nodes')"],
-  "is_infrastructure_plumbing": true/false
 }
-
-Set is_infrastructure_plumbing to true if this role is internal setup (authentication, showroom deployment, bastion configuration, namespace creation, certificate management) rather than a user-facing product that someone would search for.
 
 Return ONLY the JSON object, no other text."""
 
