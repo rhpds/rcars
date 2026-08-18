@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { ChatBlock } from '../chatTypes'
 
 interface InfraDetailBlockProps {
@@ -6,7 +7,10 @@ interface InfraDetailBlockProps {
   turnIndex: number
 }
 
+const ITEMS_PREVIEW = 5
+
 export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
+  const [showAllItems, setShowAllItems] = useState(false)
   const d = block.data
   const roleName = d.role_name as string
   const type = d.type as string
@@ -73,16 +77,26 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
           if (entry) { if (ci.stage && !entry.stages.includes(ci.stage)) entry.stages.push(ci.stage) }
           else grouped.set(name, { name, stages: ci.stage ? [ci.stage] : [] })
         }
+        const all = [...grouped.values()]
+        const visible = showAllItems ? all : all.slice(0, ITEMS_PREVIEW)
         return (
           <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', marginBottom: others.length > 0 ? '12px' : 0 }}>
             <div style={label}>Used by {grouped.size} catalog item{grouped.size !== 1 ? 's' : ''}</div>
-            {[...grouped.values()].map((g, i) => (
+            {visible.map((g, i) => (
               <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                 {g.stages.map(s => <span key={s} style={{ ...pill, fontSize: '10px' }}>{s}</span>)}
                 <a href={`/browse?search=${encodeURIComponent(g.name)}`}
                    style={{ color: 'var(--text-link)', textDecoration: 'none' }}>{g.name}</a>
               </div>
             ))}
+            {all.length > ITEMS_PREVIEW && (
+              <button
+                onClick={() => setShowAllItems(v => !v)}
+                style={{ marginTop: '4px', background: 'none', border: 'none', padding: 0, fontSize: '12px', color: 'var(--text-link)', cursor: 'pointer' }}
+              >
+                {showAllItems ? 'Show fewer' : `Show all ${all.length} items`}
+              </button>
+            )}
           </div>
         )
       })()}

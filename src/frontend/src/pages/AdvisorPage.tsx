@@ -39,6 +39,7 @@ function renderMarkdown(text: string) {
 
   const inlineMd = (s: string) =>
     escapeHtml(s)
+     .replace(/\\([_*[\]()#])/g, '$1')
      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
      .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
 
