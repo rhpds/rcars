@@ -113,7 +113,7 @@ export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
         borderTop: '1px solid var(--border-subtle)',
         fontSize: '12px',
       }}>
-        <a href="/analysis/overlap" style={{ color: 'var(--text-link)' }}>
+        <a href="/analysis/overlap" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--text-link)' }}>
           Open in Content Analysis → Overlap
         </a>
       </div>
