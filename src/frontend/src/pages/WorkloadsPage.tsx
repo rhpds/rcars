@@ -93,7 +93,7 @@ export function WorkloadsPage() {
   if (typeFilter) activeFilters.push({ label: `Type: ${typeFilter}`, onRemove: () => setTypeFilter('') })
   if (categoryFilter) activeFilters.push({ label: `Category: ${categoryFilter}`, onRemove: () => setCategoryFilter('') })
   if (collectionFilter) activeFilters.push({ label: `Collection: ${collectionFilter}`, onRemove: () => setCollectionFilter('') })
-  if (mappingsFilter) activeFilters.push({ label: mappingsFilter === 'with' ? 'Has CIs' : 'No CIs', onRemove: () => setMappingsFilter('') })
+  if (mappingsFilter) activeFilters.push({ label: mappingsFilter === 'with' ? 'Has Mappings' : 'No Mappings', onRemove: () => setMappingsFilter('') })
 
   if (loading && !loaded) {
     return (
@@ -161,9 +161,9 @@ export function WorkloadsPage() {
             </select>
           </div>
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Catalog Items</div>
+            <div className="browse-filter-group-label">Mappings</div>
             <div className="wl-status-pills">
-              {[['', 'All'], ['with', 'Has CIs'], ['without', 'Orphans']].map(([v, l]) => (
+              {[['', 'All'], ['with', 'Has Mappings'], ['without', 'No Mappings']].map(([v, l]) => (
                 <button key={v}
                   className={`browse-curator-pill${mappingsFilter === v ? ' active' : ''}`}
                   onClick={() => setMappingsFilter(v)}>
@@ -268,14 +268,22 @@ export function WorkloadsPage() {
                           }
                           return (
                             <div className="wl-linked-items-list">
-                              {[...grouped.values()].map(g => (
+                              {[...grouped.values()].map(g => {
+                                const allStages = [...new Set(['prod', ...g.stages])].join(',')
+                                const nameHref = `/browse?search=${encodeURIComponent(g.name)}&stage=${allStages}`
+                                return (
                                 <div key={g.name} className="wl-linked-item">
-                                  <a href={`/browse?search=${encodeURIComponent(g.name)}`} className="wl-linked-item-name" target="_blank" rel="noreferrer">{g.name}</a>
-                                  {g.stages.map(s => (
-                                    <span key={s} className={`stage-badge stage-badge--${s}`}>{s}</span>
-                                  ))}
+                                  <a href={nameHref} className="wl-linked-item-name" target="_blank" rel="noreferrer">{g.name}</a>
+                                  {g.stages.map(s => {
+                                    const stageParam = s === 'prod' ? 'prod' : `prod,${s}`
+                                    return (
+                                      <a key={s} href={`/browse?search=${encodeURIComponent(g.name)}&stage=${stageParam}`}
+                                         className={`stage-badge stage-badge--${s}`} target="_blank" rel="noreferrer">{s}</a>
+                                    )
+                                  })}
                                 </div>
-                              ))}
+                                )
+                              })}
                             </div>
                           )
                         })() : null}
