@@ -173,16 +173,16 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
                      "score": (lambda s: s if s is not None else scores.get(cid))((w.get("score_breakdown") or {}).get("score"))})
-    if not res.scope_ids:
-        rows.sort(key=lambda r: -(r["provisions"] or 0))
+    rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1
+    best = rows[0] if rows else None
     return HandlerResult(
         blocks=[Block(type="performance_table",
                       data={"window": window, "rows": rows})],
         scaffold_facts={"item_count": len(rows), "window": window,
                         "single": single,
-                        "best": rows[0]["display_name"] if rows else None,
-                        "best_provisions": rows[0]["provisions"] if rows else None},
+                        "best": best["display_name"] if best else None,
+                        "best_provisions": best["provisions"] if best else None},
         anchor_ids=[] if single else ids[:5],
         session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
                          for r in rows])
