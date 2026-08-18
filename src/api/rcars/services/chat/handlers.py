@@ -183,7 +183,7 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                         "single": single,
                         "best": rows[0]["display_name"] if rows else None,
                         "best_provisions": rows[0]["provisions"] if rows else None},
-        anchor_ids=ids[:5],
+        anchor_ids=[] if single else ids[:5],
         session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
                          for r in rows])
 
