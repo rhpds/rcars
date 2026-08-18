@@ -14,6 +14,9 @@ export function NoticeBlock({ block }: NoticeBlockProps) {
     role_redirect: { label: 'Restricted', icon: '🔒' },
     clarify: { label: 'Needs clarification', icon: '❓' },
     scope_expanded: { label: 'Expanded search', icon: '🔎' },
+    help: { label: 'Help', icon: 'ℹ' },
+    no_items: { label: 'No results', icon: '🔍' },
+    info: { label: 'Info', icon: 'ℹ' },
   }
 
   const kindInfo = (kind ? kindLabels[kind] : undefined) ?? { label: 'Notice', icon: 'ℹ' }

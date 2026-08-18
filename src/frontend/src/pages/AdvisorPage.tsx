@@ -7,6 +7,7 @@ import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCardList } from '../components/advisor/RecCardList'
 import { ChatEnvelope, ChatChip } from '../components/advisor/chatTypes'
 import { resolveBlockRenderer } from '../components/advisor/blocks/registry'
+import { BlockErrorBoundary } from '../components/advisor/BlockErrorBoundary'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -482,7 +483,11 @@ export function AdvisorPage() {
           <>
             {currentResults.blocks.map((b, i) => {
               const Renderer = resolveBlockRenderer(b.type)
-              return <Renderer key={i} block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
+              return (
+                <BlockErrorBoundary key={i} blockType={b.type}>
+                  <Renderer block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
+                </BlockErrorBoundary>
+              )
             })}
           </>
         ) : sending ? (
