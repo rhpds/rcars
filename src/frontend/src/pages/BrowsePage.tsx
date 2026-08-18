@@ -646,7 +646,7 @@ export function BrowsePage() {
         <div className="browse-filter-sidebar">
           {/* Infrastructure filters — AgnosticD v2 only */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Infrastructure</div>
+            <div className="browse-filter-group-label">Workloads & Automation</div>
             <div className="browse-filter-group-note">AgnosticD v2 items only</div>
             <select
               className="browse-filter-select"
@@ -871,7 +871,7 @@ export function BrowsePage() {
 
                       {/* 5. Infrastructure (collapsible) */}
                       {detail.is_agd_v2 && (
-                        <CollapsibleSection label="Infrastructure" color="green">
+                        <CollapsibleSection label="Workloads & Automation" color="green">
                           <div className="browse-infra-grid">
                             <span className="browse-infra-kv">Config: <strong>{detail.agd_config || '—'}</strong></span>
                             {detail.cloud_provider && detail.cloud_provider !== 'none' && (
@@ -895,7 +895,11 @@ export function BrowsePage() {
                               <div className="browse-pill-sublabel">Mapped Workloads ({detail.workloads.length})</div>
                               <div className="browse-pill-row">
                                 {detail.workloads.map((w, i) => (
-                                  <Pill key={i} variant="workload">{w.workload_role}</Pill>
+                                  <a key={i} href={`/workloads?search=${encodeURIComponent(w.workload_role)}`}
+                                     className="browse-pill browse-pill--workload"
+                                     style={{ textDecoration: 'none' }} target="_blank" rel="noreferrer">
+                                    {w.workload_role}
+                                  </a>
                                 ))}
                               </div>
                             </div>

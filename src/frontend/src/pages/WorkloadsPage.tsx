@@ -1,4 +1,5 @@
 import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 
 interface InfrastructureItem {
@@ -16,6 +17,7 @@ interface InfrastructureItem {
 }
 
 export function WorkloadsPage() {
+  const [searchParams] = useSearchParams()
   const [items, setItems] = useState<InfrastructureItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -24,7 +26,7 @@ export function WorkloadsPage() {
   const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set())
 
   // Filters
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(searchParams.get('search') || '')
   const [typeFilter, setTypeFilter] = useState<string>('')
   const [categoryFilter, setCategoryFilter] = useState('')
   const [collectionFilter, setCollectionFilter] = useState('')
