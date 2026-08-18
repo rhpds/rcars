@@ -896,7 +896,7 @@ export function BrowsePage() {
                               <div className="browse-pill-row">
                                 {detail.workloads.map((w, i) => (
                                   w.workload_collection
-                                    ? <a key={i} href={`/workloads?search=${encodeURIComponent(w.workload_role)}`}
+                                    ? <a key={i} href={`/browse/workloads?search=${encodeURIComponent(w.workload_role)}`}
                                          className="browse-pill browse-pill--workload"
                                          style={{ textDecoration: 'none' }} target="_blank" rel="noreferrer">
                                         {w.workload_role}
