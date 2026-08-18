@@ -16,7 +16,7 @@ export function NoticeBlock({ block }: NoticeBlockProps) {
     scope_expanded: { label: 'Expanded search', icon: '🔎' },
   }
 
-  const kindInfo = kind ? kindLabels[kind] : { label: 'Notice', icon: 'ℹ' }
+  const kindInfo = (kind ? kindLabels[kind] : undefined) ?? { label: 'Notice', icon: 'ℹ' }
   const message = block.data.message as string | undefined
 
   return (
