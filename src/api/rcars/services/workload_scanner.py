@@ -158,8 +158,7 @@ def analyze_role(
 
         result = json.loads(text)
 
-        if (result.get("product_name")
-                and not result.get("is_infrastructure_plumbing")):
+        if result.get("product_name"):
             emb_text = build_infrastructure_embedding_text({
                 "role_name": role_name,
                 "description": result.get("description"),
@@ -224,7 +223,6 @@ def scan_collection(
 
         scanned = 0
         mapped = 0
-        skipped_plumbing = 0
 
         for role_name in roles:
             role_path = clone_path / "roles" / role_name
@@ -237,29 +235,25 @@ def scan_collection(
             scanned += 1
 
             if result and result.get("product_name"):
-                if result.get("is_infrastructure_plumbing"):
-                    skipped_plumbing += 1
-                    rlog.info("workload_scan: %s → plumbing, not mapping", role_name)
-                else:
-                    fqcn = f"{collection_name}.{role_name}"
-                    db.upsert_infrastructure(
-                        role_name=role_name,
-                        fqcn=fqcn,
-                        collection=collection_name,
-                        type="workload",
-                        description=result.get("description"),
-                        products=result.get("products", [result["product_name"]]),
-                        capabilities=result.get("capabilities", []),
-                        category=result.get("category"),
-                        requires=result.get("requires", []),
-                        source_sha=local_sha,
+                fqcn = f"{collection_name}.{role_name}"
+                db.upsert_infrastructure(
+                    role_name=role_name,
+                    fqcn=fqcn,
+                    collection=collection_name,
+                    type="workload",
+                    description=result.get("description"),
+                    products=result.get("products", [result["product_name"]]),
+                    capabilities=result.get("capabilities", []),
+                    category=result.get("category"),
+                    requires=result.get("requires", []),
+                    source_sha=local_sha,
+                )
+                if result.get("embedding"):
+                    regenerate_embeddings(
+                        db, role_name, "infrastructure", "agnosticd",
+                        result["embedding_text"], result["embedding"],
                     )
-                    if result.get("embedding"):
-                        regenerate_embeddings(
-                            db, role_name, "infrastructure", "agnosticd",
-                            result["embedding_text"], result["embedding"],
-                        )
-                    mapped += 1
+                mapped += 1
 
         stats = {
             "collection": collection_name,
@@ -267,7 +261,6 @@ def scan_collection(
             "roles_found": len(roles),
             "roles_scanned": scanned,
             "roles_mapped": mapped,
-            "roles_plumbing": skipped_plumbing,
         }
         rlog.info("workload_scan: complete", **stats)
         return stats
