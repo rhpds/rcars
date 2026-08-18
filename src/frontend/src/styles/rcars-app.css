@@ -1389,6 +1389,13 @@ details.ca-band-section:not([open]) > .ca-band-header {
   color: var(--pill-workload-text);
 }
 
+.browse-pill--workload-legacy {
+  background: var(--bg-tertiary);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
 .browse-pill--module {
   background: var(--pill-module-bg);
   border-color: var(--pill-module-border);

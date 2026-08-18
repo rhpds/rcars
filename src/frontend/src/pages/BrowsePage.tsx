@@ -895,11 +895,15 @@ export function BrowsePage() {
                               <div className="browse-pill-sublabel">Mapped Workloads ({detail.workloads.length})</div>
                               <div className="browse-pill-row">
                                 {detail.workloads.map((w, i) => (
-                                  <a key={i} href={`/workloads?search=${encodeURIComponent(w.workload_role)}`}
-                                     className="browse-pill browse-pill--workload"
-                                     style={{ textDecoration: 'none' }} target="_blank" rel="noreferrer">
-                                    {w.workload_role}
-                                  </a>
+                                  w.workload_collection
+                                    ? <a key={i} href={`/workloads?search=${encodeURIComponent(w.workload_role)}`}
+                                         className="browse-pill browse-pill--workload"
+                                         style={{ textDecoration: 'none' }} target="_blank" rel="noreferrer">
+                                        {w.workload_role}
+                                      </a>
+                                    : <span key={i} className="browse-pill browse-pill--workload-legacy" title="Legacy v1 workload — no v2 equivalent scanned">
+                                        {w.workload_role}
+                                      </span>
                                 ))}
                               </div>
                             </div>
