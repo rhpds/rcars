@@ -68,15 +68,23 @@ _HELP_TOPICS = {
         "Points are awarded by percentile rank among items with non-zero activity. "
         "Items with zero activity in a factor get 0 points for that factor. "
         "Thresholds: Strong >= 55, Moderate >= 35, Low < 35."),
+    "sales_impact": (
+        "**Sales impact** shows whether deployments of this item correlate with closed sales. "
+        "It's derived from Salesforce opportunity data — we look at which catalog items were "
+        "provisioned in the trailing year and whether those accounts had closed-won deals. "
+        "**High** means this item is in the top tier for sales correlation across the catalog. "
+        "**Moderate** means above average. No badge means low or no measurable correlation. "
+        "This is a correlation signal, not a guarantee — it tells you this item tends to "
+        "show up in accounts that buy, not that using it causes the sale."),
 }
 
 
 def _help_answer(topic: str) -> str:
-    t = topic.lower().strip()
+    t = topic.lower().strip().replace(" ", "_").replace("-", "_")
     if t in _HELP_TOPICS and _HELP_TOPICS[t] is not None:
         return _HELP_TOPICS[t]
     for key in ("workload", "infrastructure", "performance", "overlap",
-                "recommend", "item_facts", "scoring"):
+                "recommend", "item_facts", "scoring", "sales_impact"):
         if key in t or t in key:
             answer = _HELP_TOPICS[key]
             if answer is None:
