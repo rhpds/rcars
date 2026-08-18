@@ -173,16 +173,20 @@ async def handle_performance(res: Resolution, db: Database, settings: Settings,
                      "sales_impact": compute_sales_impact(float(rhdp.get("closed_amount") or 0))
                                      if rhdp else None,
                      "score": (lambda s: s if s is not None else scores.get(cid))((w.get("score_breakdown") or {}).get("score"))})
-    rows.sort(key=lambda r: -(r["provisions"] or 0))
+    if not res.scope_ids:
+        rows.sort(key=lambda r: -(r["provisions"] or 0))
     single = len(rows) == 1
-    best = rows[0] if rows else None
+    # Only identify a "best" when the list is ours to rank (unscoped or single item).
+    # When scoped to prior results, the order reflects recommendation relevance —
+    # don't assert a performance winner that contradicts that ordering.
+    top = (rows[0] if rows else None) if (single or not res.scope_ids) else None
     return HandlerResult(
         blocks=[Block(type="performance_table",
                       data={"window": window, "rows": rows})],
         scaffold_facts={"item_count": len(rows), "window": window,
                         "single": single,
-                        "best": best["display_name"] if best else None,
-                        "best_provisions": best["provisions"] if best else None},
+                        "best": top["display_name"] if top else None,
+                        "best_provisions": top["provisions"] if top else None},
         anchor_ids=[] if single else ids[:5],
         session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
                          for r in rows])
