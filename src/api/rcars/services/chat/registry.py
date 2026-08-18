@@ -131,7 +131,7 @@ INTENTS: dict[str, IntentSpec] = {
     "help": IntentSpec(
         name="help",
         description="Meta-questions about what RCARS features mean or how they work.",
-        args_model=HelpArgs, handler=None, block_types=("notice",), followups=(),
+        args_model=HelpArgs, handler=handlers.handle_help, block_types=("notice",), followups=(),
         prompt_fragment=(
             "help: meta-questions about what an RCARS feature means or how it works — "
             "'what does performance mean', 'what can you do', 'how does scoring work', "

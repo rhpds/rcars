@@ -303,8 +303,11 @@ export function AdvisorPage() {
               <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
               </p>
-              <p className="hint" style={{ marginBottom: '14px' }}>
+              <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
+              </p>
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Automation &amp; workloads</strong> — "What deploys OpenShift AI?" or "What workloads configure an OpenShift cluster?"
               </p>
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.

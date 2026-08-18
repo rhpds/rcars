@@ -269,3 +269,10 @@ async def handle_infrastructure(res: Resolution, db: Database, settings: Setting
                         "match_count": len(results)},
         session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
                          for r in linked[:5]])
+
+
+async def handle_help(res: Resolution, db: Database, settings: Settings,
+                      stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    return HandlerResult(
+        blocks=[Block(type="notice", data={"kind": "info"})],
+        scaffold_facts={"intent": "help"})

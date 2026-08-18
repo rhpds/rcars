@@ -62,8 +62,7 @@ export function WorkloadsPage() {
       if (searchLower && !(
         i.role_name.toLowerCase().includes(searchLower) ||
         (i.description && i.description.toLowerCase().includes(searchLower)) ||
-        i.products.some(p => p.toLowerCase().includes(searchLower)) ||
-        i.capabilities.some(c => c.toLowerCase().includes(searchLower))
+        i.products.some(p => p.toLowerCase().includes(searchLower))
       )) return false
       if (typeFilter && i.type !== typeFilter) return false
       if (categoryFilter && i.category !== categoryFilter) return false
@@ -271,10 +270,10 @@ export function WorkloadsPage() {
                             <div className="wl-linked-items-list">
                               {[...grouped.values()].map(g => (
                                 <div key={g.name} className="wl-linked-item">
+                                  <a href={`/browse?search=${encodeURIComponent(g.name)}`} className="wl-linked-item-name" target="_blank" rel="noreferrer">{g.name}</a>
                                   {g.stages.map(s => (
                                     <span key={s} className={`stage-badge stage-badge--${s}`}>{s}</span>
                                   ))}
-                                  <a href={`/browse?search=${encodeURIComponent(g.name)}`} className="wl-linked-item-name">{g.name}</a>
                                 </div>
                               ))}
                             </div>

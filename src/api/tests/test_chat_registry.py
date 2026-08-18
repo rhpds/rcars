@@ -8,9 +8,10 @@ def test_registry_complete():
     for name, spec in registry.INTENTS.items():
         assert spec.description and spec.prompt_fragment
         assert len(spec.examples) >= 2
-        if name not in ("out_of_scope", "help"):
+        if name != "out_of_scope":
             assert spec.handler is not None
             assert spec.block_types
+        if name not in ("out_of_scope", "help"):
             assert spec.followups
 
 
