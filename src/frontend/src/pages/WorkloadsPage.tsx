@@ -51,6 +51,12 @@ export function WorkloadsPage() {
     return Array.from(cats).sort()
   }, [items])
 
+  const typeCounts = useMemo(() => ({
+    '': items.length,
+    workload: items.filter(i => i.type === 'workload').length,
+    config: items.filter(i => i.type === 'config').length,
+  }), [items])
+
   const uniqueCollections = useMemo(() => {
     const colls = new Set<string>()
     items.forEach(i => { if (i.collection) colls.add(i.collection) })
@@ -137,11 +143,11 @@ export function WorkloadsPage() {
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Type</div>
             <div className="wl-status-pills">
-              {['', 'workload', 'config'].map(t => (
+              {(['', 'workload', 'config'] as const).map(t => (
                 <button key={t || 'all'}
                   className={`browse-curator-pill${typeFilter === t ? ' active' : ''}`}
                   onClick={() => setTypeFilter(t)}>
-                  {t ? t.charAt(0).toUpperCase() + t.slice(1) : 'All'}
+                  {t ? `${t.charAt(0).toUpperCase() + t.slice(1)} (${typeCounts[t]})` : `All (${typeCounts['']})`}
                 </button>
               ))}
             </div>
