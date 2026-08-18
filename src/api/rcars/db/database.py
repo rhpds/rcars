@@ -1374,8 +1374,11 @@ class Database:
     def get_workloads(self, content_id: str) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT workload_fqcn, workload_role, workload_collection "
-                "FROM babylon_item_workloads WHERE content_id = %s ORDER BY workload_role",
+                "SELECT biw.workload_fqcn, biw.workload_role, biw.workload_collection, "
+                "       (i.role_name IS NOT NULL) AS has_infrastructure "
+                "FROM babylon_item_workloads biw "
+                "LEFT JOIN infrastructure i ON i.role_name = biw.workload_role "
+                "WHERE biw.content_id = %s ORDER BY biw.workload_role",
                 (content_id,),
             )
             return cur.fetchall()
