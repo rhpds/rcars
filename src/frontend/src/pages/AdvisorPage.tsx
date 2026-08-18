@@ -300,13 +300,13 @@ export function AdvisorPage() {
                 <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check overlap</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
+                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
+                <strong style={{ color: 'var(--text-primary)' }}>Similar items</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Automation &amp; workloads</strong> — "What deploys OpenShift AI?" or "What workloads configure an OpenShift cluster?"

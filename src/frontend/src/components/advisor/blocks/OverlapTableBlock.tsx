@@ -64,7 +64,6 @@ export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Products</th>
               <th style={{ padding: '8px 12px', textAlign: 'right' }}>Topics</th>
               <th style={{ padding: '8px 12px', textAlign: 'left' }}>Stage</th>
-              <th style={{ padding: '8px 12px', textAlign: 'left' }}>Recommendation</th>
             </tr>
           </thead>
           <tbody>
@@ -101,9 +100,6 @@ export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
                     {n.shared_topics ?? '—'}
                   </td>
                   <td style={{ padding: '10px 12px', color: 'var(--text-muted)' }}>{n.stage || '—'}</td>
-                  <td style={{ padding: '10px 12px', color: 'var(--text-muted)', fontSize: '12px' }}>
-                    {n.recommendation || '—'}
-                  </td>
                 </tr>
               )
             })}
