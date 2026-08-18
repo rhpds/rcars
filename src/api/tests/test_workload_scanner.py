@@ -26,7 +26,6 @@ def test_analyze_role_returns_enriched_fields():
         "capabilities": ["model-serving", "notebook-hosting"],
         "category": "ai_ml",
         "requires": ["openshift 4.14+"],
-        "is_infrastructure_plumbing": False,
     })
     mock_result.input_tokens = 100
     mock_result.output_tokens = 50
