@@ -275,13 +275,8 @@ export function WorkloadsPage() {
                                 <div key={g.name} className="wl-linked-item">
                                   <a href={nameHref} className="wl-linked-item-name" target="_blank" rel="noreferrer">{g.name}</a>
                                   {g.stages.map(s => {
-                                    const stageParam = s === 'prod' ? 'prod' : `prod,${s}`
-                                    const badgeClass = s === 'dev' ? 'browse-badge badge-dev' : s === 'event' ? 'browse-badge badge-event' : 'browse-badge'
-                                    return (
-                                      <a key={s} href={`/browse?search=${encodeURIComponent(g.name)}&stage=${stageParam}`}
-                                         className={badgeClass} target="_blank" rel="noreferrer"
-                                         style={{ textDecoration: 'none', cursor: 'pointer' }}>{s.toUpperCase()}</a>
-                                    )
+                                    const badgeClass = s === 'dev' ? 'browse-badge badge-dev' : s === 'event' ? 'browse-badge badge-event' : 'browse-badge badge-prod'
+                                    return <span key={s} className={badgeClass}>{s.toUpperCase()}</span>
                                   })}
                                 </div>
                                 )

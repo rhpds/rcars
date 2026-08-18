@@ -1183,6 +1183,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 
 .badge-v2 { background: var(--badge-v2-bg); color: var(--badge-v2-text); }
+.badge-prod { background: var(--score-green-bg); color: var(--score-green); }
 .badge-dev { background: var(--badge-stage-dev-bg); color: var(--badge-stage-dev-text); }
 .badge-event { background: var(--badge-stage-event-bg); color: var(--badge-stage-event-text); }
 .badge-zt { background: var(--badge-zt-bg); color: var(--badge-zt-text); }
