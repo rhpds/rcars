@@ -482,9 +482,8 @@ def workload_alias(product: str, alias_name: str):
 @workload_group.command("scan")
 @click.option("--collection", "-c", default=None, help="Scan only this collection (e.g. agnosticd.core_workloads)")
 @click.option("--force", is_flag=True, default=False, help="Skip SHA check, rescan everything")
-@click.option("--include-configs", is_flag=True, default=False, help="Also scan AgnosticD v2 base configs")
-def workload_scan(collection: str | None, force: bool, include_configs: bool):
-    """Scan agDv2 workload repos and optionally base configs via LLM."""
+def workload_scan(collection: str | None, force: bool):
+    """Scan agDv2 workload repos and base configs via LLM."""
     from rcars.services.workload_scanner import scan_all_collections, scan_configs
 
     settings = Settings()
@@ -520,16 +519,17 @@ def workload_scan(collection: str | None, force: bool, include_configs: bool):
             _print(f"  {r['collection']}: [red]clone failed[/red]")
         else:
             _print(f"  {r['collection']}: {r.get('roles_scanned', 0)} scanned, "
-                   f"{r.get('roles_mapped', 0)} mapped, {r.get('roles_plumbing', 0)} plumbing")
+                   f"{r.get('roles_mapped', 0)} mapped")
 
     total_scanned = sum(r.get("roles_scanned", 0) for r in results)
     total_mapped = sum(r.get("roles_mapped", 0) for r in results)
     _print(f"Done. {total_scanned} roles scanned, {total_mapped} new/updated mappings.")
 
-    if include_configs:
-        console.print("\n[bold]Scanning base configs...[/bold]")
-        config_result = scan_configs(settings.clone_dir, settings, model, db, force=force)
-        console.print(f"Configs: {config_result}")
+    console.print("\n[bold]Scanning base configs...[/bold]")
+    config_result = scan_configs(settings.clone_dir, settings, model, db, force=force)
+    scanned = config_result.get("configs_scanned", 0)
+    status = config_result.get("status", "?")
+    _print(f"Configs: {scanned} scanned ({status})")
 
     db.close()
 
