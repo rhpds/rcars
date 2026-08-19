@@ -102,7 +102,7 @@ class TestGenerator:
     def test_generated_file_keeps_the_header_comment(self):
         generated = generate_vocabulary_yaml(load_vocabulary(), [])
         assert generated.lstrip().startswith("#")
-        assert "controlled vocabulary" in generated.lower()
+        assert "rcars" in generated.lower()
 
 
 class TestVocabularyEndpoints:

@@ -207,8 +207,8 @@ from rcars.services.vocabulary import dedup_topics, normalize_analysis, snap_ter
 class TestMatchLadder:
     def test_rung1_exact_alias_case_insensitive(self):
         vocab = load_vocabulary()
-        assert snap_term(vocab, "products", "RHACS") == ("Red Hat Advanced Cluster Security", True)
-        assert snap_term(vocab, "products", "rhacs") == ("Red Hat Advanced Cluster Security", True)
+        assert snap_term(vocab, "products", "RHACS") == ("Red Hat Advanced Cluster Security for Kubernetes", True)
+        assert snap_term(vocab, "products", "rhacs") == ("Red Hat Advanced Cluster Security for Kubernetes", True)
 
     def test_rung1_vertical_alias(self):
         vocab = load_vocabulary()
@@ -284,7 +284,7 @@ class TestNormalizeAnalysis:
     def test_snaps_products_in_place(self):
         out = normalize_analysis({"products": ["RHACS", "OCP"]}, "lab")
         assert out["products"] == [
-            "Red Hat Advanced Cluster Security",
+            "Red Hat Advanced Cluster Security for Kubernetes",
             "Red Hat OpenShift Container Platform",
         ]
 
@@ -515,7 +515,7 @@ class TestAnalyzerNormalizesOnce:
 
         analysis = result["analysis"]
         assert analysis["products"] == [
-            "Red Hat Advanced Cluster Security",
+            "Red Hat Advanced Cluster Security for Kubernetes",
             "Red Hat OpenShift Container Platform",
         ]
         assert analysis["difficulty"] == "beginner"

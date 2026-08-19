@@ -16,7 +16,7 @@ from rcars.services.vocabulary import load_vocabulary
 LEGACY_PRODUCT_TERMS = [
     "AAP", "ACM", "RHACM", "ACS", "RHACS", "RHOAI", "OCP", "ARO", "ROSA",
     "RHEL", "RHDH", "SNO", "RHSSO", "EDA", "TAP", "AMQ", "CRW", "RHBK",
-    "Red Hat AI", "OpenShift AI", "DevSpaces", "Dev Spaces", "Developer Hub",
+    "OpenShift AI", "DevSpaces", "Dev Spaces", "Developer Hub",
     "Quay", "3scale", "Service Mesh", "Serverless", "GitOps", "Virtualization",
     "MaaS",
 ]
