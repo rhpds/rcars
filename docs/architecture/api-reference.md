@@ -26,8 +26,8 @@ These docs are always in sync with the deployed code — they're generated from 
 |-----|--------|------|-------------|
 | **Health** | `/api/v1/health` | None | Liveness and readiness probes |
 | **Auth** | `/api/v1/auth` | User | Current user identity and roles |
-| **Advisor** | `/api/v1/advisor` | User | Recommendation queries, sessions, and selections |
-| **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, workload mappings |
+| **Advisor** | `/api/v1/advisor` | User | Chat queries (multi-intent), sessions, and selections |
+| **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, infrastructure catalog |
 | **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, stale checks, single-item analysis |
 | **Performance** | `/api/v1/analysis/performance` | User+ (public) / Curator+ (if restricted) | Performance scoring, retirement workflow (review → approve → notify → start) |
 | **Administration** | `/api/v1/admin` | Admin | Jobs, workers, maintenance, token usage, overlap |
@@ -61,8 +61,9 @@ When `RCARS_DEV_USER` is set, all requests are authenticated as that user with f
 Many endpoints return a `job_id` for tracking:
 
 ```json
-POST /api/v1/advisor/query
-→ {"job_id": "abc-123"}
+POST /api/v1/advisor/chat
+{"message": "Find labs about OpenShift AI", "session_id": null}
+→ {"job_id": "abc-123", "session_id": "def-456"}
 ```
 
 Then either poll:
@@ -77,6 +78,9 @@ GET /api/v1/advisor/query/abc-123/stream
 → data: {"type": "triage", "progress": 3, "total": 10, ...}
 → data: {"type": "complete", "result": {...}}
 ```
+
+!!! note "Deprecated endpoint"
+    `POST /advisor/query` still works but is deprecated. It only supports the recommend intent. Use `POST /advisor/chat` for all new integrations — it handles recommendations plus performance, overlap, infrastructure, item details, and help intents.
 
 ### Pagination
 

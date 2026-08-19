@@ -73,20 +73,21 @@ Example: if `agd-v2.modernize-ocp-virt` has dev (ref=main), event (ref=v1.0.0), 
 
 ## Scheduled Maintenance Pipeline
 
-The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains five steps sequentially:
+The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains seven steps sequentially:
 
 1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data. Items that no longer exist in Babylon are **soft-deleted** (marked with `retired_at` timestamp) rather than purged — all analysis, embeddings, and reporting data is preserved. Items that reappear in a future refresh are automatically un-retired.
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
-4. **Workload Repo Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses Claude Haiku to determine what product each role installs. Updates the workload mapping table with verified product names. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
-5. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
-6. **Compute Similarity** — recomputes pairwise content overlap scores from current embeddings.
+4. **Workload Role Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses an LLM to determine what product each role installs. Updates the `infrastructure` table with descriptions, products, capabilities, and vector embeddings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
+5. **Base Config Scan** — scans AgnosticD v2 config repositories for base environment configurations (e.g. `ocp4-cluster`, `cloud-vms-base`). Uses the same change-detection and LLM analysis approach as the workload scan. Runs as part of the same pipeline step.
+6. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
+7. **Compute Similarity** — recomputes pairwise content overlap scores from current embeddings.
 
 Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking or workload scanning.
 
 **Step 3 is an enqueue, not a blocking wait.** The pipeline creates individual `run_analysis` jobs on the `arq:queue:scan` queue and then marks itself complete. The analysis jobs are picked up by the scan worker through its normal job processing — they are identical to analysis jobs created by clicking "Analyze" in the admin UI. This means the pipeline finishes in minutes (catalog refresh + stale check + workload scan), while the actual re-analysis of stale content may take much longer depending on how many items changed. You can monitor analysis progress on the Workers page or via the "Analyze" log window on the Catalog page.
 
-**Step 4 uses change detection.** The workload scanner runs `git ls-remote` against each collection repo and compares the HEAD SHA to the last-scanned value stored in `workload_scan_state`. Repos that haven't changed are skipped entirely. This makes the step cheap to run daily — typically a few seconds when nothing has changed, a few minutes when repos need rescanning.
+**Steps 4-5 use change detection.** The workload and config scanners run `git ls-remote` against each collection repo and compare the HEAD SHA to the last-scanned value stored in the `infrastructure` table. Repos that haven't changed are skipped entirely. This makes these steps cheap to run daily — typically a few seconds when nothing has changed, a few minutes when repos need rescanning.
 
 The pipeline creates a parent `maintenance` job plus sub-jobs for each step, all visible in the Workers page job history with `created_by: maintenance`. Progress messages stream to the Admin UI log window if an admin has it open.
 

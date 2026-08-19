@@ -29,7 +29,7 @@ RCARS addresses all three by reading the actual lab content — not just titles 
 
 RCARS reads the live RHDP catalog directly from the Babylon platform's Kubernetes CRDs. For every catalog item with a Showroom (lab content repository), it clones the repo, reads the AsciiDoc modules, and sends the content to Claude Sonnet for structured analysis: what the lab covers, learning objectives, audience, duration estimate, and format suitability. The analysis is stored alongside 768-dimensional vector embeddings (via a dedicated vLLM embedding server) that capture the semantic meaning of each piece of content.
 
-For AgnosticD v2 items, RCARS also extracts infrastructure metadata — cloud provider, OCP version, installed workloads — and maps workload roles to human-readable product names through a curated mapping table.
+For AgnosticD v2 items, RCARS also extracts infrastructure metadata — cloud provider, OCP version, installed workloads — from the catalog CRDs. Separately, RCARS scans the AgnosticD v2 source repositories directly, reading the Ansible code for each workload role and base config, and uses an LLM to determine what each one installs, provisions, or configures. The results are stored in a searchable infrastructure catalog with vector embeddings, so you can ask "what workload deploys OpenShift AI?" and get an answer.
 
 ### Recommendations
 
@@ -59,7 +59,7 @@ This makes RCARS the institutional memory for the RHDP catalog. Curators can fin
 
 ### Nightly Maintenance
 
-A nightly pipeline runs at 04:00 UTC and chains six steps: catalog refresh, stale content detection, re-analysis of changed items, workload repo scanning, reporting data sync, and content similarity computation. Each step runs independently — a failure in one does not block the others.
+A nightly pipeline runs at 04:00 UTC and chains seven steps: catalog refresh, stale content detection, re-analysis of changed items, workload role scanning, base config scanning, reporting data sync, and content similarity computation. Each step runs independently — a failure in one does not block the others.
 
 ## Who Uses It
 
@@ -67,7 +67,7 @@ A nightly pipeline runs at 04:00 UTC and chains six steps: catalog refresh, stal
 
 **Content curators** use Browse to review catalog items, tag content, set duration estimates, and mark best-fit recommendations. Content Analysis provides overlap detection (which labs duplicate each other?) and performance scoring (which items are driving impact, and which should we sunset?).
 
-**Platform admins** use the Admin pages and CLI to monitor catalog health, trigger scans, manage workload mappings, track LLM token usage, and review query history.
+**Platform admins** use the Admin pages and CLI to monitor catalog health, trigger scans, track LLM token usage, and review query history.
 
 **Publishing House** (the RHDP content management system) calls RCARS APIs to check content overlap during intake and search by infrastructure characteristics.
 
