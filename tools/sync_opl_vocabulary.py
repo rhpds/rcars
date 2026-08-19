@@ -214,6 +214,29 @@ MANUAL_ENTRIES = [
 
 # ── API helpers ──
 
+def _validate_no_collisions(products: list[dict[str, Any]]) -> list[str]:
+    """Same collision rules as the vocabulary loader — catch problems before deploy."""
+    canonicals = {p["name"].casefold(): p["name"] for p in products}
+    alias_owner: dict[str, str] = {}
+    errors: list[str] = []
+    for p in products:
+        for alias in p.get("aliases", []):
+            key = alias.casefold()
+            owner = canonicals.get(key)
+            if owner and owner != p["name"]:
+                errors.append(
+                    f"  alias '{alias}' on '{p['name']}' collides with "
+                    f"canonical name '{owner}'"
+                )
+            existing = alias_owner.get(key)
+            if existing and existing != p["name"]:
+                errors.append(
+                    f"  alias '{alias}' maps to both '{existing}' and '{p['name']}'"
+                )
+            alias_owner[key] = p["name"]
+    return errors
+
+
 def _fetch(api_url: str, api_key: str, path: str) -> Any:
     url = f"{api_url.rstrip('/')}/{path.lstrip('/')}"
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
@@ -459,6 +482,15 @@ def main():
         if me["name"] not in {e["name"] for e in merged}:
             merged.append(dict(me))
             manual_added.append(me["name"])
+
+    # Validate before writing
+    collisions = _validate_no_collisions(merged)
+    if collisions:
+        log("\nERROR: alias collisions detected — fix before deploying:")
+        for c in collisions:
+            log(c)
+        log("")
+        sys.exit(1)
 
     # Build output
     output = dict(current)

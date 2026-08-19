@@ -15,6 +15,36 @@ from rcars.db import Database
 
 log = structlog.get_logger()
 
+def _vocabulary_product_hint() -> str:
+    """Product naming guidance for workload/config prompts."""
+    try:
+        from rcars.services.vocabulary import load_vocabulary
+        names = load_vocabulary().canonical_names("products")
+        return (
+            "\n\nWhen naming products, prefer names from this list: "
+            + "; ".join(names)
+            + "\nOnly use a name not on this list if nothing matches."
+        )
+    except Exception:
+        return ""
+
+
+def _normalize_products(products: list) -> list[str]:
+    """Snap product names to vocabulary canonical forms."""
+    try:
+        from rcars.services.vocabulary.loader import load_vocabulary
+        from rcars.services.vocabulary.normalize import snap_term
+        vocab = load_vocabulary()
+        out: list[str] = []
+        for p in products:
+            snapped, _ = snap_term(vocab, "products", str(p))
+            if snapped not in out:
+                out.append(snapped)
+        return out
+    except Exception:
+        return list(products)
+
+
 AGDV2_COLLECTIONS = [
     {"name": "agnosticd.core_workloads", "url": "https://github.com/rhpds/core_workloads.git"},
     {"name": "agnosticd.ai_workloads", "url": "https://github.com/rhpds/ai_workloads.git"},
@@ -136,7 +166,7 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT)
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         input_tokens = llm_result.input_tokens
         output_tokens = llm_result.output_tokens
@@ -157,12 +187,15 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        result["products"] = _normalize_products(
+            result.get("products", [result["product_name"]] if result.get("product_name") else [])
+        )
 
         if result.get("product_name"):
             emb_text = build_infrastructure_embedding_text({
                 "role_name": role_name,
                 "description": result.get("description"),
-                "products": result.get("products", [result["product_name"]]),
+                "products": result["products"],
                 "capabilities": result.get("capabilities", []),
                 "category": result.get("category"),
             })
@@ -363,7 +396,7 @@ def analyze_config(
         from rcars.config import call_llm
         llm_result = call_llm(settings, model=model,
                               messages=[{"role": "user", "content": user_message}],
-                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT)
+                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         if db is not None:
             db.log_token_usage(
@@ -379,10 +412,11 @@ def analyze_config(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        result["products"] = _normalize_products(result.get("products", []))
         emb_text = build_infrastructure_embedding_text({
             "role_name": config_name,
             "description": result.get("description"),
-            "products": result.get("products", []),
+            "products": result["products"],
             "capabilities": result.get("capabilities", []),
             "category": result.get("category"),
         })
