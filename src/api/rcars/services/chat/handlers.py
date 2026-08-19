@@ -2,6 +2,7 @@
 graduate it to handlers/<intent>.py."""
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass, field
 
@@ -260,7 +261,7 @@ async def handle_infrastructure(res: Resolution, db: Database, settings: Setting
     args = InfrastructureArgs.model_validate(res.output.args)
     query = args.search_query or res.message or ""
 
-    query_vec = generate_embedding(query, prefix="search_query")
+    query_vec = await asyncio.to_thread(generate_embedding, query, "search_query")
     matches = db.search_infrastructure_embeddings(query_vec, limit=10)
     results = [r for rn in [m["role_name"] for m in matches]
                if (r := db.get_infrastructure(rn))]

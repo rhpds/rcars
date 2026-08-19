@@ -134,7 +134,7 @@ async def list_infrastructure(
     collection: str | None = Query(None, description="Filter by source collection (e.g. 'agnosticv_workloads')", examples=["agnosticv_workloads"]),
     search: str | None = Query(None, description="Text search across name, description, products, and capabilities", examples=["openshift ai"]),
     has_mappings: bool | None = Query(None, description="true = only entries linked to catalog items, false = orphans only"),
-    limit: int = Query(500, le=1000, description="Maximum results to return"),
+    limit: int = Query(500, ge=1, le=1000, description="Maximum results to return"),
 ):
     db = request.app.state.db
     items = db.get_infrastructure_with_item_counts(
