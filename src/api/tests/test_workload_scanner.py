@@ -40,6 +40,6 @@ def test_analyze_role_returns_enriched_fields():
         )
 
     assert result is not None
-    assert result["products"] == ["OpenShift AI", "KServe"]
+    assert result["products"] == ["Red Hat OpenShift AI", "KServe"]
     assert result["capabilities"] == ["model-serving", "notebook-hosting"]
     assert result["requires"] == ["openshift 4.14+"]

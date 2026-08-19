@@ -42,7 +42,7 @@ def _propagate_to_sibling(db, sib_content_id: str, sib_content_type: str, analys
     db.set_scan_status(sib_content_id, "success")
 
 
-async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None) -> dict:
+async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None, force: bool = False) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     ci_name = content_id.removeprefix("babylon:")
     log = logger.bind(job_id=job_id, content_id=content_id, ci_name=ci_name)
@@ -76,6 +76,7 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 content_path=item.get("content_path"),
                 keywords=item.get("keywords") or [],
                 entity_content_type=item.get("content_type") or "lab",
+                force=force,
             )
         )
 

@@ -664,6 +664,7 @@ def analyze_showroom(
     content_path: str | None = None,
     keywords: list[str] | None = None,
     entity_content_type: str = "lab",
+    force: bool = False,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -715,7 +716,7 @@ def analyze_showroom(
         # Check if another CI already has analysis + embeddings for this content.
         # If so, reuse them instead of calling the LLM again — identical content
         # must produce identical analysis and embeddings.
-        if db is not None:
+        if db is not None and not force:
             donor = db.find_donor_by_content_hash(content_hash, exclude_content_id=f"babylon:{ci_name}")
             if donor:
                 donor_name = donor["ci_name"]
