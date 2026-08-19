@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Query
+from fastapi import APIRouter, Depends, Request, HTTPException, Path, Query
 from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 from rcars.api.schemas import (
@@ -113,19 +113,28 @@ async def catalog_facets(request: Request, user: str = Depends(require_auth)):
     "/infrastructure",
     summary="List infrastructure catalog",
     description=(
-        "Returns the infrastructure catalog (workload roles and base configs) "
-        "with item counts showing how many catalog items use each entry."
+        "Returns the infrastructure catalog — Ansible workload roles and base configs scanned from AgnosticD v2 — "
+        "with `item_count` showing how many catalog items deploy or use each entry.\n\n"
+        "Two types of infrastructure entries:\n"
+        "- **workload** — An Ansible role that installs a product on an existing cluster "
+        "(e.g. `ocp4_workload_openshift_ai`, `ocp4_workload_acs`)\n"
+        "- **config** — A base environment config that provisions infrastructure "
+        "(e.g. `ocp4-cluster`, `cloud-vms-base`)\n\n"
+        "Use the `type` filter to list only workloads or only configs. "
+        "Use `has_mappings=true` to find entries linked to catalog items, or `false` to find orphans.\n\n"
+        "For semantic search (e.g. 'what deploys OpenShift AI?'), use `POST /advisor/chat` instead — "
+        "this endpoint only supports text-match filtering."
     ),
 )
 async def list_infrastructure(
     request: Request,
     user: str = Depends(require_auth),
-    type: str | None = Query(None, description="Filter by type: 'workload' or 'config'"),
-    category: str | None = Query(None, description="Filter by category"),
-    collection: str | None = Query(None, description="Filter by collection"),
-    search: str | None = Query(None, description="Search across role name, description, products, capabilities"),
-    has_mappings: bool | None = Query(None, description="True = only with linked CIs, False = orphans only"),
-    limit: int = Query(500, le=1000),
+    type: str | None = Query(None, description="Filter by type: 'workload' or 'config'", examples=["workload"]),
+    category: str | None = Query(None, description="Filter by category (e.g. 'ai_ml', 'security', 'platform')", examples=["ai_ml"]),
+    collection: str | None = Query(None, description="Filter by source collection (e.g. 'agnosticv_workloads')", examples=["agnosticv_workloads"]),
+    search: str | None = Query(None, description="Text search across name, description, products, and capabilities", examples=["openshift ai"]),
+    has_mappings: bool | None = Query(None, description="true = only entries linked to catalog items, false = orphans only"),
+    limit: int = Query(500, le=1000, description="Maximum results to return"),
 ):
     db = request.app.state.db
     items = db.get_infrastructure_with_item_counts(
@@ -138,8 +147,11 @@ async def list_infrastructure(
 
 @router.get(
     "/infra-stats",
-    summary="Infrastructure metadata coverage",
-    description="Returns statistics on infrastructure metadata coverage across the catalog.",
+    summary="Infrastructure catalog statistics",
+    description=(
+        "Returns statistics on the infrastructure catalog: total workload roles, "
+        "total base configs, category breakdown, and how many entries are linked to catalog items."
+    ),
     response_model=InfraStatsResponse,
 )
 async def infra_stats(request: Request, user: str = Depends(require_auth)):
@@ -149,11 +161,19 @@ async def infra_stats(request: Request, user: str = Depends(require_auth)):
 
 @router.get(
     "/infrastructure/{role_name}/items",
-    summary="Catalog items using this infrastructure",
-    description="Returns catalog items that deploy or use the given infrastructure entry.",
+    summary="Catalog items linked to an infrastructure entry",
+    description=(
+        "Returns catalog items that deploy or use the given infrastructure entry.\n\n"
+        "The `role_name` path parameter is the infrastructure entry's primary key:\n"
+        "- For **workload** entries: the Ansible role name (e.g. `ocp4_workload_openshift_ai`)\n"
+        "- For **config** entries: the config directory name (e.g. `ocp4-cluster`)\n\n"
+        "Discover valid names from `GET /catalog/infrastructure`."
+    ),
 )
 async def infrastructure_items(
-    role_name: str, request: Request, user: str = Depends(require_auth),
+    request: Request,
+    role_name: str = Path(description="Infrastructure entry name — the Ansible role name (for workloads) or config directory name (for configs)", examples=["ocp4_workload_openshift_ai", "ocp4-cluster"]),
+    user: str = Depends(require_auth),
 ):
     db = request.app.state.db
     infra = db.get_infrastructure(role_name)

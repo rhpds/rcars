@@ -21,11 +21,6 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true) =>
-    request<{ job_id: string }>('/advisor/query', {
-      method: 'POST',
-      body: JSON.stringify({ query, stages, include_zt: includeZt }),
-    }),
   submitChat: (message: string, sessionId?: string | null, stages: string[] = ['prod'],
                includeZt = true, routed?: Record<string, unknown>) =>
     request<{ job_id: string; session_id: string }>('/advisor/chat', {
