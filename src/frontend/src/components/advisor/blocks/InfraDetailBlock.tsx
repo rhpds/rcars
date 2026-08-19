@@ -22,6 +22,7 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
   const collection = d.collection as string | null
   const items = (d.items || []) as Array<{ display_name: string; ci_name?: string; stage?: string }>
   const others = (d.other_matches || []) as Array<{ role_name: string; type: string; description: string; products: string[] }>
+  const secondary = d.secondary as { role_name: string; type: string; description?: string; products?: string[]; capabilities?: string[]; category?: string; requires?: string[]; collection?: string; item_count?: number } | undefined
 
   const label = { fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase' as const, marginBottom: '4px' }
   const pill = { padding: '2px 6px', borderRadius: '3px', fontSize: '11px', background: 'var(--bg-subtle)', color: 'var(--text-secondary)' }
@@ -110,6 +111,29 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
           </div>
         )
       })()}
+
+      {secondary && (
+        <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', marginBottom: '4px' }}>
+          <div style={label}>Also relevant ({secondary.type})</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <a href={`/browse/workloads?search=${encodeURIComponent(secondary.role_name)}`}
+               target="_blank" rel="noopener noreferrer"
+               style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-link)', textDecoration: 'none' }}>
+              {secondary.role_name}
+            </a>
+            <span style={{ ...pill, background: secondary.type === 'config' ? 'var(--badge-amber-bg)' : 'var(--badge-blue-bg)',
+                           color: secondary.type === 'config' ? 'var(--badge-amber-text)' : 'var(--badge-blue-text)' }}>
+              {secondary.type}
+            </span>
+          </div>
+          {secondary.description && (
+            <p style={{ margin: '0 0 6px', fontSize: '12px', color: 'var(--text-secondary)' }}>{secondary.description}</p>
+          )}
+          {secondary.item_count != null && (
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Used by {secondary.item_count} catalog item{secondary.item_count !== 1 ? 's' : ''}</div>
+          )}
+        </div>
+      )}
 
       {others.length > 0 && (
         <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>

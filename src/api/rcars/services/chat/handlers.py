@@ -230,6 +230,31 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
                           "display_name": card["display_name"]}])
 
 
+_WORKLOAD_SIGNALS = (
+    "workload role", "workload roles", "workload", "workloads",
+    "ansible role", "ansible roles", "ansible automation",
+    "agnosticd", "operator", "collection", "automation role",
+    "gitops", "git ops", "argocd", "argo",
+)
+_CONFIG_SIGNALS = (
+    "base config", "base configs", "base infrastructure", "base infra",
+    "base environment", "open environment", "sandbox",
+    "cloud vms", "cloud vm", "cluster provisioning",
+    "provision", "provisioning", "config", "configs",
+)
+
+
+def _detect_type_hint(query: str) -> str | None:
+    q = query.lower()
+    for sig in _WORKLOAD_SIGNALS:
+        if sig in q:
+            return "workload"
+    for sig in _CONFIG_SIGNALS:
+        if sig in q:
+            return "config"
+    return None
+
+
 async def handle_infrastructure(res: Resolution, db: Database, settings: Settings,
                                 stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = InfrastructureArgs.model_validate(res.output.args)
@@ -246,31 +271,62 @@ async def handle_infrastructure(res: Resolution, db: Database, settings: Setting
                     "message": f"No infrastructure entries match '{query}'."})],
             scaffold_facts={"error": "no_match", "query": query})
 
+    # Layer 1: re-rank by explicit type hint in query
+    type_hint = _detect_type_hint(query)
+    if type_hint:
+        results = ([r for r in results if r.get("type") == type_hint] +
+                   [r for r in results if r.get("type") != type_hint])
+
     top = results[0]
+
+    # Layer 2: ambiguous query — both types in top-5, no hint — surface one of each
+    secondary = None
+    if not type_hint:
+        top5_types = {r.get("type") for r in results[:5]}
+        if "workload" in top5_types and "config" in top5_types:
+            other_type = "config" if top.get("type") == "workload" else "workload"
+            secondary = next((r for r in results[1:5] if r.get("type") == other_type), None)
+
     linked = db.get_infrastructure_linked_items(top["role_name"], top["type"])
     linked_summary = [{"content_id": r["content_id"], "display_name": r["display_name"],
                        "ci_name": r.get("ci_name"), "stage": r.get("stage")} for r in linked]
 
+    excluded = {top["role_name"], secondary["role_name"] if secondary else None}
     others = [{"role_name": r["role_name"], "type": r["type"],
                "description": (r.get("description") or "")[:120],
-               "products": r.get("products", [])} for r in results[1:5]]
+               "products": r.get("products", [])} for r in results if r["role_name"] not in excluded][:4]
+
+    block_data: dict = {
+        "role_name": top["role_name"], "type": top["type"],
+        "description": top.get("description"),
+        "products": top.get("products", []),
+        "capabilities": top.get("capabilities", []),
+        "category": top.get("category"),
+        "requires": top.get("requires", []),
+        "collection": top.get("collection"),
+        "items": linked_summary, "item_count": len(linked_summary),
+        "other_matches": others,
+    }
+    if secondary:
+        sec_linked = db.get_infrastructure_linked_items(secondary["role_name"], secondary["type"])
+        block_data["secondary"] = {
+            "role_name": secondary["role_name"], "type": secondary["type"],
+            "description": secondary.get("description"),
+            "products": secondary.get("products", []),
+            "capabilities": secondary.get("capabilities", []),
+            "category": secondary.get("category"),
+            "requires": secondary.get("requires", []),
+            "collection": secondary.get("collection"),
+            "item_count": len(sec_linked),
+        }
 
     return HandlerResult(
-        blocks=[Block(type="infra_detail", data={
-            "role_name": top["role_name"], "type": top["type"],
-            "description": top.get("description"),
-            "products": top.get("products", []),
-            "capabilities": top.get("capabilities", []),
-            "category": top.get("category"),
-            "requires": top.get("requires", []),
-            "collection": top.get("collection"),
-            "items": linked_summary, "item_count": len(linked_summary),
-            "other_matches": others,
-        })],
+        blocks=[Block(type="infra_detail", data=block_data)],
         scaffold_facts={"role_name": top["role_name"], "type": top["type"],
                         "products": top.get("products", []),
                         "item_count": len(linked_summary),
-                        "match_count": len(results)},
+                        "match_count": len(results),
+                        "secondary_role_name": secondary["role_name"] if secondary else None},
         session_results=[{"content_id": r["content_id"], "display_name": r["display_name"]}
                          for r in linked[:5]])
 
