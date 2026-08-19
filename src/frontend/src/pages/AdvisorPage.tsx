@@ -294,7 +294,7 @@ export function AdvisorPage() {
                 This is a beta release and we are regularly adding features.
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS knows about all RHDP content with Showroom guides. Ask it to:
+                RCARS knows about RHDP guided content and the automation that powers it. Ask it to:
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
