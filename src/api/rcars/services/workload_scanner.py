@@ -29,17 +29,24 @@ def _vocabulary_product_hint() -> str:
         return ""
 
 
-def _normalize_products(products: list) -> list[str]:
+def _normalize_products(products: list, role_name: str = "") -> list[str]:
     """Snap product names to vocabulary canonical forms."""
     try:
         from rcars.services.vocabulary.loader import load_vocabulary
         from rcars.services.vocabulary.normalize import snap_term
         vocab = load_vocabulary()
         out: list[str] = []
+        changed: list[str] = []
         for p in products:
-            snapped, _ = snap_term(vocab, "products", str(p))
+            original = str(p)
+            snapped, matched = snap_term(vocab, "products", original)
             if snapped not in out:
                 out.append(snapped)
+            if matched and snapped != original:
+                changed.append(f"{original} -> {snapped}")
+        if changed:
+            log.info("vocabulary_normalized_products", component="workload_scan",
+                     role=role_name, normalized=changed, count=len(changed))
         return out
     except Exception:
         return list(products)
@@ -188,7 +195,8 @@ def analyze_role(
 
         result = json.loads(text)
         result["products"] = _normalize_products(
-            result.get("products", [result["product_name"]] if result.get("product_name") else [])
+            result.get("products", [result["product_name"]] if result.get("product_name") else []),
+            role_name=role_name,
         )
 
         if result.get("product_name"):
@@ -412,7 +420,7 @@ def analyze_config(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
-        result["products"] = _normalize_products(result.get("products", []))
+        result["products"] = _normalize_products(result.get("products", []), role_name=config_name)
         emb_text = build_infrastructure_embedding_text({
             "role_name": config_name,
             "description": result.get("description"),
