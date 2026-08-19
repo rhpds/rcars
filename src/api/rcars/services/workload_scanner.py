@@ -37,7 +37,7 @@ Respond with a JSON object:
   "products": ["Array of products/operators/services this installs"],
   "capabilities": ["Array of capabilities this enables (e.g. 'model-serving', 'notebook-hosting')"],
   "category": "One of: ai_ml, cicd, security, storage, virtualization, networking, runtime, developer_tools, registry, management, automation, messaging, auth, platform, monitoring, other",
-  "requires": ["Array of prerequisites (e.g. 'openshift 4.14+', 'gpu-nodes')"],
+  "requires": ["Array of prerequisites (e.g. 'openshift 4.14+', 'gpu-nodes')"]
 }
 
 Return ONLY the JSON object, no other text."""
@@ -54,9 +54,12 @@ _INCLUDE_RE = re.compile(r'(?:include_tasks|import_tasks):\s*["\']?([^\s"\']+\.y
 
 def _follow_task_includes(tasks_content: str, tasks_dir: Path, sections: list[str]) -> None:
     """Read files referenced by include_tasks/import_tasks in tasks/main — one level only."""
+    base = tasks_dir.resolve()
     for match in _INCLUDE_RE.findall(tasks_content):
-        fp = tasks_dir / match
-        if fp.exists() and fp.is_file():
+        fp = (tasks_dir / match).resolve()
+        if not fp.is_relative_to(base):
+            continue
+        if fp.is_file():
             content = fp.read_text(errors="replace")[:4000]
             sections.append(f"=== TASKS ({match}) ===\n{content}")
 
@@ -164,8 +167,12 @@ def analyze_role(
                 "category": result.get("category"),
             })
             if emb_text.strip():
-                result["embedding_text"] = emb_text
-                result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+                try:
+                    result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+                    result["embedding_text"] = emb_text
+                except Exception as e:
+                    log.warning("workload_scan_embedding_failed", collection=collection_name,
+                                role=role_name, error=str(e))
 
         log.info("workload_scan_analyzed", component="workload_scan", action="analyzed",
                  collection=collection_name, role=role_name,
@@ -380,8 +387,11 @@ def analyze_config(
             "category": result.get("category"),
         })
         if emb_text.strip():
-            result["embedding_text"] = emb_text
-            result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+            try:
+                result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+                result["embedding_text"] = emb_text
+            except Exception as e:
+                log.warning("config_scan_embedding_failed", config=config_name, error=str(e))
 
         log.info("config_scan_analyzed", component="config_scan", action="analyzed",
                  config=config_name, category=result.get("category"))

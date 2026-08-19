@@ -370,7 +370,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                                    phase="pipeline:config_scan", status="running",
                                    message="Step 4 (config): Scanning AgnosticD v2 configs...")
             config_result = await asyncio.to_thread(
-                scan_configs, "/tmp", wctx.settings,
+                scan_configs, wctx.settings.clone_dir, wctx.settings,
                 wctx.settings.triage_model,
                 wctx.db, force=False,
             )

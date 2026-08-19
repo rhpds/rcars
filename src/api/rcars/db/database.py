@@ -327,7 +327,8 @@ CREATE TABLE IF NOT EXISTS infrastructure (
 CREATE INDEX IF NOT EXISTS idx_infrastructure_type ON infrastructure(type);
 CREATE INDEX IF NOT EXISTS idx_infrastructure_category ON infrastructure(category);
 
--- Allow infrastructure embeddings (no content_entities row)
+-- ponytail: FK dropped globally so infrastructure embeddings (keyed by role_name) can coexist.
+-- Orphan risk: content_entity deletions no longer cascade. Separate infra_embeddings table if orphans matter.
 ALTER TABLE embeddings DROP CONSTRAINT IF EXISTS embeddings_content_id_fkey;
 
 -- ═══════════════════════════════════════════════════════════════════
@@ -1539,11 +1540,13 @@ class Database:
     def get_infrastructure_scan_sha(self, collection: str) -> str | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT source_sha FROM infrastructure WHERE collection = %s LIMIT 1",
+                "SELECT DISTINCT source_sha FROM infrastructure WHERE collection = %s AND source_sha IS NOT NULL",
                 (collection,),
             )
-            row = cur.fetchone()
-            return row["source_sha"] if row else None
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                return rows[0]["source_sha"]
+            return None
 
     def get_infrastructure(self, role_name: str) -> dict | None:
         with self._pool.connection() as conn:
@@ -1605,34 +1608,32 @@ class Database:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
         # Count linked CIs: workloads via babylon_item_workloads, configs via babylon_items.agd_config
-        inner_sql = f"""
+        base_sql = f"""
             SELECT i.*,
                 COALESCE(wc.cnt, 0) + COALESCE(cc.cnt, 0) AS item_count
             FROM infrastructure i
             LEFT JOIN (
-                SELECT biw.workload_role AS role_name, COUNT(DISTINCT ce.display_name) AS cnt
+                SELECT biw.workload_role AS role_name, COUNT(DISTINCT biw.content_id) AS cnt
                 FROM babylon_item_workloads biw
                 JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
                 GROUP BY biw.workload_role
             ) wc ON wc.role_name = i.role_name AND i.type = 'workload'
             LEFT JOIN (
-                SELECT bi.agd_config AS role_name, COUNT(DISTINCT ce.display_name) AS cnt
+                SELECT bi.agd_config AS role_name, COUNT(DISTINCT bi.content_id) AS cnt
                 FROM babylon_items bi
                 JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
                 WHERE bi.agd_config IS NOT NULL
                 GROUP BY bi.agd_config
             ) cc ON cc.role_name = i.role_name AND i.type = 'config'
             {where}
-            ORDER BY i.role_name
-            LIMIT %(limit)s
         """
         params["limit"] = limit
 
         if has_mappings is not None:
             having = "> 0" if has_mappings else "= 0"
-            sql = f"WITH infra AS ({inner_sql}) SELECT * FROM infra WHERE item_count {having}"
+            sql = f"WITH infra AS ({base_sql}) SELECT * FROM infra WHERE item_count {having} ORDER BY role_name LIMIT %(limit)s"
         else:
-            sql = inner_sql
+            sql = f"{base_sql} ORDER BY i.role_name LIMIT %(limit)s"
 
         with self._pool.connection() as conn:
             return conn.execute(sql, params).fetchall()

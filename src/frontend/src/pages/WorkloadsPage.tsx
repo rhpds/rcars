@@ -31,14 +31,18 @@ export function WorkloadsPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [collectionFilter, setCollectionFilter] = useState('')
   const [mappingsFilter, setMappingsFilter] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const data = await api.getInfrastructureCatalog()
       setItems(data.items)
       setLoaded(true)
-    } catch { /* ignore */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load infrastructure catalog')
+    }
     setLoading(false)
   }, [])
 
@@ -108,6 +112,18 @@ export function WorkloadsPage() {
       <div className="browse-layout">
         <div className="browse-toolbar">
           <span className="browse-loading">Loading infrastructure catalog...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="browse-layout">
+        <div className="browse-toolbar">
+          <span style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}>
+            Failed to load infrastructure catalog: {error}
+          </span>
         </div>
       </div>
     )

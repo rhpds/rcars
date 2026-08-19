@@ -484,7 +484,7 @@ export function AdvisorPage() {
             {currentResults.blocks.map((b, i) => {
               const Renderer = resolveBlockRenderer(b.type)
               return (
-                <BlockErrorBoundary key={i} blockType={b.type}>
+                <BlockErrorBoundary key={`${activeTurn}-${b.type}-${i}`} blockType={b.type}>
                   <Renderer block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
                 </BlockErrorBoundary>
               )
