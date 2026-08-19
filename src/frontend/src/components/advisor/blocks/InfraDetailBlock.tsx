@@ -29,7 +29,13 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
   return (
     <div style={{ border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px', background: 'var(--bg-card)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, flex: 1 }}>{roleName}</h3>
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, flex: 1 }}>
+          <a href={`/browse/workloads?search=${encodeURIComponent(roleName)}`}
+             target="_blank" rel="noopener noreferrer"
+             style={{ color: 'inherit', textDecoration: 'none' }}>
+            {roleName}
+          </a>
+        </h3>
         <span style={{ ...pill, background: type === 'config' ? 'var(--badge-amber-bg)' : 'var(--badge-blue-bg)',
                        color: type === 'config' ? 'var(--badge-amber-text)' : 'var(--badge-blue-text)' }}>{type}</span>
         {category && <span style={pill}>{category}</span>}
@@ -82,13 +88,17 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
         return (
           <div style={{ paddingTop: '12px', borderTop: '1px solid var(--border-subtle)', marginBottom: others.length > 0 ? '12px' : 0 }}>
             <div style={label}>Used by {grouped.size} catalog item{grouped.size !== 1 ? 's' : ''}</div>
-            {visible.map((g, i) => (
-              <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                {g.stages.map(s => <span key={s} style={{ ...pill, fontSize: '10px' }}>{s}</span>)}
-                <a href={`/browse?search=${encodeURIComponent(g.name)}`}
-                   style={{ color: 'var(--text-link)', textDecoration: 'none' }}>{g.name}</a>
-              </div>
-            ))}
+            {visible.map((g, i) => {
+              const extraStages = g.stages.filter(s => s !== 'prod').join(',')
+              const href = `/browse?search=${encodeURIComponent(g.name)}${extraStages ? `&stage=${extraStages}` : ''}`
+              return (
+                <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <a href={href} target="_blank" rel="noopener noreferrer"
+                     style={{ color: 'var(--text-link)', textDecoration: 'none' }}>{g.name}</a>
+                  {g.stages.filter(s => s !== 'prod').map(s => <span key={s} style={{ ...pill, fontSize: '10px' }}>{s}</span>)}
+                </div>
+              )
+            })}
             {all.length > ITEMS_PREVIEW && (
               <button
                 onClick={() => setShowAllItems(v => !v)}
@@ -106,7 +116,12 @@ export function InfraDetailBlock({ block }: InfraDetailBlockProps) {
           <div style={label}>Other matches</div>
           {others.map((o, i) => (
             <div key={i} style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '2px' }}>
-              <strong>{o.role_name}</strong> ({o.type}) — {o.description || o.products.join(', ') || 'no description'}
+              <a href={`/browse/workloads?search=${encodeURIComponent(o.role_name)}`}
+                 target="_blank" rel="noopener noreferrer"
+                 style={{ color: 'var(--text-link)', textDecoration: 'none', fontWeight: 600 }}>
+                {o.role_name}
+              </a>
+              {' '}({o.type}) — {o.description || o.products.join(', ') || 'no description'}
             </div>
           ))}
         </div>
