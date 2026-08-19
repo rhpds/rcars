@@ -297,21 +297,8 @@ CREATE INDEX IF NOT EXISTS idx_biacl_content_id ON babylon_item_acl_groups(conte
 CREATE INDEX IF NOT EXISTS idx_biacl_group_name ON babylon_item_acl_groups(group_name);
 
 -- ═══════════════════════════════════════════════════════════════════
--- Independent reference tables (unchanged)
+-- Independent reference tables
 -- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS workload_mapping (
-    id SERIAL PRIMARY KEY,
-    workload_role TEXT NOT NULL UNIQUE,
-    product_name TEXT NOT NULL,
-    description TEXT,
-    category TEXT,
-    source_collection TEXT,
-    verified BOOLEAN DEFAULT FALSE,
-    added_by TEXT,
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    verified_at TIMESTAMPTZ
-);
-
 CREATE TABLE IF NOT EXISTS workload_aliases (
     id SERIAL PRIMARY KEY,
     product_name TEXT NOT NULL,
@@ -319,14 +306,30 @@ CREATE TABLE IF NOT EXISTS workload_aliases (
     added_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_wm_product_name ON workload_mapping(product_name);
 CREATE INDEX IF NOT EXISTS idx_wa_product_name ON workload_aliases(product_name);
 
-CREATE TABLE IF NOT EXISTS workload_scan_state (
-    collection TEXT PRIMARY KEY,
-    last_sha TEXT,
-    last_scanned TIMESTAMPTZ DEFAULT NOW()
+-- ═══════════════════════════════════════════════════════════════════
+-- infrastructure — unified workload roles + base configs catalog
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS infrastructure (
+    role_name   TEXT PRIMARY KEY,
+    fqcn        TEXT,
+    collection  TEXT,
+    type        TEXT NOT NULL,
+    description TEXT,
+    products    JSONB DEFAULT '[]',
+    capabilities JSONB DEFAULT '[]',
+    category    TEXT,
+    requires    JSONB DEFAULT '[]',
+    source_sha  TEXT,
+    scanned_at  TIMESTAMPTZ
 );
+CREATE INDEX IF NOT EXISTS idx_infrastructure_type ON infrastructure(type);
+CREATE INDEX IF NOT EXISTS idx_infrastructure_category ON infrastructure(category);
+
+-- ponytail: FK dropped globally so infrastructure embeddings (keyed by role_name) can coexist.
+-- Orphan risk: content_entity deletions no longer cascade. Separate infra_embeddings table if orphans matter.
+ALTER TABLE embeddings DROP CONSTRAINT IF EXISTS embeddings_content_id_fkey;
 
 -- ═══════════════════════════════════════════════════════════════════
 -- enrichment_tags — re-keyed from ci_name to content_id
@@ -499,6 +502,25 @@ class Database:
                     cur.execute(
                         f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
                         f"COALESCE((SELECT MAX(id) FROM {table}), 0) + 1, false)")
+                # Migrate workload_mapping → infrastructure (idempotent; skips if table gone)
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF EXISTS (SELECT FROM information_schema.tables
+                                   WHERE table_schema = 'public' AND table_name = 'workload_mapping') THEN
+                            INSERT INTO infrastructure (role_name, fqcn, collection, type, description,
+                                products, capabilities, category, requires, source_sha, scanned_at)
+                            SELECT wm.workload_role, NULL, wm.source_collection, 'workload', wm.description,
+                                jsonb_build_array(wm.product_name), '[]'::jsonb, wm.category, '[]'::jsonb,
+                                NULL, wm.added_at
+                            FROM workload_mapping wm
+                            WHERE NOT EXISTS (SELECT 1 FROM infrastructure i WHERE i.role_name = wm.workload_role);
+                        END IF;
+                    END $$
+                """)
+                # Drop replaced tables after migration has run
+                cur.execute("DROP TABLE IF EXISTS workload_scan_state")
+                cur.execute("DROP TABLE IF EXISTS workload_mapping CASCADE")
             conn.commit()
 
     def drop_schema(self):
@@ -520,7 +542,7 @@ class Database:
             "analysis_log", "jobs", "token_usage", "advisor_sessions",
             "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
-            "workload_aliases", "workload_mapping", "workload_scan_state",
+            "workload_aliases", "infrastructure",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -807,18 +829,20 @@ class Database:
             params["agd_config"] = agd_config
 
         if workloads:
+            import json as _json
             resolved = self._resolve_workload_aliases(workloads)
             for i, wl in enumerate(resolved):
                 alias_w = f"w{i}"
-                alias_m = f"m{i}"
+                alias_i = f"i{i}"
                 joins.append(
                     f"JOIN babylon_item_workloads {alias_w} "
                     f"ON {alias_w}.content_id = ce.content_id "
-                    f"JOIN workload_mapping {alias_m} "
-                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
-                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
+                    f"JOIN infrastructure {alias_i} "
+                    f"ON {alias_i}.role_name = {alias_w}.workload_role "
+                    f"AND {alias_i}.type = 'workload' "
+                    f"AND {alias_i}.products @> %({alias_i}_name)s::jsonb"
                 )
-                params[f"{alias_m}_name"] = wl
+                params[f"{alias_i}_name"] = _json.dumps([wl])
 
         if content_filter == "unanalyzed":
             conditions.append("bi.showroom_url IS NOT NULL")
@@ -1223,6 +1247,28 @@ class Database:
                 cur.execute(sql, params)
                 return cur.fetchall()
 
+    def search_infrastructure_embeddings(
+        self,
+        query_embedding: list[float],
+        limit: int = 10,
+        quality_threshold: float = 0.45,
+    ) -> list[dict]:
+        vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT content_id AS role_name,
+                       1 - (embedding <=> %s::vector) AS similarity
+                FROM embeddings
+                WHERE content_type = 'infrastructure'
+                  AND 1 - (embedding <=> %s::vector) >= %s
+                ORDER BY similarity DESC
+                LIMIT %s
+                """,
+                (vec_str, vec_str, quality_threshold, limit),
+            ).fetchall()
+        return rows
+
     # ── Enrichment ──
 
     def add_enrichment_tag(self, content_id: str, tag_type: str, tag_value: str, added_by: str | None = None) -> None:
@@ -1329,8 +1375,11 @@ class Database:
     def get_workloads(self, content_id: str) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT workload_fqcn, workload_role, workload_collection "
-                "FROM babylon_item_workloads WHERE content_id = %s ORDER BY workload_role",
+                "SELECT biw.workload_fqcn, biw.workload_role, biw.workload_collection, "
+                "       (i.role_name IS NOT NULL) AS has_infrastructure "
+                "FROM babylon_item_workloads biw "
+                "LEFT JOIN infrastructure i ON i.role_name = biw.workload_role "
+                "WHERE biw.content_id = %s ORDER BY biw.workload_role",
                 (content_id,),
             )
             return cur.fetchall()
@@ -1346,64 +1395,13 @@ class Database:
 
     def get_workload_classifications(self, content_id: str) -> list[dict]:
         sql = """
-            SELECT wm.product_name, wm.description, wm.category
+            SELECT i.products->>0 AS product_name, i.description, i.category
             FROM babylon_item_workloads biw
-            JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
+            JOIN infrastructure i ON i.role_name = biw.workload_role AND i.type = 'workload'
             WHERE biw.content_id = %(content_id)s
-              AND wm.verified = TRUE
         """
         with self._pool.connection() as conn:
             return conn.execute(sql, {"content_id": content_id}).fetchall()
-
-    def upsert_workload_mapping(
-        self, workload_role: str, product_name: str,
-        description: str | None = None, category: str | None = None,
-        source_collection: str | None = None, verified: bool = False,
-        added_by: str | None = None,
-    ) -> None:
-        with self._pool.connection() as conn:
-            now = datetime.now(timezone.utc)
-            conn.execute(
-                "INSERT INTO workload_mapping "
-                "(workload_role, product_name, description, category, source_collection, verified, added_by, added_at, verified_at) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
-                "ON CONFLICT (workload_role) DO UPDATE SET "
-                "product_name = EXCLUDED.product_name, description = EXCLUDED.description, "
-                "category = EXCLUDED.category, source_collection = EXCLUDED.source_collection, "
-                "verified = EXCLUDED.verified, verified_at = EXCLUDED.verified_at",
-                (workload_role, product_name, description, category, source_collection,
-                 verified, added_by, now, now if verified else None),
-            )
-            conn.commit()
-
-    def delete_workload_mapping(self, workload_role: str) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                "DELETE FROM workload_mapping WHERE workload_role = %s",
-                (workload_role,),
-            )
-            conn.commit()
-
-    def list_workload_mappings(self) -> list[dict]:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT * FROM workload_mapping ORDER BY product_name"
-            )
-            return cur.fetchall()
-
-    def get_unmapped_workloads(self) -> list[dict]:
-        with self._pool.connection() as conn:
-            cur = conn.execute("""
-                SELECT biw.workload_role, biw.workload_collection,
-                       COUNT(DISTINCT biw.content_id) AS ci_count
-                FROM babylon_item_workloads biw
-                JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
-                LEFT JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
-                WHERE wm.id IS NULL
-                GROUP BY biw.workload_role, biw.workload_collection
-                ORDER BY ci_count DESC
-            """)
-            return cur.fetchall()
 
     def upsert_workload_alias(self, product_name: str, alias: str) -> None:
         with self._pool.connection() as conn:
@@ -1446,35 +1444,27 @@ class Database:
                     "JOIN content_entities ce ON ce.content_id = biw.content_id WHERE ce.retired_at IS NULL"
                 )
                 with_workloads = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping")
-                mapped_count = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) AS count FROM workload_mapping WHERE verified = TRUE")
-                verified_count = cur.fetchone()["count"]
-                cur.execute("""
-                    SELECT COUNT(DISTINCT biw.workload_role) AS count
-                    FROM babylon_item_workloads biw
-                    JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
-                    LEFT JOIN workload_mapping wm ON wm.workload_role = biw.workload_role
-                    WHERE wm.id IS NULL
-                """)
-                unmapped_count = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM infrastructure WHERE type = 'workload'")
+                workload_count = cur.fetchone()["count"]
+                cur.execute("SELECT COUNT(*) AS count FROM infrastructure WHERE type = 'config'")
+                config_count = cur.fetchone()["count"]
         return {
             "v2_items": v2_items,
             "with_workloads": with_workloads,
-            "mapped_workloads": mapped_count,
-            "verified_workloads": verified_count,
-            "unmapped_workloads": unmapped_count,
+            "infrastructure_workloads": workload_count,
+            "infrastructure_configs": config_count,
         }
 
     def get_catalog_facets(self) -> dict:
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT wm.product_name, wm.category, COUNT(DISTINCT biw.content_id) AS ci_count
-                FROM workload_mapping wm
-                JOIN babylon_item_workloads biw ON biw.workload_role = wm.workload_role
+                SELECT i.role_name, i.products, i.category, COUNT(DISTINCT biw.content_id) AS ci_count
+                FROM infrastructure i
+                JOIN babylon_item_workloads biw ON biw.workload_role = i.role_name
                 JOIN babylon_items bi ON bi.content_id = biw.content_id AND bi.is_prod = TRUE
                 JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
-                GROUP BY wm.product_name, wm.category
+                WHERE i.type = 'workload'
+                GROUP BY i.role_name, i.products, i.category
                 ORDER BY ci_count DESC
             """)
             workloads = cur.fetchall()
@@ -1508,100 +1498,162 @@ class Database:
             """)
             os_images = cur.fetchall()
 
+        # Flatten products JSONB arrays from infrastructure rows into a deduped ordered list
+        seen: set[str] = set()
+        product_names: list[str] = []
+        for row in workloads:
+            for p in (row["products"] or []):
+                if p not in seen:
+                    seen.add(p)
+                    product_names.append(p)
         return {
-            "workloads": [row["product_name"] for row in workloads],
+            "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
             "cloud_providers": [row["cloud_provider"] for row in cloud_providers],
             "os_images": [row["os_image"] for row in os_images],
         }
 
-    def search_by_infrastructure(
-        self,
-        workloads: list[str] | None = None,
-        agd_config: str | None = None,
-        cloud_provider: str | None = None,
-        ocp_version: str | None = None,
-        os_image: str | None = None,
-        stage: str | None = None,
-        prod_only: bool = True,
-        limit: int = 50,
-    ) -> list[dict[str, Any]]:
-        conditions = ["bi.is_agd_v2 = TRUE", "ce.retired_at IS NULL"]
-        params: dict[str, Any] = {}
-        joins = []
+    # ── Infrastructure catalog ──
 
-        if prod_only:
-            conditions.append("bi.is_prod = TRUE")
-        if stage:
-            conditions.append("bi.stage = %(stage)s")
-            params["stage"] = stage
-        if agd_config:
-            conditions.append("bi.agd_config = %(agd_config)s")
-            params["agd_config"] = agd_config
-        if cloud_provider:
-            conditions.append("bi.cloud_provider = %(cloud_provider)s")
-            params["cloud_provider"] = cloud_provider
-        if ocp_version:
-            conditions.append("bi.ocp_version LIKE %(ocp_version)s")
-            params["ocp_version"] = f"{ocp_version}%"
-        if os_image:
-            conditions.append("bi.os_image LIKE %(os_image)s")
-            params["os_image"] = f"{os_image}%"
-
-        if workloads:
-            resolved = self._resolve_workload_aliases(workloads)
-            for i, wl in enumerate(resolved):
-                alias_w = f"w{i}"
-                alias_m = f"m{i}"
-                joins.append(
-                    f"JOIN babylon_item_workloads {alias_w} "
-                    f"ON {alias_w}.content_id = ce.content_id "
-                    f"JOIN workload_mapping {alias_m} "
-                    f"ON {alias_m}.workload_role = {alias_w}.workload_role "
-                    f"AND {alias_m}.product_name = %({alias_m}_name)s"
-                )
-                params[f"{alias_m}_name"] = wl
-
-        join_sql = "\n".join(joins)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-        sql = f"""
-            SELECT DISTINCT ce.*, bi.*, sa.summary AS analysis_summary, sa.content_type AS analysis_content_type,
-                   sa.estimated_duration_min, sa.difficulty AS analysis_difficulty
-            FROM content_entities ce
-            JOIN babylon_items bi ON bi.content_id = ce.content_id
-            LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
-            {join_sql}
-            {where}
-            ORDER BY ce.display_name
-            LIMIT %(limit)s
-        """
-        params["limit"] = limit
-
+    def upsert_infrastructure(
+        self, role_name: str, fqcn: str | None, collection: str | None,
+        type: str, description: str | None, products: list, capabilities: list,
+        category: str | None, requires: list, source_sha: str | None,
+    ) -> None:
         with self._pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(sql, params)
-                return cur.fetchall()
+            conn.execute(
+                "INSERT INTO infrastructure "
+                "(role_name, fqcn, collection, type, description, products, capabilities, "
+                "category, requires, source_sha, scanned_at) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW()) "
+                "ON CONFLICT (role_name) DO UPDATE SET "
+                "fqcn = EXCLUDED.fqcn, collection = EXCLUDED.collection, type = EXCLUDED.type, "
+                "description = EXCLUDED.description, products = EXCLUDED.products, "
+                "capabilities = EXCLUDED.capabilities, category = EXCLUDED.category, "
+                "requires = EXCLUDED.requires, source_sha = EXCLUDED.source_sha, "
+                "scanned_at = EXCLUDED.scanned_at",
+                (role_name, fqcn, collection, type, description,
+                 Jsonb(products), Jsonb(capabilities), category, Jsonb(requires), source_sha),
+            )
+            conn.commit()
 
-    # ── Workload scan state ──
-
-    def get_scan_state(self, collection: str) -> dict | None:
+    def get_infrastructure_scan_sha(self, collection: str) -> str | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
-                "SELECT * FROM workload_scan_state WHERE collection = %s",
+                "SELECT DISTINCT source_sha FROM infrastructure WHERE collection = %s AND source_sha IS NOT NULL",
                 (collection,),
+            )
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                return rows[0]["source_sha"]
+            return None
+
+    def get_infrastructure(self, role_name: str) -> dict | None:
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                "SELECT * FROM infrastructure WHERE role_name = %s", (role_name,)
             )
             return cur.fetchone()
 
-    def upsert_scan_state(self, collection: str, last_sha: str) -> None:
-        with self._pool.connection() as conn:
-            conn.execute(
-                "INSERT INTO workload_scan_state (collection, last_sha, last_scanned) "
-                "VALUES (%s, %s, %s) "
-                "ON CONFLICT (collection) DO UPDATE SET last_sha = EXCLUDED.last_sha, last_scanned = EXCLUDED.last_scanned",
-                (collection, last_sha, datetime.now(timezone.utc)),
+    def list_infrastructure(
+        self, type_filter: str | None = None, category_filter: str | None = None,
+        collection_filter: str | None = None, search: str | None = None,
+        limit: int = 500,
+    ) -> list[dict]:
+        conditions = []
+        params: dict[str, Any] = {}
+        if type_filter:
+            conditions.append("i.type = %(type)s")
+            params["type"] = type_filter
+        if category_filter:
+            conditions.append("i.category = %(category)s")
+            params["category"] = category_filter
+        if collection_filter:
+            conditions.append("i.collection = %(collection)s")
+            params["collection"] = collection_filter
+        if search:
+            conditions.append(
+                "(i.role_name ILIKE %(search)s OR i.description ILIKE %(search)s "
+                "OR i.products::text ILIKE %(search)s OR i.capabilities::text ILIKE %(search)s)"
             )
-            conn.commit()
+            params["search"] = f"%{search}%"
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        sql = f"SELECT * FROM infrastructure i {where} ORDER BY i.role_name LIMIT %(limit)s"
+        params["limit"] = limit
+        with self._pool.connection() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def get_infrastructure_with_item_counts(
+        self, type_filter: str | None = None, category_filter: str | None = None,
+        collection_filter: str | None = None, search: str | None = None,
+        has_mappings: bool | None = None, limit: int = 500,
+    ) -> list[dict]:
+        conditions = []
+        params: dict[str, Any] = {}
+        if type_filter:
+            conditions.append("i.type = %(type)s")
+            params["type"] = type_filter
+        if category_filter:
+            conditions.append("i.category = %(category)s")
+            params["category"] = category_filter
+        if collection_filter:
+            conditions.append("i.collection = %(collection)s")
+            params["collection"] = collection_filter
+        if search:
+            conditions.append(
+                "(i.role_name ILIKE %(search)s OR i.description ILIKE %(search)s "
+                "OR i.products::text ILIKE %(search)s OR i.capabilities::text ILIKE %(search)s)"
+            )
+            params["search"] = f"%{search}%"
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+        # Count linked CIs: workloads via babylon_item_workloads, configs via babylon_items.agd_config
+        base_sql = f"""
+            SELECT i.*,
+                COALESCE(wc.cnt, 0) + COALESCE(cc.cnt, 0) AS item_count
+            FROM infrastructure i
+            LEFT JOIN (
+                SELECT biw.workload_role AS role_name, COUNT(DISTINCT biw.content_id) AS cnt
+                FROM babylon_item_workloads biw
+                JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
+                GROUP BY biw.workload_role
+            ) wc ON wc.role_name = i.role_name AND i.type = 'workload'
+            LEFT JOIN (
+                SELECT bi.agd_config AS role_name, COUNT(DISTINCT bi.content_id) AS cnt
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE bi.agd_config IS NOT NULL
+                GROUP BY bi.agd_config
+            ) cc ON cc.role_name = i.role_name AND i.type = 'config'
+            {where}
+        """
+        params["limit"] = limit
+
+        if has_mappings is not None:
+            having = "> 0" if has_mappings else "= 0"
+            sql = f"WITH infra AS ({base_sql}) SELECT * FROM infra WHERE item_count {having} ORDER BY role_name LIMIT %(limit)s"
+        else:
+            sql = f"{base_sql} ORDER BY i.role_name LIMIT %(limit)s"
+
+        with self._pool.connection() as conn:
+            return conn.execute(sql, params).fetchall()
+
+    def get_infrastructure_linked_items(self, role_name: str, infra_type: str) -> list[dict]:
+        with self._pool.connection() as conn:
+            if infra_type == "config":
+                return conn.execute("""
+                    SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                    WHERE bi.agd_config = %(rn)s ORDER BY ce.display_name
+                """, {"rn": role_name}).fetchall()
+            return conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_item_workloads biw
+                JOIN babylon_items bi ON bi.content_id = biw.content_id
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE biw.workload_role = %(rn)s ORDER BY ce.display_name
+            """, {"rn": role_name}).fetchall()
 
     # ── Token usage ──
 
@@ -1711,11 +1763,7 @@ class Database:
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE ce.content_type = 'sandbox'
               AND ce.retired_at IS NULL
-              AND (ce.summary IS NULL
-                   OR bi.last_refreshed > (
-                       SELECT COALESCE(MAX(wss.last_scanned), '1970-01-01')
-                       FROM workload_scan_state wss
-                   ))
+              AND ce.summary IS NULL
         """
         with self._pool.connection() as conn:
             return conn.execute(sql).fetchall()

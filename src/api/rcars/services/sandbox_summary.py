@@ -11,7 +11,7 @@ def build_sandbox_summary(
 ) -> dict:
     """Assemble a sandbox summary from infrastructure metadata.
 
-    workload_products: [{product_name, description, category}, ...] from workload_mapping
+    workload_products: [{product_name, description, category}, ...] from infrastructure table
     Returns dict with: summary, products_json, topics_json
     """
     products = sorted(set(wp["product_name"] for wp in workload_products if wp.get("product_name")))

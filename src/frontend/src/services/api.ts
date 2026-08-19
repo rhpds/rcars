@@ -21,11 +21,6 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true) =>
-    request<{ job_id: string }>('/advisor/query', {
-      method: 'POST',
-      body: JSON.stringify({ query, stages, include_zt: includeZt }),
-    }),
   submitChat: (message: string, sessionId?: string | null, stages: string[] = ['prod'],
                includeZt = true, routed?: Record<string, unknown>) =>
     request<{ job_id: string; session_id: string }>('/advisor/chat', {
@@ -156,17 +151,6 @@ export const api = {
   }>('/admin/reporting-status'),
 
   // Infrastructure
-  searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.workloads) qs.set('workloads', params.workloads);
-    if (params?.agd_config) qs.set('agd_config', params.agd_config);
-    if (params?.cloud_provider) qs.set('cloud_provider', params.cloud_provider);
-    if (params?.ocp_version) qs.set('ocp_version', params.ocp_version);
-    if (params?.os_image) qs.set('os_image', params.os_image);
-    if (params?.stage) qs.set('stage', params.stage);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    return request<{ items: unknown[]; total: number }>(`/catalog/search/infrastructure?${qs}`);
-  },
   getCatalogFacets: () => request<{
     workloads: string[];
     agd_configs: string[];
@@ -175,22 +159,37 @@ export const api = {
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;
-    mapped_workloads: number; verified_workloads: number; unmapped_workloads: number;
+    infrastructure_workloads: number; infrastructure_configs: number;
   }>('/catalog/infra-stats'),
-  getWorkloadMappings: () => request<{
-    mappings: Array<{ workload_role: string; product_name: string; description: string | null; category: string | null; verified: boolean }>;
-    aliases: Array<{ product_name: string; alias: string }>;
-  }>('/catalog/workload-mappings'),
-  addWorkloadMapping: (body: { workload_role: string; product_name: string; description?: string; category?: string }) =>
-    request<{ status: string }>('/catalog/workload-mappings', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  deleteWorkloadMapping: (role: string) =>
-    request<{ status: string }>(`/catalog/workload-mappings/${encodeURIComponent(role)}`, { method: 'DELETE' }),
-  getUnmappedWorkloads: () => request<{
-    unmapped: Array<{ workload_role: string; workload_collection: string | null; ci_count: number }>;
-  }>('/catalog/workload-mappings/unmapped'),
+  getInfrastructureCatalog: (params?: {
+    type?: string; category?: string; collection?: string;
+    search?: string; has_mappings?: boolean; limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set('type', params.type);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.collection) qs.set('collection', params.collection);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.has_mappings !== undefined) qs.set('has_mappings', String(params.has_mappings));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    return request<{
+      items: Array<{
+        role_name: string; fqcn: string | null; collection: string | null;
+        type: string; description: string | null;
+        products: string[]; capabilities: string[];
+        category: string | null; requires: string[];
+        source_sha: string | null; scanned_at: string | null;
+        item_count: number;
+      }>;
+      total: number;
+    }>(`/catalog/infrastructure?${qs}`);
+  },
+  getInfrastructureItems: (roleName: string) =>
+    request<{
+      role_name: string; type: string;
+      items: Array<{ content_id: string; display_name: string; content_type: string; ci_name: string; stage: string }>;
+      total: number;
+    }>(`/catalog/infrastructure/${encodeURIComponent(roleName)}/items`),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
   // Content overlap

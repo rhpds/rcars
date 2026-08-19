@@ -140,11 +140,6 @@ class CatalogStatsResponse(BaseModel):
     model_config = {"extra": "allow"}
 
 
-class InfraSearchResponse(BaseModel):
-    items: list[dict]
-    total: int
-
-
 class FacetsResponse(BaseModel):
     workloads: list[str] = []
     agd_configs: list[str] = []
@@ -152,15 +147,6 @@ class FacetsResponse(BaseModel):
     os_images: list[str] = []
 
     model_config = {"extra": "allow"}
-
-
-class WorkloadMappingsResponse(BaseModel):
-    mappings: list[dict]
-    aliases: list[dict]
-
-
-class UnmappedWorkloadsResponse(BaseModel):
-    unmapped: list[dict]
 
 
 class InfraStatsResponse(BaseModel):

@@ -97,13 +97,15 @@ Each step has `step_<name>_at` / `step_<name>_by` timestamps and actor fields. A
 
 ## Supporting Tables
 
+### Infrastructure Catalog
+
+- **`infrastructure`**: Unified registry of workload roles and base configs scanned from AgnosticD v2. Each entry has a `role_name` (primary key), `type` (`workload` or `config`), `description`, `products`, `capabilities`, `category`, `requires`, `collection`, and `source_sha` for change detection. Embeddings for infrastructure entries are stored in the shared `embeddings` table with `content_type = 'infrastructure'` (the FK constraint on `embeddings.content_id` is dropped to allow this, since infrastructure entries are not in `content_entities`).
+
 ### Workloads and ACL
 
-- **`babylon_item_workloads`**: Maps content entities to infrastructure workload roles (Ansible roles deployed by the content). Joined with `workload_mapping` to resolve human-readable product names.
+- **`babylon_item_workloads`**: Maps content entities to infrastructure workload roles (Ansible roles deployed by the content). Joined with the `infrastructure` table to resolve descriptions and products.
 - **`babylon_item_acl_groups`**: Tracks which ACL groups have access to each content entity.
-- **`workload_mapping`**: Reference table mapping `workload_role` → `product_name` with verification status.
 - **`workload_aliases`**: Alternative names for workload products (for search flexibility).
-- **`workload_scan_state`**: Tracks the last scanned commit SHA per Ansible collection (for incremental scanning).
 
 ### Enrichment and curation
 
@@ -234,10 +236,12 @@ CREATE TABLE IF NOT EXISTS showroom_analysis (
 
 -- ═══════════════════════════════════════════════════════════════════
 -- embeddings — 768-dim vectors from nomic-embed-text-v1.5 via vLLM
+-- Note: FK on content_id is dropped at runtime to allow infrastructure
+-- embeddings (keyed by role_name, not a content_entities row).
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS embeddings (
     id              SERIAL PRIMARY KEY,
-    content_id      TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    content_id      TEXT NOT NULL,
     content_type    TEXT NOT NULL,
     source          TEXT NOT NULL,
     embed_type      TEXT NOT NULL,
@@ -352,32 +356,30 @@ CREATE TABLE IF NOT EXISTS babylon_item_acl_groups (
 );
 
 -- ═══════════════════════════════════════════════════════════════════
--- Reference tables
+-- infrastructure — unified workload roles + base configs catalog
 -- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS workload_mapping (
-    id SERIAL PRIMARY KEY,
-    workload_role TEXT NOT NULL UNIQUE,
-    product_name TEXT NOT NULL,
+CREATE TABLE IF NOT EXISTS infrastructure (
+    role_name   TEXT PRIMARY KEY,
+    fqcn        TEXT,
+    collection  TEXT,
+    type        TEXT NOT NULL,
     description TEXT,
-    category TEXT,
-    source_collection TEXT,
-    verified BOOLEAN DEFAULT FALSE,
-    added_by TEXT,
-    added_at TIMESTAMPTZ DEFAULT NOW(),
-    verified_at TIMESTAMPTZ
+    products    JSONB DEFAULT '[]',
+    capabilities JSONB DEFAULT '[]',
+    category    TEXT,
+    requires    JSONB DEFAULT '[]',
+    source_sha  TEXT,
+    scanned_at  TIMESTAMPTZ
 );
 
+-- ═══════════════════════════════════════════════════════════════════
+-- Reference tables
+-- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS workload_aliases (
     id SERIAL PRIMARY KEY,
     product_name TEXT NOT NULL,
     alias TEXT NOT NULL UNIQUE,
     added_at TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS workload_scan_state (
-    collection TEXT PRIMARY KEY,
-    last_sha TEXT,
-    last_scanned TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ═══════════════════════════════════════════════════════════════════

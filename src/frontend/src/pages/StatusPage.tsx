@@ -25,9 +25,8 @@ interface CatalogStatus {
 interface InfraStats {
   v2_items: number
   with_workloads: number
-  mapped_workloads: number
-  verified_workloads: number
-  unmapped_workloads: number
+  infrastructure_workloads: number
+  infrastructure_configs: number
 }
 
 // ── StatusPage ──
@@ -116,9 +115,8 @@ export function StatusPage() {
                 <div className="admin-stat-row"><span className="admin-stat-row-label">AgnosticD v2</span><span className="admin-stat-row-value">{infraStats.v2_items}</span></div>
                 <div className="admin-stat-row"><span className="admin-stat-row-indent">With workloads</span><span className="admin-stat-row-value">{infraStats.with_workloads}</span></div>
                 <div className="admin-stat-row-divider" />
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Mapped roles</span><span className="admin-stat-row-value">{infraStats.mapped_workloads}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-indent">Verified</span><span className="admin-stat-row-value">{infraStats.verified_workloads}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Unmapped</span><span style={{ color: infraStats.unmapped_workloads > 0 ? 'var(--score-amber)' : 'var(--score-green)' }}>{infraStats.unmapped_workloads}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Infrastructure Workloads</span><span className="admin-stat-row-value">{infraStats.infrastructure_workloads}</span></div>
+                <div className="admin-stat-row"><span className="admin-stat-row-label">Infrastructure Configs</span><span className="admin-stat-row-value">{infraStats.infrastructure_configs}</span></div>
               </>
             ) : (
               <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Loading...</div>

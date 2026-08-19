@@ -1183,6 +1183,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 
 .badge-v2 { background: var(--badge-v2-bg); color: var(--badge-v2-text); }
+.badge-prod { background: var(--score-green-bg); color: var(--score-green); }
 .badge-dev { background: var(--badge-stage-dev-bg); color: var(--badge-stage-dev-text); }
 .badge-event { background: var(--badge-stage-event-bg); color: var(--badge-stage-event-text); }
 .badge-zt { background: var(--badge-zt-bg); color: var(--badge-zt-text); }
@@ -1386,6 +1387,13 @@ details.ca-band-section:not([open]) > .ca-band-header {
   background: var(--pill-workload-bg);
   border-color: var(--pill-workload-border);
   color: var(--pill-workload-text);
+}
+
+.browse-pill--workload-legacy {
+  background: var(--bg-tertiary);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.75;
 }
 
 .browse-pill--module {
@@ -1932,6 +1940,13 @@ details.ca-band-section:not([open]) > .ca-band-header {
   color: var(--text-secondary);
   font-size: 13px;
 }
+
+/* ── Linked catalog items ── */
+.wl-linked-items { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border-section); }
+.wl-linked-items-list { display: flex; flex-direction: column; gap: 4px; }
+.wl-linked-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); }
+.wl-linked-item-name { font-family: var(--ff-body); color: var(--text-link); text-decoration: none; }
+.wl-linked-item-name:hover { text-decoration: underline; }
 
 /* ── Card actions row ── */
 .wl-card-actions {

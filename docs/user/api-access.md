@@ -64,11 +64,13 @@ curl -H "X-API-Key: $RCARS_KEY" \
 curl -H "X-API-Key: $RCARS_KEY" \
   https://rcars-api.apps.cluster.example.com/api/v1/auth/me
 
-# Submit an advisor query
+# Submit an advisor chat message
 curl -H "X-API-Key: $RCARS_KEY" \
   -H "Content-Type: application/json" \
-  -X POST https://rcars-api.apps.cluster.example.com/api/v1/advisor/query \
-  -d '{"query": "OpenShift networking demos for a financial services customer"}'
+  -X POST https://rcars-api.apps.cluster.example.com/api/v1/advisor/chat \
+  -d '{"message": "OpenShift networking demos for a financial services customer"}'
+# Returns {"job_id": "...", "session_id": "..."}
+# Pass session_id back on follow-up messages to maintain conversation context
 ```
 
 ## Interactive API exploration (Swagger UI)

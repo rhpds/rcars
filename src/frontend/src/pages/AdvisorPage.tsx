@@ -7,6 +7,7 @@ import { ProgressStream } from '../components/advisor/ProgressStream'
 import { RecCardList } from '../components/advisor/RecCardList'
 import { ChatEnvelope, ChatChip } from '../components/advisor/chatTypes'
 import { resolveBlockRenderer } from '../components/advisor/blocks/registry'
+import { BlockErrorBoundary } from '../components/advisor/BlockErrorBoundary'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -39,6 +40,7 @@ function renderMarkdown(text: string) {
 
   const inlineMd = (s: string) =>
     escapeHtml(s)
+     .replace(/\\([_*[\]()#])/g, '$1')
      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
      .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
 
@@ -292,19 +294,22 @@ export function AdvisorPage() {
                 This is a beta release and we are regularly adding features.
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS knows about all RHDP content with Showroom guides. Ask it to:
+                RCARS knows about RHDP guided content and the automation that powers it. Ask it to:
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check overlap</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
+                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
               </p>
               <p className="hint" style={{ marginBottom: '8px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
               </p>
+              <p className="hint" style={{ marginBottom: '8px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Similar items</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
+              </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
+                <strong style={{ color: 'var(--text-primary)' }}>Automation &amp; workloads</strong> — "What deploys OpenShift AI?" or "What workloads configure an OpenShift cluster?"
               </p>
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.
@@ -478,7 +483,11 @@ export function AdvisorPage() {
           <>
             {currentResults.blocks.map((b, i) => {
               const Renderer = resolveBlockRenderer(b.type)
-              return <Renderer key={i} block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
+              return (
+                <BlockErrorBoundary key={`${activeTurn}-${b.type}-${i}`} blockType={b.type}>
+                  <Renderer block={b} sessionId={sessionId ?? undefined} turnIndex={activeTurn} />
+                </BlockErrorBoundary>
+              )
             })}
           </>
         ) : sending ? (

@@ -1,171 +1,129 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../services/api'
 
-// ── Interfaces ──
-
-interface WorkloadMapping {
-  workload_role: string
-  product_name: string
+interface InfrastructureItem {
+  role_name: string
+  fqcn: string | null
+  collection: string | null
+  type: string
   description: string | null
+  products: string[]
+  capabilities: string[]
   category: string | null
-  source_collection: string | null
-  verified: boolean
-  added_by: string | null
+  requires: string[]
+  scanned_at: string | null
+  item_count: number
 }
-
-interface UnmappedWorkload {
-  workload_role: string
-  workload_collection: string | null
-  ci_count: number
-}
-
-type StatusFilter = 'mapped' | 'unmapped' | 'all'
-type VerificationFilter = 'all' | 'verified' | 'unverified'
-
-// ── WorkloadsPage ──
 
 export function WorkloadsPage() {
-  const [mappings, setMappings] = useState<WorkloadMapping[]>([])
-  const [unmapped, setUnmapped] = useState<UnmappedWorkload[]>([])
+  const [searchParams] = useSearchParams()
+  const [items, setItems] = useState<InfrastructureItem[]>([])
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
-  const [mappingForm, setMappingForm] = useState<Record<string, { product: string; category: string }>>({})
-
-  // Expanded card state
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
+  const [linkedItems, setLinkedItems] = useState<Record<string, Array<{ content_id: string; display_name: string; ci_name: string; stage: string }>>>({})
+  const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set())
 
-  // Section collapse state
-  const [mappedOpen, setMappedOpen] = useState(true)
-  const [unmappedSectionOpen, setUnmappedSectionOpen] = useState(false)
-
-  // Filter state
-  const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('mapped')
+  // Filters
+  const [search, setSearch] = useState(searchParams.get('search') || '')
+  const [typeFilter, setTypeFilter] = useState<string>('')
   const [categoryFilter, setCategoryFilter] = useState('')
-  const [verificationFilter, setVerificationFilter] = useState<VerificationFilter>('all')
   const [collectionFilter, setCollectionFilter] = useState('')
-
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [mappingsFilter, setMappingsFilter] = useState<string>('')
+  const [error, setError] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      const [mapData, unmapData] = await Promise.all([
-        api.getWorkloadMappings() as Promise<{ mappings: WorkloadMapping[]; aliases: unknown[] }>,
-        api.getUnmappedWorkloads() as Promise<{ unmapped: UnmappedWorkload[] }>,
-      ])
-      setMappings(mapData.mappings.sort((a, b) => a.product_name.localeCompare(b.product_name)))
-      setUnmapped(unmapData.unmapped.sort((a, b) => b.ci_count - a.ci_count))
+      const data = await api.getInfrastructureCatalog()
+      setItems(data.items)
       setLoaded(true)
-    } catch { /* ignore */ }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load infrastructure catalog')
+    }
     setLoading(false)
   }, [])
 
   useEffect(() => { loadData() }, [loadData])
 
-  const handleDelete = async (role: string) => {
-    await api.deleteWorkloadMapping(role)
-    loadData()
-  }
-
-  const handleMap = async (role: string) => {
-    const form = mappingForm[role]
-    if (!form?.product?.trim()) return
-    await api.addWorkloadMapping({
-      workload_role: role,
-      product_name: form.product.trim(),
-      category: form.category?.trim() || undefined,
-    })
-    setMappingForm(prev => { const next = { ...prev }; delete next[role]; return next })
-    loadData()
-  }
-
-  const handleExpand = (role: string) => {
-    setExpandedItems(prev => {
-      const next = new Set(prev)
-      if (next.has(role)) {
-        next.delete(role)
-      } else {
-        next.add(role)
-      }
-      return next
-    })
-  }
-
-  const handleSearchChange = (value: string) => {
-    setSearch(value)
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => {
-      // Search is applied via useMemo filtering — no debounced fetch needed
-    }, 150)
-  }
-
-  // ── Derived filter options ──
-
+  // Derived filter options
   const uniqueCategories = useMemo(() => {
     const cats = new Set<string>()
-    mappings.forEach(m => { if (m.category) cats.add(m.category) })
+    items.forEach(i => { if (i.category) cats.add(i.category) })
     return Array.from(cats).sort()
-  }, [mappings])
+  }, [items])
+
+  const typeCounts = useMemo(() => ({
+    '': items.length,
+    workload: items.filter(i => i.type === 'workload').length,
+    config: items.filter(i => i.type === 'config').length,
+  }), [items])
 
   const uniqueCollections = useMemo(() => {
     const colls = new Set<string>()
-    mappings.forEach(m => { if (m.source_collection) colls.add(m.source_collection) })
-    unmapped.forEach(u => { if (u.workload_collection) colls.add(u.workload_collection) })
+    items.forEach(i => { if (i.collection) colls.add(i.collection) })
     return Array.from(colls).sort()
-  }, [mappings, unmapped])
+  }, [items])
 
-  // ── Filtered data ──
-
+  // Client-side filtering
   const searchLower = search.toLowerCase()
-
-  const filteredMappings = useMemo(() => {
-    return mappings.filter(m => {
+  const filtered = useMemo(() => {
+    return items.filter(i => {
       if (searchLower && !(
-        m.workload_role.toLowerCase().includes(searchLower) ||
-        m.product_name.toLowerCase().includes(searchLower) ||
-        (m.description && m.description.toLowerCase().includes(searchLower))
+        i.role_name.toLowerCase().includes(searchLower) ||
+        (i.description && i.description.toLowerCase().includes(searchLower)) ||
+        i.products.some(p => p.toLowerCase().includes(searchLower))
       )) return false
-      if (categoryFilter && m.category !== categoryFilter) return false
-      if (verificationFilter === 'verified' && !m.verified) return false
-      if (verificationFilter === 'unverified' && m.verified) return false
-      if (collectionFilter && m.source_collection !== collectionFilter) return false
+      if (typeFilter && i.type !== typeFilter) return false
+      if (categoryFilter && i.category !== categoryFilter) return false
+      if (collectionFilter && i.collection !== collectionFilter) return false
+      if (mappingsFilter === 'with' && i.item_count === 0) return false
+      if (mappingsFilter === 'without' && i.item_count > 0) return false
       return true
     })
-  }, [mappings, searchLower, categoryFilter, verificationFilter, collectionFilter])
+  }, [items, searchLower, typeFilter, categoryFilter, collectionFilter, mappingsFilter])
 
-  const filteredUnmapped = useMemo(() => {
-    return unmapped.filter(u => {
-      if (searchLower && !(
-        u.workload_role.toLowerCase().includes(searchLower) ||
-        (u.workload_collection && u.workload_collection.toLowerCase().includes(searchLower))
-      )) return false
-      if (collectionFilter && u.workload_collection !== collectionFilter) return false
-      return true
+  const handleExpand = (name: string, itemCount: number) => {
+    setExpandedItems(prev => {
+      const next = new Set(prev)
+      next.has(name) ? next.delete(name) : next.add(name)
+      return next
     })
-  }, [unmapped, searchLower, collectionFilter])
-
-  const showMapped = statusFilter === 'mapped' || statusFilter === 'all'
-  const showUnmapped = statusFilter === 'unmapped' || statusFilter === 'all'
-
-  // ── Active filter chips ──
-
-  const activeFilters: Array<{ label: string; onRemove: () => void }> = []
-  if (categoryFilter) activeFilters.push({ label: `Category: ${categoryFilter}`, onRemove: () => setCategoryFilter('') })
-  if (verificationFilter !== 'all') activeFilters.push({ label: verificationFilter === 'verified' ? 'Verified' : 'Unverified', onRemove: () => setVerificationFilter('all') })
-  if (collectionFilter) activeFilters.push({ label: `Collection: ${collectionFilter}`, onRemove: () => setCollectionFilter('') })
-
-  const clearAllFilters = () => {
-    setCategoryFilter('')
-    setVerificationFilter('all')
-    setCollectionFilter('')
+    if (itemCount > 0 && !linkedItems[name] && !loadingItems.has(name)) {
+      setLoadingItems(prev => new Set(prev).add(name))
+      api.getInfrastructureItems(name)
+        .then(data => setLinkedItems(prev => ({ ...prev, [name]: data.items })))
+        .catch(() => {})
+        .finally(() => setLoadingItems(prev => { const n = new Set(prev); n.delete(name); return n }))
+    }
   }
+
+  // Active filter chips
+  const activeFilters: Array<{ label: string; onRemove: () => void }> = []
+  if (typeFilter) activeFilters.push({ label: `Type: ${typeFilter}`, onRemove: () => setTypeFilter('') })
+  if (categoryFilter) activeFilters.push({ label: `Category: ${categoryFilter}`, onRemove: () => setCategoryFilter('') })
+  if (collectionFilter) activeFilters.push({ label: `Collection: ${collectionFilter}`, onRemove: () => setCollectionFilter('') })
+  if (mappingsFilter) activeFilters.push({ label: mappingsFilter === 'with' ? 'Has Mappings' : 'No Mappings', onRemove: () => setMappingsFilter('') })
 
   if (loading && !loaded) {
     return (
       <div className="browse-layout">
         <div className="browse-toolbar">
-          <span className="browse-loading">Loading workload mappings...</span>
+          <span className="browse-loading">Loading infrastructure catalog...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="browse-layout">
+        <div className="browse-toolbar">
+          <span style={{ color: 'var(--pf-t--global--color--status--danger--default)' }}>
+            Failed to load infrastructure catalog: {error}
+          </span>
         </div>
       </div>
     )
@@ -173,17 +131,12 @@ export function WorkloadsPage() {
 
   return (
     <div className="browse-layout">
-      {/* ── Top Bar ── */}
       <div className="browse-toolbar">
         <input
-          type="text"
-          className="browse-search"
-          placeholder="Search by role, product, or description..."
-          value={search}
-          onChange={(e) => handleSearchChange(e.target.value)}
+          type="text" className="browse-search"
+          placeholder="Search by role, description, products, capabilities..."
+          value={search} onChange={(e) => setSearch(e.target.value)}
         />
-
-        {/* Active filter chips */}
         {activeFilters.length > 0 && (
           <>
             <div className="browse-toolbar-divider" />
@@ -192,296 +145,176 @@ export function WorkloadsPage() {
                 {f.label} <span className="browse-chip-x">&times;</span>
               </span>
             ))}
-            <button className="browse-chip browse-chip--clear" onClick={clearAllFilters}>
+            <button className="browse-chip browse-chip--clear"
+              onClick={() => { setTypeFilter(''); setCategoryFilter(''); setCollectionFilter(''); setMappingsFilter('') }}>
               Clear all
             </button>
           </>
         )}
-
-        <span className="browse-item-count">
-          {filteredMappings.length} mapped &middot; {filteredUnmapped.length} unmapped
-        </span>
+        <span className="browse-item-count">{filtered.length} items</span>
       </div>
 
-      {/* ── Content: filter sidebar + card list ── */}
       <div className="browse-content">
-        {/* Filter sidebar */}
         <div className="browse-filter-sidebar">
-          {/* Status filter */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Status</div>
+            <div className="browse-filter-group-label">Type</div>
             <div className="wl-status-pills">
-              {(['mapped', 'unmapped', 'all'] as StatusFilter[]).map(sf => (
-                <button
-                  key={sf}
-                  className={`browse-curator-pill${statusFilter === sf ? ' active' : ''}`}
-                  onClick={() => setStatusFilter(sf)}
-                >
-                  {sf.charAt(0).toUpperCase() + sf.slice(1)}
+              {(['', 'workload', 'config'] as const).map(t => (
+                <button key={t || 'all'}
+                  className={`browse-curator-pill${typeFilter === t ? ' active' : ''}`}
+                  onClick={() => setTypeFilter(t)}>
+                  {t ? `${t.charAt(0).toUpperCase() + t.slice(1)} (${typeCounts[t]})` : `All (${typeCounts['']})`}
                 </button>
               ))}
             </div>
           </div>
-
-          {/* Category filter */}
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Category</div>
-            <select
-              className="browse-filter-select"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-            >
+            <select className="browse-filter-select" value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}>
               <option value="">All categories</option>
-              {uniqueCategories.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
+              {uniqueCategories.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </div>
-
-          {/* Verification filter */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Verification</div>
+            <div className="browse-filter-group-label">Collection</div>
+            <select className="browse-filter-select" value={collectionFilter}
+              onChange={(e) => setCollectionFilter(e.target.value)}>
+              <option value="">All collections</option>
+              {uniqueCollections.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Mappings</div>
             <div className="wl-status-pills">
-              {(['all', 'verified', 'unverified'] as VerificationFilter[]).map(vf => (
-                <button
-                  key={vf}
-                  className={`browse-curator-pill${verificationFilter === vf ? ' active' : ''}`}
-                  onClick={() => setVerificationFilter(vf)}
-                >
-                  {vf.charAt(0).toUpperCase() + vf.slice(1)}
+              {[['', 'All'], ['with', 'Has Mappings'], ['without', 'No Mappings']].map(([v, l]) => (
+                <button key={v}
+                  className={`browse-curator-pill${mappingsFilter === v ? ' active' : ''}`}
+                  onClick={() => setMappingsFilter(v)}>
+                  {l}
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Collection filter */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Collection</div>
-            <select
-              className="browse-filter-select"
-              value={collectionFilter}
-              onChange={(e) => setCollectionFilter(e.target.value)}
-            >
-              <option value="">All collections</option>
-              {uniqueCollections.map(coll => (
-                <option key={coll} value={coll}>{coll}</option>
-              ))}
-            </select>
           </div>
         </div>
 
-        {/* Card list */}
         <div className="browse-list">
-          {/* ── Mapped Workloads Section ── */}
-          {showMapped && (
-            <div className="wl-section">
-              <div
-                className="wl-section-header wl-section-header--green wl-section-header--collapsible"
-                onClick={() => setMappedOpen(!mappedOpen)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setMappedOpen(!mappedOpen) } }}
-              >
-                <span>{mappedOpen ? '▾' : '▸'} Mapped Workloads</span>
-                <span className="wl-section-count">{filteredMappings.length}</span>
-              </div>
-              {mappedOpen && (filteredMappings.length === 0 ? (
-                <div className="wl-empty">No mapped workloads match the current filters.</div>
-              ) : (
-                filteredMappings.map(m => {
-                  const isExpanded = expandedItems.has(m.workload_role)
-                  return (
-                    <div
-                      key={m.workload_role}
-                      className={`browse-item${isExpanded ? ' expanded' : ''}`}
-                    >
-                      {/* Collapsed header */}
-                      <div className="browse-item-header">
-                        <div className="browse-item-header-left">
-                          <div
-                            className="browse-item-title"
-                            onClick={() => handleExpand(m.workload_role)}
-                            role="button"
-                            tabIndex={0}
-                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(m.workload_role) } }}
-                          >
-                            <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
-                            <span className="wl-role-name">{m.workload_role}</span>
-                            <span className="wl-product-name">{m.product_name}</span>
-                            {m.verified && <span className="verified-badge">verified</span>}
-                          </div>
-                        </div>
+          {filtered.length === 0 ? (
+            <div className="wl-empty">No infrastructure items match the current filters.</div>
+          ) : filtered.map(item => {
+            const isExpanded = expandedItems.has(item.role_name)
+            return (
+              <div key={item.role_name} className={`browse-item${isExpanded ? ' expanded' : ''}`}>
+                <div className="browse-item-header">
+                  <div className="browse-item-header-left">
+                    <div className="browse-item-title" onClick={() => handleExpand(item.role_name, item.item_count)}
+                      role="button" tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(item.role_name, item.item_count) } }}>
+                      <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
+                      <span className="wl-role-name">{item.role_name}</span>
+                      <span className={`stage-badge stage-badge--${item.type === 'config' ? 'prod' : 'dev'}`}>
+                        {item.type}
+                      </span>
+                      {item.item_count > 0 && (
+                        <span className="wl-ci-count-badge">
+                          Used by {item.item_count} item{item.item_count !== 1 ? 's' : ''}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {isExpanded && (
+                  <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
+                    {item.description && <p className="browse-description">{item.description}</p>}
+
+                    {item.products.length > 0 && (
+                      <div className="browse-pills">
+                        {item.products.map(p => (
+                          <span key={p} className="browse-pill browse-pill--product">{p}</span>
+                        ))}
                       </div>
+                    )}
 
-                      {/* Expanded body */}
-                      {isExpanded && (
-                        <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
-                          {m.description && (
-                            <p className="browse-description">{m.description}</p>
-                          )}
+                    {item.capabilities.length > 0 && (
+                      <div className="browse-pills">
+                        {item.capabilities.map(c => (
+                          <span key={c} className="browse-pill browse-pill--topic">{c}</span>
+                        ))}
+                      </div>
+                    )}
 
-                          <div className="wl-detail-grid">
-                            <div className="wl-detail-item">
-                              <span className="wl-detail-label">Category</span>
-                              <span className="wl-detail-value">{m.category || '—'}</span>
-                            </div>
-                            <div className="wl-detail-item">
-                              <span className="wl-detail-label">Collection</span>
-                              <span className="wl-detail-value">{m.source_collection || '—'}</span>
-                            </div>
-                            <div className="wl-detail-item">
-                              <span className="wl-detail-label">Verification</span>
-                              <span className="wl-detail-value">
-                                {m.verified ? (
-                                  <span className="verified-badge">verified</span>
-                                ) : (
-                                  <span style={{ color: 'var(--text-muted)' }}>unverified</span>
-                                )}
-                              </span>
-                            </div>
-                            {m.added_by && (
-                              <div className="wl-detail-item">
-                                <span className="wl-detail-label">Added by</span>
-                                <span className="wl-detail-value">{m.added_by}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="wl-card-actions">
-                            <button
-                              className="mapping-delete-btn"
-                              onClick={() => handleDelete(m.workload_role)}
-                              title="Remove mapping"
-                            >
-                              Remove mapping
-                            </button>
-                          </div>
+                    <div className="wl-detail-grid">
+                      <div className="wl-detail-item">
+                        <span className="wl-detail-label">Category</span>
+                        <span className="wl-detail-value">{item.category || '—'}</span>
+                      </div>
+                      <div className="wl-detail-item">
+                        <span className="wl-detail-label">Collection</span>
+                        <span className="wl-detail-value">{item.collection || '—'}</span>
+                      </div>
+                      {item.fqcn && (
+                        <div className="wl-detail-item">
+                          <span className="wl-detail-label">FQCN</span>
+                          <span className="wl-detail-value">{item.fqcn}</span>
+                        </div>
+                      )}
+                      {item.requires.length > 0 && (
+                        <div className="wl-detail-item">
+                          <span className="wl-detail-label">Requires</span>
+                          <span className="wl-detail-value">{item.requires.join(', ')}</span>
+                        </div>
+                      )}
+                      {item.scanned_at && (
+                        <div className="wl-detail-item">
+                          <span className="wl-detail-label">Last scanned</span>
+                          <span className="wl-detail-value">
+                            {new Date(item.scanned_at).toLocaleDateString()}
+                          </span>
                         </div>
                       )}
                     </div>
-                  )
-                })
-              ))}
-            </div>
-          )}
 
-          {/* ── Unmapped Workloads Section ── */}
-          {showUnmapped && (
-            <div className="wl-section">
-              <div
-                className="wl-section-header wl-section-header--amber wl-section-header--collapsible"
-                onClick={() => setUnmappedSectionOpen(!unmappedSectionOpen)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setUnmappedSectionOpen(!unmappedSectionOpen) } }}
-              >
-                <span className="browse-toggle-caret" style={unmappedSectionOpen ? { transform: 'rotate(90deg)' } : undefined}>&#9654;</span>
-                <span>Unmapped Workloads</span>
-                <span className="wl-section-count">{filteredUnmapped.length}</span>
-              </div>
-
-              {unmappedSectionOpen && (
-                <>
-                  {filteredUnmapped.length === 0 ? (
-                    <div className="wl-empty">No unmapped workloads match the current filters.</div>
-                  ) : (
-                    filteredUnmapped.map(u => {
-                      const isExpanded = expandedItems.has(u.workload_role)
-                      const hasForm = mappingForm[u.workload_role] !== undefined
-                      return (
-                        <div
-                          key={u.workload_role}
-                          className={`browse-item${isExpanded ? ' expanded' : ''}`}
-                        >
-                          {/* Collapsed header */}
-                          <div className="browse-item-header">
-                            <div className="browse-item-header-left">
-                              <div
-                                className="browse-item-title"
-                                onClick={() => handleExpand(u.workload_role)}
-                                role="button"
-                                tabIndex={0}
-                                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(u.workload_role) } }}
-                              >
-                                <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
-                                <span className="wl-role-name">{u.workload_role}</span>
-                                {u.workload_collection && (
-                                  <span className="wl-collection-muted">{u.workload_collection}</span>
-                                )}
-                                <span className="wl-ci-count-badge">Used by {u.ci_count} CI{u.ci_count !== 1 ? 's' : ''}</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Expanded body */}
-                          {isExpanded && (
-                            <div className="browse-item-body" onClick={(e) => e.stopPropagation()}>
-                              <div className="wl-detail-grid">
-                                <div className="wl-detail-item">
-                                  <span className="wl-detail-label">Collection</span>
-                                  <span className="wl-detail-value">{u.workload_collection || '—'}</span>
-                                </div>
-                                <div className="wl-detail-item">
-                                  <span className="wl-detail-label">Used by</span>
-                                  <span className="wl-detail-value">{u.ci_count} catalog item{u.ci_count !== 1 ? 's' : ''}</span>
-                                </div>
-                              </div>
-
-                              {/* Inline mapping form */}
-                              {hasForm ? (
-                                <div className="wl-mapping-form">
-                                  <div className="wl-mapping-form-row">
-                                    <input
-                                      className="wl-mapping-input"
-                                      placeholder="Product name"
-                                      value={mappingForm[u.workload_role]?.product || ''}
-                                      onChange={(e) => setMappingForm(prev => ({
-                                        ...prev, [u.workload_role]: { ...prev[u.workload_role], product: e.target.value }
-                                      }))}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
-                                    />
-                                    <input
-                                      className="wl-mapping-input wl-mapping-input--short"
-                                      placeholder="Category"
-                                      value={mappingForm[u.workload_role]?.category || ''}
-                                      onChange={(e) => setMappingForm(prev => ({
-                                        ...prev, [u.workload_role]: { ...prev[u.workload_role], category: e.target.value }
-                                      }))}
-                                      onKeyDown={(e) => { if (e.key === 'Enter') handleMap(u.workload_role) }}
-                                    />
-                                  </div>
-                                  <div className="wl-mapping-form-actions">
-                                    <button className="browse-btn-action" onClick={() => handleMap(u.workload_role)}>
-                                      Save
-                                    </button>
-                                    <button
-                                      className="wl-mapping-cancel"
-                                      onClick={() => setMappingForm(prev => { const next = { ...prev }; delete next[u.workload_role]; return next })}
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="wl-card-actions">
-                                  <button
-                                    className="browse-btn-action"
-                                    onClick={() => setMappingForm(prev => ({ ...prev, [u.workload_role]: { product: '', category: '' } }))}
-                                  >
-                                    Map this workload
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          )}
+                    {item.item_count > 0 && (
+                      <div className="wl-linked-items">
+                        <div className="wl-detail-label" style={{ marginBottom: '0.5rem' }}>
+                          Catalog Items
                         </div>
-                      )
-                    })
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                        {loadingItems.has(item.role_name) ? (
+                          <span className="browse-loading">Loading items...</span>
+                        ) : linkedItems[item.role_name] ? (() => {
+                          const grouped = new Map<string, { name: string; stages: string[] }>()
+                          for (const ci of linkedItems[item.role_name]) {
+                            const name = ci.display_name || ci.ci_name
+                            const entry = grouped.get(name)
+                            if (entry) { if (ci.stage && !entry.stages.includes(ci.stage)) entry.stages.push(ci.stage) }
+                            else grouped.set(name, { name, stages: ci.stage ? [ci.stage] : [] })
+                          }
+                          return (
+                            <div className="wl-linked-items-list">
+                              {[...grouped.values()].map(g => {
+                                const allStages = [...new Set(['prod', ...g.stages])].join(',')
+                                const nameHref = `/browse?search=${encodeURIComponent(g.name)}&stage=${allStages}`
+                                return (
+                                <div key={g.name} className="wl-linked-item">
+                                  <a href={nameHref} className="wl-linked-item-name" target="_blank" rel="noreferrer">{g.name}</a>
+                                  {g.stages.map(s => {
+                                    const badgeClass = s === 'dev' ? 'browse-badge badge-dev' : s === 'event' ? 'browse-badge badge-event' : 'browse-badge badge-prod'
+                                    return <span key={s} className={badgeClass}>{s.toUpperCase()}</span>
+                                  })}
+                                </div>
+                                )
+                              })}
+                            </div>
+                          )
+                        })() : null}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>

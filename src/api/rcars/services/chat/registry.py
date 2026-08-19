@@ -8,7 +8,7 @@ from typing import Callable
 
 from rcars.services.chat import handlers
 from rcars.services.chat.models import (
-    Chip, ItemFactsArgs, OverlapArgs, PerformanceArgs, RecommendArgs,
+    Chip, HelpArgs, InfrastructureArgs, ItemFactsArgs, OverlapArgs, PerformanceArgs, RecommendArgs,
 )
 
 
@@ -100,9 +100,60 @@ INTENTS: dict[str, IntentSpec] = {
              "output": {"intent": "item_facts", "args": {"item_ref": "AWS Open Environment"}, "scope": None,
                         "item_refs": ["AWS Open Environment"], "confidence": 0.75, "clarify": None}},
         )),
+    "infrastructure": IntentSpec(
+        name="infrastructure",
+        description="What does a workload role or base config do — its capabilities, products, and which catalog items use it.",
+        args_model=InfrastructureArgs, handler=handlers.handle_infrastructure,
+        block_types=("infra_detail",),
+        followups=({"label": "Items using this", "intent": "recommend", "scope_from": "results"},),
+        prompt_fragment=(
+            "infrastructure: user asks about an automation component — a workload role or "
+            "base config — by name or by what product it deploys/configures. Signal: the "
+            "subject is automation (a role name like ocp4_workload_rhods, or 'workloads "
+            "that deploy X', 'configs that provision Y'). NOT for product description "
+            "questions ('what does OpenShift AI do?' is out_of_scope — that asks about "
+            "a product, not RCARS automation). "
+            "Do NOT put infrastructure names in item_refs — they are not catalog items."),
+        examples=(
+            {"message": "what does the ocp4_workload_amq_streams workload do?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "ocp4_workload_amq_streams"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "what deploys RHOAI?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "RHOAI"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "what does the ocp4_workload_openshift_ai role do?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "ocp4_workload_openshift_ai"},
+                        "scope": None, "item_refs": [], "confidence": 0.95, "clarify": None}},
+            {"message": "what automation configures an OpenShift cluster?",
+             "output": {"intent": "infrastructure", "args": {"search_query": "OpenShift cluster provisioning"},
+                        "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
+        )),
+    "help": IntentSpec(
+        name="help",
+        description="Meta-questions about what RCARS features mean or how they work.",
+        args_model=HelpArgs, handler=handlers.handle_help, block_types=("notice",), followups=(),
+        prompt_fragment=(
+            "help: meta-questions about what an RCARS feature means or how it works — "
+            "'what does performance mean', 'what can you do', 'how does scoring work', "
+            "'what are workloads'. Put the feature keyword in args.topic. "
+            "Do NOT use for actual queries (e.g. 'how is the SAP demo performing' is performance, not help)."),
+        examples=(
+            {"message": "what does performance mean?",
+             "output": {"intent": "help", "args": {"topic": "performance"},
+                        "scope": None, "item_refs": [], "confidence": 0.95, "clarify": None}},
+            {"message": "what can you do?",
+             "output": {"intent": "help", "args": {"topic": "general"},
+                        "scope": None, "item_refs": [], "confidence": 0.95, "clarify": None}},
+            {"message": "what are workloads?",
+             "output": {"intent": "help", "args": {"topic": "workloads"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "how does scoring work?",
+             "output": {"intent": "help", "args": {"topic": "scoring"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+        )),
     "out_of_scope": IntentSpec(
         name="out_of_scope",
-        description="Not about RHDP content, overlap, performance, or item facts.",
+        description="Not about RHDP content, overlap, performance, infrastructure, or item facts.",
         args_model=RecommendArgs, handler=None, block_types=("notice",), followups=(),
         prompt_fragment="out_of_scope: anything RCARS cannot answer from its catalog and metrics.",
         examples=(

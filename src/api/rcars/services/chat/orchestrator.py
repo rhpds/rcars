@@ -17,9 +17,91 @@ from rcars.services.chat.router import Resolution, resolve_and_verify, route
 logger = structlog.get_logger(component="chat")
 
 OUT_OF_SCOPE_ANSWER = (
-    "I can help with four things: recommending RHDP content for an event or audience, "
-    "showing what overlaps with an item, reporting how items are performing, and "
-    "describing what's in a catalog item. Try one of those.")
+    "I can help with five things: recommending RHDP content for an event or audience, "
+    "showing what overlaps with an item, reporting how items are performing, "
+    "describing what's in a catalog item, and explaining what a workload or base config does. "
+    "Try one of those.")
+
+_HELP_TOPICS = {
+    "general": (
+        "I'm the RCARS advisor — I help you find, understand, and evaluate RHDP catalog content. "
+        "I can: **recommend** content for an event or audience, show **overlap** between items, "
+        "report **performance** across usage, cost, and sales, describe what's in a **catalog item**, "
+        "and explain what **infrastructure & automation** components do. "
+        "Just ask a question about any of these."),
+    "recommend": (
+        "**Recommend** searches the RHDP catalog to find the best content for your situation. "
+        "Tell me about your event, audience, or topic and I'll find matching labs, demos, and "
+        "workshops. Results are ranked by relevance and can be filtered by stage (prod/dev/event). "
+        "Example: \"I need a 2-hour OpenShift virtualization lab for platform engineers\""),
+    "performance": (
+        "**Performance** tracks how catalog items are doing across four factors: "
+        "usage (provisions), pipeline influence (opportunities touched), closed sales, and cost efficiency. "
+        "Each item gets a score from 0-80 based on percentile ranks among peers. "
+        "Strong >= 55, Moderate >= 35, Low < 35. "
+        "You can ask about a specific item, a set of items, or filter by time window (3m/6m/9m/12m). "
+        "Example: \"How is our OpenShift Virtualization content performing?\""),
+    "overlap": (
+        "**Overlap** identifies catalog items that cover similar content — same products, topics, "
+        "or learning objectives. This helps spot duplication and consolidation opportunities. "
+        "I compare items using shared products, shared topics, and an LLM assessment of their similarity. "
+        "Example: \"What overlaps with LB2144?\""),
+    "item_facts": (
+        "**Catalog Items** — I can describe what's in a specific lab, demo, or workshop: "
+        "its summary, learning objectives, and related items in the catalog. "
+        "You can ask by name or refer to items from a previous search. "
+        "Example: \"What is the OpenShift Virtualization workshop about?\""),
+    "infrastructure": (
+        "**Infrastructure & Automation** — these are the building blocks that catalog items "
+        "are assembled from. Workload roles are Ansible automation (from AgnosticD v2 collections) "
+        "that install specific products onto a cluster — things like OpenShift AI, "
+        "Advanced Cluster Security, or OpenShift Virtualization. Base configs provision the "
+        "underlying platform (an OpenShift cluster, cloud VMs, etc.). "
+        "You can ask what a component does, what installs a given product, or which catalog "
+        "items use a particular workload or config. "
+        "Example: \"What does the RHODS workload do?\" or \"What installs OpenShift AI?\""),
+    "workload": None,  # merged into infrastructure
+    "scoring": (
+        "**Scoring** rates each catalog item on a 0-80 scale across four factors: "
+        "Usage/provisions (max 25), Pipeline/opportunities touched (max 15), "
+        "Closed sales (max 25), and Cost efficiency/ROI (max 15). "
+        "Points are awarded by percentile rank among items with non-zero activity. "
+        "Items with zero activity in a factor get 0 points for that factor. "
+        "Thresholds: Strong >= 55, Moderate >= 35, Low < 35."),
+    "sales_impact": (
+        "**Sales impact** shows whether deployments of this item correlate with closed sales. "
+        "It's derived from Salesforce opportunity data — we look at which catalog items were "
+        "provisioned in the trailing year and whether those accounts had closed-won deals. "
+        "**High** means this item is in the top tier for sales correlation across the catalog. "
+        "**Moderate** means above average. No badge means low or no measurable correlation. "
+        "This is a correlation signal, not a guarantee — it tells you this item tends to "
+        "show up in accounts that buy, not that using it causes the sale."),
+}
+
+
+def _help_answer(topic: str, message: str = "") -> str:
+    t = topic.lower().strip().replace(" ", "_").replace("-", "_")
+    combined = t + " " + message.lower().replace("-", "_").replace(" ", "_")
+    keys = ("workload", "infrastructure", "performance", "overlap",
+            "recommend", "item_facts", "scoring", "sales_impact")
+    matched: list[str] = []
+    # Exact topic match gets priority slot
+    if t in _HELP_TOPICS and _HELP_TOPICS[t] is not None:
+        matched.append(_HELP_TOPICS[t])
+    # Scan combined text for up to 2 total matches
+    for key in keys:
+        if len(matched) >= 2:
+            break
+        answer = _HELP_TOPICS.get(key)
+        if answer is None:
+            answer = _HELP_TOPICS["infrastructure"]
+        if answer in matched:
+            continue
+        if key in combined:
+            matched.append(answer)
+    if matched:
+        return "\n\n".join(matched)
+    return _HELP_TOPICS["general"]
 
 
 def _scope_echo(output: RouterOutput, res: Resolution, message: str) -> str:
@@ -68,6 +150,12 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
         envelope = Envelope(intent="out_of_scope", scope_echo="Out of scope",
                             answer=OUT_OF_SCOPE_ANSWER,
                             blocks=[Block(type="notice", data={"kind": "out_of_scope"})])
+    elif output.intent == "help":
+        topic = output.args.get("topic", "")
+        answer = _help_answer(topic, message)
+        envelope = Envelope(intent="help", scope_echo="Help",
+                            answer=answer,
+                            blocks=[Block(type="notice", data={"kind": "help"})])
     else:
         res = await resolve_and_verify(output, context, db, settings, user_email,
                                        message=message)

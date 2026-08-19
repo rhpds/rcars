@@ -209,6 +209,18 @@ Error classes enable targeted debugging — `jinja_url` errors indicate a catalo
 
 ---
 
+## Infrastructure Scanning
+
+Alongside the Showroom content pipeline described above, RCARS also scans the AgnosticD v2 automation repos to build an **infrastructure catalog** of workload roles and base configs. This runs as part of the nightly pipeline (Step 4).
+
+The infrastructure scanner clones the agDv2 collection repos, reads key Ansible files (defaults, tasks, templates) from each role or config directory, and sends them to the LLM for structured analysis. The LLM determines what each role installs, its products, capabilities, category, and prerequisites. Results are stored in the `infrastructure` table with vector embeddings that power semantic search through the Advisor chat.
+
+Change detection works via `git ls-remote` — repos whose HEAD SHA matches the last scan are skipped entirely. Config scanning follows the same pattern for base config directories.
+
+For full details, see [Infrastructure Catalog](infrastructure-catalog.md).
+
+---
+
 ## Configuration
 
 | Variable | Default | Purpose |

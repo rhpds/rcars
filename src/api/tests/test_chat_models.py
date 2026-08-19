@@ -36,4 +36,4 @@ def test_performance_args_window_closed():
 
 
 def test_intent_names_complete():
-    assert INTENT_NAMES == ("recommend", "overlap", "performance", "item_facts", "out_of_scope")
+    assert INTENT_NAMES == ("recommend", "overlap", "performance", "item_facts", "infrastructure", "help", "out_of_scope")

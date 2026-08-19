@@ -363,6 +363,31 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:workload_scan", status="failed", message=msg)
 
+        # Step 4 (continued): Config scan
+        try:
+            from rcars.services.workload_scanner import scan_configs
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="running",
+                                   message="Step 4 (config): Scanning AgnosticD v2 configs...")
+            config_result = await asyncio.to_thread(
+                scan_configs, wctx.settings.clone_dir, wctx.settings,
+                wctx.settings.triage_model,
+                wctx.db, force=False,
+            )
+            scanned = config_result.get("configs_scanned", 0)
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="complete",
+                                   message=f"Step 4 (config) complete: {scanned} configs scanned")
+            log.info("pipeline_config_scan_complete", action="pipeline_step_complete",
+                     step="config_scan", **config_result)
+        except Exception as e:
+            msg = f"Step 4 (config scan) failed: {e}"
+            warnings.append(msg)
+            log.error("pipeline_config_scan_failed", action="pipeline_step_failed",
+                      step="config_scan", error=str(e), traceback=traceback.format_exc())
+            await publish_progress(wctx.relay, job_id, wctx.db,
+                                   phase="pipeline:config_scan", status="failed", message=msg)
+
     # Step 4b: Sandbox summary generation (after workload scan populates classifications)
     sandbox_summary_result = None
     try:
@@ -400,7 +425,6 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:reporting_sync", status="running",
                                    message="Step 5: Syncing reporting metrics from MCP server...")
-            import asyncio
             from rcars.services.reporting_sync import run_reporting_sync
             reporting_result = await asyncio.to_thread(
                 run_reporting_sync, wctx.db, wctx.settings,
@@ -444,7 +468,6 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:overlap", status="running",
                                message="Step 6: Generating overlap candidates...")
-        import asyncio
 
         # 6a: Prune stale pairs
         pruned = await asyncio.to_thread(prune_stale_candidates, wctx.db.pool)
@@ -529,7 +552,6 @@ async def run_workload_scan(ctx: dict, job_id: str) -> dict:
                                phase="workload_scan", status="started",
                                message="Scanning agDv2 workload repos...")
 
-        import asyncio
         results = await asyncio.to_thread(
             scan_all_collections,
             clone_dir=wctx.settings.clone_dir,
@@ -659,7 +681,6 @@ async def run_reporting_sync_job(ctx: dict, job_id: str) -> dict:
     wctx.db.update_job_status(job_id, "running")
 
     try:
-        import asyncio
         from rcars.services.reporting_sync import run_reporting_sync
         result = await asyncio.to_thread(run_reporting_sync, wctx.db, wctx.settings)
         await publish_progress(wctx.relay, job_id, wctx.db,

@@ -12,6 +12,7 @@ from rich.table import Table
 from rcars.config import Settings
 from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
+from rcars.services.analyzer import regenerate_embeddings
 from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
@@ -219,19 +220,11 @@ def scan(max_analyze: int | None):
                         "is_stale": False,
                         "stale_commit": None,
                     })
-                    db.clear_embeddings(content_id)
-                    db.store_embedding(
-                        content_id=content_id, content_type=content_type, source="babylon",
-                        embed_type="summary",
-                        content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                    regenerate_embeddings(
+                        db, content_id, content_type, "babylon",
+                        result["ci_embedding_text"], result["ci_embedding"],
+                        module_embeddings=result.get("module_embeddings"),
                     )
-                    for mod_emb in result.get("module_embeddings", []):
-                        db.store_embedding(
-                            content_id=content_id, content_type=content_type, source="babylon",
-                            embed_type="module",
-                            module_title=mod_emb["module_title"],
-                            content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-                        )
                     db.set_scan_status(content_id, "success")
 
                     # Propagate to siblings with same (url, ref)
@@ -262,19 +255,11 @@ def scan(max_analyze: int | None):
                         sib_data = dict(analysis_data)
                         sib_data["content_id"] = sib_content_id
                         db.upsert_showroom_analysis(sib_data)
-                        db.clear_embeddings(sib_content_id)
-                        db.store_embedding(
-                            content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-                            embed_type="summary",
-                            content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+                        regenerate_embeddings(
+                            db, sib_content_id, sib_content_type, "babylon",
+                            result["ci_embedding_text"], result["ci_embedding"],
+                            module_embeddings=result.get("module_embeddings"),
                         )
-                        for mod_emb in result.get("module_embeddings", []):
-                            db.store_embedding(
-                                content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-                                embed_type="module",
-                                module_title=mod_emb["module_title"],
-                                content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-                            )
                         db.set_scan_status(sib_content_id, "success")
 
                     for sibling in siblings:
@@ -469,11 +454,8 @@ def infra_stats():
     table.add_column("Count", justify="right")
     table.add_row("AgnosticD v2 items", str(stats["v2_items"]))
     table.add_row("Items with workloads", str(stats["with_workloads"]))
-    table.add_row("Mapped workload roles", str(stats["mapped_workloads"]))
-    table.add_row("Verified workload roles", str(stats["verified_workloads"]))
-    unmapped = stats["unmapped_workloads"]
-    style = "red" if unmapped > 0 else "green"
-    table.add_row("Unmapped workload roles", f"[{style}]{unmapped}[/{style}]")
+    table.add_row("Infrastructure workloads", str(stats["infrastructure_workloads"]))
+    table.add_row("Infrastructure configs", str(stats["infrastructure_configs"]))
     console.print(table)
     db.close()
 
@@ -484,90 +466,6 @@ def infra_stats():
 def workload_group():
     """Workload mapping and scanning commands."""
     pass
-
-
-@workload_group.command("sync")
-@click.option("--seed-only", is_flag=True, default=False, help="Skip existing roles (preserve curator edits)")
-def workload_sync(seed_only: bool):
-    """Load workload_mapping.yaml into the database."""
-    from importlib.resources import files
-    import yaml
-
-    data_dir = files("rcars.data")
-    yaml_path = data_dir.joinpath("workload_mapping.yaml")
-    content = yaml_path.read_text()
-    data = yaml.safe_load(content)
-
-    db = get_db()
-    existing = {m["workload_role"] for m in db.list_workload_mappings()} if seed_only else set()
-
-    loaded = 0
-    skipped = 0
-    for entry in data.get("mappings", []):
-        role = entry["role"]
-        if seed_only and role in existing:
-            skipped += 1
-            continue
-        db.upsert_workload_mapping(
-            workload_role=role,
-            product_name=entry["product"],
-            description=entry.get("description"),
-            category=entry.get("category"),
-            source_collection=entry.get("collection"),
-            verified=entry.get("verified", False),
-            added_by="seed",
-        )
-        loaded += 1
-
-    alias_count = 0
-    for group in data.get("aliases", []):
-        product = group["product"]
-        for alias in group.get("aliases", []):
-            db.upsert_workload_alias(product, alias)
-            alias_count += 1
-
-    msg = f"Loaded {loaded} mappings, {alias_count} aliases"
-    if skipped:
-        msg += f" (skipped {skipped} existing)"
-    console.print(f"[green]{msg}[/green]")
-    db.close()
-
-
-@workload_group.command("unmapped")
-def workload_unmapped():
-    """List workload roles that have no mapping yet."""
-    db = get_db()
-    unmapped = db.get_unmapped_workloads()
-
-    if not unmapped:
-        console.print("[green]All workload roles are mapped.[/green]")
-        db.close()
-        return
-
-    table = Table(title=f"Unmapped Workloads ({len(unmapped)})")
-    table.add_column("Role", style="cyan")
-    table.add_column("Collection")
-    table.add_column("CIs", justify="right")
-    for row in unmapped:
-        table.add_row(row["workload_role"], row.get("workload_collection") or "", str(row["ci_count"]))
-    console.print(table)
-    db.close()
-
-
-@workload_group.command("map")
-@click.argument("role")
-@click.argument("product")
-@click.option("--category", "-c", default=None, help="Category grouping")
-@click.option("--description", "-d", default=None, help="What this workload does")
-def workload_map(role: str, product: str, category: str | None, description: str | None):
-    """Add or update a workload mapping."""
-    db = get_db()
-    db.upsert_workload_mapping(
-        workload_role=role, product_name=product,
-        description=description, category=category,
-    )
-    console.print(f"Mapped [cyan]{role}[/cyan] → {product}")
-    db.close()
 
 
 @workload_group.command("alias")
@@ -585,8 +483,8 @@ def workload_alias(product: str, alias_name: str):
 @click.option("--collection", "-c", default=None, help="Scan only this collection (e.g. agnosticd.core_workloads)")
 @click.option("--force", is_flag=True, default=False, help="Skip SHA check, rescan everything")
 def workload_scan(collection: str | None, force: bool):
-    """Scan agDv2 workload repos, analyze roles via LLM, update mappings."""
-    from rcars.services.workload_scanner import scan_all_collections
+    """Scan agDv2 workload repos and base configs via LLM."""
+    from rcars.services.workload_scanner import scan_all_collections, scan_configs
 
     settings = Settings()
     db = get_db()
@@ -621,33 +519,39 @@ def workload_scan(collection: str | None, force: bool):
             _print(f"  {r['collection']}: [red]clone failed[/red]")
         else:
             _print(f"  {r['collection']}: {r.get('roles_scanned', 0)} scanned, "
-                   f"{r.get('roles_mapped', 0)} mapped, {r.get('roles_plumbing', 0)} plumbing")
+                   f"{r.get('roles_mapped', 0)} mapped")
 
     total_scanned = sum(r.get("roles_scanned", 0) for r in results)
     total_mapped = sum(r.get("roles_mapped", 0) for r in results)
     _print(f"Done. {total_scanned} roles scanned, {total_mapped} new/updated mappings.")
+
+    console.print("\n[bold]Scanning base configs...[/bold]")
+    config_result = scan_configs(settings.clone_dir, settings, model, db, force=force)
+    scanned = config_result.get("configs_scanned", 0)
+    status = config_result.get("status", "?")
+    _print(f"Configs: {scanned} scanned ({status})")
+
     db.close()
 
 
 @workload_group.command("list")
 def workload_list():
-    """List all workload mappings."""
+    """List infrastructure catalog entries."""
     db = get_db()
-    mappings = db.list_workload_mappings()
-
-    if not mappings:
-        console.print("[yellow]No workload mappings found. Run 'rcars workload sync' first.[/yellow]")
-        db.close()
-        return
-
-    table = Table(title=f"Workload Mappings ({len(mappings)})")
-    table.add_column("Role", style="cyan")
-    table.add_column("Product")
+    rows = db.list_infrastructure()
+    table = Table(title=f"Infrastructure Catalog ({len(rows)})")
+    table.add_column("Role Name", style="cyan")
+    table.add_column("Type")
+    table.add_column("Products")
     table.add_column("Category")
-    table.add_column("Verified", justify="center")
-    for m in mappings:
-        verified = "[green]yes[/green]" if m.get("verified") else "[dim]no[/dim]"
-        table.add_row(m["workload_role"], m["product_name"], m.get("category") or "", verified)
+    table.add_column("Collection")
+    for row in rows:
+        products = ", ".join(row.get("products") or [])
+        table.add_row(
+            row["role_name"], row["type"],
+            products[:60], row.get("category") or "—",
+            row.get("collection") or "—",
+        )
     console.print(table)
     db.close()
 
