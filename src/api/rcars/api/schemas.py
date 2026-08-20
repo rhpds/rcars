@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -347,3 +349,41 @@ class AddRoleAssignmentRequest(BaseModel):
     type: str = Field(pattern="^(user|group)$", description="'user' for a username, 'group' for an OpenShift group name")
     value: str = Field(min_length=1, max_length=255)
     role: str = Field(pattern="^(curator|admin)$")
+
+
+# ── Controlled vocabulary (RHDPCD-507) ──
+
+
+class VocabEntryOut(BaseModel):
+    name: str
+    aliases: list[str] = []
+    search_terms: list[str] = []
+    is_tdp: bool = False
+
+
+class VocabularyResponse(BaseModel):
+    dimensions: dict[str, list[VocabEntryOut]]
+    content_modes: dict[str, str]
+    ignored_terms: dict[str, list[str]]
+
+
+class UnknownTerm(BaseModel):
+    dimension: str
+    term: str
+    occurrences: int
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+    example_content_id: str | None = None
+    status: str
+    resolved_to: str | None = None
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+
+
+class UnknownTermsResponse(BaseModel):
+    terms: list[UnknownTerm]
+
+
+class ResolveUnknownTermRequest(BaseModel):
+    action: Literal["alias", "promote", "reject"]
+    resolved_to: str | None = None

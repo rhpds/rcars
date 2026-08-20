@@ -40,9 +40,11 @@ def _propagate_to_sibling(db, sib_content_id: str, sib_content_type: str, analys
         module_embeddings=result.get("module_embeddings"),
     )
     db.set_scan_status(sib_content_id, "success")
+    logger.info("propagated_to_sibling", component="worker",
+                source=analysis_data.get("content_id"), target=sib_content_id)
 
 
-async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None) -> dict:
+async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None, force: bool = False) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     ci_name = content_id.removeprefix("babylon:")
     log = logger.bind(job_id=job_id, content_id=content_id, ci_name=ci_name)
@@ -75,6 +77,8 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 db=wctx.db,
                 content_path=item.get("content_path"),
                 keywords=item.get("keywords") or [],
+                entity_content_type=item.get("content_type") or "lab",
+                force=force,
             )
         )
 
@@ -96,6 +100,7 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 "summary": analysis.get("summary"),
                 "products_json": analysis.get("products"),
                 "audience_json": analysis.get("audience"),
+                "recommender_audience_json": analysis.get("recommender_audience"),
                 "topics_json": analysis.get("topics"),
                 "modules_json": analysis.get("modules"),
                 "learning_objectives_json": analysis.get("learning_objectives"),

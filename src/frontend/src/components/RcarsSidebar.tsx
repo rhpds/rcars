@@ -137,6 +137,12 @@ export function RcarsSidebar() {
               >
                 Access Control
               </NavLink>
+              <NavLink
+                to="/system/vocabulary"
+                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+              >
+                Vocabulary
+              </NavLink>
             </>
           )}
         </nav>

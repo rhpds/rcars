@@ -11,7 +11,8 @@ RUN pip install --no-cache-dir -r requirements.lock.txt \
 FROM registry.access.redhat.com/ubi9/python-311
 
 USER 0
-RUN dnf install -y git-core && dnf clean all
+RUN dnf install -y git-core && dnf clean all \
+ && mkdir -p /opt/app-root/config
 USER 1001
 
 COPY --from=builder /opt/app-root/lib /opt/app-root/lib

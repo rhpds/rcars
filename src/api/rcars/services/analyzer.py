@@ -467,12 +467,28 @@ def build_analysis_prompt(
     category: str,
     product: str,
     content_files: dict[str, str],
+    entity_content_type: str = "lab",
 ) -> tuple[str, str]:
     """Build analysis prompt split into system instructions and user data.
 
+    entity_content_type is content_entities.content_type — NOT the LLM's
+    self-reported content_type, which does not exist yet at this point. It
+    selects the action-verb hints in the injected vocabulary block.
+
     Returns (system_prompt, user_message) for system/user separation (M-1/M-4).
     """
+    from rcars.services.vocabulary import (
+        VOCABULARY_SENTINEL,
+        load_vocabulary,
+        render_vocabulary_block,
+    )
+
     template = PROMPT_TEMPLATE_PATH.read_text()
+
+    # The template contains literal { } from its JSON example, so str.format()
+    # cannot be used — replace an explicit sentinel instead.
+    vocabulary_block = render_vocabulary_block(load_vocabulary(), entity_content_type)
+    template = template.replace(VOCABULARY_SENTINEL, vocabulary_block)
 
     # Concatenate file contents with headers
     content_parts = []
@@ -647,6 +663,8 @@ def analyze_showroom(
     db=None,
     content_path: str | None = None,
     keywords: list[str] | None = None,
+    entity_content_type: str = "lab",
+    force: bool = False,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
 
@@ -698,7 +716,7 @@ def analyze_showroom(
         # Check if another CI already has analysis + embeddings for this content.
         # If so, reuse them instead of calling the LLM again — identical content
         # must produce identical analysis and embeddings.
-        if db is not None:
+        if db is not None and not force:
             donor = db.find_donor_by_content_hash(content_hash, exclude_content_id=f"babylon:{ci_name}")
             if donor:
                 donor_name = donor["ci_name"]
@@ -717,6 +735,15 @@ def analyze_showroom(
                     "format_suitability": donor.get("format_suitability_json"),
                     "use_cases": donor.get("use_cases_json"),
                 }
+
+                # Normalize the borrowed analysis too — the donor may predate a
+                # vocabulary change, and normalization is idempotent.
+                from rcars.services.vocabulary import normalize_analysis
+                donor_analysis["recommender_audience"] = donor.get("recommender_audience_json")
+                donor_analysis = normalize_analysis(
+                    donor_analysis, entity_content_type,
+                    db=db, content_id=f"babylon:{ci_name}",
+                )
 
                 # Rebuild CI embedding with this CI's own keywords
                 ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords, display_name=display_name)
@@ -752,7 +779,8 @@ def analyze_showroom(
 
         # Build prompt and call Sonnet
         system_prompt, user_message = build_analysis_prompt(
-            ci_name, display_name, category, product, content_files
+            ci_name, display_name, category, product, content_files,
+            entity_content_type=entity_content_type,
         )
         log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(system_prompt) + len(user_message))
 
@@ -779,6 +807,12 @@ def analyze_showroom(
         if not analysis:
             log.error("analyze %s: failed to parse Sonnet response", ci_name)
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
+
+        # Normalize ONCE, here — never at the individual write sites.
+        from rcars.services.vocabulary import normalize_analysis
+        analysis = normalize_analysis(
+            analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
+        )
 
         # Generate embeddings (include catalog keywords for event/metadata signal)
         ci_embedding_text = build_embedding_text(analysis, keywords=keywords, display_name=display_name)

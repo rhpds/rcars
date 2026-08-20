@@ -457,6 +457,31 @@ CREATE TABLE IF NOT EXISTS role_assignments (
 ALTER TABLE performance_channels ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
 ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
 
+-- Controlled vocabulary — RHDPCD-507
+-- The unit of review is the TERM, not the item: an unknown product means the
+-- LIST is missing a term, so vocabulary work never sets enrichment_review_needed.
+CREATE TABLE IF NOT EXISTS vocabulary_unknown_terms (
+    dimension       TEXT NOT NULL,
+    term            TEXT NOT NULL,
+    occurrences     INTEGER NOT NULL DEFAULT 1,
+    first_seen      TIMESTAMPTZ DEFAULT NOW(),
+    last_seen       TIMESTAMPTZ DEFAULT NOW(),
+    example_content_id TEXT,
+    status          TEXT NOT NULL DEFAULT 'pending',   -- pending | aliased | promoted | rejected
+    resolved_to     TEXT,
+    resolved_by     TEXT,
+    resolved_at     TIMESTAMPTZ,
+    PRIMARY KEY (dimension, term)
+);
+
+CREATE INDEX IF NOT EXISTS idx_vocab_unknown_status
+    ON vocabulary_unknown_terms(status, occurrences DESC);
+
+-- Who at Red Hat should know about this content (distinct from audience_json,
+-- which is who the content is FOR). Nothing reads this yet — groundwork for
+-- role-aware Advisor routing.
+ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS recommender_audience_json JSONB;
+
 """
 
 
@@ -543,6 +568,7 @@ class Database:
             "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "infrastructure",
+            "vocabulary_unknown_terms",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -991,7 +1017,7 @@ class Database:
     def upsert_showroom_analysis(self, analysis: dict[str, Any]):
         fields = [
             "content_id", "content_type", "summary",
-            "products_json", "audience_json", "topics_json",
+            "products_json", "audience_json", "recommender_audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
             "difficulty", "estimated_duration_min",
             "format_suitability_json", "use_cases_json",
@@ -1004,7 +1030,7 @@ class Database:
             present["last_analyzed"] = datetime.now(timezone.utc)
 
         jsonb_fields = [
-            "products_json", "audience_json", "topics_json",
+            "products_json", "audience_json", "recommender_audience_json", "topics_json",
             "modules_json", "learning_objectives_json",
             "format_suitability_json", "use_cases_json",
             "review_reasons",
@@ -1026,6 +1052,114 @@ class Database:
             with conn.cursor() as cur:
                 cur.execute(sql, present)
             conn.commit()
+
+    # ── Controlled vocabulary — unknown terms queue ──
+
+    def record_unknown_term(
+        self, dimension: str, term: str, example_content_id: str | None = None
+    ) -> None:
+        """Upsert one row per distinct term. Re-seeing bumps occurrences.
+
+        A term an admin has rejected is never re-surfaced: the counter is left
+        alone and the status is preserved, so the queue actually drains.
+        """
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO vocabulary_unknown_terms
+                    (dimension, term, occurrences, example_content_id)
+                VALUES (%(dimension)s, %(term)s, 1, %(example_content_id)s)
+                ON CONFLICT (dimension, term) DO UPDATE SET
+                    occurrences = CASE
+                        WHEN vocabulary_unknown_terms.status = 'rejected'
+                        THEN vocabulary_unknown_terms.occurrences
+                        ELSE vocabulary_unknown_terms.occurrences + 1
+                    END,
+                    last_seen = CASE
+                        WHEN vocabulary_unknown_terms.status = 'rejected'
+                        THEN vocabulary_unknown_terms.last_seen
+                        ELSE NOW()
+                    END,
+                    example_content_id = COALESCE(
+                        vocabulary_unknown_terms.example_content_id,
+                        EXCLUDED.example_content_id
+                    )
+                """,
+                {"dimension": dimension, "term": term, "example_content_id": example_content_id},
+            )
+            conn.commit()
+
+    def get_unknown_terms(
+        self, status: str | None = "pending", dimension: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Queue rows, ranked by occurrences descending. status=None returns all."""
+        clauses = []
+        params: dict[str, Any] = {}
+        if status:
+            clauses.append("status = %(status)s")
+            params["status"] = status
+        if dimension:
+            clauses.append("dimension = %(dimension)s")
+            params["dimension"] = dimension
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_clause = ""
+        if limit:
+            limit_clause = "LIMIT %(limit)s"
+            params["limit"] = limit
+
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                f"""
+                SELECT dimension, term, occurrences, first_seen, last_seen,
+                       example_content_id, status, resolved_to, resolved_by, resolved_at
+                FROM vocabulary_unknown_terms
+                {where}
+                ORDER BY occurrences DESC, dimension, term
+                {limit_clause}
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+    def resolve_unknown_term(
+        self,
+        dimension: str,
+        term: str,
+        action: str,
+        resolved_to: str | None,
+        resolved_by: str,
+    ) -> dict[str, Any] | None:
+        """Record an admin decision. Staged only — nothing about analysis changes
+        until a regenerated vocabulary.yaml is committed and deployed.
+        """
+        status = {"alias": "aliased", "promote": "promoted", "reject": "rejected"}.get(action)
+        if not status:
+            raise ValueError(f"unknown vocabulary action: {action}")
+
+        with self._pool.connection() as conn:
+            cur = conn.execute(
+                """
+                UPDATE vocabulary_unknown_terms
+                SET status = %(status)s,
+                    resolved_to = %(resolved_to)s,
+                    resolved_by = %(resolved_by)s,
+                    resolved_at = NOW()
+                WHERE dimension = %(dimension)s AND term = %(term)s
+                RETURNING dimension, term, occurrences, first_seen, last_seen,
+                          example_content_id, status, resolved_to, resolved_by, resolved_at
+                """,
+                {
+                    "status": status,
+                    "resolved_to": resolved_to if status == "aliased" else None,
+                    "resolved_by": resolved_by,
+                    "dimension": dimension,
+                    "term": term,
+                },
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row
 
     def update_content_entity_card(
         self, content_id: str,

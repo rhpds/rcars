@@ -15,6 +15,48 @@ from rcars.db import Database
 
 log = structlog.get_logger()
 
+def _vocabulary_product_hint() -> str:
+    """Product naming guidance for workload/config prompts."""
+    try:
+        from rcars.services.vocabulary import load_vocabulary
+        names = load_vocabulary().canonical_names("products")
+        return (
+            "\n\nWhen naming products, prefer names from this list: "
+            + "; ".join(names)
+            + "\nOnly use a name not on this list if nothing matches."
+        )
+    except Exception:
+        log.warning("vocabulary_product_hint_failed", component="workload_scan", exc_info=True)
+        return ""
+
+
+def _normalize_products(products: list, role_name: str = "") -> list[str]:
+    """Snap product names to vocabulary canonical forms."""
+    try:
+        from rcars.services.vocabulary.loader import load_vocabulary
+        from rcars.services.vocabulary.normalize import snap_term
+        vocab = load_vocabulary()
+        out: list[str] = []
+        changed: list[str] = []
+        for p in products:
+            original = str(p)
+            snapped, matched = snap_term(vocab, "products", original)
+            if snapped not in out:
+                out.append(snapped)
+            if matched and snapped != original:
+                changed.append(f"{original} -> {snapped}")
+        if changed:
+            log.info("vocabulary_normalized_products", component="workload_scan",
+                     role=role_name, normalized=changed, count=len(changed))
+        elif out:
+            log.info("vocabulary_products_canonical", component="workload_scan",
+                     role=role_name, products=out)
+        return out
+    except Exception:
+        log.warning("vocabulary_normalize_products_failed", component="workload_scan", exc_info=True)
+        return list(products)
+
+
 AGDV2_COLLECTIONS = [
     {"name": "agnosticd.core_workloads", "url": "https://github.com/rhpds/core_workloads.git"},
     {"name": "agnosticd.ai_workloads", "url": "https://github.com/rhpds/ai_workloads.git"},
@@ -136,7 +178,7 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT)
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         input_tokens = llm_result.input_tokens
         output_tokens = llm_result.output_tokens
@@ -157,12 +199,16 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = [result["product_name"]] if result.get("product_name") else []
+        result["products"] = _normalize_products(raw_products, role_name=role_name)
 
         if result.get("product_name"):
             emb_text = build_infrastructure_embedding_text({
                 "role_name": role_name,
                 "description": result.get("description"),
-                "products": result.get("products", [result["product_name"]]),
+                "products": result["products"],
                 "capabilities": result.get("capabilities", []),
                 "category": result.get("category"),
             })
@@ -363,7 +409,7 @@ def analyze_config(
         from rcars.config import call_llm
         llm_result = call_llm(settings, model=model,
                               messages=[{"role": "user", "content": user_message}],
-                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT)
+                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         if db is not None:
             db.log_token_usage(
@@ -379,10 +425,14 @@ def analyze_config(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = []
+        result["products"] = _normalize_products(raw_products, role_name=config_name)
         emb_text = build_infrastructure_embedding_text({
             "role_name": config_name,
             "description": result.get("description"),
-            "products": result.get("products", []),
+            "products": result["products"],
             "capabilities": result.get("capabilities", []),
             "category": result.get("category"),
         })

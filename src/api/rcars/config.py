@@ -93,6 +93,12 @@ class Settings(BaseSettings):
     oauth_client_secret: str = ""
     performance_public: bool = True
 
+    # Controlled vocabulary (RHDPCD-507)
+    # Empty → the file packaged in rcars/data/vocabulary.yaml. Ansible mounts a
+    # ConfigMap at /opt/app-root/config/vocabulary.yaml and sets this so ops can
+    # patch terms without an image rebuild. A change needs a rolling restart.
+    vocabulary_path: str = ""
+
     # Content overlap
     overlap_min_products: int = 1
     overlap_min_topics: int = 2

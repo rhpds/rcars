@@ -58,6 +58,7 @@ spec:
         component: api
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -162,6 +163,8 @@ spec:
               value: ""
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
+            - name: RCARS_VOCABULARY_PATH
+              value: /opt/app-root/config/vocabulary.yaml
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -181,6 +184,10 @@ spec:
               mountPath: /tmp
             - name: service-ca
               mountPath: /etc/rcars/tls
+              readOnly: true
+            - name: vocabulary
+              mountPath: /opt/app-root/config/vocabulary.yaml
+              subPath: vocabulary.yaml
               readOnly: true
           livenessProbe:
             httpGet:
@@ -227,6 +234,9 @@ spec:
         - name: service-ca
           configMap:
             name: {{ app_name }}-service-ca
+        - name: vocabulary
+          configMap:
+            name: {{ app_name }}-vocabulary
 ---
 # ── Scan Worker Deployment (analysis, catalog refresh, stale checks) ──
 apiVersion: apps/v1
@@ -252,6 +262,7 @@ spec:
         component: scan-worker
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -327,6 +338,8 @@ spec:
 {% endif %}
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"
+            - name: RCARS_VOCABULARY_PATH
+              value: /opt/app-root/config/vocabulary.yaml
           volumeMounts:
 {% if babylon_kubeconfig_content is defined %}
             - name: babylon-kubeconfig
@@ -346,6 +359,10 @@ spec:
               mountPath: /tmp
             - name: service-ca
               mountPath: /etc/rcars/tls
+              readOnly: true
+            - name: vocabulary
+              mountPath: /opt/app-root/config/vocabulary.yaml
+              subPath: vocabulary.yaml
               readOnly: true
           livenessProbe:
             exec:
@@ -390,6 +407,9 @@ spec:
         - name: service-ca
           configMap:
             name: {{ app_name }}-service-ca
+        - name: vocabulary
+          configMap:
+            name: {{ app_name }}-vocabulary
 ---
 # ── Recommend Worker Deployment (advisor queries, separate from scan to avoid starvation) ──
 apiVersion: apps/v1
@@ -415,6 +435,7 @@ spec:
         component: recommend-worker
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -475,6 +496,8 @@ spec:
               value: "{{ admin_emails | join(',') }}"
             - name: RCARS_PERFORMANCE_PUBLIC
               value: "{{ performance_public | default(true) | lower }}"
+            - name: RCARS_VOCABULARY_PATH
+              value: /opt/app-root/config/vocabulary.yaml
           volumeMounts:
 {% if vertex_enabled | default(false) %}
             - name: vertex-credentials
@@ -486,6 +509,10 @@ spec:
               mountPath: /tmp
             - name: service-ca
               mountPath: /etc/rcars/tls
+              readOnly: true
+            - name: vocabulary
+              mountPath: /opt/app-root/config/vocabulary.yaml
+              subPath: vocabulary.yaml
               readOnly: true
           livenessProbe:
             exec:
@@ -522,6 +549,9 @@ spec:
         - name: service-ca
           configMap:
             name: {{ app_name }}-service-ca
+        - name: vocabulary
+          configMap:
+            name: {{ app_name }}-vocabulary
 ---
 # ── Embedding Server Service (internal — used by API and workers) ──
 apiVersion: v1

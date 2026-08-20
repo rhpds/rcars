@@ -185,6 +185,7 @@ def scan(max_analyze: int | None):
             db=db,
             content_path=item.get("content_path"),
             keywords=item.get("keywords") or [],
+            entity_content_type=item.get("content_type") or "lab",
         )
 
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
@@ -207,6 +208,7 @@ def scan(max_analyze: int | None):
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
                         "audience_json": analysis.get("audience"),
+                        "recommender_audience_json": analysis.get("recommender_audience"),
                         "topics_json": analysis.get("topics"),
                         "modules_json": analysis.get("modules"),
                         "learning_objectives_json": analysis.get("learning_objectives"),
@@ -237,6 +239,7 @@ def scan(max_analyze: int | None):
                         "summary": analysis.get("summary"),
                         "products_json": analysis.get("products"),
                         "audience_json": analysis.get("audience"),
+                        "recommender_audience_json": analysis.get("recommender_audience"),
                         "topics_json": analysis.get("topics"),
                         "modules_json": analysis.get("modules"),
                         "learning_objectives_json": analysis.get("learning_objectives"),
@@ -669,3 +672,90 @@ def serve(host: str, port: int, reload: bool, workers: int):
         reload=reload,
         workers=workers,
     )
+
+
+@cli.group(name="vocab")
+def vocab_group():
+    """Controlled vocabulary — review queue and re-scan staging."""
+
+
+@vocab_group.command("unknowns")
+@click.option("--status", default="pending", show_default=True,
+              help="Filter by status: pending, aliased, promoted, rejected, or 'all'")
+@click.option("--dimension", default=None, help="Filter by dimension")
+@click.option("--limit", type=int, default=50, show_default=True, help="Max rows to print")
+def vocab_unknowns(status: str, dimension: str | None, limit: int):
+    """List terms the normalizer could not match, ranked by occurrences."""
+    db = get_db()
+    try:
+        rows = db.get_unknown_terms(
+            status=None if status == "all" else status, dimension=dimension, limit=limit
+        )
+    finally:
+        db.close()
+
+    if not rows:
+        _print("No unknown terms.")
+        return
+
+    _print(f"{len(rows)} unknown term(s):")
+    _print(f"{'DIMENSION':<12} {'COUNT':>6}  {'STATUS':<10} {'TERM':<40} EXAMPLE")
+    for row in rows:
+        _print(
+            f"{row['dimension']:<12} {row['occurrences']:>6}  {row['status']:<10} "
+            f"{row['term'][:40]:<40} {row.get('example_content_id') or ''}"
+        )
+
+
+@vocab_group.command("stage-rescan")
+@click.option("--execute", is_flag=True, default=False,
+              help="Actually stage the re-scan. Without this, only report the cost.")
+def vocab_stage_rescan(execute: bool):
+    """Stage the one-off Babylon re-scan that applies normalization corpus-wide.
+
+    Marks every analyzed Babylon lab/demo stale and clears its content_hash, so
+    `rcars scan` re-analyzes each DISTINCT showroom once. Clearing the hash
+    matters: find_donor_by_content_hash would otherwise hand back the old,
+    un-normalized analysis and the whole re-scan would be a no-op.
+
+    Sibling propagation means the cost is one analysis per distinct showroom
+    (same URL + resolved SHA), not per catalog item.
+    """
+    db = get_db()
+    try:
+        with db.pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT COUNT(*) AS items,
+                       COUNT(DISTINCT (COALESCE(bi.showroom_url_override, bi.showroom_url),
+                                       COALESCE(bi.showroom_ref, ''))) AS showrooms
+                FROM showroom_analysis sa
+                JOIN content_entities ce ON ce.content_id = sa.content_id
+                JOIN babylon_items bi ON bi.content_id = sa.content_id
+                WHERE ce.retired_at IS NULL AND ce.content_type IN ('lab', 'demo')
+            """)
+            counts = cur.fetchone()
+
+        _print(f"Analyzed Babylon items:     {counts['items']}")
+        _print(f"Distinct showrooms (url+ref): {counts['showrooms']}  <- LLM calls")
+
+        if not execute:
+            _print("")
+            _print("Dry run. Re-run with --execute to stage, then run: rcars scan")
+            return
+
+        with db.pool.connection() as conn:
+            cur = conn.execute("""
+                UPDATE showroom_analysis sa
+                SET is_stale = TRUE, content_hash = NULL
+                FROM content_entities ce
+                JOIN babylon_items bi ON bi.content_id = ce.content_id
+                WHERE ce.content_id = sa.content_id
+                  AND ce.retired_at IS NULL
+                  AND ce.content_type IN ('lab', 'demo')
+            """)
+            staged = cur.rowcount
+            conn.commit()
+
+        _print(f"Staged {staged} item(s) for re-analysis. Now run: rcars scan")
+    finally:
+        db.close()
