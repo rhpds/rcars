@@ -114,6 +114,7 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
         for i, item in enumerate(items, 1):
             workloads = item.pop("_workloads", [])
             acl_groups = item.pop("_acl_groups", [])
+            item.pop("_base_ci_names", None)
             content_id = wctx.db.upsert_babylon_catalog_item(item)
             current_content_ids.add(content_id)
             wctx.db.sync_workloads(content_id, workloads)
@@ -375,9 +376,13 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
                 wctx.db, force=False,
             )
             scanned = config_result.get("configs_scanned", 0)
+            if config_result.get("status") == "unchanged":
+                config_msg = "Step 4 (config) complete: AgnosticD v2 configs repo unchanged (no new commits)"
+            else:
+                config_msg = f"Step 4 (config) complete: {scanned} configs scanned"
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:config_scan", status="complete",
-                                   message=f"Step 4 (config) complete: {scanned} configs scanned")
+                                   message=config_msg)
             log.info("pipeline_config_scan_complete", action="pipeline_step_complete",
                      step="config_scan", **config_result)
         except Exception as e:

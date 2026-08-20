@@ -354,13 +354,43 @@ def extract_infrastructure_metadata(
     return result
 
 
-def _apply_component_inheritance(items: list[dict]) -> None:
-    """Link published↔base, inherit showroom URLs, merge workloads up the chain.
+_INFRA_INHERIT_FIELDS = (
+    "is_agd_v2", "agd_config", "cloud_provider", "ocp_version",
+    "os_image", "worker_instance_count", "control_plane_instance_count",
+    "instances_json",
+)
 
-    Mutates items in place. Walks base_ci_name chains up to 2 hops
-    and collects the union of all workloads (deduped by fqcn).
+
+def _collect_bases(item: dict, items_by_name: dict, max_depth: int = 2) -> list[dict]:
+    """Collect all base items reachable from an item's _base_ci_names chains."""
+    bases = []
+    seen = {item["ci_name"]}
+    starting_names = item.get("_base_ci_names") or ([item["base_ci_name"]] if item.get("base_ci_name") else [])
+    queue = [(name, 0) for name in starting_names if name in items_by_name]
+    while queue:
+        name, depth = queue.pop(0)
+        if name in seen:
+            continue
+        seen.add(name)
+        base = items_by_name[name]
+        bases.append(base)
+        if depth < max_depth:
+            child_names = base.get("_base_ci_names") or ([base["base_ci_name"]] if base.get("base_ci_name") else [])
+            for cn in child_names:
+                if cn not in seen and cn in items_by_name:
+                    queue.append((cn, depth + 1))
+    return bases
+
+
+def _apply_component_inheritance(items: list[dict]) -> None:
+    """Link published↔base, inherit showroom URLs, infra metadata,
+    and workloads from all base components (up to 2 hops deep).
+
+    Mutates items in place.
     """
     items_by_name = {i["ci_name"]: i for i in items}
+
+    # First: set published_ci_name and inherit showroom URL from direct base
     for item in items:
         if item.get("base_ci_name") and item["base_ci_name"] in items_by_name:
             base = items_by_name[item["base_ci_name"]]
@@ -370,18 +400,36 @@ def _apply_component_inheritance(items: list[dict]) -> None:
                 item["showroom_url"] = base["showroom_url"]
                 item["showroom_ref"] = base.get("showroom_ref")
 
+    # Second: inherit infra metadata and workloads from all reachable bases
     for item in items:
         if not item.get("base_ci_name"):
             continue
+        bases = _collect_bases(item, items_by_name)
+        if not bases:
+            continue
+
+        # Infra fields: collect unique values across all bases, join if multiple
+        for field in _INFRA_INHERIT_FIELDS:
+            if item.get(field):
+                continue
+            values = []
+            for base in bases:
+                v = base.get(field)
+                if v is not None and v not in values:
+                    values.append(v)
+            if values:
+                if field == "is_agd_v2":
+                    item[field] = True
+                elif len(values) == 1:
+                    item[field] = values[0]
+                else:
+                    item[field] = ", ".join(str(v) for v in values)
+
+        # Workloads: union across all bases
         seen_fqcns = {w["fqcn"] for w in item.get("_workloads", [])}
         merged = list(item.get("_workloads", []))
-        ci = item
-        for _depth in range(2):
-            base_name = ci.get("base_ci_name")
-            if not base_name or base_name not in items_by_name:
-                break
-            ci = items_by_name[base_name]
-            for w in ci.get("_workloads", []):
+        for base in bases:
+            for w in base.get("_workloads", []):
                 if w["fqcn"] not in seen_fqcns:
                     seen_fqcns.add(w["fqcn"])
                     merged.append(w)
@@ -503,6 +551,9 @@ class CatalogReader:
                     item["base_ci_name"] = component_item_to_ci_name(
                         base_refs[0], stage
                     )
+                    item["_base_ci_names"] = [
+                        component_item_to_ci_name(r, stage) for r in base_refs
+                    ]
 
                 items.append(item)
 
