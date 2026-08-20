@@ -47,6 +47,9 @@ def _normalize_products(products: list, role_name: str = "") -> list[str]:
         if changed:
             log.info("vocabulary_normalized_products", component="workload_scan",
                      role=role_name, normalized=changed, count=len(changed))
+        elif out:
+            log.info("vocabulary_products_canonical", component="workload_scan",
+                     role=role_name, products=out)
         return out
     except Exception:
         return list(products)
