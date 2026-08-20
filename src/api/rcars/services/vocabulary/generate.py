@@ -8,12 +8,14 @@ database a second, divergent source of truth.
 
 from __future__ import annotations
 
-from importlib.resources import files as _pkg_files
+import logging
 from typing import Any
 
 import yaml
 
 from rcars.services.vocabulary.models import DIMENSIONS, Vocabulary
+
+log = logging.getLogger(__name__)
 
 _GENERATED_BANNER = (
     "# ─────────────────────────────────────────────────────────────────────────\n"
@@ -24,8 +26,10 @@ _GENERATED_BANNER = (
 
 
 def _header_comment() -> str:
-    """Preserve the packaged file's leading comment block."""
-    path = _pkg_files("rcars.data").joinpath("vocabulary.yaml")
+    """Preserve the active vocabulary file's leading comment block."""
+    from rcars.services.vocabulary.loader import _resolve_path
+
+    path = _resolve_path()
     lines: list[str] = []
     for line in path.read_text().splitlines():
         if line.startswith("#") or not line.strip():
@@ -69,11 +73,18 @@ def generate_vocabulary_yaml(vocab: Vocabulary, decisions: list[dict[str, Any]])
 
         if status == "aliased":
             target = decision.get("resolved_to")
+            if not target:
+                log.warning("vocabulary generate: aliased decision for '%s' has empty resolved_to", term)
+                continue
+            matched = False
             for entry in data[dimension]:
                 if entry["name"] == target:
                     if term not in entry["aliases"]:
                         entry["aliases"].append(term)
+                    matched = True
                     break
+            if not matched:
+                log.warning("vocabulary generate: aliased target '%s' not found in %s for term '%s'", target, dimension, term)
         elif status == "promoted":
             if not any(e["name"] == term for e in data[dimension]):
                 data[dimension].append({"name": term, "aliases": []})

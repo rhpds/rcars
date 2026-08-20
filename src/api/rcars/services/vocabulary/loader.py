@@ -76,7 +76,15 @@ def _build_lookups(
     """
     canonicals = {e.name.casefold(): e.name for e in entries}
     exact: dict[str, str] = dict(canonicals)
-    squash: dict[str, str] = {squash_key(e.name): e.name for e in entries}
+    squash: dict[str, str] = {}
+    for e in entries:
+        sq = squash_key(e.name)
+        existing = squash.get(sq)
+        if existing and existing != e.name:
+            raise VocabularyError(
+                f"{dimension}: canonical '{e.name}' squash-collides with '{existing}'"
+            )
+        squash[sq] = e.name
 
     for entry in entries:
         for alias in entry.aliases:
@@ -93,7 +101,14 @@ def _build_lookups(
                     f"{dimension}: alias '{alias}' maps to both '{existing}' and '{entry.name}'"
                 )
             exact[key] = entry.name
-            squash.setdefault(squash_key(alias), entry.name)
+            sq = squash_key(alias)
+            existing_sq = squash.get(sq)
+            if existing_sq and existing_sq != entry.name:
+                raise VocabularyError(
+                    f"{dimension}: alias '{alias}' on '{entry.name}' squash-collides with "
+                    f"existing owner '{existing_sq}'"
+                )
+            squash[sq] = entry.name
 
     return exact, squash
 

@@ -44,17 +44,24 @@ def render_vocabulary_block(vocab: Vocabulary, content_type: str) -> str:
     lines = [
         "### Product Naming",
         "",
-        "When naming Red Hat products, prefer a name from this list where one "
-        "fits. Only coin a new name when nothing here matches what the content "
-        "actually covers.",
+        ("When naming Red Hat products, prefer a name from this list where one "
+         "fits. Only coin a new name when nothing here matches what the content "
+         "actually covers."),
         "",
         "; ".join(products),
         "",
         "### Learning Objective Phrasing",
         "",
-        f"Write each learning objective around a concrete, observable action "
-        f"such as {valid}.",
     ]
+    if valid:
+        lines.append(
+            "Write each learning objective around a concrete, observable action "
+            f"such as {valid}."
+        )
+    else:
+        lines.append(
+            "Write each learning objective around a concrete, observable action."
+        )
     if rejected:
         lines.append(f"Avoid vague framings like {rejected}.")
 

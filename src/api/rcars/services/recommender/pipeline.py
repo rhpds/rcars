@@ -38,7 +38,8 @@ def _build_expansion_map() -> dict[str, str]:
     for entry in load_vocabulary().entries("products"):
         extras = " ".join(entry.search_terms)
         target = f"{entry.name} {extras}".strip() if extras else entry.name
-        for term in (entry.name, *entry.aliases, *entry.search_terms):
+        expansion.setdefault(entry.name, entry.name)
+        for term in (*entry.aliases, *entry.search_terms):
             expansion.setdefault(term, target)
     return expansion
 

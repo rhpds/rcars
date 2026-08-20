@@ -58,6 +58,7 @@ spec:
         component: api
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -261,6 +262,7 @@ spec:
         component: scan-worker
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -433,6 +435,7 @@ spec:
         component: recommend-worker
       annotations:
         checksum/secrets: "{{ (pg_password | default('') + litemaas_api_key | default('') + rcars_proxy_verification_secret | default('')) | hash('sha256') }}"
+        checksum/vocabulary: "{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | hash('sha256') }}"
     spec:
       securityContext:
         runAsNonRoot: true

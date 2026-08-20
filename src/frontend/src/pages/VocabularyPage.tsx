@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, type UnknownTerm, type VocabularyData } from '../services/api'
 
-const DIMENSIONS = ['products', 'solutions', 'verticals', 'platforms', 'difficulty']
-
 export function VocabularyPage() {
   const [vocab, setVocab] = useState<VocabularyData | null>(null)
   const [terms, setTerms] = useState<UnknownTerm[]>([])
@@ -88,6 +86,7 @@ export function VocabularyPage() {
                       <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                         <select
                           className="filter-select"
+                          aria-label={`Alias target for ${t.term}`}
                           style={{ width: 'auto', maxWidth: '220px' }}
                           value={aliasTargets[key] ?? ''}
                           onChange={e => setAliasTargets(prev => ({ ...prev, [key]: e.target.value }))}
@@ -149,7 +148,7 @@ export function VocabularyPage() {
         </p>
 
         <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
-          {DIMENSIONS.map(d => (
+          {Object.keys(vocab?.dimensions ?? {}).map(d => (
             <button
               key={d}
               className={`action-btn${openDimension === d ? ' action-btn--primary' : ''}`}

@@ -356,7 +356,7 @@ export const api = {
       `/admin/vocabulary/unknowns/${encodeURIComponent(dimension)}/${encodeURIComponent(term)}`,
       { method: 'PUT', body: JSON.stringify({ action, resolved_to: resolvedTo ?? null }) },
     ),
-  vocabularyGenerateUrl: () => '/api/v1/admin/vocabulary/generate',
+  vocabularyGenerateUrl: () => `${BASE}/admin/vocabulary/generate`,
 };
 
 export interface RetirementWorkflow {

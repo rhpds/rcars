@@ -8,8 +8,13 @@ import pytest
 
 from rcars.services.vocabulary import (
     DIMENSIONS,
+    VOCABULARY_SENTINEL,
     VocabularyError,
+    dedup_topics,
     load_vocabulary,
+    normalize_analysis,
+    render_vocabulary_block,
+    snap_term,
     squash_key,
 )
 
@@ -201,7 +206,6 @@ class TestValidation:
         assert "mystery_section" in caplog.text
 
 
-from rcars.services.vocabulary import dedup_topics, normalize_analysis, snap_term
 
 
 class TestMatchLadder:
@@ -368,7 +372,6 @@ class TestIgnoredTermsSuppression:
         assert db.calls == [("products", "Wombat")]
 
 
-from rcars.services.vocabulary import VOCABULARY_SENTINEL, render_vocabulary_block
 
 
 class TestRenderVocabularyBlock:

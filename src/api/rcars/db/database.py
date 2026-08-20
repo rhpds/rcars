@@ -568,6 +568,7 @@ class Database:
             "api_keys", "role_assignments",
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "infrastructure",
+            "vocabulary_unknown_terms",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -1089,7 +1090,8 @@ class Database:
             conn.commit()
 
     def get_unknown_terms(
-        self, status: str | None = "pending", dimension: str | None = None
+        self, status: str | None = "pending", dimension: str | None = None,
+        limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """Queue rows, ranked by occurrences descending. status=None returns all."""
         clauses = []
@@ -1101,6 +1103,10 @@ class Database:
             clauses.append("dimension = %(dimension)s")
             params["dimension"] = dimension
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_clause = ""
+        if limit:
+            limit_clause = "LIMIT %(limit)s"
+            params["limit"] = limit
 
         with self._pool.connection() as conn:
             cur = conn.execute(
@@ -1110,6 +1116,7 @@ class Database:
                 FROM vocabulary_unknown_terms
                 {where}
                 ORDER BY occurrences DESC, dimension, term
+                {limit_clause}
                 """,
                 params,
             )

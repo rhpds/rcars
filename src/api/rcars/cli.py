@@ -689,7 +689,7 @@ def vocab_unknowns(status: str, dimension: str | None, limit: int):
     db = get_db()
     try:
         rows = db.get_unknown_terms(
-            status=None if status == "all" else status, dimension=dimension
+            status=None if status == "all" else status, dimension=dimension, limit=limit
         )
     finally:
         db.close()
@@ -698,9 +698,9 @@ def vocab_unknowns(status: str, dimension: str | None, limit: int):
         _print("No unknown terms.")
         return
 
-    _print(f"{len(rows)} unknown term(s), showing up to {limit}:")
+    _print(f"{len(rows)} unknown term(s):")
     _print(f"{'DIMENSION':<12} {'COUNT':>6}  {'STATUS':<10} {'TERM':<40} EXAMPLE")
-    for row in rows[:limit]:
+    for row in rows:
         _print(
             f"{row['dimension']:<12} {row['occurrences']:>6}  {row['status']:<10} "
             f"{row['term'][:40]:<40} {row.get('example_content_id') or ''}"
@@ -748,6 +748,7 @@ def vocab_stage_rescan(execute: bool):
                 UPDATE showroom_analysis sa
                 SET is_stale = TRUE, content_hash = NULL
                 FROM content_entities ce
+                JOIN babylon_items bi ON bi.content_id = ce.content_id
                 WHERE ce.content_id = sa.content_id
                   AND ce.retired_at IS NULL
                   AND ce.content_type IN ('lab', 'demo')

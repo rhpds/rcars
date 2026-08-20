@@ -26,6 +26,7 @@ def _vocabulary_product_hint() -> str:
             + "\nOnly use a name not on this list if nothing matches."
         )
     except Exception:
+        log.warning("vocabulary_product_hint_failed", component="workload_scan", exc_info=True)
         return ""
 
 
@@ -52,6 +53,7 @@ def _normalize_products(products: list, role_name: str = "") -> list[str]:
                      role=role_name, products=out)
         return out
     except Exception:
+        log.warning("vocabulary_normalize_products_failed", component="workload_scan", exc_info=True)
         return list(products)
 
 
@@ -197,10 +199,10 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
-        result["products"] = _normalize_products(
-            result.get("products", [result["product_name"]] if result.get("product_name") else []),
-            role_name=role_name,
-        )
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = [result["product_name"]] if result.get("product_name") else []
+        result["products"] = _normalize_products(raw_products, role_name=role_name)
 
         if result.get("product_name"):
             emb_text = build_infrastructure_embedding_text({
@@ -423,7 +425,10 @@ def analyze_config(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
-        result["products"] = _normalize_products(result.get("products", []), role_name=config_name)
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = []
+        result["products"] = _normalize_products(raw_products, role_name=config_name)
         emb_text = build_infrastructure_embedding_text({
             "role_name": config_name,
             "description": result.get("description"),

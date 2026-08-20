@@ -23,8 +23,6 @@ def _sanitize_format_suitability(data: dict | None) -> dict | None:
 
 def _propagate_to_sibling(db, sib_content_id: str, sib_content_type: str, analysis_data: dict, result: dict) -> None:
     """Propagate analysis + embeddings to a single sibling CI."""
-    logger.info("propagated_to_sibling", component="worker",
-                source=analysis_data.get("content_id"), target=sib_content_id)
     sib_data = dict(analysis_data)
     sib_data["content_id"] = sib_content_id
     db.upsert_showroom_analysis(sib_data)
@@ -42,6 +40,8 @@ def _propagate_to_sibling(db, sib_content_id: str, sib_content_type: str, analys
         module_embeddings=result.get("module_embeddings"),
     )
     db.set_scan_status(sib_content_id, "success")
+    logger.info("propagated_to_sibling", component="worker",
+                source=analysis_data.get("content_id"), target=sib_content_id)
 
 
 async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None, force: bool = False) -> dict:

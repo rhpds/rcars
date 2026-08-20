@@ -17,6 +17,15 @@ TEST_DB_URL = os.environ.get(
 @pytest.fixture
 def db():
     import psycopg
+    from urllib.parse import urlparse
+
+    parsed = urlparse(TEST_DB_URL)
+    db_name = parsed.path.lstrip("/")
+    if "test" not in db_name:
+        raise RuntimeError(
+            f"Refusing to run: database '{db_name}' does not contain 'test' in its name. "
+            f"Set RCARS_TEST_DATABASE_URL to a test database."
+        )
 
     with psycopg.connect(TEST_DB_URL) as conn:
         conn.autocommit = True

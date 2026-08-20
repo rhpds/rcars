@@ -13,7 +13,7 @@ WORKFLOW
 
     python tools/sync_opl_vocabulary.py \\
         --api-url https://opl-ui.apps.int.gpc.ocp-hub.prod.psi.redhat.com/api/v1 \\
-        --api-key YOUR_OPL_API_KEY \\
+        --token-file ~/.config/opl-token \\
         --output /tmp/vocabulary.yaml
 
 3. Review the diff against the current file:
@@ -361,7 +361,10 @@ def main():
         epilog=__doc__,
     )
     parser.add_argument("--api-url", required=True, help="OPL API base URL")
-    parser.add_argument("--api-key", required=True, help="OPL API bearer token")
+    parser.add_argument(
+        "--token-file", required=True,
+        help="Path to file containing OPL API bearer token (use '-' for stdin)",
+    )
     parser.add_argument(
         "--vocab",
         default=str(Path(__file__).resolve().parent.parent / "src" / "api" / "rcars" / "data" / "vocabulary.yaml"),
@@ -375,6 +378,14 @@ def main():
         if not args.quiet:
             print(msg, file=sys.stderr)
 
+    if args.token_file == "-":
+        api_key = sys.stdin.read().strip()
+    else:
+        api_key = Path(args.token_file).read_text().strip()
+    if not api_key:
+        print("Error: token file is empty", file=sys.stderr)
+        sys.exit(1)
+
     vocab_path = Path(args.vocab)
     if not vocab_path.exists():
         print(f"Error: vocabulary file not found: {vocab_path}", file=sys.stderr)
@@ -387,11 +398,12 @@ def main():
 
     # Fetch all products from OPL
     log("Fetching all products from OPL...")
-    all_products = fetch_all_products(args.api_url, args.api_key, log)
+    all_products = fetch_all_products(args.api_url, api_key, log)
     log(f"OPL total: {len(all_products)}")
 
     # Fetch detail for each, apply 3-layer filter
     opl_entries = []
+    failed_products: list[str] = []
     absorbed_names: set[str] = set(MERGE_INTO.keys())
     merge_aliases: dict[str, list[str]] = {}
 
@@ -400,31 +412,49 @@ def main():
         name = p["product_name"].strip()
         if (i + 1) % 50 == 0:
             log(f"  Fetching details... {i + 1}/{len(all_products)}")
-        try:
-            detail = fetch_product_detail(args.api_url, args.api_key, pid)
-            portfolios = {c["category_name"] for c in detail.get("portfolios", [])}
-            types = {t["product_type"] for t in detail.get("types", [])}
+        detail = None
+        for attempt in range(3):
+            try:
+                detail = fetch_product_detail(args.api_url, api_key, pid)
+                break
+            except Exception as e:
+                if attempt < 2:
+                    log(f"  Retry {attempt + 1}/2 for {name}: {e}")
+                    time.sleep(1)
+                else:
+                    log(f"  ERROR: failed to fetch detail for {name} after 3 attempts: {e}")
+                    failed_products.append(name)
+        if detail is None:
+            continue
 
-            if not should_include(name, portfolios, types):
-                continue
-            if _should_skip(name):
-                continue
+        portfolios = {c["category_name"] for c in detail.get("portfolios", [])}
+        types = {t["product_type"] for t in detail.get("types", [])}
 
-            entry = build_product_entry(detail)
+        if not should_include(name, portfolios, types):
+            continue
+        if _should_skip(name):
+            continue
 
-            # Handle merges
-            if name in MERGE_INTO:
-                target = MERGE_INTO[name]
-                merge_aliases.setdefault(target, []).append(name)
-                merge_aliases[target].extend(entry.get("aliases", []))
-                continue
+        entry = build_product_entry(detail)
 
-            opl_entries.append(entry)
-        except Exception as e:
-            log(f"  Warning: failed to fetch detail for {name}: {e}")
+        # Handle merges
+        if name in MERGE_INTO:
+            target = MERGE_INTO[name]
+            merge_aliases.setdefault(target, []).append(name)
+            merge_aliases[target].extend(entry.get("aliases", []))
+            continue
+
+        opl_entries.append(entry)
         time.sleep(0.03)
 
     log(f"OPL products after filtering: {len(opl_entries)}")
+
+    if failed_products:
+        log(f"\nERROR: {len(failed_products)} product(s) failed after retries:")
+        for name in failed_products:
+            log(f"  - {name}")
+        log("Fix the failures and re-run. Output not written.")
+        sys.exit(1)
 
     # Build merged product list: OPL first, then manual
     merged = []
@@ -478,9 +508,27 @@ def main():
 
     # Manual entries — clearly separated
     manual_added = []
+    merged_names = {e["name"] for e in merged}
     for me in MANUAL_ENTRIES:
-        if me["name"] not in {e["name"] for e in merged}:
-            merged.append(dict(me))
+        if me["name"] in merged_names:
+            for entry in merged:
+                if entry["name"] == me["name"]:
+                    for alias in me.get("aliases", []):
+                        if alias not in entry.get("aliases", []):
+                            entry.setdefault("aliases", []).append(alias)
+                    break
+        else:
+            entry = dict(me)
+            cur = current_by_name.get(me["name"])
+            if cur:
+                for alias in cur.get("aliases", []):
+                    if alias not in entry.get("aliases", []):
+                        entry.setdefault("aliases", []).append(alias)
+                if cur.get("search_terms"):
+                    entry["search_terms"] = cur["search_terms"]
+                if cur.get("is_tdp"):
+                    entry["is_tdp"] = True
+            merged.append(entry)
             manual_added.append(me["name"])
 
     # Validate before writing
