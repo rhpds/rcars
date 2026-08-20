@@ -1,3 +1,4 @@
+from rcars.services.catalog import _apply_component_inheritance
 from rcars.services.recommender.models import Candidate, QueryState
 
 
@@ -43,33 +44,9 @@ def test_imports():
 
 
 def _run_catalog_second_pass(items):
-    """Replicate the second pass from CatalogReader.refresh_catalog."""
-    items_by_name = {i["ci_name"]: i for i in items}
-    for item in items:
-        if item.get("base_ci_name") and item["base_ci_name"] in items_by_name:
-            base = items_by_name[item["base_ci_name"]]
-            if item.get("is_published"):
-                base["published_ci_name"] = item["ci_name"]
-            if not item.get("showroom_url") and base.get("showroom_url"):
-                item["showroom_url"] = base["showroom_url"]
-                item["showroom_ref"] = base.get("showroom_ref")
-    for item in items:
-        if not item.get("base_ci_name"):
-            continue
-        seen_fqcns = {w["fqcn"] for w in item.get("_workloads", [])}
-        merged = list(item.get("_workloads", []))
-        ci = item
-        for _depth in range(2):
-            base_name = ci.get("base_ci_name")
-            if not base_name or base_name not in items_by_name:
-                break
-            ci = items_by_name[base_name]
-            for w in ci.get("_workloads", []):
-                if w["fqcn"] not in seen_fqcns:
-                    seen_fqcns.add(w["fqcn"])
-                    merged.append(w)
-        item["_workloads"] = merged
-    return items_by_name
+    """Run the production second pass and return items keyed by ci_name."""
+    _apply_component_inheritance(items)
+    return {i["ci_name"]: i for i in items}
 
 
 def test_three_layer_workload_propagation():
