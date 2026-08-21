@@ -21,11 +21,12 @@ _SCAFFOLDS = {
     "performance": lambda f: (
         "No usage data found for the selected items."
         if not f.get("has_data") else
-        (f"{f['best']} had {f.get('best_provisions') or 0} provisions over the last {f.get('window') or '3m'}."
+        (f"{f['best']} had {f.get('best_provisions') or 0} provisions over the last {f.get('window') or '3m'}. "
+         f"The Score column summarizes overall performance — click it to see the full details."
          if f.get("best") and f.get("single") else
          f"The table shows usage for {f.get('item_count', 0)} items over the last {f.get('window') or '3m'}. "
          f"Provisions and unique users show reach; the Score column summarizes overall performance. "
-         f"Click Open Performance Analysis at the bottom for the full report."
+         f"Click a score to see details for that item, or Open Performance Analysis at the bottom for the full report."
     )),
     "item_facts": lambda f: (
         f"Here are the details for **{f.get('display_name', 'this item')}**"
