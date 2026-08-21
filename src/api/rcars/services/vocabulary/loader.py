@@ -40,7 +40,7 @@ def _resolve_path() -> Path:
 
 
 def _as_tuple(value: Any, field: str = "?") -> tuple[str, ...]:
-    if not value:
+    if value is None:
         return ()
     if not isinstance(value, list):
         raise VocabularyError(f"{field}: expected a list, got {type(value).__name__} {value!r}")

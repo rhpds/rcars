@@ -478,13 +478,13 @@ class TestPromptInjection:
 
 
 class TestAnalyzerNormalizesOnce:
-    def test_analysis_is_normalized_before_return(self, monkeypatch):
+    def test_analysis_is_normalized_before_return(self, monkeypatch, tmp_path):
         """analyze_showroom normalizes right after parse — not at the write sites."""
-        from pathlib import Path
-
         from rcars.services import analyzer
 
-        monkeypatch.setattr(analyzer, "clone_showroom", lambda *a, **k: Path("/tmp"))
+        clone_path = tmp_path / "clone"
+        clone_path.mkdir()
+        monkeypatch.setattr(analyzer, "clone_showroom", lambda *a, **k: clone_path)
         monkeypatch.setattr(analyzer, "get_repo_head", lambda *a, **k: ("abc123", "2026-01-01"))
         monkeypatch.setattr(
             analyzer, "read_showroom_content", lambda *a, **k: {"m1.adoc": "content"}
