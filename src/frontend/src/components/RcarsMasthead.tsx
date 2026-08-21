@@ -68,7 +68,7 @@ function HelpMenu() {
             RHDP Catalog
           </a>
           <a href="https://redhat.enterprise.slack.com/archives/C0BNJ74JA3V" target="_blank" rel="noopener noreferrer" className="rcars-help-menu-item" onClick={() => setOpen(false)}>
-            Support (#forum-dem-rcars)
+            Support (#forum-demo-rcars)
           </a>
         </div>
       )}

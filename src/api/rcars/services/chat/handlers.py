@@ -103,8 +103,9 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     with db.pool.connection() as conn:
         from psycopg.rows import dict_row
         conn.row_factory = dict_row
+        stage_clause = "AND (bi.stage IS NULL OR bi.stage = ANY(%(stages)s))" if stages else ""
         rows = conn.execute(
-            """SELECT oc.content_id_a, oc.content_id_b,
+            f"""SELECT oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.ci_name, bi.stage
                FROM overlap_candidates oc
@@ -112,10 +113,11 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                    CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
                         ELSE oc.content_id_a END
                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
-               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
+               WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
+               {stage_clause}
                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT 10""",
-            {"cid": cid},
+            {"cid": cid, "stages": stages},
         ).fetchall()
 
     neighbors = []

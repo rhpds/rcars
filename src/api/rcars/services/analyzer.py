@@ -41,7 +41,7 @@ BOILERPLATE_FILENAMES = [
 PROMPT_TEMPLATE_PATH = Path(__file__).parent.parent / "prompts" / "analyze_showroom.txt"
 
 
-def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
+def parse_analysis_response(response_text: str) -> dict[str, Any] | list | None:
     """Parse Sonnet's JSON response, handling markdown fences."""
     if not response_text or not response_text.strip():
         return None
@@ -55,7 +55,11 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | None:
         text = match.group(1).strip()
 
     try:
-        return json.loads(text)
+        parsed = json.loads(text)
+        if not isinstance(parsed, (dict, list)):
+            log.warning("parse_analysis_response: unexpected JSON type %s", type(parsed).__name__)
+            return None
+        return parsed
     except json.JSONDecodeError:
         # Try to find JSON array in the response
         bracket_start = text.find("[")
