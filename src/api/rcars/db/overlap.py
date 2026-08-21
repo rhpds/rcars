@@ -182,6 +182,7 @@ def get_overlap_items(
                 SELECT content_id_b AS item_id FROM overlap_candidates oc {where and 'WHERE ' + where.lstrip(' AND ') or ''}
             ) ids
             JOIN content_entities ce ON ce.content_id = ids.item_id
+            LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE 1=1 {search_cond}
         """
         total = conn.execute(count_sql, params).fetchone()["count"]
