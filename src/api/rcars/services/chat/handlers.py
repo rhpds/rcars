@@ -214,7 +214,7 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
                JOIN content_entities ce ON ce.content_id =
                    CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
                WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
-               ORDER BY oc.shared_products DESC LIMIT 5""",
+               ORDER BY oc.shared_products DESC, oc.shared_topics DESC LIMIT 5""",
             {"cid": item["content_id"]},
         ).fetchall()
     card["neighbors"] = [
