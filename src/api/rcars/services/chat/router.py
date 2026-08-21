@@ -176,7 +176,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
                           args={**output.args, "item_ref": f"content_id:{g['content_id']}"})
                      for g in resolved["guesses"][:5]]
             return Resolution(kind="clarify", output=output,
-                              clarify=Clarify(question=f'I couldn\'t find "{ref}". Did you mean:'),
+                              clarify=Clarify(question=f'Multiple items match "{ref}". Which did you mean:'),
                               chips=chips)
 
     # Ladder 4: confidence gate → router's own clarify question
