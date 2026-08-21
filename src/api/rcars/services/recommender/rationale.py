@@ -139,11 +139,12 @@ def _call_synthesis(
     llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=system_prompt)
 
     result = parse_analysis_response(llm_result.text)
-    if result is None:
-        log.warning("synthesis: failed to parse response")
-        result = {}
-    elif isinstance(result, list):
+    if isinstance(result, list):
         result = result[0] if result else {}
+    if not isinstance(result, dict):
+        if result is not None:
+            log.warning("synthesis: unexpected response type %s", type(result).__name__)
+        result = {}
 
     if "content_gaps" not in result:
         result["content_gaps"] = []
