@@ -210,7 +210,7 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
         stage_clause = "AND (bi_n.stage IS NULL OR bi_n.stage = ANY(%(stages)s))" if stages else ""
         n_rows = conn.execute(
             f"""SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
-                      oc.llm_assessment, ce.display_name
+                      oc.llm_assessment, ce.display_name, bi_n.stage
                FROM overlap_candidates oc
                JOIN content_entities ce ON ce.content_id =
                    CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
@@ -223,6 +223,7 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
     card["neighbors"] = [
         {"content_id": r["content_id_b"] if r["content_id_a"] == item["content_id"] else r["content_id_a"],
          "display_name": r["display_name"],
+         "stage": r["stage"],
          "verdict": (r["llm_assessment"] or {}).get("verdict")}
         for r in n_rows]
     return HandlerResult(
