@@ -72,8 +72,9 @@ export function OverlapTableBlock({ block }: OverlapTableBlockProps) {
               return (
                 <tr key={i} style={{ borderTop: i > 0 ? '1px solid var(--border-subtle)' : undefined }}>
                   <td style={{ padding: '10px 12px' }}>
-                    {n.ci_name ? (
-                      <a href={catalogUrl(n.ci_name, n.stage === 'dev' ? 'babylon-catalog-dev' : 'babylon-catalog-prod')}
+                    {n.display_name ? (
+                      <a href={'/browse?search=' + encodeURIComponent(n.display_name) +
+                               (n.stage && n.stage !== 'prod' ? '&stage=prod,' + encodeURIComponent(n.stage) : '')}
                          target="_blank" rel="noopener noreferrer"
                          style={{ color: 'var(--text-link)', textDecoration: 'none' }}>
                         {n.display_name}
