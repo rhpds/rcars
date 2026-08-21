@@ -39,10 +39,17 @@ def _resolve_path() -> Path:
     return Path(str(_pkg_files("rcars.data").joinpath("vocabulary.yaml")))
 
 
-def _as_tuple(value: Any) -> tuple[str, ...]:
+def _as_tuple(value: Any, field: str = "?") -> tuple[str, ...]:
     if not value:
         return ()
-    return tuple(str(v) for v in value)
+    if not isinstance(value, list):
+        raise VocabularyError(f"{field}: expected a list, got {type(value).__name__} {value!r}")
+    result = []
+    for v in value:
+        if not isinstance(v, str) or not v.strip():
+            raise VocabularyError(f"{field}: entries must be non-empty strings, got {v!r}")
+        result.append(v)
+    return tuple(result)
 
 
 def _parse_entries(dimension: str, raw: Any) -> tuple[VocabEntry, ...]:
@@ -58,8 +65,8 @@ def _parse_entries(dimension: str, raw: Any) -> tuple[VocabEntry, ...]:
         entries.append(
             VocabEntry(
                 name=str(item["name"]),
-                aliases=_as_tuple(item.get("aliases")),
-                search_terms=_as_tuple(item.get("search_terms")),
+                aliases=_as_tuple(item.get("aliases"), f"{dimension}[{item['name']!r}].aliases"),
+                search_terms=_as_tuple(item.get("search_terms"), f"{dimension}[{item['name']!r}].search_terms"),
                 is_tdp=bool(item.get("is_tdp", False)),
             )
         )
@@ -155,15 +162,15 @@ def load_vocabulary() -> Vocabulary:
 
     action_verbs = {
         mode: {
-            "valid": _as_tuple((lists or {}).get("valid")),
-            "rejected": _as_tuple((lists or {}).get("rejected")),
+            "valid": _as_tuple((lists or {}).get("valid"), f"action_verbs[{mode!r}].valid"),
+            "rejected": _as_tuple((lists or {}).get("rejected"), f"action_verbs[{mode!r}].rejected"),
         }
         for mode, lists in (data.get("action_verbs") or {}).items()
     }
 
     ignored_raw = data.get("ignored_terms") or {}
     ignored_originals = {
-        dimension: _as_tuple(ignored_raw.get(dimension)) for dimension in DIMENSIONS
+        dimension: _as_tuple(ignored_raw.get(dimension), f"ignored_terms[{dimension!r}]") for dimension in DIMENSIONS
     }
     ignored_terms = {
         dimension: frozenset(squash_key(t) for t in terms)
