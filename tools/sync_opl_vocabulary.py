@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -214,26 +215,49 @@ MANUAL_ENTRIES = [
 
 # ── API helpers ──
 
+_NON_ALNUM = re.compile(r"[^a-z0-9]")
+
+
+def _squash_key(value: str) -> str:
+    """Mirror of loader.squash_key — strip non-alphanumeric and casefold."""
+    return _NON_ALNUM.sub("", (value or "").casefold())
+
+
 def _validate_no_collisions(products: list[dict[str, Any]]) -> list[str]:
-    """Same collision rules as the vocabulary loader — catch problems before deploy."""
+    """Mirror loader._build_lookups collision rules — catch problems before writing output."""
     canonicals = {p["name"].casefold(): p["name"] for p in products}
-    alias_owner: dict[str, str] = {}
+    exact: dict[str, str] = dict(canonicals)
+    squash: dict[str, str] = {}
     errors: list[str] = []
+
+    for p in products:
+        sq = _squash_key(p["name"])
+        existing = squash.get(sq)
+        if existing and existing != p["name"]:
+            errors.append(f"  canonical '{p['name']}' squash-collides with '{existing}'")
+        else:
+            squash[sq] = p["name"]
+
     for p in products:
         for alias in p.get("aliases", []):
             key = alias.casefold()
             owner = canonicals.get(key)
             if owner and owner != p["name"]:
                 errors.append(
-                    f"  alias '{alias}' on '{p['name']}' collides with "
-                    f"canonical name '{owner}'"
+                    f"  alias '{alias}' on '{p['name']}' collides with canonical name '{owner}'"
                 )
-            existing = alias_owner.get(key)
+            existing = exact.get(key)
             if existing and existing != p["name"]:
+                errors.append(f"  alias '{alias}' maps to both '{existing}' and '{p['name']}'")
+            exact[key] = p["name"]
+            sq = _squash_key(alias)
+            existing_sq = squash.get(sq)
+            if existing_sq and existing_sq != p["name"]:
                 errors.append(
-                    f"  alias '{alias}' maps to both '{existing}' and '{p['name']}'"
+                    f"  alias '{alias}' on '{p['name']}' squash-collides with existing owner '{existing_sq}'"
                 )
-            alias_owner[key] = p["name"]
+            squash[sq] = p["name"]
+
     return errors
 
 
