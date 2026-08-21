@@ -8,7 +8,7 @@ import structlog
 from rcars.config import Settings, call_llm
 from rcars.db import chat_sessions
 from rcars.db.database import Database
-from rcars.services.chat.answer import compose_answer
+from rcars.services.chat.answer import build_scaffold, compose_answer
 from rcars.services.chat.evidence import build_evidence_pack
 from rcars.services.chat.models import Block, Chip, Envelope, RouterOutput
 from rcars.services.chat.registry import INTENTS, followup_chips
@@ -176,11 +176,15 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
             await on_progress({"phase": "fetching", "status": "started", "intent": output.intent})
             handler = INTENTS[output.intent].handler
             hres = await handler(res, db, settings, stages, include_zt, on_progress)
-            pack = build_evidence_pack(db, hres.anchor_ids)
             await on_progress({"phase": "composing", "status": "started"})
-            answer, ausage = await asyncio.to_thread(
-                compose_answer, output.intent, hres.scaffold_facts, pack, message,
-                settings, llm_call)
+            if output.intent in ("performance", "item_facts", "infrastructure"):
+                answer = build_scaffold(output.intent, hres.scaffold_facts)
+                ausage = None
+            else:
+                pack = build_evidence_pack(db, hres.anchor_ids)
+                answer, ausage = await asyncio.to_thread(
+                    compose_answer, output.intent, hres.scaffold_facts, pack, message,
+                    settings, llm_call)
             if ausage:
                 db.log_token_usage("chat_answer", settings.chat_answer_model,
                                    ausage["input"], ausage["output"], query_text=message,

@@ -207,25 +207,31 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
     with db.pool.connection() as conn:
         from psycopg.rows import dict_row
         conn.row_factory = dict_row
+        stage_clause = "AND (bi_n.stage IS NULL OR bi_n.stage = ANY(%(stages)s))" if stages else ""
         n_rows = conn.execute(
-            """SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
-                      oc.llm_assessment, ce.display_name
+            f"""SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
+                      oc.llm_assessment, ce.display_name, bi_n.stage
                FROM overlap_candidates oc
                JOIN content_entities ce ON ce.content_id =
                    CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
-               WHERE oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s
-               ORDER BY oc.shared_products DESC LIMIT 5""",
-            {"cid": item["content_id"]},
+               LEFT JOIN babylon_items bi_n ON bi_n.content_id = ce.content_id
+               WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
+               {stage_clause}
+               ORDER BY oc.shared_products DESC, oc.shared_topics DESC LIMIT 5""",
+            {"cid": item["content_id"], "stages": stages},
         ).fetchall()
     card["neighbors"] = [
         {"content_id": r["content_id_b"] if r["content_id_a"] == item["content_id"] else r["content_id_a"],
          "display_name": r["display_name"],
+         "stage": r["stage"],
          "verdict": (r["llm_assessment"] or {}).get("verdict")}
         for r in n_rows]
     return HandlerResult(
         blocks=[Block(type="item_card", data=card)],
         scaffold_facts={"display_name": card["display_name"], "stage": card["stage"],
-                        "products": card["products"], "neighbor_count": len(card["neighbors"])},
+                        "products": card["products"], "neighbor_count": len(card["neighbors"]),
+                        "neighbors": [{"name": n["display_name"], "verdict": n["verdict"]}
+                                      for n in card["neighbors"]]},
         anchor_ids=[item["content_id"]],
         session_results=[{"content_id": item["content_id"],
                           "display_name": card["display_name"]}])

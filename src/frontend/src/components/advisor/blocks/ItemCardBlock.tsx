@@ -7,7 +7,9 @@ interface ItemCardBlockProps {
 }
 
 interface ItemNeighbor {
+  content_id?: string
   display_name: string
+  stage?: string | null
   verdict?: string | null
 }
 
@@ -121,8 +123,17 @@ export function ItemCardBlock({ block }: ItemCardBlockProps) {
             Overlapping items
           </div>
           {neighbors.map((n, i) => (
-            <div key={i} style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '2px' }}>
-              {n.display_name}{n.verdict ? ` — ${n.verdict}` : ''}
+            <div key={i} style={{ fontSize: '12px', marginBottom: '2px' }}>
+              <a
+                href={'/browse?search=' + encodeURIComponent(n.display_name) +
+                  (n.stage && n.stage !== 'prod' ? '&stage=prod,' + encodeURIComponent(n.stage) : '')}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: 'var(--text-link)' }}
+              >
+                {n.display_name}
+              </a>
+              {n.verdict ? <span style={{ color: 'var(--text-secondary)' }}>{` — ${n.verdict}`}</span> : ''}
             </div>
           ))}
         </div>
