@@ -204,7 +204,7 @@ def analyze_role(
             raw_products = [result["product_name"]] if result.get("product_name") else []
         result["products"] = _normalize_products(raw_products, role_name=role_name)
 
-        if result.get("product_name"):
+        if result.get("products") or result.get("description"):
             emb_text = build_infrastructure_embedding_text({
                 "role_name": role_name,
                 "description": result.get("description"),
@@ -284,7 +284,7 @@ def scan_collection(
             result = analyze_role(role_name, role_path, collection_name, settings, model, db)
             scanned += 1
 
-            if result and result.get("product_name"):
+            if result:
                 fqcn = f"{collection_name}.{role_name}"
                 db.upsert_infrastructure(
                     role_name=role_name,
@@ -292,7 +292,7 @@ def scan_collection(
                     collection=collection_name,
                     type="workload",
                     description=result.get("description"),
-                    products=result.get("products", [result["product_name"]]),
+                    products=result.get("products", []),
                     capabilities=result.get("capabilities", []),
                     category=result.get("category"),
                     requires=result.get("requires", []),
@@ -305,12 +305,16 @@ def scan_collection(
                     )
                 mapped += 1
 
+        deleted = db.delete_infrastructure_absent(collection_name, "workload", set(roles))
+        if deleted:
+            rlog.info("workload_scan: removed %d stale entries", deleted)
         stats = {
             "collection": collection_name,
             "status": "scanned",
             "roles_found": len(roles),
             "roles_scanned": scanned,
             "roles_mapped": mapped,
+            "roles_deleted": deleted,
         }
         rlog.info("workload_scan: complete", **stats)
         return stats
@@ -525,7 +529,12 @@ def scan_configs(
                         result["embedding_text"], result["embedding"],
                     )
 
-        return {"status": "scanned", "configs_found": len(config_dirs), "configs_scanned": scanned}
+        deleted = db.delete_infrastructure_absent(
+            AGDV2_CONFIGS_REPO["name"], "config", {d.name for d in config_dirs}
+        )
+        if deleted:
+            rlog.info("config_scan: removed %d stale entries", deleted)
+        return {"status": "scanned", "configs_found": len(config_dirs), "configs_scanned": scanned, "configs_deleted": deleted}
 
     finally:
         shutil.rmtree(clone_path, ignore_errors=True)

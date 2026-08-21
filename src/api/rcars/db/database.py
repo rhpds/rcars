@@ -1699,6 +1699,29 @@ class Database:
                 return rows[0]["source_sha"]
             return None
 
+    def delete_infrastructure_absent(
+        self, collection: str, infra_type: str, present: set[str]
+    ) -> int:
+        """Hard-delete infrastructure rows (and their embeddings) for entries no longer in the scanned set."""
+        if not present:
+            return 0
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM embeddings WHERE content_type = 'infrastructure' AND content_id IN ("
+                    "  SELECT role_name FROM infrastructure"
+                    "  WHERE collection = %s AND type = %s AND role_name != ALL(%s)"
+                    ")",
+                    (collection, infra_type, list(present)),
+                )
+                cur.execute(
+                    "DELETE FROM infrastructure WHERE collection = %s AND type = %s AND role_name != ALL(%s)",
+                    (collection, infra_type, list(present)),
+                )
+                deleted = cur.rowcount
+            conn.commit()
+        return deleted
+
     def get_infrastructure(self, role_name: str) -> dict | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
