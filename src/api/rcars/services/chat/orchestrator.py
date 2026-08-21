@@ -177,6 +177,9 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
             handler = INTENTS[output.intent].handler
             hres = await handler(res, db, settings, stages, include_zt, on_progress)
             pack = build_evidence_pack(db, hres.anchor_ids)
+            if output.intent == "performance":
+                for item in pack:
+                    item.pop("provisions", None)
             await on_progress({"phase": "composing", "status": "started"})
             answer, ausage = await asyncio.to_thread(
                 compose_answer, output.intent, hres.scaffold_facts, pack, message,
