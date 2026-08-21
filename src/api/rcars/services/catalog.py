@@ -420,10 +420,10 @@ def _apply_component_inheritance(items: list[dict]) -> None:
             if values:
                 if field == "is_agd_v2":
                     item[field] = True
-                elif len(values) == 1:
+                elif len(values) == 1 or not isinstance(values[0], str):
                     item[field] = values[0]
                 else:
-                    item[field] = ", ".join(str(v) for v in values)
+                    item[field] = ", ".join(values)
 
         # Workloads: union across all bases
         seen_fqcns = {w["fqcn"] for w in item.get("_workloads", [])}

@@ -151,7 +151,10 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                             answer=OUT_OF_SCOPE_ANSWER,
                             blocks=[Block(type="notice", data={"kind": "out_of_scope"})])
     elif output.intent == "help":
-        topic = output.args.get("topic", "")
+        try:
+            topic = INTENTS["help"].args_model.model_validate(output.args or {}).topic
+        except Exception:
+            topic = ""
         answer = _help_answer(topic, message)
         envelope = Envelope(intent="help", scope_echo="Help",
                             answer=answer,

@@ -1270,6 +1270,21 @@ class Database:
             conn.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
             conn.commit()
 
+    def replace_embeddings(self, content_id: str, rows: list[dict]) -> None:
+        """Delete all embeddings for content_id and insert rows atomically."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
+                for r in rows:
+                    cur.execute(
+                        "INSERT INTO embeddings (content_id, content_type, source, embed_type,"
+                        " module_title, content_text, embedding) VALUES (%s,%s,%s,%s,%s,%s,%s::vector)",
+                        (r["content_id"], r["content_type"], r["source"], r["embed_type"],
+                         r.get("module_title"), r["content_text"],
+                         f"[{','.join(str(v) for v in r['embedding'])}]"),
+                    )
+            conn.commit()
+
     def store_embedding(
         self, content_id: str, content_type: str, source: str,
         embed_type: str, content_text: str,
@@ -1529,9 +1544,11 @@ class Database:
 
     def get_workload_classifications(self, content_id: str) -> list[dict]:
         sql = """
-            SELECT i.products->>0 AS product_name, i.description, i.category
+            SELECT p.product_name, i.description, i.category
             FROM babylon_item_workloads biw
             JOIN infrastructure i ON i.role_name = biw.workload_role AND i.type = 'workload'
+            LEFT JOIN LATERAL jsonb_array_elements_text(COALESCE(i.products, '[]'::jsonb))
+                AS p(product_name) ON true
             WHERE biw.content_id = %(content_id)s
         """
         with self._pool.connection() as conn:

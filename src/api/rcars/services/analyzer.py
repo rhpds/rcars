@@ -615,24 +615,18 @@ def regenerate_embeddings(
     summary_embedding: list[float],
     module_embeddings: list[dict] | None = None,
 ) -> int:
-    """Clear old embeddings and store fresh ones for a content_id.
+    """Clear old embeddings and store fresh ones for a content_id atomically.
 
     Returns the number of embeddings stored.
     """
-    db.clear_embeddings(content_id)
-    db.store_embedding(
-        content_id=content_id, content_type=content_type, source=source,
-        embed_type="summary", content_text=summary_text, embedding=summary_embedding,
-    )
-    stored = 1
+    rows = [{"content_id": content_id, "content_type": content_type, "source": source,
+             "embed_type": "summary", "content_text": summary_text, "embedding": summary_embedding}]
     for mod in module_embeddings or []:
-        db.store_embedding(
-            content_id=content_id, content_type=content_type, source=source,
-            embed_type="module", module_title=mod["module_title"],
-            content_text=mod["content_text"], embedding=mod["embedding"],
-        )
-        stored += 1
-    return stored
+        rows.append({"content_id": content_id, "content_type": content_type, "source": source,
+                     "embed_type": "module", "module_title": mod["module_title"],
+                     "content_text": mod["content_text"], "embedding": mod["embedding"]})
+    db.replace_embeddings(content_id, rows)
+    return len(rows)
 
 
 def build_infrastructure_embedding_text(row: dict[str, Any]) -> str:
