@@ -17,10 +17,6 @@ interface OverlapNeighbor {
   stage?: string
 }
 
-function catalogUrl(ciName: string, namespace: string): string {
-  const ns = namespace || 'babylon-catalog-prod'
-  return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
-}
 
 const verdictStyle = (v?: string) => {
   if (v === 'redundant') return { bg: 'var(--score-red-bg)', color: 'var(--score-red)' }
