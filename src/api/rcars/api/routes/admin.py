@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from fastapi.responses import PlainTextResponse
 from rcars.api.middleware.auth import require_admin, require_curator, invalidate_role_assignments_cache
 from rcars.api.schemas import (
     JobResponse, JobListResponse, TokenUsageResponse,
     WorkerHealthResponse, ScanProgressResponse, QueryHistoryResponse,
     ScheduleResponse, LlmProviderResponse,
     ReportingStatusResponse, RoleAssignmentsResponse, AddRoleAssignmentRequest,
+    VocabularyResponse, UnknownTermsResponse, UnknownTerm, ResolveUnknownTermRequest,
 )
 from rcars.config import Settings
 
@@ -413,3 +415,108 @@ async def delete_role_assignment(
     if not deleted:
         raise HTTPException(status_code=404, detail="Role assignment not found")
     invalidate_role_assignments_cache()
+
+
+# ── Controlled vocabulary (RHDPCD-507) ──
+
+
+@router.get(
+    "/vocabulary",
+    summary="Current controlled vocabulary",
+    response_model=VocabularyResponse,
+)
+async def get_vocabulary(user: str = Depends(require_admin)):
+    from rcars.services.vocabulary import DIMENSIONS, load_vocabulary
+
+    vocab = load_vocabulary()
+    return {
+        "dimensions": {
+            dimension: [
+                {
+                    "name": e.name,
+                    "aliases": list(e.aliases),
+                    "search_terms": list(e.search_terms),
+                    "is_tdp": e.is_tdp,
+                }
+                for e in vocab.entries(dimension)
+            ]
+            for dimension in DIMENSIONS
+        },
+        "content_modes": dict(vocab.content_modes),
+        "ignored_terms": {
+            d: list(vocab.ignored_originals.get(d, ())) for d in DIMENSIONS
+        },
+    }
+
+
+@router.get(
+    "/vocabulary/unknowns",
+    summary="Unknown-term review queue",
+    response_model=UnknownTermsResponse,
+)
+async def get_vocabulary_unknowns(
+    request: Request,
+    user: str = Depends(require_admin),
+    status: str | None = Query("pending"),
+    dimension: str | None = Query(None),
+):
+    db = request.app.state.db
+    return {"terms": db.get_unknown_terms(status=status, dimension=dimension)}
+
+
+@router.put(
+    "/vocabulary/unknowns/{dimension}/{term:path}",
+    summary="Record a decision on an unknown term",
+    response_model=UnknownTerm,
+)
+async def resolve_vocabulary_unknown(
+    dimension: str,
+    term: str,
+    body: ResolveUnknownTermRequest,
+    request: Request,
+    user: str = Depends(require_admin),
+):
+    from rcars.services.vocabulary import DIMENSIONS, load_vocabulary
+
+    if dimension not in DIMENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unknown dimension '{dimension}'")
+
+    if body.action == "alias":
+        if not body.resolved_to:
+            raise HTTPException(status_code=400, detail="alias requires resolved_to")
+        if body.resolved_to not in load_vocabulary().canonical_names(dimension):
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{body.resolved_to}' is not a canonical name in {dimension}",
+            )
+
+    db = request.app.state.db
+    row = db.resolve_unknown_term(dimension, term, body.action, body.resolved_to, user)
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No queued term '{term}' in {dimension}")
+    logger.info(
+        "vocabulary_term_resolved", component="rcars", action="resolve_vocabulary_term",
+        dimension=dimension, term=term, decision=body.action, resolved_by=user,
+    )
+    return row
+
+
+@router.get(
+    "/vocabulary/generate",
+    summary="Download a merged vocabulary.yaml",
+    response_class=PlainTextResponse,
+)
+async def generate_vocabulary(request: Request, user: str = Depends(require_admin)):
+    from rcars.services.vocabulary import generate_vocabulary_yaml, load_vocabulary
+
+    db = request.app.state.db
+    decisions = [
+        row
+        for row in db.get_unknown_terms(status=None)
+        if row.get("status") in ("aliased", "promoted", "rejected")
+    ]
+    content = generate_vocabulary_yaml(load_vocabulary(), decisions)
+    return PlainTextResponse(
+        content,
+        headers={"Content-Disposition": 'attachment; filename="vocabulary.yaml"'},
+    )

@@ -194,6 +194,21 @@ metadata:
     service.beta.openshift.io/inject-cabundle: "true"
 data: {}
 ---
+# Controlled vocabulary — RHDPCD-507
+# Rendered from the in-repo file so git stays the source of truth. Ops can
+# `oc edit configmap` for an emergency term patch, but a change needs a rolling
+# restart of api + scan-worker + recommend-worker to take effect, and the next
+# deploy resets it to the committed file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ app_name }}-vocabulary
+  labels:
+    app: {{ app_name }}
+data:
+  vocabulary.yaml: |
+{{ lookup('file', playbook_dir + '/../src/api/rcars/data/vocabulary.yaml') | indent(4, true) }}
+---
 # ServiceAccount for OAuth proxy
 apiVersion: v1
 kind: ServiceAccount

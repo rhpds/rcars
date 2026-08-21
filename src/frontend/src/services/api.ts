@@ -21,11 +21,6 @@ export const api = {
   getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
 
   // Advisor
-  submitQuery: (query: string, stages: string[] = ['prod'], includeZt = true) =>
-    request<{ job_id: string }>('/advisor/query', {
-      method: 'POST',
-      body: JSON.stringify({ query, stages, include_zt: includeZt }),
-    }),
   submitChat: (message: string, sessionId?: string | null, stages: string[] = ['prod'],
                includeZt = true, routed?: Record<string, unknown>) =>
     request<{ job_id: string; session_id: string }>('/advisor/chat', {
@@ -156,17 +151,6 @@ export const api = {
   }>('/admin/reporting-status'),
 
   // Infrastructure
-  searchInfrastructure: (params?: { workloads?: string; agd_config?: string; cloud_provider?: string; ocp_version?: string; os_image?: string; stage?: string; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.workloads) qs.set('workloads', params.workloads);
-    if (params?.agd_config) qs.set('agd_config', params.agd_config);
-    if (params?.cloud_provider) qs.set('cloud_provider', params.cloud_provider);
-    if (params?.ocp_version) qs.set('ocp_version', params.ocp_version);
-    if (params?.os_image) qs.set('os_image', params.os_image);
-    if (params?.stage) qs.set('stage', params.stage);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    return request<{ items: unknown[]; total: number }>(`/catalog/search/infrastructure?${qs}`);
-  },
   getCatalogFacets: () => request<{
     workloads: string[];
     agd_configs: string[];
@@ -175,22 +159,37 @@ export const api = {
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;
-    mapped_workloads: number; verified_workloads: number; unmapped_workloads: number;
+    infrastructure_workloads: number; infrastructure_configs: number;
   }>('/catalog/infra-stats'),
-  getWorkloadMappings: () => request<{
-    mappings: Array<{ workload_role: string; product_name: string; description: string | null; category: string | null; verified: boolean }>;
-    aliases: Array<{ product_name: string; alias: string }>;
-  }>('/catalog/workload-mappings'),
-  addWorkloadMapping: (body: { workload_role: string; product_name: string; description?: string; category?: string }) =>
-    request<{ status: string }>('/catalog/workload-mappings', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
-  deleteWorkloadMapping: (role: string) =>
-    request<{ status: string }>(`/catalog/workload-mappings/${encodeURIComponent(role)}`, { method: 'DELETE' }),
-  getUnmappedWorkloads: () => request<{
-    unmapped: Array<{ workload_role: string; workload_collection: string | null; ci_count: number }>;
-  }>('/catalog/workload-mappings/unmapped'),
+  getInfrastructureCatalog: (params?: {
+    type?: string; category?: string; collection?: string;
+    search?: string; has_mappings?: boolean; limit?: number;
+  }) => {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set('type', params.type);
+    if (params?.category) qs.set('category', params.category);
+    if (params?.collection) qs.set('collection', params.collection);
+    if (params?.search) qs.set('search', params.search);
+    if (params?.has_mappings !== undefined) qs.set('has_mappings', String(params.has_mappings));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    return request<{
+      items: Array<{
+        role_name: string; fqcn: string | null; collection: string | null;
+        type: string; description: string | null;
+        products: string[]; capabilities: string[];
+        category: string | null; requires: string[];
+        source_sha: string | null; scanned_at: string | null;
+        item_count: number;
+      }>;
+      total: number;
+    }>(`/catalog/infrastructure?${qs}`);
+  },
+  getInfrastructureItems: (roleName: string) =>
+    request<{
+      role_name: string; type: string;
+      items: Array<{ content_id: string; display_name: string; content_type: string; ci_name: string; stage: string }>;
+      total: number;
+    }>(`/catalog/infrastructure/${encodeURIComponent(roleName)}/items`),
   scanWorkloads: () => request<{ job_id: string }>('/admin/scan-workloads', { method: 'POST' }),
 
   // Content overlap
@@ -342,6 +341,22 @@ export const api = {
     }),
   deleteRoleAssignment: (id: number) =>
     request<void>(`/admin/role-assignments/${id}`, { method: 'DELETE' }),
+  getVocabulary: () => request<VocabularyData>('/admin/vocabulary'),
+  getVocabularyUnknowns: (status = 'pending') =>
+    request<{ terms: UnknownTerm[] }>(
+      `/admin/vocabulary/unknowns?status=${encodeURIComponent(status)}`
+    ),
+  resolveVocabularyTerm: (
+    dimension: string,
+    term: string,
+    action: 'alias' | 'promote' | 'reject',
+    resolvedTo?: string,
+  ) =>
+    request<UnknownTerm>(
+      `/admin/vocabulary/unknowns/${encodeURIComponent(dimension)}/${encodeURIComponent(term)}`,
+      { method: 'PUT', body: JSON.stringify({ action, resolved_to: resolvedTo ?? null }) },
+    ),
+  vocabularyGenerateUrl: () => `${BASE}/admin/vocabulary/generate`,
 };
 
 export interface RetirementWorkflow {
@@ -484,4 +499,30 @@ export interface RoleAssignment {
   source: string
   added_by: string | null
   added_at: string | null
+}
+
+export interface VocabEntry {
+  name: string
+  aliases: string[]
+  search_terms: string[]
+  is_tdp: boolean
+}
+
+export interface VocabularyData {
+  dimensions: Record<string, VocabEntry[]>
+  content_modes: Record<string, string>
+  ignored_terms: Record<string, string[]>
+}
+
+export interface UnknownTerm {
+  dimension: string
+  term: string
+  occurrences: number
+  first_seen: string | null
+  last_seen: string | null
+  example_content_id: string | null
+  status: string
+  resolved_to: string | null
+  resolved_by: string | null
+  resolved_at: string | null
 }

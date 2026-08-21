@@ -8,6 +8,7 @@ import { AdvisorPage } from './pages/AdvisorPage'
 import { BrowsePage } from './pages/BrowsePage'
 import { WorkloadsPage } from './pages/WorkloadsPage'
 import { AdminTokensPage, AdminQueriesPage, AdminRolesPage } from './pages/AdminPage'
+import { VocabularyPage } from './pages/VocabularyPage'
 import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import { NonProdItemsPage } from './pages/NonProdItemsPage'
@@ -67,6 +68,7 @@ export default function App() {
                       <Route path="/system/queries" element={<AdminQueriesPage />} />
                       <Route path="/system/api-keys" element={<ApiKeysPanel />} />
                       <Route path="/system/roles" element={<AdminRolesPage />} />
+                      <Route path="/system/vocabulary" element={<VocabularyPage />} />
                       {/* Legacy routes redirect */}
                       <Route path="/admin" element={<Navigate to="/system/status" replace />} />
                       <Route path="/admin/catalog" element={<Navigate to="/system/status" replace />} />

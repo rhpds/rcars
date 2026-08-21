@@ -223,6 +223,14 @@ def assess_overlap(
         )
         conn.commit()
 
+    with pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO token_usage (operation, model, input_tokens, output_tokens, provider)
+               VALUES (%s, %s, %s, %s, %s)""",
+            ("overlap", settings.overlap_model, result.input_tokens, result.output_tokens, result.provider),
+        )
+        conn.commit()
+
     logger.info("overlap_assessed", content_id_a=content_id_a, content_id_b=content_id_b, verdict=validated["verdict"])
     return validated, "ok"
 

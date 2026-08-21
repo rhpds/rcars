@@ -45,7 +45,7 @@ Results are still useful when stale but may not reflect recent catalog additions
 The sidebar is organized into four labeled sections:
 
 - **ADVISOR** — **New Session** starts a fresh advisor conversation. **History** shows your past sessions with saved recommendations.
-- **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads** (curator only) shows infrastructure workload mappings.
+- **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads & Automation** is the infrastructure catalog, showing all scanned workload roles and base configs with linked catalog items.
 - **ANALYSIS** (curators + performance viewers) — **Overlap** (curator only) detects duplicate content. **Performance** provides data-driven performance scoring and retirement workflow.
 - **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions. **API Keys** manages external API keys. **Access Control** manages role assignments.
 
@@ -89,6 +89,7 @@ For broad multi-track events, use a follow-up message to narrow results to a spe
 - **Topic or product** — if you already know the focus area
 - **Event context** — conference name, industry, theme, or just paste the URL
 - **Similar to existing content** — reference a lab number like *"What is similar to LB2144?"* or name an existing item like *"content similar to the Parasol Insurance workshop"*
+- **Infrastructure and automation** — ask what workloads or base configs exist, e.g. *"What workload deploys OpenShift AI?"* or *"Is there a base config that provisions RHEL VMs?"*
 
 You do not need all of these. Even a short query like *"OpenShift demos for a developer audience"* returns useful results. More context narrows the ranking.
 
@@ -222,6 +223,27 @@ Click an item to expand it. The expanded view shows:
 - **Similar Content** — if overlap detection has been run (see Content Analysis below), a panel listing other catalog items with similar Showroom content, ranked by similarity percentage. High overlap (≥85%) is shown in red; related content (75–85%) in amber. Click a similar item's name to search for it in Browse.
 
 **Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
+
+## Workloads & Automation
+
+The Workloads & Automation page (`/browse/workloads`) shows the infrastructure catalog — every workload role and base config that RCARS has scanned from the AgnosticD v2 source repositories.
+
+**Two types of entries:**
+
+- **Workload** — an Ansible role that installs a product on an existing cluster (e.g. `ocp4_workload_openshift_ai`)
+- **Config** — a base environment configuration that provisions infrastructure (e.g. `ocp4-cluster`, `cloud-vms-base`)
+
+Each entry shows the role name, description, products, capabilities, category, and how many catalog items use it. Click an entry to expand it and see the linked catalog items.
+
+**Filters:**
+
+- **Type** — show only workloads or only configs
+- **Category** — filter by product category (ai_ml, security, platform, etc.)
+- **Collection** — filter by source repository
+- **Mappings** — show only entries linked to catalog items, or only orphans
+- **Search** — text search across names, descriptions, products, and capabilities
+
+For semantic search (e.g. "what deploys OpenShift AI?"), use the Advisor chat instead — it uses vector similarity to find matches even when the wording doesn't match exactly.
 
 ## Content Analysis
 

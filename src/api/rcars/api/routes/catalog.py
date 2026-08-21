@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Query
+from fastapi import APIRouter, Depends, Request, HTTPException, Path, Query
 from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
 from rcars.api.schemas import (
     StatusResponse, JobResponse, CatalogItemResponse, CatalogStatsResponse,
-    InfraSearchResponse, FacetsResponse,
-    WorkloadMappingsResponse, UnmappedWorkloadsResponse,
+    FacetsResponse,
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
@@ -100,52 +99,6 @@ async def catalog_stats(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/search/infrastructure",
-    summary="Search by infrastructure metadata",
-    description=(
-        "Searches catalog items by infrastructure attributes: workload products, "
-        "AgnosticD config type, cloud provider, OCP version, and OS image. "
-        "Returns items with their resolved workload mappings."
-    ),
-    response_model=InfraSearchResponse,
-)
-async def search_infrastructure(
-    request: Request,
-    user: str = Depends(require_auth),
-    workloads: str | None = Query(None, description="Comma-separated product names or aliases (AND)"),
-    agd_config: str | None = Query(None, description="Config type: openshift-workloads, openshift-cluster, etc."),
-    cloud_provider: str | None = Query(None),
-    ocp_version: str | None = Query(None, description="OCP version prefix, e.g. 4.20"),
-    os_image: str | None = Query(None, description="OS image prefix, e.g. rhel-9"),
-    stage: str | None = None,
-    limit: int = Query(50, le=200),
-):
-    db = request.app.state.db
-    workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
-    items = db.search_by_infrastructure(
-        workloads=workload_list,
-        agd_config=agd_config,
-        cloud_provider=cloud_provider,
-        ocp_version=ocp_version,
-        os_image=os_image,
-        stage=stage,
-        limit=limit,
-    )
-    mappings_by_role = {m["workload_role"]: m for m in db.list_workload_mappings()}
-    for item in items:
-        raw_workloads = db.get_workloads(item["content_id"])
-        item["workloads"] = [
-            {
-                "role": w["workload_role"],
-                "product_name": mappings_by_role.get(w["workload_role"], {}).get("product_name"),
-                "mapped": w["workload_role"] in mappings_by_role,
-            }
-            for w in raw_workloads
-        ]
-    return {"items": items, "total": len(items)}
-
-
-@router.get(
     "/facets",
     summary="Get filter facets",
     description="Returns distinct values for filter dropdowns: workloads, AgnosticD configs, cloud providers, OS images.",
@@ -157,75 +110,97 @@ async def catalog_facets(request: Request, user: str = Depends(require_auth)):
 
 
 @router.get(
-    "/workload-mappings",
-    summary="List workload mappings",
-    description="Returns all workload role-to-product mappings and aliases used for infrastructure search.",
-    response_model=WorkloadMappingsResponse,
+    "/infrastructure",
+    summary="List infrastructure catalog",
+    description=(
+        "Returns the infrastructure catalog — Ansible workload roles and base configs scanned from AgnosticD v2 — "
+        "with `item_count` showing how many catalog items deploy or use each entry.\n\n"
+        "Two types of infrastructure entries:\n"
+        "- **workload** — An Ansible role that installs a product on an existing cluster "
+        "(e.g. `ocp4_workload_openshift_ai`, `ocp4_workload_acs`)\n"
+        "- **config** — A base environment config that provisions infrastructure "
+        "(e.g. `ocp4-cluster`, `cloud-vms-base`)\n\n"
+        "Use the `type` filter to list only workloads or only configs. "
+        "Use `has_mappings=true` to find entries linked to catalog items, or `false` to find orphans.\n\n"
+        "For semantic search (e.g. 'what deploys OpenShift AI?'), use `POST /advisor/chat` instead — "
+        "this endpoint only supports text-match filtering."
+    ),
 )
-async def list_workload_mappings(request: Request, user: str = Depends(require_auth)):
-    db = request.app.state.db
-    return {"mappings": db.list_workload_mappings(), "aliases": db.list_workload_aliases()}
-
-
-@router.get(
-    "/workload-mappings/unmapped",
-    summary="List unmapped workload roles",
-    description="Returns workload roles discovered in catalog items that have no product mapping yet. Curator-only.",
-    response_model=UnmappedWorkloadsResponse,
-)
-async def list_unmapped_workloads(request: Request, user: str = Depends(require_curator)):
-    db = request.app.state.db
-    return {"unmapped": db.get_unmapped_workloads()}
-
-
-class WorkloadMappingRequest(BaseModel):
-    workload_role: str = Field(max_length=200)
-    product_name: str = Field(max_length=200)
-    description: str | None = Field(default=None, max_length=500)
-    category: str | None = Field(default=None, max_length=100)
-
-
-@router.post(
-    "/workload-mappings",
-    summary="Add or update workload mapping",
-    description="Creates or updates a workload role-to-product mapping. Curator-only.",
-    response_model=StatusResponse,
-)
-async def add_workload_mapping(
-    body: WorkloadMappingRequest, request: Request, user: str = Depends(require_curator),
+async def list_infrastructure(
+    request: Request,
+    user: str = Depends(require_auth),
+    type: str | None = Query(None, description="Filter by type: 'workload' or 'config'", examples=["workload"]),
+    category: str | None = Query(None, description="Filter by category (e.g. 'ai_ml', 'security', 'platform')", examples=["ai_ml"]),
+    collection: str | None = Query(None, description="Filter by source collection (e.g. 'agnosticv_workloads')", examples=["agnosticv_workloads"]),
+    search: str | None = Query(None, description="Text search across name, description, products, and capabilities", examples=["openshift ai"]),
+    has_mappings: bool | None = Query(None, description="true = only entries linked to catalog items, false = orphans only"),
+    limit: int = Query(500, ge=1, le=1000, description="Maximum results to return"),
 ):
     db = request.app.state.db
-    db.upsert_workload_mapping(
-        workload_role=body.workload_role,
-        product_name=body.product_name,
-        description=body.description,
-        category=body.category,
-        added_by=user,
+    items = db.get_infrastructure_with_item_counts(
+        type_filter=type, category_filter=category,
+        collection_filter=collection, search=search,
+        has_mappings=has_mappings, limit=limit,
     )
-    return {"status": "ok"}
-
-
-@router.delete(
-    "/workload-mappings/{role}",
-    summary="Delete workload mapping",
-    description="Removes a workload role-to-product mapping. Admin-only.",
-    response_model=StatusResponse,
-)
-async def delete_workload_mapping(role: str, request: Request, user: str = Depends(require_admin)):
-    db = request.app.state.db
-    db.delete_workload_mapping(role)
-    return {"status": "ok"}
+    return {"items": items, "total": len(items)}
 
 
 @router.get(
     "/infra-stats",
-    summary="Infrastructure metadata coverage",
-    description="Returns statistics on infrastructure metadata coverage across the catalog.",
+    summary="Infrastructure catalog statistics",
+    description=(
+        "Returns statistics on the infrastructure catalog: total workload roles, "
+        "total base configs, category breakdown, and how many entries are linked to catalog items."
+    ),
     response_model=InfraStatsResponse,
 )
 async def infra_stats(request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     return db.get_infra_stats()
+
+
+@router.get(
+    "/infrastructure/{role_name}/items",
+    summary="Catalog items linked to an infrastructure entry",
+    description=(
+        "Returns catalog items that deploy or use the given infrastructure entry.\n\n"
+        "The `role_name` path parameter is the infrastructure entry's primary key:\n"
+        "- For **workload** entries: the Ansible role name (e.g. `ocp4_workload_openshift_ai`)\n"
+        "- For **config** entries: the config directory name (e.g. `ocp4-cluster`)\n\n"
+        "Discover valid names from `GET /catalog/infrastructure`."
+    ),
+)
+async def infrastructure_items(
+    request: Request,
+    role_name: str = Path(description="Infrastructure entry name — the Ansible role name (for workloads) or config directory name (for configs)", examples=["ocp4_workload_openshift_ai", "ocp4-cluster"]),
+    user: str = Depends(require_auth),
+):
+    db = request.app.state.db
+    infra = db.get_infrastructure(role_name)
+    if not infra:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Infrastructure entry '{role_name}' not found")
+
+    with db.pool.connection() as conn:
+        if infra["type"] == "config":
+            rows = conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE bi.agd_config = %(role_name)s
+                ORDER BY ce.display_name
+            """, {"role_name": role_name}).fetchall()
+        else:
+            rows = conn.execute("""
+                SELECT ce.content_id, ce.display_name, ce.content_type, bi.ci_name, bi.stage
+                FROM babylon_item_workloads biw
+                JOIN babylon_items bi ON bi.content_id = biw.content_id
+                JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
+                WHERE biw.workload_role = %(role_name)s
+                ORDER BY ce.display_name
+            """, {"role_name": role_name}).fetchall()
+
+    return {"role_name": role_name, "type": infra["type"], "items": rows, "total": len(rows)}
 
 
 @router.get(

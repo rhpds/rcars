@@ -5,6 +5,7 @@ import { OverlapTableBlock } from './OverlapTableBlock'
 import { PerformanceTableBlock } from './PerformanceTableBlock'
 import { ItemCardBlock } from './ItemCardBlock'
 import { NoticeBlock } from './NoticeBlock'
+import { InfraDetailBlock } from './InfraDetailBlock'
 import { UnknownBlock } from './UnknownBlock'
 
 export interface BlockProps {
@@ -19,6 +20,7 @@ const RENDERERS: Record<string, ComponentType<BlockProps>> = {
   performance_table: PerformanceTableBlock,
   item_card: ItemCardBlock,
   notice: NoticeBlock,
+  infra_detail: InfraDetailBlock,
 }
 
 export function resolveBlockRenderer(type: string): ComponentType<BlockProps> {

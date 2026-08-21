@@ -11,6 +11,7 @@ def test_registry_complete():
         if name != "out_of_scope":
             assert spec.handler is not None
             assert spec.block_types
+        if name not in ("out_of_scope", "help"):
             assert spec.followups
 
 

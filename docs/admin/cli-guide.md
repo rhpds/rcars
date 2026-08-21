@@ -184,26 +184,26 @@ rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/C
 
 ### Infrastructure Commands
 
-These commands manage the infrastructure metadata extraction system, which indexes what operators, workloads, and platform configurations each AgnosticD v2 catalog item deploys.
+These commands show statistics about the infrastructure catalog — the scanned workload roles and base configs from AgnosticD v2.
 
 #### `rcars infra stats`
 
-Shows coverage statistics for infrastructure metadata across the catalog.
+Shows coverage statistics for the infrastructure catalog.
 
 ```
-Infrastructure Metadata Stats
+Infrastructure Catalog Stats
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┓
 ┃ Metric                  ┃ Count ┃
 ┡━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━┩
-│ AgnosticD v2 items      │   188 │
-│ Items with workloads    │   173 │
-│ Mapped workload roles   │    41 │
-│ Verified workload roles │    41 │
-│ Unmapped workload roles │   125 │
+│ Total entries           │   166 │
+│ Workload roles          │   125 │
+│ Base configs            │    41 │
+│ Linked to catalog items │    89 │
+│ Orphans (no CI link)    │    77 │
 └─────────────────────────┴───────┘
 ```
 
-"Mapped" means the workload role has a curated product name. "Verified" means the mapping was confirmed by reading the actual Ansible code. Only mapped workloads are visible to Publishing House faceted queries.
+"Linked" means at least one catalog item deploys or uses this infrastructure entry. "Orphans" are entries that exist in the AgnosticD source repos but are not referenced by any current catalog item.
 
 ---
 
@@ -220,15 +220,15 @@ rcars workload sync --seed-only   # Skip roles that already exist in DB (preserv
 
 #### `rcars workload scan [--collection X] [--force]`
 
-Scans the AgnosticD v2 workload collection repos on GitHub, reads each role's Ansible code, and uses Haiku to determine what product/operator the role installs.
+Scans the AgnosticD v2 workload collection repos on GitHub, reads each role's Ansible code, and uses an LLM to determine what product/operator the role installs. Also scans base configs from the AgnosticD v2 config repositories to identify what platform or infrastructure each config provisions.
 
 ```bash
-rcars workload scan                                          # Scan all public agDv2 collections
+rcars workload scan                                          # Scan all collections (roles + configs)
 rcars workload scan --collection agnosticd.core_workloads    # Scan one collection only (-c shorthand)
 rcars workload scan --force                                  # Skip SHA check, rescan everything
 ```
 
-Uses `git ls-remote` to check if each repo has changed since the last scan. Unchanged repos are skipped unless `--force` is used.
+Uses `git ls-remote` to check if each repo has changed since the last scan. Unchanged repos are skipped unless `--force` is used. Results are stored in the `infrastructure` table and made searchable via vector embeddings.
 
 #### `rcars workload unmapped`
 

@@ -7,7 +7,7 @@ description: Multi-intent chat architecture — router, handlers, evidence packs
 
 The Advisor chat is RCARS's natural-language interface for content questions. Users ask about catalog items, check performance metrics, explore content overlap, or get recommendations — all through a single conversational input. The system classifies each message into an intent, executes a deterministic handler, and returns a typed envelope that the frontend renders with structured blocks alongside a short narrative answer.
 
-The chat layer sits beside the existing recommendation API. Direct integrators continue using `POST /advisor/query`; the chat endpoint adds multi-intent routing on top of the same underlying services. Every failure mode in the router falls back to a recommendation query, so the worst case is the behavior users already have.
+The chat endpoint (`POST /advisor/chat`) is the primary advisor API. The legacy `POST /advisor/query` endpoint is deprecated — it only supports the recommend intent and will be removed in a future release. Every failure mode in the router falls back to a recommendation query, so the worst case is the behavior users already have.
 
 ## Turn Flow
 
@@ -50,7 +50,7 @@ Envelope ──── {intent, scope_echo, answer, blocks[], suggested_followups
 
 ## Intents
 
-Five intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/chat/registry.py`):
+Seven intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/chat/registry.py`):
 
 | Intent | What it answers | Handler | Block Types | Role Gate |
 |--------|----------------|---------|-------------|-----------|
@@ -58,9 +58,11 @@ Five intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/c
 | `overlap` | "What overlaps with LB2144?" — content similarity for an item | `handle_overlap` | `item_card`, `overlap_table` | any |
 | `performance` | "How is this performing?" — provisions, users, cost, sales | `handle_performance` | `performance_table` | curator or admin |
 | `item_facts` | "What is the SAP HANA demo about?" — single item details | `handle_item_facts` | `item_card` | any |
+| `infrastructure` | "What workload deploys OpenShift AI?" — workload roles and base configs | `handle_infrastructure` | `infra_detail` | any |
+| `help` | "What does the score mean?" — explains RCARS features | `handle_help` | `notice` | any |
 | `out_of_scope` | "What's the weather?" — polite redirect | (none) | `notice` | any |
 
-The `recommend` handler delegates to the full [recommendation pipeline](recommendation-engine.md) (`run_query`). The other three handlers run direct SQL queries against existing tables — they complete in milliseconds.
+The `recommend` handler delegates to the full [recommendation pipeline](recommendation-engine.md) (`run_query`). The `infrastructure` handler runs vector similarity search against infrastructure embeddings. The other handlers run direct SQL queries against existing tables — they complete in milliseconds.
 
 ### Follow-up Chips
 
@@ -131,7 +133,7 @@ All settings are `RCARS_`-prefixed env vars (e.g., `RCARS_CHAT_ROUTER_MODEL`).
 | `services/chat/models.py` | Typed contracts: `RouterOutput`, `Envelope`, `Block`, `Chip`, per-intent args models |
 | `services/chat/registry.py` | `INTENTS` dict — declarative intent definitions with prompt fragments and examples |
 | `services/chat/router.py` | Pattern check, router LLM call with retry/fallback, `resolve_and_verify` ladder |
-| `services/chat/handlers.py` | Four handler functions, each returning `HandlerResult` with blocks + scaffold facts |
+| `services/chat/handlers.py` | Six handler functions, each returning `HandlerResult` with blocks + scaffold facts |
 | `services/chat/evidence.py` | `build_evidence_pack()` — bounded graph expansion for answer context |
 | `services/chat/answer.py` | `build_scaffold()` + `compose_answer()` — deterministic intro + LLM narrative |
 | `services/chat/orchestrator.py` | `process_turn()` — the turn pipeline: context → route → resolve → handle → compose → persist |
@@ -150,7 +152,8 @@ The Advisor page (`pages/AdvisorPage.tsx`) is a two-pane layout: chat transcript
 | `OverlapTableBlock` | `overlap_table` | Similarity table with neighbor rows |
 | `PerformanceTableBlock` | `performance_table` | Provisions, unique users, cost, sales impact |
 | `ItemCardBlock` | `item_card` | Single item detail card with products, modules, workloads |
-| `NoticeBlock` | `notice` | Out-of-scope, role redirect, or clarification labels |
+| `InfraDetailBlock` | `infra_detail` | Infrastructure entry with products, capabilities, linked catalog items |
+| `NoticeBlock` | `notice` | Out-of-scope, help answers, role redirect, or clarification labels |
 | `UnknownBlock` | (fallback) | Graceful degradation with collapsible raw JSON |
 
 The `resolveBlockRenderer()` function in `blocks/registry.ts` dispatches by block type. New backend block types never crash the frontend — they render as `UnknownBlock` until a dedicated renderer is added.

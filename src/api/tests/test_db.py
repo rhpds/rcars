@@ -211,8 +211,9 @@ def _seed_items(db):
             ("babylon:ns.ocp-ai-workshop.prod", "agnosticd.ai_workloads.openshift_ai", "openshift_ai", "ai_workloads"),
         )
         conn.execute(
-            "INSERT INTO workload_mapping (workload_role, product_name, verified) VALUES (%s, %s, %s)",
-            ("openshift_ai", "OpenShift AI", True),
+            "INSERT INTO infrastructure (role_name, type, products) VALUES (%s, %s, %s::jsonb) "
+            "ON CONFLICT (role_name) DO UPDATE SET products = EXCLUDED.products",
+            ("openshift_ai", "workload", '["OpenShift AI"]'),
         )
         conn.execute(
             "INSERT INTO workload_aliases (product_name, alias) VALUES (%s, %s)",
@@ -330,3 +331,24 @@ def test_get_channel_metrics_map_empty_for_missing_channel(db_with_perf_data):
     ids = [r["content_id"] for r in db_with_perf_data.list_performance_data()]
     result = db_with_perf_data.get_channel_metrics_map(ids, "interactive_labs")
     assert result == {}
+
+
+def test_search_infrastructure_embeddings(db):
+    vec = [0.1] * 768
+    vec_str = f"[{','.join(str(v) for v in vec)}]"
+    with db._pool.connection() as conn:
+        conn.execute(
+            """INSERT INTO embeddings (content_id, content_type, source, embed_type, content_text, embedding)
+               VALUES (%s, 'infrastructure', 'infra_scan', 'full', 'test role', %s::vector)
+               ON CONFLICT DO NOTHING""",
+            ("test_workload_role", vec_str),
+        )
+
+    results = db.search_infrastructure_embeddings(vec, limit=5, quality_threshold=0.4)
+    assert len(results) >= 1
+    assert results[0]["role_name"] == "test_workload_role"
+    assert results[0]["similarity"] > 0.99
+
+    far_vec = [0.0] * 767 + [1.0]
+    results_far = db.search_infrastructure_embeddings(far_vec, limit=5, quality_threshold=0.99)
+    assert all(r["role_name"] != "test_workload_role" for r in results_far)

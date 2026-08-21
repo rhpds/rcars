@@ -587,8 +587,13 @@ def _build_windowed_metrics(
     return per_item
 
 
-def _build_nonprod_provisions_sql(start_date: str) -> str:
-    """Like _build_provisions_sql but WITHOUT PROVISION_FILTERS — all envs, all users."""
+def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str:
+    """Like _build_provisions_sql but WITHOUT PROVISION_FILTERS — all envs, all users.
+
+    Scoped to the provided base_names so the reporting DB filters at query time
+    instead of streaming the full provisions table across the MCP connection.
+    """
+    names_literal = ", ".join(f"'{n.replace(chr(39), chr(39)*2)}'" for n in base_names)
     return f"""
         SELECT
             ci.name AS catalog_base_name,
@@ -609,6 +614,7 @@ def _build_nonprod_provisions_sql(start_date: str) -> str:
         FROM provisions_summary ps
         JOIN catalog_items ci ON ci.id = ps.catalog_id
         WHERE ps.provisioned_at >= '{start_date}'
+          AND ci.name IN ({names_literal})
         GROUP BY ci.name
     """
 
@@ -625,11 +631,12 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
 
     log.info("nonprod_items_found", count=len(nonprod_map))
 
+    base_names = list(nonprod_map.keys())
     w_data: dict[str, dict[str, dict]] = {}
     for wk, days in NONPROD_WINDOWS.items():
         w_start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         log.info("fetching_nonprod_window", window=wk, start=w_start)
-        rows = mcp_query(_build_nonprod_provisions_sql(w_start), url=url, token=token)
+        rows = mcp_query(_build_nonprod_provisions_sql(w_start, base_names), url=url, token=token)
         w_data[wk] = {r["catalog_base_name"]: r for r in rows}
         log.info("fetched_nonprod_window", window=wk, rows=len(rows))
 

@@ -152,9 +152,19 @@ function ScanMonitor() {
   return (
     <div className="admin-section">
       <h3>Content Analysis</h3>
-      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Analyze processes unanalyzed and stale items via Sonnet (~30-60s per item). Check Stale compares content hashes to detect changes since last analysis.
-      </p>
+      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.7' }}>
+        <p style={{ margin: '0 0 6px' }}><strong>Analyze</strong> — incremental; skips items whose content hasn't changed.</p>
+        <ul style={{ margin: '0 0 8px 20px', listStyleType: 'disc' }}>
+          <li>Processes items that have never been analyzed</li>
+          <li>Re-processes <em>stale</em> items — ones whose Showroom content changed since last analysis</li>
+          <li>Each item takes ~30–60s; the AI model reads the pages and extracts products, audience, topics, and difficulty</li>
+        </ul>
+        <p style={{ margin: '0 0 6px' }}><strong>Check Stale</strong> — lightweight pre-pass, no AI calls.</p>
+        <ul style={{ margin: '0 0 0 20px', listStyleType: 'disc' }}>
+          <li>Compares each item's current Showroom content hash against what was recorded at last analysis</li>
+          <li>Flags changed items as stale so they're included in the next Analyze run</li>
+        </ul>
+      </div>
       <div style={{ display: 'flex', gap: '8px' }}>
         <Button variant="secondary" size="sm" onClick={handleScan} isDisabled={scanning || checking}>
           {scanning ? 'Analyzing...' : 'Analyze'}
@@ -233,9 +243,14 @@ function RescanAllSection() {
   return (
     <div className="admin-section">
       <h3>Full Re-Analysis</h3>
-      <p style={{ fontSize: '12px', color: 'var(--score-red)', marginBottom: '10px' }}>
-        Marks ALL items stale and re-analyzes every Showroom from scratch. Takes several hours and consumes significant API tokens. Use only when the analysis pipeline has changed (e.g. analyzer bug fix).
-      </p>
+      <div style={{ fontSize: '12px', color: 'var(--score-red)', marginBottom: '10px', lineHeight: '1.7' }}>
+        <p style={{ margin: '0 0 6px' }}>Marks every item stale and re-analyzes all of them from scratch — <strong>not incremental</strong>.</p>
+        <ul style={{ margin: '0 0 0 20px', listStyleType: 'disc' }}>
+          <li>Includes items whose content hasn't changed</li>
+          <li>Takes several hours and consumes a large number of AI tokens</li>
+          <li>Use only when the analysis pipeline itself has changed — e.g. after an analyzer bug fix or a prompt update that should affect all results</li>
+        </ul>
+      </div>
       <Button variant="secondary" size="sm" onClick={handleRescanAll} isDisabled={running}>
         {running ? 'Re-Analyzing...' : 'Re-Analyze All'}
       </Button>
@@ -292,9 +307,14 @@ function WorkloadScanSection() {
   return (
     <div className="admin-section">
       <h3>Workload Repos</h3>
-      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Scan AgnosticD v2 workload repos for role changes. Reads Ansible code and uses Haiku to determine what each role installs. Updates the workload mapping table with verified product names.
-      </p>
+      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.7' }}>
+        <p style={{ margin: '0 0 6px' }}>Scans AgnosticD v2 Ansible role repositories for new and changed roles. This is incremental — repos whose HEAD commit hasn't changed since the last scan are skipped.</p>
+        <ul style={{ margin: '0 0 0 20px', listStyleType: 'disc' }}>
+          <li>An AI model reads each role's tasks to determine what products, operators, or services it installs</li>
+          <li>Results are stored in the infrastructure catalog and used to classify what workloads a catalog item runs</li>
+          <li>Also cleans up catalog entries for roles that have been deleted from the repository</li>
+        </ul>
+      </div>
       <Button variant="secondary" size="sm" onClick={handleScan} isDisabled={running}>
         {running ? 'Scanning...' : 'Scan Workload Repos'}
       </Button>
@@ -376,9 +396,16 @@ function ScheduledMaintenance() {
   return (
     <div className="admin-section">
       <h3>Scheduled Maintenance</h3>
-      <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-        Automated nightly pipeline: catalog refresh &rarr; stale check &rarr; re-analyze &rarr; workload scan.
-      </p>
+      <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.7' }}>
+        <p style={{ margin: '0 0 6px' }}>Runs automatically every night in four steps:</p>
+        <ol style={{ margin: '0 0 6px 20px', listStyleType: 'decimal' }}>
+          <li><strong>Catalog Sync</strong> — pulls latest metadata from all Babylon namespaces; retires items that no longer exist</li>
+          <li><strong>Check Stale</strong> — compares Showroom content hashes to find items changed since last analysis</li>
+          <li><strong>Re-Analyze</strong> — processes any stale or unanalyzed items</li>
+          <li><strong>Workload Scan</strong> — checks AgnosticD repositories for new or changed roles; updates the infrastructure catalog</li>
+        </ol>
+        <p style={{ margin: 0 }}>Use the button below to trigger the full pipeline manually without waiting for the scheduled run.</p>
+      </div>
       {schedule && (
         <>
           <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '10px', fontSize: '13px' }}>

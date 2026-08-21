@@ -33,6 +33,7 @@ export function RcarsSidebar() {
 
           <NavLink
             to="/browse"
+            end
             className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
             onClick={(e) => {
               if (location.pathname === '/browse' && location.search) {
@@ -135,6 +136,12 @@ export function RcarsSidebar() {
                 className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
               >
                 Access Control
+              </NavLink>
+              <NavLink
+                to="/system/vocabulary"
+                className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+              >
+                Vocabulary
               </NavLink>
             </>
           )}

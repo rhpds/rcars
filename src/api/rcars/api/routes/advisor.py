@@ -49,15 +49,19 @@ def _advisor_limit() -> str:
 
 @router.post(
     "/query",
-    summary="Submit a recommendation query",
+    summary="[Deprecated] Submit a recommendation query",
     description=(
-        "Submits a natural-language query for content recommendations. "
-        "Returns a job_id for tracking progress. Use the stream endpoint for real-time SSE updates "
-        "or the result endpoint to poll for completion. "
+        "**Deprecated — use `POST /advisor/chat` instead.** This endpoint will be removed in a future release.\n\n"
+        "Submits a natural-language query for content recommendations using the legacy single-intent pipeline. "
+        "Always runs the recommend flow (vector search → triage → rationale). "
+        "Does not support multi-intent routing (performance, overlap, infrastructure, help).\n\n"
+        "Returns a `job_id`. Use `GET /advisor/query/{job_id}/stream` for real-time SSE updates "
+        "or `GET /advisor/query/{job_id}/result` to poll for completion. "
         "Rate-limited per user (default: 50/hour)."
     ),
     response_model=QuerySubmitResponse,
     responses={429: {"description": "Rate limit exceeded or query already running"}},
+    deprecated=True,
 )
 @limiter.limit(_advisor_limit)
 async def submit_query(body: QueryRequest, request: Request, user: str = Depends(require_auth)):
@@ -89,11 +93,20 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
 
 @router.post(
     "/chat",
-    summary="Submit a chat message (multi-intent advisor)",
+    summary="Submit a chat message",
     description=(
-        "Routes a natural-language message to a deterministic intent handler. "
-        "Returns a job_id (use the existing stream/result endpoints) and the "
-        "session_id for follow-up turns. Rate-limited per user with /advisor/query."
+        "The primary advisor endpoint. Routes a natural-language message to a deterministic intent handler "
+        "based on LLM classification. Supported intents:\n\n"
+        "- **recommend** — content recommendations (e.g. 'Find labs for OpenShift AI')\n"
+        "- **performance** — usage and sales metrics (e.g. 'How is LB2144 performing?')\n"
+        "- **overlap** — content similarity analysis (e.g. 'What overlaps with this demo?')\n"
+        "- **infrastructure** — workload roles and base configs (e.g. 'What workload deploys OpenShift AI?')\n"
+        "- **item_facts** — catalog item details (e.g. 'Tell me about the ACS workshop')\n"
+        "- **help** — explains RCARS features (e.g. 'What does the score mean?')\n\n"
+        "Returns a `job_id` and `session_id`. Use `GET /advisor/query/{job_id}/stream` for real-time SSE updates "
+        "or `GET /advisor/query/{job_id}/result` to poll. Pass the `session_id` back on subsequent messages "
+        "to maintain conversation context.\n\n"
+        "Rate-limited per user (default: 50/hour, shared with the deprecated /query endpoint)."
     ),
     response_model=ChatSubmitResponse,
     responses={404: {"description": "session_id not found or not owned by user"},

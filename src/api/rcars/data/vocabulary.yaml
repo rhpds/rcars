@@ -1,0 +1,540 @@
+products:
+- name: Event-Driven Ansible
+  aliases:
+  - Event Driven Ansible
+  - RHEDA
+  - Red Hat Event-Driven Ansible
+  - EDA
+- name: Identity Management
+  aliases:
+  - Red Hat identity management
+  - IdM
+- name: Lightwell
+  aliases:
+  - RHL
+  - Red Hat Lightwell
+  - Project Lightwell
+  - Lightwell by Red Hat
+  - IBM Lightwell
+  - Lightwell Network
+  - Red Hat Lightwell Network
+  - RHLN
+  - IBM Lightwell Network
+  - LN
+- name: Microsoft Azure Red Hat OpenShift
+  aliases:
+  - Azure Red Hat OpenShift
+  - Azure OpenShift
+  - ARHO
+  - MARHO
+  - ARO
+- name: OpenShift data services
+  aliases:
+  - ODS
+- name: Red Hat 3scale API Management
+  aliases:
+  - RHAPIM
+  - 3scale
+  - RH3SAPIM
+  - 3scale API Management
+- name: Red Hat Advanced Cluster Management for Kubernetes
+  aliases:
+  - RHACMK
+  - Red Hat Advanced Cluster Management
+  - RHACMFK
+  - Advanced Cluster Management for Kubernetes
+  - ACM
+  - RHACM
+- name: Red Hat Advanced Cluster Management for Virtualization
+  aliases:
+  - ACM-V
+  - Advanced Cluster Management for Virtualization
+  - ACMV
+  - RHACMV
+  - RHACM-V
+- name: Red Hat Advanced Cluster Security for Kubernetes
+  aliases:
+  - RHACSFK
+  - Advanced Cluster Security for Kubernetes
+  - Red Hat Advanced Cluster Security
+  - RHACSK
+  - RHACS
+  - ACS
+  - StackRox
+- name: Red Hat Advanced Developer Suite
+  aliases:
+  - Advanced Developer Suite
+  - RHADS
+  - ADS
+- name: Red Hat AI
+  aliases:
+  - RHAI
+  - RAI
+- name: Red Hat AI Gateway
+  aliases:
+  - RHAIG
+  - AIG
+  - AI Gateway
+- name: Red Hat AI Inference
+  aliases:
+  - RHAII
+  - AII
+  - AI Inference
+- name: Red Hat Ansible
+  aliases:
+  - RHA
+- name: Red Hat Ansible Automation Platform
+  aliases:
+  - Ansible Automation
+  - RHAAP
+  - AAP
+  - Ansible Automation Platform
+  - Red Hat Ansible Automation
+  - Ansible
+- name: Red Hat build of Keycloak
+  aliases:
+  - Keycloak
+  - RHBK
+  - RHK
+  - Red Hat Build of Keycloak
+  - Red Hat Keycloak
+  - RHSSO
+- name: Red Hat Ceph Storage
+  aliases:
+  - Red Hat Ceph
+  - RHCS
+  - Ceph Storage
+  - Ceph
+- name: Red Hat Data Grid
+  aliases:
+  - RHJDG
+  - RHJBDG
+  - Data Grid
+  - JBoss Data Grid
+  - RHDG
+  - Infinispan
+- name: Red Hat Developer Hub
+  aliases:
+  - Developer Hub
+  - DH
+  - RHDH
+- name: Red Hat Device Edge
+  aliases:
+  - RHODE
+  - Red Hat OpenShift Device Edge
+  - RHDE
+- name: Red Hat Edge Manager
+  aliases:
+  - Edge Manager
+  - RHEM
+  - EM
+- name: Red Hat Enterprise Linux
+  aliases:
+  - RHEL
+  - RHEL for SAP Solutions
+- name: Red Hat Enterprise Linux AI
+  aliases:
+  - RHEL-AI
+  - RHEL AI
+- name: Red Hat Hardened Images
+  aliases:
+  - hardened images
+  - RHOSHI
+  - Hardened Images
+  - RHHI
+  - RHOHI
+  - Hardened Images by Red Hat
+  - Red Hat OpenShift Hardened Images
+- name: Red Hat JBoss Enterprise Application Platform
+  aliases:
+  - JBEAP
+  - RHJBEAP
+  - EAP
+  - JBoss EAP
+  - JBoss
+- name: Red Hat Lightspeed
+  aliases:
+  - Lightspeed
+- name: Red Hat Lightspeed for Red Hat Enterprise Linux
+  aliases:
+  - Lightspeed for RHEL
+  - RHLRHEL
+  - RHL-RHEL
+  - LRHEL
+  - Lightspeed for Red Hat Enterprise Linux
+- name: Red Hat OpenShift
+  aliases:
+  - RHO
+  - RHOS
+- name: Red Hat OpenShift AI
+  aliases:
+  - OAI
+  - OSAI
+  - RHOAI
+  - OpenShift AI
+  - RHOSAI
+- name: Red Hat OpenShift Container Platform
+  aliases:
+  - OCP
+  - RHOCP
+  - OpenShift Container Platform
+  - OpenShift
+- name: Red Hat OpenShift Data Foundation
+  aliases:
+  - RHODF
+  - Red Hat Data Foundation
+  - ODF
+  - OpenShift Data Foundation
+- name: Red Hat OpenShift Dedicated
+  aliases:
+  - RHOD
+  - OSD
+  - OpenShift Dedicated
+  - RHOSD
+- name: Red Hat OpenShift Dev Spaces
+  aliases:
+  - OpenShift Dev Spaces
+  - Dev Spaces
+  - DevSpaces
+  - CodeReady Workspaces
+  - CRW
+  - RHODS
+- name: Red Hat OpenShift GitOps
+  search_terms:
+  - ArgoCD
+  - Argo CD
+  aliases:
+  - OSGO
+  - OpenShift GitOps
+  - Red Hat GitOps
+  - Red Hat gitops
+  - RHGO
+  - GitOps
+  - ArgoCD
+  - Argo CD
+- name: Red Hat OpenShift Lightspeed
+  aliases:
+  - OpenShift Lightspeed
+  - OL
+  - RHOL
+  - OLS
+- name: Red Hat OpenShift observability
+  aliases:
+  - RHOO
+  - OpenShift Observability
+  - OpenShift observability
+  - Red Hat OpenShift Observability
+- name: Red Hat OpenShift Pipelines
+  search_terms:
+  - Tekton
+  aliases:
+  - Red Hat Pipelines
+  - Red Hat pipelines
+  - OSP
+  - RHOSP
+  - OpenShift Pipelines
+  - Pipelines
+  - Tekton
+- name: Red Hat OpenShift Serverless
+  search_terms:
+  - Knative
+  aliases:
+  - OpenShift Serverless
+  - Red Hat serverless
+  - OSS
+  - RHOSS
+  - Red Hat Serverless
+  - Serverless
+  - Knative
+- name: Red Hat OpenShift Service Mesh
+  search_terms:
+  - Istio
+  aliases:
+  - OSSM
+  - RHOSSM
+  - Red Hat service mesh
+  - Red Hat Service Mesh
+  - OpenShift Service Mesh
+  - Service Mesh
+- name: Red Hat OpenShift Service on AWS
+  aliases:
+  - ROSA with hosted control planes
+  - ROSA with HCP
+  - Red Hat OpenShift Service on AWS Hosted Control Planes
+  - Red Hat OpenShift Service on AWS with hosted control planes
+  - OpenShift Service on AWS
+  - ROSA HCP
+  - ROSA
+- name: Red Hat OpenShift Virtualization
+  search_terms:
+  - KubeVirt
+  - virtual machines
+  aliases:
+  - Red Hat OpenShift virtualization
+  - OpenShift Virtualization
+  - RHOCPV
+  - OCPVirt
+  - OCPV
+  - OSV
+  - RHOSV
+  - OpenShift virtualization
+  - Virtualization
+  - CNV
+  - KubeVirt
+- name: Red Hat OpenStack Services on OpenShift
+  aliases:
+  - RHOSSOS
+  - OpenStack Services on OpenShift
+  - OpenStack
+  - RHOSO
+- name: Red Hat Quay
+  search_terms:
+  - container registry
+  aliases:
+  - RHCR
+  - RHQ
+  - Quay
+- name: Red Hat Satellite
+  aliases:
+  - Satellite
+  - RHS
+- name: Red Hat Service Interconnect
+  aliases:
+  - RHSI
+  - Service Interconnect
+- name: Red Hat Trusted Artifact Signer
+  aliases:
+  - RHTAS
+  - Trusted Artifact Signer
+  - TAS
+- name: Red Hat Trusted Profile Analyzer
+  aliases:
+  - Trusted Profile Analyzer
+  - RHTPA
+  - TPA
+- name: Red Hat Trusted Software Supply Chain
+  aliases:
+  - TSSC
+  - Trusted Software Supply Chain
+  - RHTSSC
+- name: Red Hat AMQ Streams
+  aliases:
+  - AMQ Streams
+  - AMQ
+  - Red Hat AMQ
+  - RHJAMQ
+  - RHAMQ
+  - RHJBAMQ
+- name: Migration Toolkit for Virtualization
+  aliases:
+  - MTV
+- name: Red Hat Insights
+  aliases:
+  - Insights
+- name: Red Hat Build of Apache Camel
+  aliases:
+  - Camel
+  - Red Hat Fuse
+  - Fuse
+- name: Red Hat Trusted Application Pipeline
+  aliases:
+  - TAP
+  - Trusted Application Pipeline
+- name: Red Hat Enterprise Linux CoreOS
+  aliases:
+  - RHCOS
+  - CoreOS
+- name: Single Node OpenShift
+  aliases:
+  - SNO
+- name: Models as a Service
+  aliases:
+  - MaaS
+  search_terms:
+  - model serving
+  - LLM inference
+solutions:
+- name: Application Platform
+  aliases:
+  - ApplicationPlatform
+  - Application Development
+  - ApplicationDevelopment
+  is_tdp: true
+- name: Automation
+  aliases:
+  - Mission Critical IT Automation
+  - ProcessAutomation
+  - Process Automation
+  is_tdp: true
+- name: Container Management
+  aliases:
+  - ContainerManagement
+  - Multicluster Management
+  is_tdp: true
+- name: Virtualization
+  aliases: []
+  is_tdp: true
+- name: AI
+  aliases:
+  - AI Platform
+  - AI/ML
+  - AI ML
+  - Machine Learning
+  is_tdp: true
+- name: Operating System
+  aliases:
+  - OperatingSystem
+  - Cloud Operating System
+  is_tdp: true
+- name: Integration
+  aliases:
+  - Integration & Messaging
+  - Messaging
+- name: Security
+  aliases:
+  - Security & Compliance
+  - Compliance
+- name: Sovereignty
+  aliases:
+  - Digital Sovereignty
+  - Data Sovereignty
+  - Cloud Sovereignty
+- name: Edge
+  aliases: []
+- name: Data Services & Storage
+  aliases:
+  - Storage
+  - Data Services
+verticals:
+- name: All
+  aliases: []
+- name: Financial Services
+  aliases:
+  - FSI
+  - Financial Services Industry
+- name: Telco
+  aliases:
+  - Telecommunications
+- name: Retail
+  aliases: []
+- name: Healthcare
+  aliases: []
+- name: Government
+  aliases:
+  - Public Sector
+- name: Manufacturing
+  aliases:
+  - Industrial
+- name: Utility
+  aliases:
+  - Utilities
+  - Energy
+platforms:
+- name: On-Premise
+  aliases:
+  - on-prem
+  - on_premise
+  - on premise
+  - on-premises
+  - on_premises
+- name: AWS
+  aliases:
+  - Amazon Web Services
+- name: Azure
+  aliases:
+  - Microsoft Azure
+- name: Cloud
+  aliases: []
+- name: Edge
+  aliases: []
+difficulty:
+- name: beginner
+  aliases:
+  - introductory
+  - basic
+  - beginner-level
+  - entry-level
+- name: intermediate
+  aliases:
+  - moderate
+  - intermediate-level
+- name: advanced
+  aliases:
+  - expert
+  - advanced-level
+action_verbs:
+  hands_on:
+    valid:
+    - configure
+    - deploy
+    - create
+    - build
+    - install
+    - implement
+    - integrate
+    - automate
+    - manage
+    - scale
+    - troubleshoot
+    - monitor
+    - observe
+    - migrate
+    - secure
+    - provision
+    - verify
+    - diagnose
+    - validate
+    - design
+    rejected: &id001
+    - understand
+    - learn
+    - know
+    - be familiar with
+    - appreciate
+    - become aware
+    - realize
+    - recognize
+  read_through:
+    valid:
+    - compare
+    - evaluate
+    - assess
+    - identify
+    - distinguish
+    - review
+    - classify
+    - diagram
+    - summarize
+    - contrast
+    - analyze
+    rejected: *id001
+  interactive:
+    valid:
+    - navigate
+    - interact
+    - follow
+    - demonstrate
+    - observe
+    - complete
+    - select
+    - submit
+    - verify
+    rejected: *id001
+content_modes:
+  lab: hands_on
+  demo: hands_on
+  sandbox: hands_on
+  architecture: read_through
+ignored_terms:
+  products:
+  - Kubernetes
+  - Linux
+  - YAML
+  - Git
+  - Docker
+  - Prometheus
+  - Grafana
+  solutions: []
+  verticals: []
+  platforms: []
+  difficulty: []

@@ -134,7 +134,7 @@ Showroom URLs are not stored in a single consistent field. RCARS uses two extrac
 
 ### Infrastructure Metadata Extraction (AgnosticD v2)
 
-RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This enables querying by infrastructure characteristics — "give me a cluster with OpenShift AI and Pipelines installed" — using faceted filters rather than vector search.
+RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This links catalog items to the workload roles and base configs they use.
 
 **Scope:** Only items using the canonical AgnosticD v2 deployer (`__meta__.deployer.scm_url == https://github.com/agnosticd/agnosticd-v2`).
 
@@ -142,11 +142,22 @@ RCARS extracts infrastructure metadata from AgnosticD v2 component CRDs. This en
 
 **Workload extraction:** Workload role names are extracted from the CRD `spec.definition` during catalog refresh. These come from multiple sources — `workloads`, `software_workloads`, `openshift_workload_deployer_workloads`, and other stage-specific fields — and include roles from any Ansible collection, not just the `agnosticd` organization. All discovered roles are stored in `babylon_item_workloads`.
 
-**Workload mapping:** Extracted role names are mapped to human-readable product names via a curated `workload_mapping` table. Product aliases allow queries using common names (e.g. "RHOAI", "ACS", "KubeVirt"). Only mapped workloads are surfaced in queries; unmapped roles are stored but invisible until curated.
+### Infrastructure Catalog
 
-**Workload scanner:** To help build the mapping table, RCARS scans the public agDv2 collection repos (`github.com/agnosticd/*`), reads the Ansible code (defaults, tasks, templates), and uses Haiku to determine the product name for each role. This covers the `agnosticd.*` roles but not roles from other collections — those must be mapped manually via the Admin UI. The scanner runs daily as part of the nightly pipeline, using `git ls-remote` change detection to skip unchanged repos.
+The infrastructure catalog is a unified registry of workload roles and base configs, stored in the `infrastructure` table. It replaces the old curated `workload_mapping` table with an LLM-scanned catalog that understands what each role and config actually does.
 
-**Faceted search API:** `GET /catalog/search/infrastructure` supports AND-semantics workload queries, config/cloud/OCP version/OS image filters, and automatic alias resolution.
+**Two types of entries:**
+
+- **Workload roles** — Ansible roles that install products on existing clusters (e.g. `ocp4_workload_openshift_ai`, `ocp4_workload_acs`). Scanned from agDv2 collection repos.
+- **Base configs** — Environment configurations that provision cloud infrastructure (e.g. `ocp4-cluster`, `cloud-vms-base`). Scanned from the agDv2 base config directories.
+
+**How scanning works:** RCARS clones the agDv2 collection repos, reads key files from each role or config (defaults, tasks, templates), and sends them to the LLM for structured analysis. The LLM determines what the role installs, its products, capabilities, category, and prerequisites. Results are stored in the `infrastructure` table with vector embeddings for semantic search.
+
+**Linking to catalog items:** Workload roles link to catalog items through `babylon_item_workloads` (extracted from CRDs during catalog refresh). Base configs link through `babylon_items.agd_config`. The Workloads & Automation page shows these connections.
+
+**Semantic search:** Infrastructure embeddings enable natural-language queries through the Advisor chat (e.g. "What workload deploys OpenShift AI?"). The chat's `infrastructure` intent runs vector similarity search against infrastructure embeddings, then returns matching entries with their linked catalog items.
+
+For full details on scanning, embedding search, and the UI, see [Infrastructure Catalog](infrastructure-catalog.md).
 
 ---
 
@@ -184,7 +195,7 @@ Workers are split into two separate deployments:
 - Content analysis (LLM scan of Showroom repos)
 - Catalog refresh (CRD sync from Babylon)
 - Stale content detection (`git ls-remote` checks)
-- Workload scanning (agDv2 collection repo analysis)
+- Infrastructure scanning (agDv2 workload roles and base configs)
 - Reporting sync (MCP server data import)
 - Nightly pipeline (chains all of the above sequentially)
 
@@ -221,7 +232,7 @@ The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron:
 1. **Catalog refresh** — pull latest CRDs from Babylon
 2. **Stale check** — `git ls-remote` to detect changed Showroom repos
 3. **Re-analysis** — enqueue analysis jobs for stale items
-4. **Workload scan** — scan agDv2 collection repos for new/changed roles
+4. **Infrastructure scan** — scan agDv2 collection repos for workload roles and base configs
 5. **Reporting sync** — pull reporting data from MCP server
 6. **Compute similarity** — recompute pairwise content overlap scores
 
@@ -244,10 +255,11 @@ The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 c
 
 ### Pages
 
-- **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details) with typed envelope responses, follow-up chips, and session continuity.
+- **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details, infrastructure search) with typed envelope responses, follow-up chips, and session continuity.
 - **Browse** — Filterable catalog view with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration, and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
+- **Workloads & Automation** — Searchable catalog of infrastructure entries (workload roles and base configs) with type, category, and collection filters. Shows which catalog items use each entry. Accessible to all authenticated users.
 - **Content Analysis** — Overlap (pairwise similarity within a stage) and Performance (scored dashboard with Prod/Without Prod tabs, retirement workflow for low performers).
-- **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs), Workloads (workload scan, mapping management).
+- **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs).
 
 ### Authentication and Roles
 

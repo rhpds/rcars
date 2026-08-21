@@ -1,15 +1,61 @@
 """Workload repo scanner — clone agDv2 collection repos, read role code, LLM-analyze."""
 
 import json
+import re
 import shutil
 import structlog
 from pathlib import Path
 from typing import Any
 
-from rcars.services.analyzer import clone_showroom, ls_remote_sha
+from rcars.services.analyzer import (
+    clone_showroom, ls_remote_sha,
+    build_infrastructure_embedding_text, generate_embedding, regenerate_embeddings,
+)
 from rcars.db import Database
 
 log = structlog.get_logger()
+
+def _vocabulary_product_hint() -> str:
+    """Product naming guidance for workload/config prompts."""
+    try:
+        from rcars.services.vocabulary import load_vocabulary
+        names = load_vocabulary().canonical_names("products")
+        return (
+            "\n\nWhen naming products, prefer names from this list: "
+            + "; ".join(names)
+            + "\nOnly use a name not on this list if nothing matches."
+        )
+    except Exception:
+        log.warning("vocabulary_product_hint_failed", component="workload_scan", exc_info=True)
+        return ""
+
+
+def _normalize_products(products: list, role_name: str = "") -> list[str]:
+    """Snap product names to vocabulary canonical forms."""
+    try:
+        from rcars.services.vocabulary.loader import load_vocabulary
+        from rcars.services.vocabulary.normalize import snap_term
+        vocab = load_vocabulary()
+        out: list[str] = []
+        changed: list[str] = []
+        for p in products:
+            original = str(p)
+            snapped, matched = snap_term(vocab, "products", original)
+            if snapped not in out:
+                out.append(snapped)
+            if matched and snapped != original:
+                changed.append(f"{original} -> {snapped}")
+        if changed:
+            log.info("vocabulary_normalized_products", component="workload_scan",
+                     role=role_name, normalized=changed, count=len(changed))
+        elif out:
+            log.info("vocabulary_products_canonical", component="workload_scan",
+                     role=role_name, products=out)
+        return out
+    except Exception:
+        log.warning("vocabulary_normalize_products_failed", component="workload_scan", exc_info=True)
+        return list(products)
+
 
 AGDV2_COLLECTIONS = [
     {"name": "agnosticd.core_workloads", "url": "https://github.com/rhpds/core_workloads.git"},
@@ -22,19 +68,19 @@ AGDV2_COLLECTIONS = [
 
 WORKLOAD_SYSTEM_PROMPT = """\
 You are analyzing an Ansible role from the AgnosticD v2 automation framework.
-Your job is to determine what Red Hat product, operator, or service this role installs or configures on an OpenShift cluster or RHEL system.
+Your job is to determine what this role installs, configures, or enables on an OpenShift cluster or RHEL system.
 
 Use ONLY the code provided to determine what the role does — do not guess from the name.
 
 Respond with a JSON object:
 {
   "product_name": "Human-readable product name (e.g. 'OpenShift AI', 'Advanced Cluster Security')",
-  "description": "One sentence describing what this role installs/configures",
+  "description": "Multi-sentence narrative covering what this role installs, configures, and enables, including default configuration choices discovered from the code (e.g. 'default authentication provider is KeyCloak')",
+  "products": ["Array of products/operators/services this installs"],
+  "capabilities": ["Array of capabilities this enables (e.g. 'model-serving', 'notebook-hosting')"],
   "category": "One of: ai_ml, cicd, security, storage, virtualization, networking, runtime, developer_tools, registry, management, automation, messaging, auth, platform, monitoring, other",
-  "is_infrastructure_plumbing": true/false
+  "requires": ["Array of prerequisites (e.g. 'openshift 4.14+', 'gpu-nodes')"]
 }
-
-Set is_infrastructure_plumbing to true if this role is internal setup (authentication, showroom deployment, bastion configuration, namespace creation, certificate management) rather than a user-facing product that someone would search for.
 
 Return ONLY the JSON object, no other text."""
 
@@ -45,7 +91,22 @@ Collection: {collection_name}
 {code_content}"""
 
 
-def read_role_code(role_path: Path, max_chars: int = 12000) -> str:
+_INCLUDE_RE = re.compile(r'(?:include_tasks|import_tasks):\s*["\']?([^\s"\']+\.ya?ml)', re.MULTILINE)
+
+
+def _follow_task_includes(tasks_content: str, tasks_dir: Path, sections: list[str]) -> None:
+    """Read files referenced by include_tasks/import_tasks in tasks/main — one level only."""
+    base = tasks_dir.resolve()
+    for match in _INCLUDE_RE.findall(tasks_content):
+        fp = (tasks_dir / match).resolve()
+        if not fp.is_relative_to(base):
+            continue
+        if fp.is_file():
+            content = fp.read_text(errors="replace")[:4000]
+            sections.append(f"=== TASKS ({match}) ===\n{content}")
+
+
+def read_role_code(role_path: Path, max_chars: int = 40000) -> str:
     """Read key files from an Ansible role for LLM analysis."""
     sections = []
     files_to_read = [
@@ -61,6 +122,8 @@ def read_role_code(role_path: Path, max_chars: int = 12000) -> str:
         if fp.exists():
             content = fp.read_text(errors="replace")[:4000]
             sections.append(f"=== {label} ({rel_path}) ===\n{content}")
+            if label == "TASKS":
+                _follow_task_includes(content, fp.parent, sections)
 
     template_dir = role_path / "templates"
     if template_dir.is_dir():
@@ -115,7 +178,7 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT)
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         input_tokens = llm_result.input_tokens
         output_tokens = llm_result.output_tokens
@@ -136,6 +199,27 @@ def analyze_role(
             text = text.rsplit("```", 1)[0]
 
         result = json.loads(text)
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = [result["product_name"]] if result.get("product_name") else []
+        result["products"] = _normalize_products(raw_products, role_name=role_name)
+
+        if result.get("products") or result.get("description"):
+            emb_text = build_infrastructure_embedding_text({
+                "role_name": role_name,
+                "description": result.get("description"),
+                "products": result["products"],
+                "capabilities": result.get("capabilities", []),
+                "category": result.get("category"),
+            })
+            if emb_text.strip():
+                try:
+                    result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+                    result["embedding_text"] = emb_text
+                except Exception as e:
+                    log.warning("workload_scan_embedding_failed", collection=collection_name,
+                                role=role_name, error=str(e))
+
         log.info("workload_scan_analyzed", component="workload_scan", action="analyzed",
                  collection=collection_name, role=role_name,
                  product_name=result.get("product_name"), category=result.get("category"))
@@ -166,8 +250,8 @@ def scan_collection(
     if not force:
         remote_sha = ls_remote_sha(collection_url, "main")
         if remote_sha:
-            state = db.get_scan_state(collection_name)
-            if state and state.get("last_sha") == remote_sha:
+            existing = db.get_infrastructure_scan_sha(collection_name)
+            if existing == remote_sha:
                 rlog.info("workload_scan: unchanged (SHA %s), skipping", remote_sha[:12])
                 return {"collection": collection_name, "status": "unchanged", "roles_scanned": 0}
 
@@ -189,7 +273,6 @@ def scan_collection(
 
         scanned = 0
         mapped = 0
-        skipped_plumbing = 0
 
         for role_name in roles:
             role_path = clone_path / "roles" / role_name
@@ -201,35 +284,257 @@ def scan_collection(
             result = analyze_role(role_name, role_path, collection_name, settings, model, db)
             scanned += 1
 
-            if result and result.get("product_name"):
-                if result.get("is_infrastructure_plumbing"):
-                    skipped_plumbing += 1
-                    rlog.info("workload_scan: %s → plumbing, not mapping", role_name)
-                else:
-                    db.upsert_workload_mapping(
-                        workload_role=role_name,
-                        product_name=result["product_name"],
-                        description=result.get("description"),
-                        category=result.get("category"),
-                        source_collection=collection_name,
-                        verified=True,
-                        added_by="workload_scanner",
+            if result:
+                fqcn = f"{collection_name}.{role_name}"
+                db.upsert_infrastructure(
+                    role_name=role_name,
+                    fqcn=fqcn,
+                    collection=collection_name,
+                    type="workload",
+                    description=result.get("description"),
+                    products=result.get("products", []),
+                    capabilities=result.get("capabilities", []),
+                    category=result.get("category"),
+                    requires=result.get("requires", []),
+                    source_sha=local_sha,
+                )
+                if result.get("embedding"):
+                    regenerate_embeddings(
+                        db, role_name, "infrastructure", "agnosticd",
+                        result["embedding_text"], result["embedding"],
                     )
-                    mapped += 1
+                mapped += 1
 
-        if local_sha:
-            db.upsert_scan_state(collection_name, local_sha)
-
+        deleted = db.delete_infrastructure_absent(collection_name, "workload", set(roles))
+        if deleted:
+            rlog.info("workload_scan: removed %d stale entries", deleted)
         stats = {
             "collection": collection_name,
             "status": "scanned",
             "roles_found": len(roles),
             "roles_scanned": scanned,
             "roles_mapped": mapped,
-            "roles_plumbing": skipped_plumbing,
+            "roles_deleted": deleted,
         }
         rlog.info("workload_scan: complete", **stats)
         return stats
+
+    finally:
+        shutil.rmtree(clone_path, ignore_errors=True)
+
+
+AGDV2_CONFIGS_REPO = {
+    "name": "agnosticd-v2-configs",
+    "url": "https://github.com/rhpds/agnosticd-v2.git",
+    "configs_path": "ansible/configs",
+}
+
+EXCLUDE_CONFIGS = {"test-empty-config"}
+
+CONFIG_SYSTEM_PROMPT = """\
+You are analyzing a base infrastructure configuration from the AgnosticD v2 automation framework.
+This is NOT an Ansible role — it is a full environment configuration that provisions cloud infrastructure
+and installs a base platform (e.g. an OpenShift cluster, a set of cloud VMs, a namespace).
+
+Use ONLY the code provided to determine what this config provisions and what it provides.
+
+Respond with a JSON object:
+{
+  "description": "Multi-sentence narrative covering what this config provisions, what platform it provides, what cloud providers it supports, and key configuration options",
+  "products": ["Array of products/platforms this provides (e.g. 'OpenShift', 'RHEL')"],
+  "capabilities": ["Array of capabilities (e.g. 'cluster-provisioning', 'gpu-support', 'multi-node')"],
+  "category": "One of: platform, virtualization, cloud, namespace, other",
+  "requires": ["Array of prerequisites (e.g. 'AWS account', 'Azure subscription')"]
+}
+
+Return ONLY the JSON object, no other text."""
+
+CONFIG_USER_TEMPLATE = """\
+Config name: {config_name}
+
+{code_content}"""
+
+
+def read_config_code(config_path: Path, max_chars: int = 40000) -> str:
+    """Read key files from a config directory for LLM analysis."""
+    sections = []
+    files_to_read = [
+        ("default_vars.yml", "DEFAULT VARS"),
+        ("default_vars.yaml", "DEFAULT VARS"),
+        ("README.adoc", "README"),
+        ("README.md", "README"),
+        ("software.yml", "SOFTWARE PLAYBOOK"),
+        ("software.yaml", "SOFTWARE PLAYBOOK"),
+        ("post_software.yml", "POST SOFTWARE"),
+        ("post_software.yaml", "POST SOFTWARE"),
+    ]
+    for rel_path, label in files_to_read:
+        fp = config_path / rel_path
+        if fp.exists() and fp.is_file():
+            content = fp.read_text(errors="replace")[:4000]
+            sections.append(f"=== {label} ({rel_path}) ===\n{content}")
+            if "PLAYBOOK" in label:
+                _follow_task_includes(content, fp.parent, sections)
+
+    # Provider-specific default_vars in subdirectories
+    for subdir in sorted(config_path.iterdir()) if config_path.is_dir() else []:
+        if subdir.is_dir() and subdir.name not in (".", ".."):
+            for name in ("default_vars.yml", "default_vars.yaml"):
+                fp = subdir / name
+                if fp.exists() and fp.is_file():
+                    content = fp.read_text(errors="replace")[:3000]
+                    sections.append(f"=== PROVIDER VARS ({subdir.name}/{name}) ===\n{content}")
+
+    combined = "\n\n".join(sections)
+    if len(combined) > max_chars:
+        combined = combined[:max_chars] + "\n... (truncated)"
+    return combined
+
+
+def analyze_config(
+    config_name: str,
+    config_path: Path,
+    settings,
+    model: str,
+    db: Database | None = None,
+) -> dict | None:
+    """Analyze a single config via LLM and return structured data."""
+    code_content = read_config_code(config_path)
+    if not code_content.strip():
+        log.info("config_scan_skip", component="config_scan", action="skipping",
+                 config=config_name, reason="no readable code")
+        return None
+
+    user_message = CONFIG_USER_TEMPLATE.format(
+        config_name=config_name, code_content=code_content,
+    )
+
+    try:
+        from rcars.config import call_llm
+        llm_result = call_llm(settings, model=model,
+                              messages=[{"role": "user", "content": user_message}],
+                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT + _vocabulary_product_hint())
+
+        if db is not None:
+            db.log_token_usage(
+                operation="config_scan", model=model,
+                input_tokens=llm_result.input_tokens,
+                output_tokens=llm_result.output_tokens,
+                ci_name=config_name, provider=llm_result.provider,
+            )
+
+        text = llm_result.text.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1] if "\n" in text else text[3:]
+            text = text.rsplit("```", 1)[0]
+
+        result = json.loads(text)
+        raw_products = result.get("products")
+        if not isinstance(raw_products, list):
+            raw_products = []
+        result["products"] = _normalize_products(raw_products, role_name=config_name)
+        emb_text = build_infrastructure_embedding_text({
+            "role_name": config_name,
+            "description": result.get("description"),
+            "products": result["products"],
+            "capabilities": result.get("capabilities", []),
+            "category": result.get("category"),
+        })
+        if emb_text.strip():
+            try:
+                result["embedding"] = generate_embedding(emb_text, prefix="search_document")
+                result["embedding_text"] = emb_text
+            except Exception as e:
+                log.warning("config_scan_embedding_failed", config=config_name, error=str(e))
+
+        log.info("config_scan_analyzed", component="config_scan", action="analyzed",
+                 config=config_name, category=result.get("category"))
+        return result
+
+    except (json.JSONDecodeError, IndexError, KeyError) as e:
+        log.warning("config_scan_parse_error", component="config_scan", action="failed_to_parse",
+                    config=config_name, error=str(e))
+        return None
+    except Exception as e:
+        log.error("config_scan_llm_error", component="config_scan", action="llm_error",
+                  config=config_name, error=str(e))
+        return None
+
+
+def scan_configs(
+    clone_dir: str,
+    settings,
+    model: str,
+    db: Database,
+    force: bool = False,
+) -> dict:
+    """Scan AgnosticD v2 configs directory."""
+    repo = AGDV2_CONFIGS_REPO
+    rlog = log.bind(component="config_scan")
+
+    if not force:
+        remote_sha = ls_remote_sha(repo["url"], "main")
+        if remote_sha:
+            existing = db.get_infrastructure_scan_sha(repo["name"])
+            if existing == remote_sha:
+                rlog.info("config_scan: unchanged, skipping")
+                return {"status": "unchanged", "configs_scanned": 0}
+
+    clone_path = clone_showroom(repo["url"], "main", clone_dir)
+    if not clone_path:
+        rlog.error("config_scan: clone failed")
+        return {"status": "clone_failed", "configs_scanned": 0}
+
+    try:
+        import subprocess
+        local_sha_result = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=str(clone_path),
+            capture_output=True, text=True,
+        )
+        local_sha = local_sha_result.stdout.strip() if local_sha_result.returncode == 0 else None
+
+        configs_dir = clone_path / Path(repo["configs_path"])
+        if not configs_dir.is_dir():
+            rlog.error("config_scan: configs path not found: %s", configs_dir)
+            return {"status": "no_configs_dir", "configs_scanned": 0}
+
+        config_dirs = sorted([
+            d for d in configs_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".") and d.name not in EXCLUDE_CONFIGS
+        ])
+        rlog.info("config_scan: found %d configs", len(config_dirs))
+
+        scanned = 0
+        for config_dir in config_dirs:
+            config_name = config_dir.name
+            result = analyze_config(config_name, config_dir, settings, model, db)
+            scanned += 1
+
+            if result:
+                db.upsert_infrastructure(
+                    role_name=config_name,
+                    fqcn=None,
+                    collection=repo["name"],
+                    type="config",
+                    description=result.get("description"),
+                    products=result.get("products", []),
+                    capabilities=result.get("capabilities", []),
+                    category=result.get("category"),
+                    requires=result.get("requires", []),
+                    source_sha=local_sha,
+                )
+                if result.get("embedding"):
+                    regenerate_embeddings(
+                        db, config_name, "infrastructure", "agnosticd",
+                        result["embedding_text"], result["embedding"],
+                    )
+
+        deleted = db.delete_infrastructure_absent(
+            AGDV2_CONFIGS_REPO["name"], "config", {d.name for d in config_dirs}
+        )
+        if deleted:
+            rlog.info("config_scan: removed %d stale entries", deleted)
+        return {"status": "scanned", "configs_found": len(config_dirs), "configs_scanned": scanned, "configs_deleted": deleted}
 
     finally:
         shutil.rmtree(clone_path, ignore_errors=True)

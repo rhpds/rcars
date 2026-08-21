@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from rcars.workers.base import WorkerContext
-from rcars.services.analyzer import analyze_showroom, classify_scan_error
+from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings
 import structlog
 
 logger = structlog.get_logger()
@@ -34,23 +34,17 @@ def _propagate_to_sibling(db, sib_content_id: str, sib_content_type: str, analys
         audience_json=sib_data.get("audience_json"),
         difficulty=sib_data.get("difficulty"),
     )
-    db.clear_embeddings(sib_content_id)
-    db.store_embedding(
-        content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-        embed_type="summary",
-        content_text=result["ci_embedding_text"], embedding=result["ci_embedding"],
+    regenerate_embeddings(
+        db, sib_content_id, sib_content_type, "babylon",
+        result["ci_embedding_text"], result["ci_embedding"],
+        module_embeddings=result.get("module_embeddings"),
     )
-    for mod_emb in result.get("module_embeddings", []):
-        db.store_embedding(
-            content_id=sib_content_id, content_type=sib_content_type, source="babylon",
-            embed_type="module",
-            module_title=mod_emb["module_title"],
-            content_text=mod_emb["content_text"], embedding=mod_emb["embedding"],
-        )
     db.set_scan_status(sib_content_id, "success")
+    logger.info("propagated_to_sibling", component="worker",
+                source=analysis_data.get("content_id"), target=sib_content_id)
 
 
-async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None) -> dict:
+async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: list[dict] | None = None, force: bool = False) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     ci_name = content_id.removeprefix("babylon:")
     log = logger.bind(job_id=job_id, content_id=content_id, ci_name=ci_name)
@@ -83,6 +77,8 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 db=wctx.db,
                 content_path=item.get("content_path"),
                 keywords=item.get("keywords") or [],
+                entity_content_type=item.get("content_type") or "lab",
+                force=force,
             )
         )
 
@@ -104,6 +100,7 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 "summary": analysis.get("summary"),
                 "products_json": analysis.get("products"),
                 "audience_json": analysis.get("audience"),
+                "recommender_audience_json": analysis.get("recommender_audience"),
                 "topics_json": analysis.get("topics"),
                 "modules_json": analysis.get("modules"),
                 "learning_objectives_json": analysis.get("learning_objectives"),
@@ -127,25 +124,11 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
                 difficulty=analysis.get("difficulty"),
             )
 
-            wctx.db.clear_embeddings(content_id)
-            wctx.db.store_embedding(
-                content_id=content_id,
-                content_type=item["content_type"],
-                source="babylon",
-                embed_type="summary",
-                content_text=result["ci_embedding_text"],
-                embedding=result["ci_embedding"],
+            regenerate_embeddings(
+                wctx.db, content_id, item["content_type"], "babylon",
+                result["ci_embedding_text"], result["ci_embedding"],
+                module_embeddings=result.get("module_embeddings"),
             )
-            for mod_emb in result.get("module_embeddings", []):
-                wctx.db.store_embedding(
-                    content_id=content_id,
-                    content_type=item["content_type"],
-                    source="babylon",
-                    embed_type="module",
-                    module_title=mod_emb["module_title"],
-                    content_text=mod_emb["content_text"],
-                    embedding=mod_emb["embedding"],
-                )
 
             # Propagate analysis to siblings sharing the same Showroom content
             propagated_set = {content_id}
