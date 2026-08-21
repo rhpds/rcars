@@ -19,23 +19,28 @@ _SCAFFOLDS = {
         "related items"
         + (f" (top similarity {f['top_similarity']}%)." if f.get('top_similarity') is not None else ".")),
     "performance": lambda f: (
-        "No usage data for the selected items."
+        "No usage data found for the selected items."
         if not f.get("has_data") else
-        (f"{f['best']} recorded {f.get('best_provisions') or 0} provisions "
-         f"over the last {f.get('window') or '3m'}."
+        (f"{f['best']} had {f.get('best_provisions') or 0} provisions over the last {f.get('window') or '3m'}."
          if f.get("best") and f.get("single") else
-         f"Usage for {f.get('item_count', 0)} items over the last "
-         f"{f.get('window') or '3m'}"
-         + (f"; {f['best']} leads with {f.get('best_provisions') or 0} provisions."
-            if f.get("best") else ".")
+         f"The table shows usage for {f.get('item_count', 0)} items over the last {f.get('window') or '3m'}. "
+         f"Provisions and unique users show reach; the Score column summarizes overall performance. "
+         f"Click Open Performance Analysis at the bottom for the full report."
     )),
-    "item_facts": lambda f: (f"{f.get('display_name', 'Item')} ({f.get('stage', '?')}) — "
-                             f"{f.get('neighbor_count', 0)} related items in the catalog."),
+    "item_facts": lambda f: (
+        f"Here are the details for **{f.get('display_name', 'this item')}**"
+        + (f" ({f['stage']})" if f.get("stage") else "")
+        + ". The panel on the right shows the description, products, and learning objectives. "
+        + (f"{f['neighbor_count']} related items are listed under Overlapping Items — click any to explore similar content."
+           if f.get("neighbor_count") else "No overlapping items were found in the catalog.")
+    ),
     "infrastructure": lambda f: (
-        f"{f.get('role_name', 'Unknown')} ({f.get('type', '?')}) — "
-        + (f"products: {', '.join(f['products'][:3])}. " if f.get("products") else "")
-        + f"Used by {f.get('item_count', 0)} catalog item(s)."
-        + (f" {f['match_count'] - 1} other matches found." if f.get("match_count", 1) > 1 else "")),
+        f"**{f.get('role_name', 'Unknown')}** is a {f.get('type', 'workload')} role"
+        + (f" — products: {', '.join(f['products'][:3])}" if f.get("products") else "")
+        + f". It is used by {f.get('item_count', 0)} catalog item(s)."
+        + (" Click **Items using this** to browse them." if f.get("item_count") else "")
+        + (f" {f['match_count'] - 1} other match(es) found." if f.get("match_count", 1) > 1 else "")
+    ),
 }
 
 
