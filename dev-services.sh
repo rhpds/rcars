@@ -7,6 +7,11 @@
 #   ./dev-services.sh stop     # Stop all services
 #   ./dev-services.sh restart  # Restart all services
 #   ./dev-services.sh status   # Show service status
+#   ./dev-services.sh db-pull  # Dump dev DB and restore locally
+#
+# db-pull config (set via environment variables):
+#   RCARS_DEV_KUBECONFIG  Path to kubeconfig for dev cluster (required for db-pull)
+#   DEV_NAMESPACE         OpenShift namespace (default: rcars-dev)
 
 set -euo pipefail
 
@@ -195,6 +200,45 @@ show_status() {
     fi
 }
 
+db_pull() {
+    local kubeconfig="${RCARS_DEV_KUBECONFIG:-}"
+    local namespace="${DEV_NAMESPACE:-rcars-dev}"
+    local dump_file="/tmp/rcars-dev-dump.sql"
+
+    if [[ -z "${kubeconfig}" ]]; then
+        echo "Error: RCARS_DEV_KUBECONFIG is not set."
+        echo "  export RCARS_DEV_KUBECONFIG=/path/to/dev.kubeconfig"
+        return 1
+    fi
+
+    echo "Pulling dev database from ${namespace}..."
+
+    local pod
+    pod=$(KUBECONFIG="${kubeconfig}" oc get pod -n "${namespace}" --no-headers \
+        -o custom-columns=NAME:.metadata.name 2>/dev/null | grep postgresql | head -1)
+    if [[ -z "${pod}" ]]; then
+        echo "  ✗ Could not find postgresql pod in ${namespace}"
+        return 1
+    fi
+    echo "  Pod: ${pod}"
+
+    echo "  Dumping..."
+    KUBECONFIG="${kubeconfig}" oc exec -n "${namespace}" "${pod}" -- \
+        pg_dump -U rcars rcars > "${dump_file}"
+    echo "  ✓ Saved to ${dump_file}"
+
+    if ! podman ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
+        echo "  Starting local PostgreSQL..."
+        start_postgres
+    fi
+
+    echo "  Restoring locally..."
+    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "DROP DATABASE IF EXISTS rcars;" postgres
+    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "CREATE DATABASE rcars;" postgres
+    podman exec -i "${PG_CONTAINER}" psql -U rcars rcars < "${dump_file}"
+    echo "  ✓ Local database restored from dev"
+}
+
 frontend_only() {
     echo "Starting RCARS frontend only..."
     echo ""
@@ -211,5 +255,6 @@ case "${1:-start}" in
     restart)  stop; sleep 1; start ;;
     status)   show_status ;;
     frontend) frontend_only ;;
-    *)        echo "Usage: $0 {start|stop|restart|status|frontend}" ;;
+    db-pull)  db_pull ;;
+    *)        echo "Usage: $0 {start|stop|restart|status|frontend|db-pull}" ;;
 esac
