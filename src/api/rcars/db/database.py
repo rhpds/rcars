@@ -1787,13 +1787,13 @@ class Database:
                 COALESCE(wc.cnt, 0) + COALESCE(cc.cnt, 0) AS item_count
             FROM infrastructure i
             LEFT JOIN (
-                SELECT biw.workload_role AS role_name, COUNT(DISTINCT biw.content_id) AS cnt
+                SELECT biw.workload_role AS role_name, COUNT(DISTINCT ce.display_name) AS cnt
                 FROM babylon_item_workloads biw
                 JOIN content_entities ce ON ce.content_id = biw.content_id AND ce.retired_at IS NULL
                 GROUP BY biw.workload_role
             ) wc ON wc.role_name = i.role_name AND i.type = 'workload'
             LEFT JOIN (
-                SELECT bi.agd_config AS role_name, COUNT(DISTINCT bi.content_id) AS cnt
+                SELECT bi.agd_config AS role_name, COUNT(DISTINCT ce.display_name) AS cnt
                 FROM babylon_items bi
                 JOIN content_entities ce ON ce.content_id = bi.content_id AND ce.retired_at IS NULL
                 WHERE bi.agd_config IS NOT NULL
