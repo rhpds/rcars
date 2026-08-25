@@ -15,12 +15,17 @@ from rcars.config import Settings
 router = APIRouter(prefix="/catalog")
 
 
+# Identifiers may arrive as a bare Babylon ci_name (every existing caller) or as
+# a prefixed content_id. Anything unprefixed still means Babylon.
+_SOURCE_PREFIXES = ("babylon:", "pa:")
+
+
 def _resolve_to_content_id(identifier: str, db=None) -> str:
     """Return content_id from an identifier that may be a ci_name or content_id.
 
     When db is provided, validates existence and raises 404 if not found.
     """
-    content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    content_id = identifier if identifier.startswith(_SOURCE_PREFIXES) else f"babylon:{identifier}"
     if db is not None:
         entity = db.get_content_entity(content_id)
         if not entity:
@@ -29,7 +34,9 @@ def _resolve_to_content_id(identifier: str, db=None) -> str:
 
 
 def _resolve_item(identifier: str, db) -> dict | None:
-    """Resolve identifier (content_id or ci_name) to a full babylon item dict."""
+    """Resolve identifier to a full item dict, dispatching on the source prefix."""
+    if identifier.startswith("pa:"):
+        return db.get_portfolio_architecture(identifier)
     if identifier.startswith("babylon:"):
         return db.get_babylon_item(identifier)
     return db.get_babylon_item_by_ci_name(identifier)
@@ -216,10 +223,28 @@ async def infrastructure_items(
 )
 async def get_catalog_item(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
+    settings = request.app.state.settings
     item = _resolve_item(identifier, db)
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
     content_id = item["content_id"]
+
+    if item.get("source") == "portfolio_arch":
+        repo = settings.osspa_examples_repo_url.removesuffix(".git")
+        detail_page = item.get("detail_page") or ""
+        return {
+            **item,
+            "analysis": db.get_architecture_analysis(content_id),
+            "tags": db.get_enrichment_tags(content_id),
+            "workloads": [],
+            "acl_groups": [],
+            "reporting": None,
+            "source_url": (
+                f"{repo}/-/blob/{settings.osspa_examples_ref}/{detail_page}"
+                if detail_page else None
+            ),
+        }
+
     analysis = db.get_showroom_analysis(content_id)
     tags = db.get_enrichment_tags(content_id)
     workloads = db.get_workloads(content_id) if item.get("is_agd_v2") else []
@@ -263,7 +288,10 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
 async def get_analysis(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     content_id = _resolve_to_content_id(identifier, db)
-    analysis = db.get_showroom_analysis(content_id)
+    if content_id.startswith("pa:"):
+        analysis = db.get_architecture_analysis(content_id)
+    else:
+        analysis = db.get_showroom_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
     return analysis

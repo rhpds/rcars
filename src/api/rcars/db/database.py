@@ -1098,6 +1098,8 @@ class Database:
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {join_sql}
             {where}
         """
@@ -1111,10 +1113,16 @@ class Database:
                    bi.instances_json, bi.keywords, bi.description AS bi_description,
                    bi.icon_url, bi.owners_json, bi.scan_status, bi.scan_error_class,
                    bi.scan_error, bi.scan_failed_at, bi.last_crd_update, bi.last_refreshed,
-                   sa.is_stale, sa.enrichment_review_needed
+                   pa.pa_name, pa.solutions, pa.verticals, pa.detail_page, pa.image_url,
+                   aa.asset_type,
+                   COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
+                   COALESCE(sa.enrichment_review_needed, aa.enrichment_review_needed)
+                       AS enrichment_review_needed
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {join_sql}
             {where}
             ORDER BY ce.content_id

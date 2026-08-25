@@ -118,7 +118,7 @@ class CatalogItemWorkload(BaseModel):
 
 class CatalogItemResponse(BaseModel):
     """Full catalog item with analysis, tags, workloads, and reporting metrics."""
-    ci_name: str
+    ci_name: str | None = None
     display_name: str | None = None
     stage: str | None = None
     cloud_provider: str | None = None
