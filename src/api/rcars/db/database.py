@@ -268,6 +268,55 @@ CREATE INDEX IF NOT EXISTS idx_overlap_candidates_b ON overlap_candidates(conten
 CREATE INDEX IF NOT EXISTS idx_overlap_candidates_assessed ON overlap_candidates(assessed_at);
 
 -- ═══════════════════════════════════════════════════════════════════
+-- portfolio_architectures — OSSPA extension (1:1 with content_entities)
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS portfolio_architectures (
+    content_id          TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    ppid                INTEGER NOT NULL UNIQUE,
+    pa_name             TEXT,
+    verticals           TEXT[],
+    solutions           TEXT[],
+    detail_page         TEXT,
+    image_url           TEXT,
+    is_live             BOOLEAN DEFAULT FALSE,
+    show_in_catalog     BOOLEAN DEFAULT FALSE,
+    last_manifest_sync  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pa_ppid ON portfolio_architectures(ppid);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- architecture_analysis — LLM output for portfolio architectures
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS architecture_analysis (
+    content_id                  TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+
+    -- Shared contract (feeds triage, embeddings, content_entities denormalization)
+    summary                     TEXT,
+    products_json               JSONB,
+    topics_json                 JSONB,
+    audience_json               JSONB,
+    difficulty                  TEXT,
+    content_hash                TEXT,
+    last_analyzed               TIMESTAMPTZ,
+    is_stale                    BOOLEAN DEFAULT FALSE,
+    stale_commit                TEXT,
+
+    -- Architecture-specific
+    solution_areas_json         JSONB,
+    use_cases_json              JSONB,
+    key_components_json         JSONB,
+    detailed_topics_json        JSONB,
+    recommender_audience_json   JSONB,
+    asset_type                  TEXT,
+
+    -- Curator
+    enrichment_review_needed    BOOLEAN DEFAULT FALSE,
+    review_reasons              JSONB,
+    notes                       TEXT
+);
+
+-- ═══════════════════════════════════════════════════════════════════
 -- babylon_item_workloads — re-keyed from ci_name to content_id
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS babylon_item_workloads (
@@ -482,6 +531,22 @@ CREATE INDEX IF NOT EXISTS idx_vocab_unknown_status
 -- role-aware Advisor routing.
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS recommender_audience_json JSONB;
 
+-- Universal default-visibility gate — RHDPCD-28.
+-- Babylon's vocabulary (prod/event/dev) so one predicate serves every source.
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'prod';
+CREATE INDEX IF NOT EXISTS idx_ce_status ON content_entities(status);
+
+-- Backfill MUST ship with the ALTER: DEFAULT 'prod' is wrong for existing
+-- dev/event Babylon rows, and without this they leak through the default
+-- visibility filter until the next nightly catalog refresh. Idempotent —
+-- touches only rows whose status disagrees with their Babylon stage.
+UPDATE content_entities ce
+SET    status = bi.stage
+FROM   babylon_items bi
+WHERE  bi.content_id = ce.content_id
+  AND  bi.stage IS NOT NULL
+  AND  ce.status IS DISTINCT FROM bi.stage;
+
 """
 
 
@@ -569,6 +634,7 @@ class Database:
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "infrastructure",
             "vocabulary_unknown_terms",
+            "architecture_analysis", "portfolio_architectures",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -609,6 +675,7 @@ class Database:
             "content_type": content_type,
             "is_hands_on": True,
             "display_name": item.get("display_name") or ci_name,
+            "status": item.get("stage"),
             "retired_at": None,
             "retirement_reason": None,
             "updated_at": datetime.now(timezone.utc),
