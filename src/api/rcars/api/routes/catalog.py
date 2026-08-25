@@ -62,6 +62,9 @@ async def list_catalog(
     agd_config: str | None = Query(None, description="Filter by AgnosticD config type"),
     content_filter: str | None = Query(None, description="Curator filter: unanalyzed, scan_failures, stale, needs_review"),
     category: str | None = None,
+    solutions: str | None = Query(None, description="Comma-separated solution areas (architecture items only)"),
+    verticals: str | None = Query(None, description="Comma-separated industry verticals (architecture items only)"),
+    audience: str | None = Query(None, description="Comma-separated target audiences"),
     include_retired: str = Query("false", description="Retired items: false (exclude), true (include), only (retired only)"),
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
@@ -78,6 +81,9 @@ async def list_catalog(
         stage_list = None
     workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
     content_type_list = [t.strip() for t in content_type.split(",")] if content_type else None
+    solutions_list = [s.strip() for s in solutions.split(",")] if solutions else None
+    verticals_list = [v.strip() for v in verticals.split(",")] if verticals else None
+    audience_list = [a.strip() for a in audience.split(",")] if audience else None
 
     return db.list_content_entities_filtered(
         search=search,
@@ -88,6 +94,9 @@ async def list_catalog(
         workloads=workload_list,
         content_filter=content_filter,
         category=category,
+        solutions=solutions_list,
+        verticals=verticals_list,
+        audience=audience_list,
         limit=limit,
         offset=offset,
         include_retired=include_retired,

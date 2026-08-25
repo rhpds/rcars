@@ -116,3 +116,66 @@ def test_curator_actions_work_on_a_pa_identifier(client, db):
 
 def test_unknown_pa_identifier_is_404(client):
     assert client.get("/api/v1/catalog/pa:9999").status_code == 404
+
+
+def _second_architecture(db):
+    db.upsert_osspa_item({
+        "content_id": "pa:300", "ppid": 300, "pa_name": "300-edge",
+        "display_name": "Edge Manufacturing", "status": "prod",
+        "summary": "s", "products": [], "topics": [], "audience": [],
+        "solutions": ["Edge"], "verticals": ["Manufacturing"],
+        "detail_page": "edge.adoc", "image_url": None,
+        "is_live": True, "show_in_catalog": True, "asset_type": "SP",
+    })
+    db.update_content_entity_card("pa:300", summary="s", products_json=[],
+                                  topics_json=[], audience_json=["operations teams"],
+                                  difficulty=None)
+
+
+def test_solutions_filter_narrows_to_matching_architectures(client, db):
+    _second_architecture(db)
+
+    resp = client.get("/api/v1/catalog",
+                      params={"content_type": "architecture", "stage": "prod", "solutions": "Edge"})
+
+    assert [i["content_id"] for i in resp.json()["items"]] == ["pa:300"]
+
+
+def test_verticals_filter_narrows_to_matching_architectures(client, db):
+    _second_architecture(db)
+
+    resp = client.get("/api/v1/catalog",
+                      params={"content_type": "architecture", "stage": "prod", "verticals": "Manufacturing"})
+
+    assert [i["content_id"] for i in resp.json()["items"]] == ["pa:300"]
+
+
+def test_solutions_filter_excludes_babylon_items(client, db):
+    resp = client.get("/api/v1/catalog",
+                      params={"content_type": "lab,demo,sandbox,architecture",
+                              "stage": "prod", "solutions": "Security"})
+
+    assert [i["content_id"] for i in resp.json()["items"]] == ["pa:275"]
+
+
+def test_audience_filter_applies_across_content_types(client, db):
+    _second_architecture(db)
+    db.update_content_entity_card("pa:275", summary="LLM summary", products_json=["RHACS"],
+                                  topics_json=["Security"], audience_json=["security architects"],
+                                  difficulty="intermediate")
+
+    resp = client.get("/api/v1/catalog",
+                      params={"content_type": "architecture", "stage": "prod",
+                              "audience": "operations teams"})
+
+    assert [i["content_id"] for i in resp.json()["items"]] == ["pa:300"]
+
+
+def test_facets_include_solutions_verticals_and_audience(client, db):
+    _second_architecture(db)
+
+    facets = client.get("/api/v1/catalog/facets").json()
+
+    assert "Security" in facets["solutions"]
+    assert "Manufacturing" in facets["verticals"]
+    assert "operations teams" in facets["audience"]

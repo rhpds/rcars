@@ -51,6 +51,9 @@ export const api = {
     include_retired?: string | boolean;
     limit?: number;
     offset?: number;
+    solutions?: string;
+    verticals?: string;
+    audience?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
@@ -64,6 +67,9 @@ export const api = {
     if (params?.include_retired) qs.set('include_retired', String(params.include_retired));
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
+    if (params?.solutions) qs.set('solutions', params.solutions);
+    if (params?.verticals) qs.set('verticals', params.verticals);
+    if (params?.audience) qs.set('audience', params.audience);
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),

@@ -1001,6 +1001,9 @@ class Database:
         workloads: list[str] | None = None,
         content_filter: str | None = None,
         category: str | None = None,
+        solutions: list[str] | None = None,
+        verticals: list[str] | None = None,
+        audience: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: str | bool = False,
@@ -1056,6 +1059,19 @@ class Database:
         if agd_config:
             conditions.append("bi.agd_config = %(agd_config)s")
             params["agd_config"] = agd_config
+
+        # Solutions and verticals live on portfolio_architectures, so selecting
+        # either narrows the result set to architecture items.
+        if solutions:
+            conditions.append("pa.solutions && %(solutions)s")
+            params["solutions"] = solutions
+        if verticals:
+            conditions.append("pa.verticals && %(verticals)s")
+            params["verticals"] = verticals
+        # Audience is an open dimension on content_entities — every source has it.
+        if audience:
+            conditions.append("ce.audience_json ?| %(audience)s")
+            params["audience"] = audience
 
         if workloads:
             import json as _json
@@ -1957,11 +1973,42 @@ class Database:
                 if p not in seen:
                     seen.add(p)
                     product_names.append(p)
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT DISTINCT unnest(pa.solutions) AS value
+                FROM portfolio_architectures pa
+                JOIN content_entities ce ON ce.content_id = pa.content_id
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                ORDER BY value
+            """)
+            solutions_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT unnest(pa.verticals) AS value
+                FROM portfolio_architectures pa
+                JOIN content_entities ce ON ce.content_id = pa.content_id
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                ORDER BY value
+            """)
+            verticals_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT jsonb_array_elements_text(ce.audience_json) AS value
+                FROM content_entities ce
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                  AND jsonb_typeof(ce.audience_json) = 'array'
+                ORDER BY value
+            """)
+            audience_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
         return {
             "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
             "cloud_providers": [row["cloud_provider"] for row in cloud_providers],
             "os_images": [row["os_image"] for row in os_images],
+            "solutions": solutions_list,
+            "verticals": verticals_list,
+            "audience": audience_list,
         }
 
     # ── Infrastructure catalog ──

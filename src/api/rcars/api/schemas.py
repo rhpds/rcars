@@ -147,6 +147,9 @@ class FacetsResponse(BaseModel):
     agd_configs: list[str] = []
     cloud_providers: list[str] = []
     os_images: list[str] = []
+    solutions: list[str] = []
+    verticals: list[str] = []
+    audience: list[str] = []
 
     model_config = {"extra": "allow"}
 
