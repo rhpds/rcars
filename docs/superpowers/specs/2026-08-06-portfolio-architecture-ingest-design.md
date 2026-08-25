@@ -1,7 +1,7 @@
 # Portfolio Architecture Ingest — Design Spec
 
 **Jira:** [RHDPCD-28](https://redhat.atlassian.net/browse/RHDPCD-28) (child of [RHDPCD-25](https://redhat.atlassian.net/browse/RHDPCD-25))
-**Date:** 2026-07-30 (revised 2026-08-07, 2026-08-10)
+**Date:** 2026-07-30 (revised 2026-08-07, 2026-08-10, 2026-08-25)
 **Status:** Design
 **Author:** M. Rudisill
 **Depends on:** RHDPCD-359 (Generalized Content Model — deployed)
@@ -14,7 +14,7 @@ These assets come from OSSPA GitLab, are public, and have rich AsciiDoc content.
 
 ## Approach
 
-Ingest **all** Portfolio Architecture assets — `PA`, `PA,VP`, and `SP` — that have a readable `.adoc`, regardless of live/catalog status. These three asset types all map to `content_type = architecture`. Demos and Interactive Experiences are **out of scope for Phase 1** (see Scope & Asset Types). Each item is tagged with a lifecycle status (`live` / `in_progress` / `draft`) derived from the CSV, so curators can see in-progress and unpublished work in RCARS while Advisor and Browse surface only `live` items by default. Each item gets a row in `content_entities` (the universal card), a row in `portfolio_architectures` (OSSPA-specific metadata), and after LLM analysis a row in `architecture_analysis`. Embeddings land in the shared `embeddings` table, making these items immediately searchable alongside Babylon labs.
+Ingest **all** Portfolio Architecture assets — `PA`, `PA,VP`, and `SP` — that have a readable `.adoc`, regardless of live/catalog status. These three asset types all map to `content_type = architecture`. Demos and Interactive Experiences are **out of scope for Phase 1** (see Scope & Asset Types). Each item is tagged with a lifecycle status (`prod` / `dev`) derived from the CSV using Babylon's status vocabulary, so curators can see in-progress and unpublished work in RCARS while Advisor and Browse surface only `prod` items by default. Each item gets a row in `content_entities` (the universal card), a row in `portfolio_architectures` (OSSPA-specific metadata), and after LLM analysis a row in `architecture_analysis`. Embeddings land in the shared `embeddings` table, making these items immediately searchable alongside Babylon labs.
 
 The Babylon ingest pipeline is the pattern to follow: upsert the entity registry first, write source-specific extension fields second, run analysis third.
 
@@ -71,17 +71,19 @@ keep the row IF:
 
 The three architecture asset types — `PA`, `VP`, `SP` — are what we ingest, in any combination (e.g. `PA,VP`). A row is an architecture if it carries any of those types; it all maps to `content_type='architecture'`. Rows that are only `Demo` or `IE` are excluded from Phase 1 (see Scope & Asset Types).
 
-**Status tag** — derived per row, drives default visibility:
+**Status tag** — derived per row using Babylon's status vocabulary (`prod` / `dev`), drives default visibility:
 
-| CSV state                                            | `status`      | Surfaced by default?      |
-| ---------------------------------------------------- | ------------- | ------------------------- |
-| `islive=TRUE` AND `showInCatalog=TRUE`               | `live`        | Yes — Advisor + Browse    |
-| exactly one of `islive` / `showInCatalog` is `TRUE`  | `in_progress` | Curators only             |
-| neither is `TRUE`                                    | `draft`       | Curators only             |
+| CSV state                                            | `status`  | Surfaced by default?      |
+| ---------------------------------------------------- | --------- | ------------------------- |
+| `islive=TRUE` AND `showInCatalog=TRUE`               | `prod`    | Yes — Advisor + Browse    |
+| exactly one of `islive` / `showInCatalog` is `TRUE`  | `dev`     | Curators only             |
+| neither is `TRUE`                                    | `dev`     | Curators only             |
 
-Advisor and Browse default to `status='live'`. A curator-only "Show non-live" toggle exposes `in_progress` and `draft` items, mirroring the existing "Show Retired" pattern. **This filter is a Phase 1 deliverable, not deferred:** the shared candidate-retrieval query used by Advisor's vector search and by the Browse API applies `(source != 'portfolio_arch' OR status = 'live')` in Phase 1, before any dedicated architecture UI exists — see 3i. Without it, `in_progress`/`draft` items would leak into recommendations and Browse results via vector search the moment embeddings exist, regardless of whether a curator UI toggle has shipped.
+Advisor and Browse default to `status='prod'`. A curator-only "Show non-prod" toggle exposes `dev` items, mirroring the existing "Show Retired" pattern. **This filter is a Phase 1 deliverable, not deferred:** the shared candidate-retrieval query used by Advisor's vector search and by the Browse API applies `status = 'prod'` in Phase 1, before any dedicated architecture UI exists — see 3i. Without it, non-`prod` items would leak into recommendations and Browse results via vector search the moment embeddings exist, regardless of whether a curator UI toggle has shipped.
 
-As of 2026-07 there are ~39 in-scope rows with `showInCatalog=TRUE` (PA 34, PA,VP 3, SP 2); ingesting all in-scope rows with a valid `.adoc` also pulls in additional `in_progress` / `draft` items beyond those. Rows excluded from Phase 1 entirely:
+The raw CSV booleans (`is_live`, `show_in_catalog`) on `portfolio_architectures` preserve the distinction between "one boolean TRUE" and "neither TRUE" for curator diagnostics.
+
+As of 2026-07 there are ~39 in-scope rows with `showInCatalog=TRUE` (PA 34, PA,VP 3, SP 2); ingesting all in-scope rows with a valid `.adoc` also pulls in additional `dev`-status items beyond those. Rows excluded from Phase 1 entirely:
 
 - `ProductType=Demo` (~30 rows) — deferred; these may migrate off OSSPA to Interact Hub, or be introduced in a later phase
 - `ProductType=IE` (e.g. `ppid=64`) — Interactive Experience, deferred to a future phase
@@ -145,9 +147,9 @@ Default ref: `main`
 
 Examples (in scope — ingested):
 
-- `pa:275` — Multitenant Setup for RHACS (PA), `status=live`
-- `pa:273` — Open Sovereign AI Cloud with Red Hat and Netris (PA), `status=live`
-- `pa:272` — `showInCatalog=FALSE` → ingested with `status=in_progress` (curators only, not surfaced by default)
+- `pa:275` — Multitenant Setup for RHACS (PA), `status=prod`
+- `pa:273` — Open Sovereign AI Cloud with Red Hat and Netris (PA), `status=prod`
+- `pa:272` — `showInCatalog=FALSE` → ingested with `status=dev` (curators only, not surfaced by default)
 
 Excluded examples (out of scope — not ingested):
 
@@ -174,15 +176,15 @@ CREATE TABLE IF NOT EXISTS portfolio_architectures (
     image_url           TEXT,
     is_live             BOOLEAN DEFAULT FALSE,   -- raw CSV islive
     show_in_catalog     BOOLEAN DEFAULT FALSE,   -- raw CSV showInCatalog
-    status              TEXT DEFAULT 'draft',    -- live | in_progress | draft (derived)
     last_manifest_sync  TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_pa_ppid ON portfolio_architectures(ppid);
-CREATE INDEX IF NOT EXISTS idx_pa_status ON portfolio_architectures(status);
 ```
 
-This implements the table planned (but not created) by RHDPCD-359, extended with `show_in_catalog` and `status` to support the ingest-all + status-tagging model (see Ingestion Scope & Status Tagging). `status` is derived on each sync from the two raw CSV booleans and drives default Advisor/Browse visibility.
+This implements the table planned (but not created) by RHDPCD-359, extended with `show_in_catalog` to preserve the raw CSV booleans for diagnostics and `derive_osspa_status()` input.
+
+**`status` lives on `content_entities`** (not here) — see 2c. It uses Babylon's vocabulary (`prod`/`event`/`dev`) as the universal default-visibility gate. This avoids per-source LEFT JOINs in every retrieval query and gives future content sources the same column for free.
 
 
 | Column               | Source                                                       | Notes                                     |
@@ -196,7 +198,6 @@ This implements the table planned (but not created) by RHDPCD-359, extended with
 | `image_url`          | CSV `Image1Url`                                              | Relative image path in examples repo      |
 | `is_live`            | Raw CSV `islive`                                            | Stored for diagnostics + status derivation |
 | `show_in_catalog`    | Raw CSV `showInCatalog`                                     | Stored for diagnostics + status derivation |
-| `status`             | Derived: `live` / `in_progress` / `draft`                  | Drives default Advisor/Browse visibility; non-`live` items are stored, not retired |
 | `last_manifest_sync` | Set on each sync                                            | When this row was last seen in the CSV     |
 
 
@@ -251,11 +252,26 @@ CREATE TABLE IF NOT EXISTS architecture_analysis (
 
 `stale_commit`: the HEAD SHA of the examples repo at the time the hash change was detected. Set when a re-analysis is triggered by a content change; cleared (set to NULL) when analysis succeeds. Same staleness pattern as `showroom_analysis`.
 
-#### 2c. SCHEMA_SQL placement
+#### 2c. `status` column on `content_entities`
 
-Both tables go into `src/api/rcars/db/database.py` `SCHEMA_SQL` using `CREATE TABLE IF NOT EXISTS`. They are appended after the `overlap_candidates` block, before the reference tables (`workload_mapping`, `workload_aliases`). The Babylon tables are not affected.
+```sql
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'prod';
+CREATE INDEX IF NOT EXISTS idx_ce_status ON content_entities(status);
+```
 
-#### 2d. content_entities card fields for OSSPA items
+`status` lives on `content_entities`, not on `portfolio_architectures`, so that every retrieval query (`search_embeddings`, `list_content_entities_filtered`) can filter without a per-source LEFT JOIN. Values use **Babylon's existing vocabulary** (`prod` / `event` / `dev`) — Babylon is the larger content set and defines the convention. All sources map into these values:
+
+- **Babylon items** — `upsert_babylon_catalog_item` sets `status` from `bi.stage` at write time (`prod` / `event` / `dev`). The `bi.stage` column remains for curator stage filtering; `status` is the universal default-visibility gate.
+- **OSSPA items** — `derive_osspa_status()` maps CSV booleans into the same vocabulary: `islive + showInCatalog` → `prod`; anything else → `dev`. The raw booleans stay on `portfolio_architectures` for diagnostics.
+- **Future content sources** — set `status` at their own ingest time; the default (`prod`) means items are visible until explicitly marked otherwise.
+
+Default visibility filter for all sources: `WHERE status = 'prod' AND retired_at IS NULL`.
+
+#### 2d. SCHEMA_SQL placement
+
+Both tables go into `src/api/rcars/db/database.py` `SCHEMA_SQL` using `CREATE TABLE IF NOT EXISTS`. They are appended after the `overlap_candidates` block, before the reference tables (`workload_mapping`, `workload_aliases`). The `status` column ALTER goes alongside the new tables. The Babylon tables are not affected.
+
+#### 2e. content_entities card fields for OSSPA items
 
 Populated on ingest from CSV **on first insert only**, then owned by analysis from that point on:
 
@@ -271,7 +287,7 @@ Populated on ingest from CSV **on first insert only**, then owned by analysis fr
 
 `recommender_audience_json` is stored on `architecture_analysis` (not `content_entities`) and generated by the LLM alongside `audience_json`. See vocabulary spec, Audience section.
 
-**`upsert_osspa_item` never updates `summary`, `products_json`, `topics_json`, `audience_json`, or `difficulty` on conflict.** These five columns are set once on `INSERT` as a pre-analysis seed and excluded from the `ON CONFLICT DO UPDATE` clause entirely — only `analyze_architecture_item` writes to them after that. This matters because `upsert_osspa_item` runs on *every* sync (CSV-only, no analysis), while analysis only reruns when `content_hash` changes; without the exclusion, a routine CSV-only sync would silently overwrite good LLM output with the stale CSV seed values, and the following hash-unchanged skip (3b step 7d) would leave it that way indefinitely. `upsert_babylon_catalog_item` in `src/api/rcars/db/database.py` (line 539) already applies this same insert-only pattern to `content_entities` for Babylon items — `upsert_osspa_item` follows the identical approach.
+**`upsert_osspa_item` never updates `summary`, `products_json`, `topics_json`, `audience_json`, or `difficulty` on conflict.** These five columns are set once on `INSERT` as a pre-analysis seed and excluded from the `ON CONFLICT DO UPDATE` clause entirely — only `analyze_architecture_item` writes to them after that. This matters because `upsert_osspa_item` runs on *every* sync (CSV-only, no analysis), while analysis only reruns when `content_hash` changes; without the exclusion, a routine CSV-only sync would silently overwrite good LLM output with the stale CSV seed values, and the following hash-unchanged skip (3b step 7d) would leave it that way indefinitely. `upsert_babylon_catalog_item` in `src/api/rcars/db/database.py` already applies this same insert-only pattern to `content_entities` for Babylon items — `upsert_osspa_item` follows the identical approach.
 
 
 
@@ -287,8 +303,8 @@ Populated on ingest from CSV **on first insert only**, then owned by analysis fr
 | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `fetch_palist_csv(settings) -> list[dict]`                                        | HTTP GET PAList.csv, parse, normalize booleans                                                             |
 | `scope_rows(rows) -> list[dict]`                                                  | Apply ingestion gate — any `ProductType` token ∈ {PA, VP, SP} (no IE token) AND `.adoc` DetailPage. Not a live/catalog filter |
-| `derive_status(row) -> str`                                                       | Map raw `islive` + `showInCatalog` → `live` / `in_progress` / `draft`                                      |
-| `upsert_osspa_item(db, row) -> str`                                               | Write `content_entities` (card fields **except** `summary`/`products_json`/`topics_json`/`audience_json`/`difficulty`, which are INSERT-only — see 2d) + `portfolio_architectures` (incl. derived `status`) for one CSV row. Always resets `retired_at = NULL, retirement_reason = NULL` on conflict, mirroring `upsert_babylon_catalog_item`. Returns `content_id` |
+| `derive_osspa_status(row) -> str`                                                  | Map raw `islive` + `showInCatalog` → `prod` / `dev` using Babylon's status vocabulary. Both TRUE → `prod`; anything else → `dev`. Named to avoid collision with `retirement.py:derive_status()` which derives workflow stages |
+| `upsert_osspa_item(db, row) -> str`                                               | Write `content_entities` (card fields **except** `summary`/`products_json`/`topics_json`/`audience_json`/`difficulty`, which are INSERT-only — see 2e; includes `status` from `derive_osspa_status` using `prod`/`dev` vocabulary) + `portfolio_architectures` for one CSV row. Always resets `retired_at = NULL, retirement_reason = NULL` on conflict, mirroring `upsert_babylon_catalog_item`. Returns `content_id` |
 | `retire_missing_osspa(db, active_content_ids) -> int`                             | Soft-retire `source='portfolio_arch'` items not in the current in-scope set — only when completeness + shrink-guard checks pass (see 3h)  |
 | `clone_examples_repo(settings) -> Path`                                           | Shallow clone or fetch portfolio-architecture-examples at configured ref; bounded timeout; must succeed before any DB writes this sync (see 3h). When reusing an existing checkout, reset to configured ref and clean untracked files to ensure a known-good state |
 | `read_detail_adoc(clone_path, detail_page) -> tuple[str, str]`                    | Safe path join with canonical real-path containment check; verify file is tracked at recorded HEAD (`git ls-tree`); read **full** `.adoc` text and compute `content_hash` from it; then truncate to `osspa_max_adoc_bytes` for the LLM prompt copy; strip `++++` passthrough blocks from the prompt copy; return `(full_text_for_hash, prompt_text)` (see 3h) |
@@ -315,11 +331,12 @@ Populated on ingest from CSV **on first insert only**, then owned by analysis fr
    before upsert or retire, so existing rows are never mutated by a run that can't
    validate content (closes the "clone fails after DB already changed" gap — see 3h)
 5. For each row → upsert_osspa_item:
-       derive status (live / in_progress / draft) from islive + showInCatalog
+       derive_osspa_status (prod / dev) from islive + showInCatalog
        content_entities (ON CONFLICT DO UPDATE — card fields EXCEPT summary/products_json/
-           topics_json/audience_json/difficulty, which are INSERT-only — see 2d;
+           topics_json/audience_json/difficulty, which are INSERT-only — see 2e;
+           includes status from derive_osspa_status;
            always resets retired_at = NULL, retirement_reason = NULL on conflict)
-       portfolio_architectures (ON CONFLICT DO UPDATE — extension fields incl. status)
+       portfolio_architectures (ON CONFLICT DO UPDATE — extension fields)
 6. retire_missing_osspa: only if completeness is established — HTTP 200, parseable header,
    AND (active_rows count is not a suspicious drop vs. the current DB's active
    source='portfolio_arch' count, i.e. within the shrink-guard threshold — see 3h)
@@ -448,29 +465,33 @@ Hardening for untrusted input (public GitLab repos, LLM output) and concurrent r
 
 9. **URL override for Architecture Center links.** The detail URL is derived at display time from `pa_name` (`https://www.redhat.com/architect/portfolio/detail/{pa_name}/`). If Red Hat restructures the Architecture Center URL scheme, add a `url_override TEXT` column to `portfolio_architectures` (same pattern as `showroom_url_override` on `babylon_items`) and prefer it when set. Not required for Phase 1 — the current URL pattern has been stable — but the escape hatch is documented here.
 
-10. **LLM-owned card fields survive routine CSV syncs.** `upsert_osspa_item` excludes `summary`, `products_json`, `topics_json`, `audience_json`, and `difficulty` from its `ON CONFLICT DO UPDATE` clause (2d) — they are seeded on `INSERT` only and owned by `analyze_architecture_item` afterward. Without this, the CSV-only upsert that runs on every sync would overwrite good LLM analysis with the CSV seed on the very next sync, and the hash-unchanged skip (item 2, above) would prevent analysis from ever restoring it. `upsert_osspa_item` also always resets `retired_at = NULL, retirement_reason = NULL` on conflict, so a row that reappears in the CSV after being retired is correctly un-retired on the next sync — matching the Lifecycle table (Section 6) and `upsert_babylon_catalog_item`'s existing behavior for Babylon.
+10. **LLM-owned card fields survive routine CSV syncs.** `upsert_osspa_item` excludes `summary`, `products_json`, `topics_json`, `audience_json`, and `difficulty` from its `ON CONFLICT DO UPDATE` clause (2e) — they are seeded on `INSERT` only and owned by `analyze_architecture_item` afterward. Without this, the CSV-only upsert that runs on every sync would overwrite good LLM analysis with the CSV seed on the very next sync, and the hash-unchanged skip (item 2, above) would prevent analysis from ever restoring it. `upsert_osspa_item` also always resets `retired_at = NULL, retirement_reason = NULL` on conflict, so a row that reappears in the CSV after being retired is correctly un-retired on the next sync — matching the Lifecycle table (Section 6) and `upsert_babylon_catalog_item`'s existing behavior for Babylon.
 
 #### 3i. Default visibility filter (Phase 1, not deferred)
 
-Advisor/Browse **UI** for architecture content (cards, content-type filter chips, CTA/detail links) is deferred to a future spec (see Out of Scope). That is a rendering concern, not a data-safety one — until it ships, non-`live` OSSPA rows must still be prevented from surfacing through the *existing* Advisor retrieval and Browse API paths, because embeddings for `in_progress`/`draft` items exist the moment analysis runs (3e) and are visible to any vector-search query regardless of UI support.
+Advisor/Browse **UI** for architecture content (cards, content-type filter chips, CTA/detail links) is deferred to a future spec (see Out of Scope). That is a rendering concern, not a data-safety one — until it ships, non-`prod` OSSPA rows must still be prevented from surfacing through the *existing* Advisor retrieval and Browse API paths, because embeddings for `dev`-status items exist the moment analysis runs (3e) and are visible to any vector-search query regardless of UI support.
 
 To close that gap without waiting on the UI work, the shared candidate-retrieval query paths add one filter clause in Phase 1:
 
 ```sql
 -- Applied by: Advisor vector-search candidate query, Browse default (non-curator) query
-WHERE retired_at IS NULL
-  AND (source != 'portfolio_arch' OR status = 'live')
+-- status lives on content_entities (see 2c) using Babylon's vocabulary, so no per-source JOIN is needed
+WHERE ce.retired_at IS NULL
+  AND ce.status = 'prod'
 ```
 
-- Curator-facing queries (Browse "Show non-live" toggle, admin/curation endpoints) omit the `status = 'live'` clause, mirroring the existing "Show Retired" pattern.
-- This is a query-clause change to existing shared retrieval code, not new UI. It ships in Phase 1 alongside ingest so the Phase 1 visibility guarantee (Ingestion Scope & Status Tagging) is actually enforced by a consumer, not just asserted.
-- Babylon rows are unaffected — the `source != 'portfolio_arch'` branch is a no-op for them.
+Because `status` uses Babylon's own vocabulary (`prod`/`event`/`dev`) and lives on `content_entities`, the filter is universal — no source-specific branches needed:
+
+- **Babylon items** — `upsert_babylon_catalog_item` sets `status` from `bi.stage`, so `prod` items pass; `dev`/`event` items are filtered just like they are today via `bi.stage = 'prod'`.
+- **OSSPA items** — `derive_osspa_status()` maps `islive + showInCatalog` → `prod`; anything else → `dev`.
+- **Curator-facing queries** (Browse "Show non-prod" toggle, admin/curation endpoints) omit the `status = 'prod'` clause, mirroring the existing "Show Retired" pattern.
+- This replaces the current `(bi.stage = 'prod' OR bi.content_id IS NULL)` pattern in `list_content_entities_filtered` and the stage-based EXISTS subquery in `search_embeddings` — one universal filter instead of per-source logic.
 
 **Specific integration points** that need this filter:
 
-1. **`search_embeddings`** (`database.py`, `Database.search_embeddings`) — the vector search candidate query. Currently filters on `retired_at IS NULL` plus Babylon-specific `stage` and ZT-namespace filters. Add the `status = 'live'` clause for `source='portfolio_arch'` here. Note: this function is accumulating per-source filter logic; a future refactor should consider a single `is_searchable` flag on `content_entities` maintained by each source's sync.
+1. **`search_embeddings`** (`database.py`, `Database.search_embeddings`) — the vector search candidate query. Currently filters on `retired_at IS NULL` plus Babylon-specific `stage` and ZT-namespace filters. Replace the stage-based EXISTS subquery with `ce.status = 'prod'`. Because `status` lives on `content_entities` (see 2c) and uses Babylon's vocabulary, this simplifies the query — no per-source JOIN required.
 
-2. **`list_content_entities_filtered`** (`database.py`, `Database.list_content_entities_filtered`) — the Browse API query. This function LEFT JOINs `babylon_items` and has Babylon-centric stage logic (`bi.stage = 'prod' OR bi.content_id IS NULL` at line 781). OSSPA items have no `babylon_items` row, so they fall through the `bi.content_id IS NULL` branch and appear in Browse results with no status filtering. The `status = 'live'` clause must be added here too.
+2. **`list_content_entities_filtered`** (`database.py`, `Database.list_content_entities_filtered`) — the Browse API query. This function LEFT JOINs `babylon_items` and has Babylon-centric stage logic (`bi.stage = 'prod' OR bi.content_id IS NULL`). Replace that with `ce.status = 'prod'` — same meaning, universal across sources, no `bi.content_id IS NULL` fallthrough needed. The curator "Show non-prod" toggle omits this clause. The existing `stages` parameter (for filtering to specific stages like `dev`/`event`) continues to work via `bi.stage` for Babylon items or via `ce.status` for all sources.
 
 3. **`_format_single_candidate`** (`services/recommender/rationale.py`) — the rationale formatter. Currently handles `lab`/`demo` and `sandbox` content types only. `live` OSSPA items WILL reach this function via vector search in Phase 1. Without an `architecture` branch, they get bare-minimum formatting (no solution areas, use cases, or key components context). **Phase 1 must add a minimal `architecture` branch** that formats the available fields — this is not a UI concern; it's a data-quality concern for the rationale prompt.
 
@@ -482,7 +503,7 @@ Architecture items must be visible in the Browse catalog and accessible via the 
 
 No new endpoints needed. Architecture items are returned by the existing `GET /api/v1/catalog` endpoint via `list_content_entities_filtered` — OSSPA items are in `content_entities` and fall through the `bi.content_id IS NULL` branch in the query. The `content_type`, `source`, `products_json`, and `topics_json` fields are all available in the response.
 
-The existing query needs the status filter from 3i applied so non-`live` items don't appear in default responses.
+The existing query needs the status filter from 3i applied so non-`prod` items don't appear in default responses.
 
 #### Content format filter
 
@@ -537,7 +558,7 @@ Browse cards for architecture items render a subset of the standard card fields:
 
 #### Curator controls
 
-- **"Show non-live" toggle** — surfaces `in_progress` and `draft` architecture items, mirroring the existing "Show Retired" pattern. Non-`live` items get a status badge (`In Progress` / `Draft`).
+- **"Show non-prod" toggle** — surfaces `dev`-status architecture items, mirroring the existing "Show Retired" pattern. Non-`prod` items get a `Dev` status badge.
 - **"Show Retired" toggle** — works as-is; soft-retired architecture items appear when toggled.
 - **Enrichment review flag** — items with `enrichment_review_needed = TRUE` show a review indicator on the card (same pattern as Babylon items with review flags).
 
@@ -549,8 +570,8 @@ Browse cards for architecture items render a subset of the standard card fields:
 | Content format filter: "Reference Architectures" | Integration | Only `content_type='architecture'` items returned |
 | Content format filter: "Hands-on Labs" | Integration | Only `lab`/`demo`/`sandbox` items returned |
 | Solutions filter | Integration | Filter by solution returns matching items |
-| Non-live items hidden by default | Integration | `in_progress`/`draft` items absent from default catalog response |
-| Non-live items visible with toggle | Integration | `in_progress`/`draft` items appear when "Show non-live" active |
+| Non-prod items hidden by default | Integration | `dev`-status items absent from default catalog response |
+| Non-prod items visible with toggle | Integration | `dev`-status items appear when "Show non-prod" active |
 | Architecture card CTA link | Unit | URL constructed correctly from `pa_name` |
 | Architecture card hides lab-specific fields | Unit | No duration, no Showroom link, no stage badge |
 
@@ -565,14 +586,42 @@ Browse cards for architecture items render a subset of the standard card fields:
 
 | Entry                           | Details                                                                                   |
 | ------------------------------- | ----------------------------------------------------------------------------------------- |
-| Nightly maintenance pipeline    | New step in `run_nightly_pipeline` (`src/api/rcars/workers/ops.py`) after Step 1 (catalog refresh), before Step 2 (stale check); never passes `confirm_empty_inventory` |
+| Nightly maintenance pipeline    | Separate pipeline dispatched by `run_nightly_pipeline` after the Babylon pipeline completes (see 4a). Never passes `confirm_empty_inventory` |
 | `POST /api/v1/admin/sync-osspa` | Admin-only endpoint; enqueues job; accepts optional `confirm_empty_inventory: bool`; returns `{job_id}` |
 | `rcars osspa sync [--force] [--confirm-empty-inventory]` | CLI command; synchronous; `--force` bypasses hash check; `--confirm-empty-inventory` permits retiring all items when the CSV has zero in-scope rows (see 3h) |
 
 
 All three entry points funnel through `run_osspa_sync`, which is serialized by a Postgres advisory lock (see 3h) — a manual sync and the nightly pipeline cannot overlap.
 
+#### 4a. Pipeline structure
 
+The nightly maintenance pipeline (`run_nightly_pipeline` in `ops.py`) is restructured from a single flat sequence into two self-contained sub-pipelines dispatched sequentially:
+
+```text
+run_nightly_pipeline (orchestrator)
+├── run_babylon_pipeline          # current Steps 1-5, extracted as-is
+│   ├── 1. Catalog refresh from CRDs
+│   ├── 2. Stale check (git refs)
+│   ├── 3. Re-analyze stale items
+│   ├── 4. Workload scan + config scan
+│   ├── 4b. Sandbox summary
+│   └── 5. Reporting metrics sync
+└── run_osspa_pipeline            # new, self-contained
+    ├── 1. CSV fetch + scope
+    ├── 2. Clone examples repo
+    ├── 3. Upsert items + retire missing
+    └── 4. Analyze changed items
+```
+
+Each sub-pipeline:
+- Reports its own progress messages (e.g. `pipeline:osspa:csv_fetch`, `pipeline:osspa:analyze`)
+- Has its own step numbering — no renumbering across pipelines
+- Can be triggered independently via CLI or admin API
+- Returns its own stats dict
+
+The orchestrator sequences them and collects combined stats. If the Babylon pipeline fails, the OSSPA pipeline still runs (same continue-on-error pattern as the current step-level `try/except`). There are no data dependencies between the two — OSSPA reads from GitLab, not from Babylon CRDs.
+
+This structure prepares for future content sources (Interact Hub, etc.) — each gets its own pipeline block, no interleaving.
 
 
 ### 5. Configuration
@@ -582,7 +631,7 @@ All settings in `src/api/rcars/config.py` using existing `RCARS_` prefix pattern
 
 | Setting                   | Default                                                        | Purpose                     |
 | ------------------------- | -------------------------------------------------------------- | --------------------------- |
-| `osspa_sync_enabled`      | `true`                                                         | Gates nightly pipeline step |
+| `osspa_sync_enabled`      | `true`                                                         | Gates OSSPA sub-pipeline in nightly run |
 | `osspa_palist_url`        | PAList.csv raw URL                                             | Inventory source            |
 | `osspa_examples_repo_url` | `https://gitlab.com/osspa/portfolio-architecture-examples.git` | Content repo                |
 | `osspa_examples_ref`      | `main`                                                         | Git ref to clone/fetch      |
@@ -600,15 +649,15 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 
 | Event                                                    | Result                                                                              |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| New in-scope row appears                                 | Upserted on next sync; `status` derived; analysis runs                              |
-| `islive` and/or `showInCatalog` flips FALSE              | `status` re-derived (`in_progress` or `draft`); item **stays ingested**, dropped from default Advisor/Browse — not retired |
-| `islive` and `showInCatalog` both back to TRUE           | `status` re-derived to `live`; item surfaces again by default                       |
+| New in-scope row appears                                 | Upserted on next sync; `status` derived (`prod` or `dev`); analysis runs            |
+| `islive` and/or `showInCatalog` flips FALSE              | `status` re-derived to `dev`; item **stays ingested**, dropped from default Advisor/Browse — not retired |
+| `islive` and `showInCatalog` both back to TRUE           | `status` re-derived to `prod`; item surfaces again by default                       |
 | Row removed from CSV entirely                            | Not in active set → `retire_missing_osspa` soft-retires it                          |
 | Asset type changes to Demo/IE                            | No longer in scope → treated as removed → soft-retired                              |
 | Content of DetailPage `.adoc` changes                    | `content_hash` mismatch → re-analyzed on next sync                                  |
 | CSV prompt-input changes (Summary, Product, Solutions, Vertical, metaKeyword) | Included in `content_hash` → re-analysis triggered on next sync (see 3h)  |
 | CSV non-prompt field changes (e.g. Image1Url)            | Card/extension row updated on upsert; re-analysis not forced                        |
-| Previously retired row reappears in CSV                  | `upsert_osspa_item` always clears `retired_at`/`retirement_reason` on conflict (3a/3h#8) — upserted with `retired_at = NULL` on next sync; `status` re-derived; treated as new |
+| Previously retired row reappears in CSV                  | `upsert_osspa_item` always clears `retired_at`/`retirement_reason` on conflict (3a/3h#8) — upserted with `retired_at = NULL` on next sync; `status` re-derived (`prod` or `dev`); treated as new |
 
 
 
@@ -628,7 +677,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 | LLM analysis fails                            | Row stays `is_stale=TRUE` (never cleared); same error patterns as Showroom scan failure; scan_status not set (architecture_analysis has no scan_status — log error, skip item, continue); retried on next sync |
 | Denormalization or embedding write fails after a successful LLM call | Transaction rolls back; `architecture_analysis` row and `is_stale` are unaffected by the failed write — `is_stale` stays TRUE from step 7e, retried on next sync |
 | `ProductType=PA,VP`                           | Maps to `architecture`; `pa_name` slug uses full PAName                                                                                       |
-| `Product` column empty for a row              | `products_json` seeded empty on INSERT only; LLM fills from adoc + other CSV fields; never reset by a later CSV-only sync (2d)               |
+| `Product` column empty for a row              | `products_json` seeded empty on INSERT only; LLM fills from adoc + other CSV fields; never reset by a later CSV-only sync (2e)               |
 | Duplicate `ppid` in CSV                       | Should not happen; log warning; last row wins                                                                                                 |
 | Path traversal / symlink escape in DetailPage | Real path resolves outside clone root → skip row; log warning (see 3h)                                                                        |
 | adoc exceeds `osspa_max_adoc_bytes`           | Truncate to the cap for analysis; flag `enrichment_review_needed`; continue (see 3h)                                                          |
@@ -636,7 +685,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 | Prompt-injection text in adoc/CSV             | Treated as untrusted data, not instructions; output schema-validated; worst case a low-quality analysis flagged for review (see 3h)           |
 | Concurrent sync (nightly + manual)            | Second run exits early — advisory lock already held (see 3h)                                                                                  |
 | Crash mid embedding write                     | Atomic swap → prior vectors intact; item never left with zero/partial embeddings; `is_stale` stays TRUE, retried next sync (see 3h)           |
-| Non-`live` item's embedding exists but item hasn't shipped in UI yet | Excluded from Advisor/Browse default results by the 3i status filter regardless — not dependent on UI existing |
+| Non-`prod` item's embedding exists but item hasn't shipped in UI yet | Excluded from Advisor/Browse default results by the 3i status filter regardless — not dependent on UI existing |
 
 
 
@@ -649,8 +698,8 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 | Ingestion gate: `Demo` and `IE` excluded                             | Unit        | Row not in active set                                  |
 | Ingestion gate: `DetailPage` without `.adoc` excluded                | Unit        | Row not in active set                                  |
 | Ingestion gate: in-scope row is ingested regardless of live status   | Unit        | `showInCatalog=FALSE` / `islive=FALSE` row still in active set |
-| Status derivation: live / in_progress / draft                        | Unit        | Both TRUE → `live`; one TRUE → `in_progress`; neither → `draft` |
-| Default visibility: non-`live` items excluded from default queries (see 3i) | Integration | `in_progress`/`draft` items absent from Advisor + Browse default queries unless "Show non-live" set |
+| Status derivation: prod / dev                                        | Unit        | Both TRUE → `prod`; anything else → `dev` |
+| Default visibility: non-`prod` items excluded from default queries (see 3i) | Integration | `dev`-status items absent from Advisor + Browse default queries unless "Show non-prod" set |
 | `content_id` format: `pa:{ppid}`                                     | Unit        | Correct for PA, PA,VP, and SP rows                     |
 | Asset-type mapping: PA/PA,VP/SP → `architecture`; Demo/IE excluded   | Unit        | Only the three architecture types in active set        |
 | Path resolution: root, nested                                        | Unit        | Correct path; traversal rejected                       |
@@ -673,7 +722,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 | Atomic embeddings: crash mid-swap leaves prior vectors               | Integration | Item never left with zero embeddings                   |
 | Concurrency: second concurrent sync exits early                     | Integration | Advisory lock prevents overlapping runs                |
 | Retrieval: OSSPA item returned by vector search for matching query   | Integration | Candidate has `source='portfolio_arch'`                |
-| Retrieval: non-`live` OSSPA item excluded from Advisor default candidates (see 3i) | Integration | `in_progress`/`draft` item embeddings exist but are filtered from the default candidate query |
+| Retrieval: non-`prod` OSSPA item excluded from Advisor default candidates (see 3i) | Integration | `dev`-status item embeddings exist but are filtered from the default candidate query |
 | Vocabulary: product alias snap in analysis output | Unit | LLM returns "ACS" → stored as "Red Hat Advanced Cluster Security" |
 | Vocabulary: unknown product flagged | Unit | LLM returns unrecognized product → `enrichment_review_needed` + `unknown_product` reason |
 | Vocabulary: topic fuzzy dedup | Unit | "GitOps with ArgoCD" + "GitOps with Argo CD" collapse to one |
@@ -712,7 +761,7 @@ No auth tokens required — both repos are public (HTTPS clone is intentional �
 
 ## Next Steps
 
-1. **Review and approve this spec** — share with the team; confirm scope (PA/PA,VP/SP only; Demo & IE deferred; ingest-all with `live`/`in_progress`/`draft` status tagging) and the two new tables (`portfolio_architectures`, `architecture_analysis`) are acceptable before implementation begins.
+1. **Review and approve this spec** — share with the team; confirm scope (PA/PA,VP/SP only; Demo & IE deferred; ingest-all with `prod`/`dev` status tagging using Babylon's vocabulary) and the two new tables (`portfolio_architectures`, `architecture_analysis`) are acceptable before implementation begins.
 2. **Write implementation plan** — once approved, create a step-by-step implementation plan (`docs/superpowers/plans/`) that breaks this spec into ordered, independently-testable tasks. Key tasks will include: schema additions (including `recommender_audience_json`), `osspa_sync.py` service, LLM prompt with vocabulary product injection, vocabulary normalization pass, worker/CLI/API wiring, and the Babylon safety fix. (Advisor & Browse integration is deferred to a future spec — see Out of Scope.)
 3. **Verify Babylon retirement safety** — before writing any new code, confirm that the existing Babylon retire query (`retire_removed_items()`, to be renamed `retire_missing_babylon()`) already filters by `source='babylon'`. If not, that fix ships first as it is a data-safety prerequisite. Fold the rename into the same change.
 4. **Pilot sync on dev** — after implementation, run `rcars osspa sync` on the dev environment against the live CSV and examples repo. Spot-check 3–5 analyzed items (one PA, one SP, one PA,VP) for summary quality and vector-search retrievability before enabling the nightly pipeline step.
