@@ -427,12 +427,21 @@ function ScheduledMaintenance() {
     <div className="admin-section">
       <h3>Scheduled Maintenance</h3>
       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.7' }}>
-        <p style={{ margin: '0 0 6px' }}>Runs automatically every night as two sub-pipelines:</p>
-        <ol style={{ margin: '0 0 6px 20px', listStyleType: 'decimal' }}>
-          <li><strong>Babylon pipeline</strong> — catalog sync, stale check, re-analyze, workload scan</li>
-          <li><strong>Architecture pipeline</strong> — OSSPA CSV fetch, upsert, LLM analysis</li>
+        <p style={{ margin: '0 0 6px' }}>Runs automatically every night as two independent sub-pipelines. Run them separately or together.</p>
+        <p style={{ margin: '0 0 4px' }}><strong>Babylon pipeline</strong></p>
+        <ol style={{ margin: '0 0 8px 20px', listStyleType: 'decimal' }}>
+          <li><strong>Catalog Sync</strong> — pulls latest metadata from all Babylon namespaces; retires items that no longer exist</li>
+          <li><strong>Check Stale</strong> — compares Showroom content hashes to find items changed since last analysis</li>
+          <li><strong>Re-Analyze</strong> — processes any stale or unanalyzed Showroom items</li>
+          <li><strong>Workload Scan</strong> — checks AgnosticD repositories for new or changed roles; updates the infrastructure catalog</li>
         </ol>
-        <p style={{ margin: 0 }}>Run either sub-pipeline independently, or the full pipeline (both in sequence).</p>
+        <p style={{ margin: '0 0 4px' }}><strong>Architecture pipeline</strong></p>
+        <ol style={{ margin: '0 0 8px 20px', listStyleType: 'decimal' }}>
+          <li><strong>CSV Fetch</strong> — pulls the current portfolio architecture inventory from OSSPA GitLab</li>
+          <li><strong>Upsert &amp; Retire</strong> — adds new architectures, updates changed ones, retires removed ones</li>
+          <li><strong>LLM Analysis</strong> — analyzes new or changed architectures to extract topics, audience, and summary</li>
+        </ol>
+        <p style={{ margin: 0 }}><strong>Full pipeline</strong> — runs the Babylon pipeline first, then the Architecture pipeline, in sequence.</p>
       </div>
       {schedule && (
         <>
@@ -456,7 +465,7 @@ function ScheduledMaintenance() {
           {runningBabylon ? 'Running...' : 'Run Babylon Pipeline'}
         </Button>
         <Button variant="secondary" size="sm" onClick={handleRunOsspa} isDisabled={running || runningBabylon || runningOsspa}>
-          {runningOsspa ? 'Running...' : 'Run Architecture Sync'}
+          {runningOsspa ? 'Running...' : 'Run Architecture Pipeline'}
         </Button>
         <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running || runningBabylon || runningOsspa}>
           {running ? 'Running...' : 'Run Full Pipeline'}
