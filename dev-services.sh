@@ -203,13 +203,17 @@ show_status() {
 db_pull() {
     local kubeconfig="${RCARS_DEV_KUBECONFIG:-}"
     local namespace="${DEV_NAMESPACE:-rcars-dev}"
-    local dump_file="/tmp/rcars-dev-dump.sql"
 
     if [[ -z "${kubeconfig}" ]]; then
         echo "Error: RCARS_DEV_KUBECONFIG is not set."
         echo "  export RCARS_DEV_KUBECONFIG=/path/to/dev.kubeconfig"
         return 1
     fi
+
+    local dump_file
+    dump_file=$(mktemp /tmp/rcars-dev-dump.XXXXXX.sql)
+    chmod 600 "${dump_file}"
+    trap 'rm -f "${dump_file}"' EXIT
 
     echo "Pulling dev database from ${namespace}..."
 
@@ -225,17 +229,21 @@ db_pull() {
     echo "  Dumping..."
     KUBECONFIG="${kubeconfig}" oc exec -n "${namespace}" "${pod}" -- \
         pg_dump -U rcars rcars > "${dump_file}"
-    echo "  ✓ Saved to ${dump_file}"
+    echo "  ✓ Dump complete"
 
     if ! podman ps --format '{{.Names}}' | grep -q "^${PG_CONTAINER}$"; then
         echo "  Starting local PostgreSQL..."
         start_postgres
     fi
 
-    echo "  Restoring locally..."
+    echo "  Restoring into temporary database for validation..."
+    local tmp_db="rcars_restore_tmp"
+    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "DROP DATABASE IF EXISTS ${tmp_db};" postgres
+    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "CREATE DATABASE ${tmp_db};" postgres
+    podman exec -i "${PG_CONTAINER}" psql -v ON_ERROR_STOP=1 -U rcars "${tmp_db}" < "${dump_file}"
+    echo "  ✓ Restore validated — swapping databases..."
     podman exec -i "${PG_CONTAINER}" psql -U rcars -c "DROP DATABASE IF EXISTS rcars;" postgres
-    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "CREATE DATABASE rcars;" postgres
-    podman exec -i "${PG_CONTAINER}" psql -U rcars rcars < "${dump_file}"
+    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "ALTER DATABASE ${tmp_db} RENAME TO rcars;" postgres
     echo "  ✓ Local database restored from dev"
 }
 
