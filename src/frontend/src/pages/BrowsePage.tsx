@@ -956,6 +956,44 @@ export function BrowsePage() {
                         </div>
                       ) : null}
 
+                      {/* 3b. Architecture-specific fields */}
+                      {isArch && detail.analysis && (
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).use_cases_json?.length ||
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).key_components_json?.length ||
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).solution_areas_json?.length
+                      ) ? (() => {
+                        const arch = detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}
+                        return (
+                          <div className="browse-card-section">
+                            <SectionLabel color="blue">Architecture Details</SectionLabel>
+                            {arch.use_cases_json && arch.use_cases_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Use Cases</div>
+                                <div className="browse-pill-row">
+                                  {arch.use_cases_json.map((u, i) => <Pill key={i} variant="topic">{u}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                            {arch.key_components_json && arch.key_components_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Key Components</div>
+                                <div className="browse-pill-row">
+                                  {arch.key_components_json.map((k, i) => <Pill key={i} variant="product">{k}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                            {arch.solution_areas_json && arch.solution_areas_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Solution Areas</div>
+                                <div className="browse-pill-row">
+                                  {arch.solution_areas_json.map((s, i) => <Pill key={i} variant="topic">{s}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })() : null}
+
                       {/* 4. Modules (collapsible) */}
                       {detail.analysis?.modules_json && detail.analysis.modules_json.length > 0 && (
                         <CollapsibleSection
