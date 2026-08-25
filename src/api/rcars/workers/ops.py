@@ -797,11 +797,6 @@ async def run_osspa_sync_job(
                 on_progress=_progress_bridge(wctx, job_id, loop),
             )
         )
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="complete", status="complete",
-                               message=f"OSSPA sync {result['status']}: "
-                                       f"{result['upserted']} upserted, {result['analyzed']} analyzed, "
-                                       f"{result['retired']} retired, {result['failed']} failed")
         wctx.db.complete_job(job_id, result_json=result)
         log.info("osspa_sync_complete", action="osspa_sync_complete", **result)
         return result
