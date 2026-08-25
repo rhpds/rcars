@@ -477,6 +477,7 @@ def analyze_architecture_item(
     system_prompt, user_message = build_architecture_prompt(payload, adoc_text)
     model = settings.osspa_analysis_model
     log.info("osspa_analysis_started", action="analyze",
+             display_name=payload.get("display_name"), asset_type=payload.get("asset_type"),
              model=model, prompt_chars=len(system_prompt) + len(user_message))
 
     result = call_llm(
@@ -537,6 +538,7 @@ def analyze_architecture_item(
     db.clear_architecture_stale(content_id)
 
     log.info("osspa_analysis_complete", action="analyze",
+             display_name=payload.get("display_name"), asset_type=payload.get("asset_type"),
              input_tokens=result.input_tokens, output_tokens=result.output_tokens,
              truncated=truncated)
     return {
