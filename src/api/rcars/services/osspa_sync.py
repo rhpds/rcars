@@ -451,11 +451,21 @@ def build_architecture_prompt(payload: dict[str, Any], adoc_text: str) -> tuple[
 
 
 def build_architecture_embedding_text(analysis: dict[str, Any]) -> str:
-    """One embedding per item, enriched with detailed topics."""
-    summary = (analysis.get("summary") or "").strip()
-    topics = analysis.get("detailed_topics") or analysis.get("topics") or []
-    joined = ", ".join(str(t) for t in topics if t)
-    return f"{EMBEDDING_PREFIX}{summary}\nTopics: {joined}"
+    """One embedding per item — summary plus all extracted signal fields."""
+    parts = [EMBEDDING_PREFIX + (analysis.get("summary") or "").strip()]
+
+    def _join(key: str, label: str) -> None:
+        vals = analysis.get(key) or []
+        if vals:
+            parts.append(f"{label}: {', '.join(str(v) for v in vals if v)}")
+
+    _join("products", "Products")
+    _join("detailed_topics", "Topics")
+    _join("solution_areas", "Solution areas")
+    _join("use_cases", "Use cases")
+    _join("key_components", "Key components")
+    _join("audience", "Audience")
+    return "\n".join(parts)
 
 
 def analyze_architecture_item(
