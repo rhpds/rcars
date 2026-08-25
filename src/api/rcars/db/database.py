@@ -1025,13 +1025,15 @@ class Database:
 
         babylon_specific = any([stages, cloud_provider, agd_config, workloads, category])
 
+        # Universal default-visibility gate. ce.status is written from bi.stage
+        # for Babylon and from derive_osspa_status for OSSPA, so one predicate
+        # serves every source — no LEFT JOIN and no bi.content_id IS NULL
+        # fallthrough. bi.stage stays in the SELECT for curator stage badges.
         if stages:
-            conditions.append("bi.stage = ANY(%(stages)s)")
+            conditions.append("ce.status = ANY(%(stages)s)")
             params["stages"] = stages
-        elif babylon_specific:
-            conditions.append("bi.stage = 'prod'")
         else:
-            conditions.append("(bi.stage = 'prod' OR bi.content_id IS NULL)")
+            conditions.append("ce.status = 'prod'")
 
         if search:
             words = search.strip().split()
@@ -1606,10 +1608,9 @@ class Database:
         stage_params: list = []
         if stages:
             stage_placeholders = ",".join(["%s"] * len(stages))
-            stage_filter = (
-                f"AND EXISTS (SELECT 1 FROM babylon_items bis "
-                f"WHERE bis.content_id = e.content_id AND bis.stage IN ({stage_placeholders}))"
-            )
+            # ce.status, not a babylon_items EXISTS subquery: architectures have
+            # no babylon_items row and would be silently dropped.
+            stage_filter = f"AND ce.status IN ({stage_placeholders})"
             stage_params = list(stages)
 
         ct_filter = ""
@@ -1653,7 +1654,7 @@ class Database:
                 LIMIT %s
             )
             SELECT g.*,
-                   ce.display_name, ce.is_hands_on,
+                   ce.display_name, ce.is_hands_on, ce.status,
                    bi.ci_name, bi.stage, bi.category, bi.showroom_url, bi.showroom_ref,
                    bi.is_published, bi.published_ci_name, bi.base_ci_name,
                    bi.catalog_namespace, sa.content_hash
