@@ -224,6 +224,22 @@ async def run_maintenance(request: Request, user: str = Depends(require_admin)):
 
 
 @router.post(
+    "/sync-babylon",
+    summary="Trigger Babylon maintenance pipeline",
+    description="Manually triggers the Babylon sub-pipeline only (refresh → stale check → re-analyze → workload scan). Admin-only.",
+    response_model=JobResponse,
+)
+async def sync_babylon(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="maintenance", queue="ops", created_by=user)
+    await arq_redis.enqueue_job(
+        "run_babylon_pipeline", job_id=job_id, _queue_name="arq:queue:scan"
+    )
+    return {"job_id": job_id}
+
+
+@router.post(
     "/sync-reporting",
     summary="Sync reporting metrics",
     description="Syncs provision, cost, and sales metrics from the RHDP Reporting MCP server. Admin-only.",

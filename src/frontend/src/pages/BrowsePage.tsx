@@ -744,6 +744,7 @@ export function BrowsePage() {
           {/* Target Audience */}
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Target Audience</div>
+            <div className="browse-filter-group-note">Architecture items only</div>
             <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} />
           </div>
 

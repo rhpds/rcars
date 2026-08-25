@@ -143,6 +143,8 @@ export const api = {
     last_pipeline: { job_id: string; status: string; created_at: string; completed_at: string | null; result: Record<string, unknown> | null; error: string | null } | null;
   }>('/admin/schedule'),
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
+  runBabylon: () => request<{ job_id: string }>('/admin/sync-babylon', { method: 'POST' }),
+  syncOsspa: (force = false) => request<{ job_id: string }>('/admin/sync-osspa', { method: 'POST', body: JSON.stringify({ force, confirm_empty_inventory: false }) }),
 
   // LLM provider
   getLlmProviderStatus: () => request<{
