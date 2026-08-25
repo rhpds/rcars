@@ -108,7 +108,7 @@ def refresh():
         if i % 25 == 0 or i == len(items):
             _print(f"  upserted {i}/{len(items)} items...")
 
-    retired = db.retire_removed_items(current_content_ids)
+    retired = db.retire_missing_babylon(current_content_ids)
     if retired:
         for r in retired:
             _print(f"  retired: {r['content_id']} (stage={r.get('stage', '?')})")

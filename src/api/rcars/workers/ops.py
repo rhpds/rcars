@@ -124,7 +124,7 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
                                        phase="catalog_refresh", status="upserting",
                                        message=f"Upserting... {i}/{total}", current=i, total=total)
 
-        retired = wctx.db.retire_removed_items(current_content_ids)
+        retired = wctx.db.retire_missing_babylon(current_content_ids)
 
         result = {"total_items": len(items), "retired_items": len(retired)}
         await publish_progress(wctx.relay, job_id, wctx.db,

@@ -929,8 +929,12 @@ class Database:
 
         return {"items": items, "total": total}
 
-    def retire_removed_items(self, current_content_ids: set[str]) -> list[dict]:
-        """Mark content entities not in current CRD scan as retired."""
+    def retire_missing_babylon(self, current_content_ids: set[str]) -> list[dict]:
+        """Mark Babylon content entities not in the current CRD scan as retired.
+
+        Only touches source='babylon' rows — OSSPA lifecycle belongs to
+        retire_missing_osspa().
+        """
         if not current_content_ids:
             logger.warning("retire_skipped_empty_scan",
                            component="rcars", action="retire_removed",
