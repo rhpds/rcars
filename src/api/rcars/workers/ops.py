@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import shutil
 import traceback
 from rcars.workers.base import WorkerContext, publish_progress
@@ -237,22 +238,15 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         raise
 
 
-async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
-    """Nightly maintenance pipeline: catalog refresh → stale check → re-analyze stale items.
+async def run_babylon_pipeline(ctx: dict, job_id: str) -> dict:
+    """Babylon sub-pipeline: catalog refresh → stale check → re-analyze →
+    workload/config scan → sandbox summaries → reporting sync → overlap.
 
-    Called automatically by arq cron or manually via the admin API.
+    Self-contained: own step numbering, own progress phases, own stats dict.
+    Callable on its own or from run_nightly_pipeline.
     """
     wctx: WorkerContext = ctx["worker_ctx"]
-
-    if not job_id:
-        job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
     log = logger.bind(job_id=job_id)
-
-    log.info("pipeline_started", action="pipeline_started")
-    wctx.db.update_job_status(job_id, "running")
-    await publish_progress(wctx.relay, job_id, wctx.db,
-                           phase="pipeline", status="started",
-                           message="Starting nightly maintenance pipeline...")
 
     warnings = []
     refresh_result = None
@@ -524,21 +518,6 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         "warnings": warnings,
     }
 
-    if warnings:
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline", status="complete_with_warnings",
-                               message=f"Maintenance pipeline finished with {len(warnings)} warning(s): {'; '.join(warnings)}")
-        log.warning("pipeline_complete_with_warnings", action="pipeline_complete",
-                    warnings=warnings, **{k: v for k, v in result.items() if k != "warnings"})
-    else:
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="pipeline", status="complete",
-                               message=f"Maintenance pipeline complete: {refresh_result['total_items'] if refresh_result else '?'} catalog items, "
-                                       f"{stale_result['stale'] if stale_result else '?'} stale, {analysis_enqueued} enqueued for analysis")
-        log.info("pipeline_complete", action="pipeline_complete",
-                 **{k: v for k, v in result.items() if k != "warnings"})
-
-    wctx.db.complete_job(job_id, result_json=result)
     return result
 
 
@@ -696,6 +675,138 @@ async def run_reporting_sync_job(ctx: dict, job_id: str) -> dict:
         return result
     except Exception as e:
         log.error("reporting_sync_failed", action="reporting_sync_failed",
+                  error=str(e), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="failed", status="failed", message=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        raise
+
+
+from rcars.services.osspa_sync import run_osspa_sync
+
+
+def _progress_bridge(wctx: WorkerContext, job_id: str, loop) -> "Callable[[str, str], None]":
+    """Let the synchronous sync publish SSE progress from its worker thread."""
+    from collections.abc import Callable
+    def _publish(phase: str, message: str) -> None:
+        asyncio.run_coroutine_threadsafe(
+            publish_progress(wctx.relay, job_id, wctx.db,
+                             phase=phase, status="running", message=message),
+            loop,
+        )
+    return _publish
+
+
+async def run_osspa_pipeline(ctx: dict, job_id: str) -> dict:
+    """OSSPA sub-pipeline: CSV fetch + scope → clone → upsert + retire → analyze."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    if not wctx.settings.osspa_sync_enabled:
+        log.info("osspa_pipeline_skipped", action="pipeline_step_skipped",
+                 step="osspa", reason="osspa_sync_enabled=false")
+        return {"status": "disabled"}
+
+    loop = asyncio.get_running_loop()
+    result = await asyncio.to_thread(
+        functools.partial(
+            run_osspa_sync,
+            wctx.db, wctx.settings,
+            on_progress=_progress_bridge(wctx, job_id, loop),
+        )
+    )
+    log.info("osspa_pipeline_complete", action="pipeline_step_complete", step="osspa", **result)
+    return result
+
+
+async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
+    """Nightly maintenance orchestrator: Babylon sub-pipeline, then OSSPA."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    if not job_id:
+        job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
+    log = logger.bind(job_id=job_id)
+
+    log.info("pipeline_started", action="pipeline_started")
+    wctx.db.update_job_status(job_id, "running")
+    await publish_progress(wctx.relay, job_id, wctx.db,
+                           phase="pipeline", status="started",
+                           message="Starting nightly maintenance pipeline...")
+
+    warnings: list[str] = []
+    babylon_result: dict = {}
+    try:
+        babylon_result = await run_babylon_pipeline(ctx, job_id)
+        warnings.extend(babylon_result.get("warnings") or [])
+    except Exception as exc:
+        msg = f"Babylon pipeline failed: {exc}"
+        warnings.append(msg)
+        log.error("pipeline_babylon_failed", action="pipeline_step_failed",
+                  step="babylon", error=str(exc), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:babylon", status="failed", message=msg)
+
+    osspa_result: dict = {"status": "error"}
+    try:
+        osspa_result = await run_osspa_pipeline(ctx, job_id)
+    except Exception as exc:
+        msg = f"OSSPA pipeline failed: {exc}"
+        warnings.append(msg)
+        osspa_result = {"status": "error", "error": str(exc)}
+        log.error("pipeline_osspa_failed", action="pipeline_step_failed",
+                  step="osspa", error=str(exc), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:osspa", status="failed", message=msg)
+
+    result = {**babylon_result, "osspa": osspa_result, "warnings": warnings}
+
+    if warnings:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline", status="complete_with_warnings",
+                               message=f"Maintenance pipeline finished with {len(warnings)} warning(s): "
+                                       f"{'; '.join(warnings)}")
+        log.warning("pipeline_complete_with_warnings", action="pipeline_complete", warnings=warnings)
+    else:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline", status="complete",
+                               message="Maintenance pipeline complete: Babylon and OSSPA both synced")
+        log.info("pipeline_complete", action="pipeline_complete")
+
+    wctx.db.complete_job(job_id, result_json=result)
+    return result
+
+
+async def run_osspa_sync_job(
+    ctx: dict, job_id: str, force: bool = False, confirm_empty_inventory: bool = False,
+) -> dict:
+    """Standalone OSSPA sync — admin endpoint and CLI entry point."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("osspa_sync_started", action="osspa_sync_started",
+             force=force, confirm_empty_inventory=confirm_empty_inventory)
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        loop = asyncio.get_running_loop()
+        result = await asyncio.to_thread(
+            functools.partial(
+                run_osspa_sync,
+                wctx.db, wctx.settings,
+                force=force,
+                confirm_empty_inventory=confirm_empty_inventory,
+                on_progress=_progress_bridge(wctx, job_id, loop),
+            )
+        )
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="complete", status="complete",
+                               message=f"OSSPA sync {result['status']}: "
+                                       f"{result['upserted']} upserted, {result['analyzed']} analyzed, "
+                                       f"{result['retired']} retired, {result['failed']} failed")
+        wctx.db.complete_job(job_id, result_json=result)
+        log.info("osspa_sync_complete", action="osspa_sync_complete", **result)
+        return result
+    except Exception as e:
+        log.error("osspa_sync_failed", action="osspa_sync_failed",
                   error=str(e), traceback=traceback.format_exc())
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="failed", status="failed", message=str(e))
