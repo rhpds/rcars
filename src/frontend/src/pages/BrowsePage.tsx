@@ -771,7 +771,7 @@ export function BrowsePage() {
 
           {/* Lab Infrastructure — AgnosticD v2 only */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Lab Infrastructure</div>
+            <div className="browse-filter-group-label">Hands-on Labs</div>
             <div className="browse-filter-group-note">AgnosticD v2 hands-on lab items only</div>
             <select
               className="browse-filter-select"
