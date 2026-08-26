@@ -1094,7 +1094,10 @@ class Database:
             conditions.append("bi.is_published IS NOT TRUE")
             conditions.append("bi.scan_status NOT IN ('success', 'failed')")
         elif content_filter == "scan_failures":
-            conditions.append("bi.scan_status = 'failed'")
+            conditions.append(
+                "(bi.scan_status = 'failed' OR "
+                "(ce.source = 'portfolio_arch' AND aa.summary IS NULL))"
+            )
         elif content_filter == "stale":
             joins.append(
                 "JOIN showroom_analysis sa_stale ON sa_stale.content_id = ce.content_id "
