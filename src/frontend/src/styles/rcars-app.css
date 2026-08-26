@@ -1789,7 +1789,8 @@ details.ca-band-section:not([open]) > .ca-band-header {
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 280px;
+  width: 100%;
+  min-width: 0;
   max-height: 300px;
   overflow-y: auto;
   background: var(--bg-card);
