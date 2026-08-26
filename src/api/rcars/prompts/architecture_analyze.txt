@@ -39,7 +39,7 @@ Do NOT produce modules or learning objectives. This is an architecture document,
 Return ONLY valid JSON (no markdown fences, no explanation):
 
 {
-  "summary": "2-3 sentence summary of what this architecture covers and who it is for",
+  "summary": "A summary proportional to the depth of the content. Use 1-2 sentences for sparse or diagram-only architectures. Use up to 5-6 sentences for architectures with multiple detailed workflows. Prioritize specificity: name the actual workflows (e.g. AML check via AI/ML scoring, fraud detection with rule-based labeling), integration points, and what happens at key decision boundaries. Avoid generic statements that could apply to any architecture in the same category. Never pad a simple architecture to seem more complex.",
   "products": ["official Red Hat product names used in the architecture"],
   "topics": ["short topic phrases"],
   "detailed_topics": ["specific technologies, integration points, and design decisions"],
