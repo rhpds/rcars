@@ -1803,13 +1803,18 @@ details.ca-band-section:not([open]) > .ca-band-header {
 
 .wl-multiselect-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 12px;
   font-size: 12px;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background var(--transition-fast);
+}
+
+.wl-multiselect-option span {
+  word-break: break-word;
+  min-width: 0;
 }
 
 .wl-multiselect-option:hover {
