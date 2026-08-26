@@ -737,15 +737,15 @@ export function BrowsePage() {
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Solutions &amp; Verticals</div>
             <div className="browse-filter-group-note">Architecture items only</div>
-            <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} />
-            <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} />
+            <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
+            <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
           </div>
 
           {/* Target Audience */}
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Target Audience</div>
             <div className="browse-filter-group-note">Architecture items only</div>
-            <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} />
+            <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
           </div>
 
           {/* Infrastructure filters — AgnosticD v2 only */}
