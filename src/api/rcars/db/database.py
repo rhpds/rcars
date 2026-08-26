@@ -1042,14 +1042,18 @@ class Database:
             words = search.strip().split()
             if len(words) == 1:
                 conditions.append(
-                    "(ce.display_name ILIKE %(search)s OR bi.ci_name ILIKE %(search)s)"
+                    "(ce.display_name ILIKE %(search)s OR bi.ci_name ILIKE %(search)s"
+                    " OR pa.pa_name ILIKE %(search)s OR ce.content_id ILIKE %(search)s)"
                 )
                 params["search"] = f"%{search}%"
             else:
                 word_conds = []
                 for i, word in enumerate(words[:6]):
                     key = f"sw{i}"
-                    word_conds.append(f"(ce.display_name ILIKE %({key})s OR bi.ci_name ILIKE %({key})s)")
+                    word_conds.append(
+                        f"(ce.display_name ILIKE %({key})s OR bi.ci_name ILIKE %({key})s"
+                        f" OR pa.pa_name ILIKE %({key})s OR ce.content_id ILIKE %({key})s)"
+                    )
                     params[key] = f"%{word}%"
                 conditions.append(f"({' AND '.join(word_conds)})")
 
