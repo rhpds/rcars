@@ -65,6 +65,7 @@ async def list_catalog(
     solutions: str | None = Query(None, description="Comma-separated solution areas (architecture items only)"),
     verticals: str | None = Query(None, description="Comma-separated industry verticals (architecture items only)"),
     audience: str | None = Query(None, description="Comma-separated target audiences"),
+    difficulty: str | None = Query(None, description="Filter by difficulty (beginner/intermediate/advanced)"),
     include_retired: str = Query("false", description="Retired items: false (exclude), true (include), only (retired only)"),
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
@@ -84,6 +85,7 @@ async def list_catalog(
     solutions_list = [s.strip() for s in solutions.split(",")] if solutions else None
     verticals_list = [v.strip() for v in verticals.split(",")] if verticals else None
     audience_list = [a.strip() for a in audience.split(",")] if audience else None
+    difficulty_val = difficulty.strip() if difficulty else None
 
     return db.list_content_entities_filtered(
         search=search,
@@ -97,6 +99,8 @@ async def list_catalog(
         solutions=solutions_list,
         verticals=verticals_list,
         audience=audience_list,
+        difficulty=difficulty_val,
+
         limit=limit,
         offset=offset,
         include_retired=include_retired,

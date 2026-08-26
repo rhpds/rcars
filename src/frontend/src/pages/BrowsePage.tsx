@@ -429,6 +429,8 @@ export function BrowsePage() {
     searchParams.get('verticals')?.split(',').filter(Boolean) || [])
   const [selectedAudience, setSelectedAudience] = useState<string[]>(
     searchParams.get('audience')?.split(',').filter(Boolean) || [])
+  const [selectedDifficulty, setSelectedDifficulty] = useState<string>(
+    searchParams.get('difficulty') || '')
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   useEffect(() => {
@@ -444,6 +446,7 @@ export function BrowsePage() {
       setSelectedSolutions([])
       setSelectedVerticals([])
       setSelectedAudience([])
+      setSelectedDifficulty('')
       setPage(1)
     }
   }, [location.state, searchParams])
@@ -502,6 +505,7 @@ export function BrowsePage() {
       if (selectedSolutions.length > 0) params.solutions = selectedSolutions.join(',')
       if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
       if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
+      if (selectedDifficulty) params.difficulty = selectedDifficulty
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
@@ -512,7 +516,7 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, contentFilter, formats])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, contentFilter, formats])
 
   // Sync URL params
   useEffect(() => {
@@ -526,13 +530,14 @@ export function BrowsePage() {
     if (selectedSolutions.length > 0) params.solutions = selectedSolutions.join(',')
     if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
     if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
+    if (selectedDifficulty) params.difficulty = selectedDifficulty
     const showsArchitecture = formats.has('architecture')
     const showsHandsOn = formats.has('hands_on')
     if (showsArchitecture) params.format = showsHandsOn ? 'all' : 'architecture'
     if (contentFilter) params.content_filter = contentFilter
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, formats, contentFilter, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, formats, contentFilter, page, setSearchParams])
 
   // Fetch on filter change
   useEffect(() => {
@@ -572,6 +577,9 @@ export function BrowsePage() {
   selectedAudience.forEach(a => {
     activeFilters.push({ label: a, onRemove: () => setSelectedAudience(prev => prev.filter(x => x !== a)) })
   })
+  if (selectedDifficulty) {
+    activeFilters.push({ label: selectedDifficulty, onRemove: () => setSelectedDifficulty('') })
+  }
   if (formats.has('architecture')) {
     activeFilters.push({ label: 'Architectures', onRemove: () => toggleFormat('architecture') })
   }
@@ -586,6 +594,7 @@ export function BrowsePage() {
     setSelectedSolutions([])
     setSelectedVerticals([])
     setSelectedAudience([])
+    setSelectedDifficulty('')
     setFormats(new Set<ContentFormat>(['hands_on']))
     setContentFilter('')
   }
@@ -726,32 +735,44 @@ export function BrowsePage() {
       <div className="browse-content">
         {/* Filter sidebar */}
         <div className="browse-filter-sidebar">
-          {/* Content Format */}
+          {/* Content Type */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Content Format</div>
+            <div className="browse-filter-group-label">Content Type</div>
             <StageToggle label="Hands-on Labs" active={formats.has('hands_on')} onToggle={() => toggleFormat('hands_on')} />
             <StageToggle label="Architectures" active={formats.has('architecture')} onToggle={() => toggleFormat('architecture')} />
           </div>
 
-          {/* Solutions & Verticals (architecture items only) */}
+          {/* Audience & Difficulty — AI-derived, shared across both content types */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Solutions &amp; Verticals</div>
+            <div className="browse-filter-group-label">Audience & Difficulty</div>
+            <div className="browse-filter-group-note">AI-derived from content analysis</div>
+            <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '8px 0 4px' }}>Difficulty</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {(['beginner', 'intermediate', 'advanced'] as const).map(d => (
+                <button
+                  key={d}
+                  className={`browse-curator-pill${selectedDifficulty === d ? ' active' : ''}`}
+                  onClick={() => setSelectedDifficulty(selectedDifficulty === d ? '' : d)}
+                >
+                  {d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Architecture Filters */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Architecture Filters</div>
             <div className="browse-filter-group-note">Architecture items only</div>
             <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
           </div>
 
-          {/* Target Audience */}
+          {/* Lab Infrastructure — AgnosticD v2 only */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Target Audience</div>
-            <div className="browse-filter-group-note">Architecture items only</div>
-            <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
-          </div>
-
-          {/* Infrastructure filters — AgnosticD v2 only */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Workloads & Automation</div>
-            <div className="browse-filter-group-note">AgnosticD v2 items only</div>
+            <div className="browse-filter-group-label">Lab Infrastructure</div>
+            <div className="browse-filter-group-note">AgnosticD v2 hands-on lab items only</div>
             <select
               className="browse-filter-select"
               value={cloudProvider}

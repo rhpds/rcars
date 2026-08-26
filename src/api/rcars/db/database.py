@@ -1004,6 +1004,7 @@ class Database:
         solutions: list[str] | None = None,
         verticals: list[str] | None = None,
         audience: list[str] | None = None,
+        difficulty: str | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: str | bool = False,
@@ -1102,6 +1103,10 @@ class Database:
                 "(bi.scan_status = 'failed' OR "
                 "(ce.source = 'portfolio_arch' AND aa.summary IS NULL))"
             )
+
+        if difficulty:
+            conditions.append("COALESCE(sa.difficulty, aa.difficulty) = %(difficulty)s")
+            params["difficulty"] = difficulty
         elif content_filter == "stale":
             joins.append(
                 "JOIN showroom_analysis sa_stale ON sa_stale.content_id = ce.content_id "
