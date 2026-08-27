@@ -252,7 +252,7 @@ async def run_query(
 
     # Phase 1: Vector search
     await emit({"phase": "vector_search", "status": "started"})
-    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt, scope_content_ids=scope_content_ids)
+    state = await asyncio.to_thread(search, search_query, db, distance_cutoff=settings.vector_cutoff, stages=stages or ["prod"], include_zt=include_zt, scope_content_ids=scope_content_ids, content_types=["lab", "demo"])
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})
 
