@@ -548,6 +548,27 @@ WHERE  bi.content_id = ce.content_id
   AND  bi.stage IS NOT NULL
   AND  ce.status IS DISTINCT FROM bi.stage;
 
+-- Move scan tracking to content_entities so all sources (Babylon, OSSPA, future)
+-- share one consistent field. babylon_items retains the old columns as dead weight
+-- (safe — ALTER TABLE IF NOT EXISTS is idempotent). Backfill copies existing
+-- Babylon scan state so no data is lost. Idempotent — only touches unset rows.
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_status TEXT NOT NULL DEFAULT 'not_scanned';
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_error_class TEXT;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_error TEXT;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_failed_at TIMESTAMPTZ;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMPTZ;
+
+UPDATE content_entities ce
+SET    scan_status       = bi.scan_status,
+       scan_error_class  = bi.scan_error_class,
+       scan_error        = bi.scan_error,
+       scan_failed_at    = bi.scan_failed_at,
+       last_refreshed    = bi.last_refreshed
+FROM   babylon_items bi
+WHERE  bi.content_id = ce.content_id
+  AND  ce.scan_status = 'not_scanned'
+  AND  bi.scan_status != 'not_scanned';
+
 """
 
 
@@ -697,6 +718,7 @@ class Database:
             "is_hands_on": True,
             "display_name": item.get("display_name") or ci_name,
             "status": item.get("stage"),
+            "last_refreshed": datetime.now(timezone.utc),
             "retired_at": None,
             "retirement_reason": None,
             "updated_at": datetime.now(timezone.utc),
@@ -716,8 +738,6 @@ class Database:
         for k in bi_fields:
             if k in item:
                 bi_data[k] = item[k]
-        bi_data["last_refreshed"] = datetime.now(timezone.utc)
-
         if "owners_json" in bi_data and bi_data["owners_json"] is not None:
             bi_data["owners_json"] = Jsonb(bi_data["owners_json"])
         if "instances_json" in bi_data and bi_data["instances_json"] is not None:
@@ -1097,10 +1117,10 @@ class Database:
         if content_filter == "unanalyzed":
             conditions.append("bi.showroom_url IS NOT NULL")
             conditions.append("bi.is_published IS NOT TRUE")
-            conditions.append("bi.scan_status NOT IN ('success', 'failed')")
+            conditions.append("ce.scan_status NOT IN ('success', 'failed')")
         elif content_filter == "scan_failures":
             conditions.append(
-                "(bi.scan_status = 'failed' OR "
+                "(ce.scan_status = 'failed' OR "
                 "(ce.source = 'portfolio_arch' AND aa.summary IS NULL))"
             )
 
@@ -1139,8 +1159,8 @@ class Database:
                    bi.is_agd_v2, bi.agd_config, bi.cloud_provider, bi.ocp_version,
                    bi.os_image, bi.worker_instance_count, bi.control_plane_instance_count,
                    bi.instances_json, bi.keywords, bi.description AS bi_description,
-                   bi.icon_url, bi.owners_json, bi.scan_status, bi.scan_error_class,
-                   bi.scan_error, bi.scan_failed_at, bi.last_crd_update, bi.last_refreshed,
+                   bi.icon_url, bi.owners_json, ce.scan_status, ce.scan_error_class,
+                   ce.scan_error, ce.scan_failed_at, bi.last_crd_update, ce.last_refreshed,
                    pa.pa_name, pa.solutions, pa.verticals, pa.detail_page, pa.image_url,
                    aa.asset_type,
                    COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
@@ -2246,7 +2266,7 @@ class Database:
                 SELECT ce.content_id, ce.content_type, ce.display_name,
                        bi.ci_name, bi.category, bi.stage,
                        bi.showroom_url, bi.showroom_ref, bi.showroom_url_override,
-                       bi.content_path, bi.keywords, bi.scan_status,
+                       bi.content_path, bi.keywords, ce.scan_status,
                        bi.is_published, bi.published_ci_name, bi.base_ci_name,
                        sa.content_hash, sa.last_repo_commit
                 FROM content_entities ce
@@ -2336,12 +2356,12 @@ class Database:
         def _do(c):
             if status == "success":
                 c.execute(
-                    "UPDATE babylon_items SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
+                    "UPDATE content_entities SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
                     (content_id,),
                 )
             else:
                 c.execute(
-                    "UPDATE babylon_items SET scan_status = %s, scan_error_class = %s, scan_error = %s, scan_failed_at = %s WHERE content_id = %s",
+                    "UPDATE content_entities SET scan_status = %s, scan_error_class = %s, scan_error = %s, scan_failed_at = %s WHERE content_id = %s",
                     (status, error_class, error_message, datetime.now(timezone.utc), content_id),
                 )
         if conn:
@@ -2354,13 +2374,13 @@ class Database:
     def get_scan_failures(self) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT bi.content_id, bi.ci_name, ce.display_name, bi.stage,
-                       bi.scan_error_class, bi.scan_error, bi.scan_failed_at,
+                SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage,
+                       ce.scan_error_class, ce.scan_error, ce.scan_failed_at,
                        bi.showroom_url, bi.showroom_url_override
-                FROM babylon_items bi
-                JOIN content_entities ce ON ce.content_id = bi.content_id
-                WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL
-                ORDER BY bi.scan_failed_at DESC
+                FROM content_entities ce
+                JOIN babylon_items bi ON bi.content_id = ce.content_id
+                WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL
+                ORDER BY ce.scan_failed_at DESC
             """)
             return cur.fetchall()
 
@@ -2384,7 +2404,7 @@ class Database:
                 analyzed = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN content_entities ce ON ce.content_id = sa.content_id WHERE sa.is_stale = TRUE AND ce.retired_at IS NULL")
                 stale = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL")
+                cur.execute("SELECT COUNT(*) as count FROM content_entities ce WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL")
                 scan_failures = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM content_entities WHERE retired_at IS NOT NULL")
                 retired = cur.fetchone()["count"]
@@ -2393,7 +2413,7 @@ class Database:
     def get_db_currency(self, stale_days: int = 3) -> dict:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT MAX(bi.last_refreshed) as max_refreshed FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE ce.retired_at IS NULL")
+                cur.execute("SELECT MAX(ce.last_refreshed) as max_refreshed FROM content_entities ce WHERE ce.retired_at IS NULL")
                 row = cur.fetchone()
                 last_refresh = row["max_refreshed"] if row else None
                 catalog_stale = True
@@ -2407,7 +2427,7 @@ class Database:
                 analyzed = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN content_entities ce ON ce.content_id = sa.content_id WHERE sa.is_stale = TRUE AND ce.retired_at IS NULL")
                 stale_count = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL")
+                cur.execute("SELECT COUNT(*) as count FROM content_entities ce WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL")
                 failed_count = cur.fetchone()["count"]
                 cur.execute(
                     "SELECT MAX(completed_at) as last_run FROM jobs "

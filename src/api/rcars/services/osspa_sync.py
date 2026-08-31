@@ -649,6 +649,8 @@ def run_osspa_sync(
                     logger.error("osspa_detail_page_unavailable", action="run_osspa_sync",
                                  content_id=content_id, detail_page=payload["detail_page"])
                     stats["failed"] += 1
+                    db.set_scan_status(content_id, "failed", error_class="adoc_unavailable",
+                                       error_message=f"detail page not found: {payload['detail_page']}")
                     continue
 
                 content_hash = compute_content_hash(adoc.full_text, payload)
@@ -670,10 +672,13 @@ def run_osspa_sync(
                     stale_commit=stale_commit, truncated=adoc.truncated,
                 )
                 stats["analyzed"] += 1
+                db.set_scan_status(content_id, "success")
             except Exception as exc:      # one bad item must not abort the sync
                 stats["failed"] += 1
                 logger.error("osspa_item_failed", action="run_osspa_sync",
                              content_id=content_id, error=str(exc), exc_info=True)
+                db.set_scan_status(content_id, "failed", error_class="sync_error",
+                                   error_message=str(exc))
 
     logger.info("osspa_sync_complete", action="run_osspa_sync", **stats)
     progress("pipeline:osspa:complete",
