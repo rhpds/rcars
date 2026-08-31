@@ -1813,7 +1813,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 
 .wl-multiselect-option span {
-  word-break: break-word;
+  overflow-wrap: anywhere;
   min-width: 0;
 }
 

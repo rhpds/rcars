@@ -6,6 +6,7 @@ import asyncio
 import functools
 import shutil
 import traceback
+from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
@@ -685,15 +686,19 @@ async def run_reporting_sync_job(ctx: dict, job_id: str) -> dict:
 from rcars.services.osspa_sync import run_osspa_sync
 
 
-def _progress_bridge(wctx: WorkerContext, job_id: str, loop) -> "Callable[[str, str], None]":
+def _progress_bridge(wctx: WorkerContext, job_id: str, loop) -> Callable[[str, str], None]:
     """Let the synchronous sync publish SSE progress from its worker thread."""
-    from collections.abc import Callable
     def _publish(phase: str, message: str) -> None:
-        asyncio.run_coroutine_threadsafe(
+        fut = asyncio.run_coroutine_threadsafe(
             publish_progress(wctx.relay, job_id, wctx.db,
                              phase=phase, status="running", message=message),
             loop,
         )
+        def _log_exc(f: asyncio.Future) -> None:
+            exc = f.exception()
+            if exc:
+                logger.warning("osspa_progress_publish_error", job_id=job_id, error=str(exc))
+        fut.add_done_callback(_log_exc)
     return _publish
 
 

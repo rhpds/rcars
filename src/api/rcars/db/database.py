@@ -1134,7 +1134,7 @@ class Database:
         if difficulty:
             conditions.append("COALESCE(sa.difficulty, aa.difficulty) = %(difficulty)s")
             params["difficulty"] = difficulty
-        elif content_filter == "stale":
+        if content_filter == "stale":
             joins.append(
                 "JOIN showroom_analysis sa_stale ON sa_stale.content_id = ce.content_id "
                 "AND sa_stale.is_stale = TRUE"

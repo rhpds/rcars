@@ -13,6 +13,13 @@ VECTOR = [0.01] * 768
 @pytest.fixture
 def db():
     import psycopg
+    from urllib.parse import urlparse
+    db_name = urlparse(TEST_DB_URL).path.lstrip("/")
+    if "test" not in db_name:
+        raise RuntimeError(
+            f"Refusing to run: database '{db_name}' does not contain 'test'. "
+            f"Set RCARS_TEST_DATABASE_URL to a test database."
+        )
     with psycopg.connect(TEST_DB_URL) as conn:
         conn.autocommit = True
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")

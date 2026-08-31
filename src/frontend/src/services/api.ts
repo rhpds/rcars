@@ -70,6 +70,7 @@ export const api = {
     if (params?.solutions) qs.set('solutions', params.solutions);
     if (params?.verticals) qs.set('verticals', params.verticals);
     if (params?.audience) qs.set('audience', params.audience);
+    if (params?.difficulty) qs.set('difficulty', params.difficulty);
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),

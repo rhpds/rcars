@@ -780,16 +780,19 @@ def osspa_sync_cmd(force: bool, confirm_empty_inventory: bool):
 
     settings = Settings()
     db = Database(settings.database_url)
-    _print("Syncing portfolio architectures from OSSPA...")
     try:
-        result = run_osspa_sync(
-            db, settings, force=force,
-            confirm_empty_inventory=confirm_empty_inventory,
-            on_progress=lambda phase, message: _print(f"  {message}"),
-        )
-    except Exception as e:
-        _print(f"ERROR: {e}")
-        raise SystemExit(1)
+        _print("Syncing portfolio architectures from OSSPA...")
+        try:
+            result = run_osspa_sync(
+                db, settings, force=force,
+                confirm_empty_inventory=confirm_empty_inventory,
+                on_progress=lambda phase, message: _print(f"  {message}"),
+            )
+        except Exception as e:
+            _print(f"ERROR: {e}")
+            raise SystemExit(1)
+    finally:
+        db.close()
 
     if result["status"] == "locked":
         _print("  Another OSSPA sync is already running — nothing to do.")

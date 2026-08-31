@@ -233,9 +233,13 @@ async def sync_babylon(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="maintenance", queue="ops", created_by=user)
-    await arq_redis.enqueue_job(
-        "run_babylon_pipeline", job_id=job_id, _queue_name="arq:queue:scan"
-    )
+    try:
+        await arq_redis.enqueue_job(
+            "run_babylon_pipeline", job_id=job_id, _queue_name="arq:queue:scan"
+        )
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
     return {"job_id": job_id}
 
 
