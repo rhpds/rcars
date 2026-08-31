@@ -569,6 +569,13 @@ WHERE  bi.content_id = ce.content_id
   AND  ce.scan_status = 'not_scanned'
   AND  bi.scan_status != 'not_scanned';
 
+UPDATE content_entities ce
+SET    scan_status = 'success'
+FROM   architecture_analysis aa
+WHERE  aa.content_id = ce.content_id
+  AND  aa.summary IS NOT NULL
+  AND  ce.scan_status = 'not_scanned';
+
 """
 
 
