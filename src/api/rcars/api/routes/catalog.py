@@ -55,7 +55,7 @@ async def list_catalog(
     request: Request,
     user: str = Depends(require_auth),
     search: str | None = Query(None, description="Case-insensitive text search on name and CI"),
-    content_type: str | None = Query(None, description="Comma-separated content types: lab,demo,workshop"),
+    content_type: str | None = Query(None, description="Comma-separated content types: lab,demo,architecture"),
     stage: str | None = Query(None, description="Comma-separated stages: prod,dev,event"),
     cloud_provider: str | None = Query(None, description="Filter by cloud provider"),
     workloads: str | None = Query(None, description="Comma-separated product names (AND semantics)"),
