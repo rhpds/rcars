@@ -54,6 +54,7 @@ export const api = {
     solutions?: string;
     verticals?: string;
     audience?: string;
+    difficulty?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
