@@ -125,14 +125,16 @@ Data flow: RHDP Reporting MCP → `run_reporting_sync()` → `performance_channe
 
 | Factor | Max | Method | Points |
 |---|---|---|---|
-| Usage (provisions) | 25 | Percentile buckets | 0, 3, 7, 15, 22, 25 (inverted tiers) |
-| Pipeline (touched) | 15 | Percentile buckets | 0, 5, 11, 15 (inverted tiers) |
-| Closed Sales | 25 | Percentile buckets | 0, 10, 20, 25 (inverted tiers) |
-| Cost Efficiency (ROI) | 15 | Continuous percentile | `round(15 * pct/100)` — smooth 0-15 |
+| Usage (provisions) | 25 | Percentile buckets | 0, 3, 7, 15, 22, 25 (5-tier) |
+| Pipeline (touched) | 25 | Percentile buckets | 0, 3, 7, 15, 22, 25 (5-tier) |
+| Closed Sales | 15 | Percentile buckets | 0, 5, 11, 15 (3-tier) |
+| Cost Efficiency (ROI vs pipeline) | 15 | Continuous percentile | `round(15 * pct/100)` — smooth 0-15 |
 
 Zero-value items (no provisions, no pipeline, no sales, cost with no sales) receive 0 points for that factor. The `score_breakdown` dict is stored alongside each score in `windowed_metrics`, containing per-factor points, levels (`none/low/moderate/strong`), reasons with actual values and percentile ranks, and a one-line summary sentence.
 
 **Score breakdown popover:** Clicking a score badge in the UI shows a popover with per-factor bars, points (e.g. "22/25"), and plain-English explanations including raw values and percentile context (e.g. "6,106 provisions — top tier (percentile 95 of items with activity)").
+
+**Extrapolation:** Items newer than the selected time window have their provisions and experiences projected to the full window length: `actual * (window_months / active_months)`. Only provisions and experiences are extrapolated — not dollar amounts or unique users. Per-window `extrapolated` (bool) and `active_months` (int) fields are stored in `windowed_metrics` and served by the API. The frontend shows a `~` prefix on extrapolated values with a tooltip explaining the projection.
 
 **Mute/ignore:** Curators can mute items for 30 days via "Mute 30d" button in the expanded row. Muted items are excluded from stats and counts. The "Muted" filter in the Status filter group shows only muted items. Stored as `ignored_until DATE` on `performance_scores`. API endpoints: `PUT /analysis/performance/ignore/{base_name}` (sets 30-day mute), `DELETE /analysis/performance/ignore/{base_name}` (unmutes).
 

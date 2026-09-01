@@ -258,7 +258,7 @@ export function PerformancePage() {
     : 'never'
 
   const exportCsv = () => {
-    const headers = ['Name', 'Base Name', 'Score', 'Provisions', 'Touched', 'T-ROI', 'Closed', 'C-ROI', 'Cost', 'Status', 'Jira']
+    const headers = ['Name', 'Base Name', 'Score', 'Provisions', 'Touched', 'T-ROI', 'Closed', 'C-ROI', 'Cost', 'Status', 'Jira', 'Extrapolated', 'Active Months']
     const rows = visibleItems.map(i => {
       const troi = num(i.pipeline_touched) > 0 && num(i.total_cost) > 0 ? (num(i.pipeline_touched) / num(i.total_cost)).toFixed(1) : ''
       const croi = num(i.closed_amount) > 0 && num(i.total_cost) > 0 ? (num(i.closed_amount) / num(i.total_cost)).toFixed(1) : ''
@@ -274,6 +274,8 @@ export function PerformancePage() {
         i.total_cost,
         i.workflow_status || '',
         i.jira_key || '',
+        i.extrapolated ? 'yes' : '',
+        i.active_months || '',
       ].join(',')
     })
     const csv = [headers.join(','), ...rows].join('\n')
@@ -533,7 +535,9 @@ export function PerformancePage() {
                             <ScoreBreakdownPopover breakdown={item.score_breakdown} onClose={() => setScorePopover(null)} anchorRect={scorePopoverRect} />
                           )}
                         </td>
-                        <td className="num">{item.provisions.toLocaleString()}</td>
+                        <td className="num" title={item.extrapolated ? `Estimated: ${item.active_months}mo of data projected to ${window_}` : undefined}>
+                          {item.extrapolated ? '~' : ''}{item.provisions.toLocaleString()}
+                        </td>
                         <td className="num">{fmt(item.pipeline_touched)}</td>
                         <td className="num muted">{fmtRoi(item.pipeline_touched, item.total_cost)}</td>
                         <td className="num">{fmt(item.closed_amount)}</td>
@@ -574,7 +578,7 @@ export function PerformancePage() {
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Experiences</span>
-                                <span className="ca-detail-value">{item.experiences.toLocaleString()}</span>
+                                <span className="ca-detail-value">{item.extrapolated ? '~' : ''}{item.experiences.toLocaleString()}</span>
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Cost / Provision</span>
