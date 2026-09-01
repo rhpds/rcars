@@ -132,6 +132,8 @@ async def performance_dashboard(
             item["avg_cost_per_provision"] = w.get("avg_cost_per_provision", 0)
             item["performance_score"] = w.get("performance_score", 0)
             item["sales_impact"] = w.get("sales_impact", "low")
+            item["extrapolated"] = w.get("extrapolated", False)
+            item["active_months"] = w.get("active_months")
         else:
             item["provisions"] = 0
             item["experiences"] = 0
@@ -685,6 +687,8 @@ async def nonprod_dashboard(
         item["unique_users"] = w.get("unique_users", 0)
         item["success_ratio"] = w.get("success_ratio", 0)
         item["failure_ratio"] = w.get("failure_ratio", 0)
+        item["extrapolated"] = w.get("extrapolated", False)
+        item["active_months"] = w.get("active_months")
 
         # Enrich with stages from all variants of this base name
         item["stages"] = stages_map.get(item["catalog_base_name"], [])

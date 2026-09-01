@@ -460,6 +460,8 @@ export interface PerformanceItem {
   jira_key?: string | null
   retirement_target_date?: string | null
   ignored_until?: string | null
+  extrapolated?: boolean
+  active_months?: number | null
 }
 
 export interface PerformanceDashboardResponse {

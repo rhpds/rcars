@@ -47,7 +47,7 @@ class TestComputePerformanceScore:
             total_cost=50_000, closed_amount=4_200_000,
             roi_zero=False, roi_pct=90,
         )
-        # 25 (usage) + 15 (pipeline) + 25 (closed) + round(15*0.90)=14 → 79
+        # 25 (usage) + 25 (pipeline) + 15 (closed) + round(15*0.90)=14 → 79
         assert score >= 75
 
     def test_high_cost_zero_sales_gets_zero_roi_points(self):
@@ -70,7 +70,7 @@ class TestComputePerformanceScore:
             total_cost=8_000, closed_amount=90_000,
             roi_zero=False, roi_pct=45,
         )
-        # 15 + 5 + 10 + round(15*0.45)=7 → 37: moderate band
+        # 15 (usage) + 15 (pipeline) + 5 (closed) + round(15*0.45)=7 → 42: moderate band
         assert 35 <= score < 55
 
     def test_no_age_discount_parameter(self):
@@ -89,6 +89,31 @@ class TestComputePerformanceScore:
         assert "age_discount" not in breakdown
         assert breakdown["score"] == 0
 
+    def test_roi_uses_pipeline_not_closed(self):
+        breakdown = compute_performance_score_breakdown(
+            provisions_zero=False, provisions_pct=50, provisions_raw=50,
+            touched_zero=False, touched_pct=50, touched_raw=500_000,
+            closed_zero=True, closed_pct=0,
+            total_cost=100_000, closed_amount=0,
+            roi_zero=False, roi_pct=60,
+        )
+        roi = next(f for f in breakdown["factors"] if f["factor"] == "roi")
+        assert roi["points"] > 0
+        assert "pipeline" in roi["reason"]
+
+    def test_pipeline_max_25_closed_max_15(self):
+        breakdown = compute_performance_score_breakdown(
+            provisions_zero=False, provisions_pct=99, provisions_raw=1000,
+            touched_zero=False, touched_pct=99, touched_raw=10_000_000,
+            closed_zero=False, closed_pct=99,
+            total_cost=50_000, closed_amount=5_000_000,
+            roi_zero=False, roi_pct=99,
+        )
+        pipeline = next(f for f in breakdown["factors"] if f["factor"] == "pipeline")
+        sales = next(f for f in breakdown["factors"] if f["factor"] == "sales")
+        assert pipeline["max"] == 25
+        assert sales["max"] == 15
+
     def test_sales_impact_high(self):
         from rcars.services.reporting_sync import compute_sales_impact
         assert compute_sales_impact(1_500_000) == "high"
@@ -100,6 +125,38 @@ class TestComputePerformanceScore:
     def test_sales_impact_low(self):
         from rcars.services.reporting_sync import compute_sales_impact
         assert compute_sales_impact(50_000) == "low"
+
+
+class TestExtrapolateCount:
+    def test_full_coverage_no_extrapolation(self):
+        from rcars.services.reporting_sync import _extrapolate_count
+        val, extrap, months = _extrapolate_count(100, "2025-01-01", "12m")
+        assert val == 100
+        assert extrap is False
+        assert months is None
+
+    def test_partial_coverage_extrapolates(self):
+        from rcars.services.reporting_sync import _extrapolate_count
+        from datetime import datetime, timedelta
+        six_months_ago = (datetime.now() - timedelta(days=183)).strftime("%Y-%m-%d")
+        val, extrap, months = _extrapolate_count(60, six_months_ago, "12m")
+        assert extrap is True
+        assert val > 60
+        assert months is not None and months <= 7
+
+    def test_zero_value_no_extrapolation(self):
+        from rcars.services.reporting_sync import _extrapolate_count
+        from datetime import datetime, timedelta
+        recent = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        val, extrap, _ = _extrapolate_count(0, recent, "12m")
+        assert val == 0
+        assert extrap is False
+
+    def test_no_first_provision_no_extrapolation(self):
+        from rcars.services.reporting_sync import _extrapolate_count
+        val, extrap, _ = _extrapolate_count(100, None, "12m")
+        assert val == 100
+        assert extrap is False
 
 
 class TestWindowStart:
