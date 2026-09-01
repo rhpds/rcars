@@ -39,6 +39,30 @@ def _percentile_rank(val: float, sorted_vals: list[float]) -> float:
     return (pos / len(sorted_vals)) * 100
 
 
+def _extrapolate_count(value: int, first_provision: str | None, window_key: str) -> tuple[int, bool, int | None]:
+    """Scale a count metric to fill a full window if the item is newer.
+
+    Returns (value, was_extrapolated, active_months).
+    """
+    if not first_provision or value == 0:
+        return value, False, None
+    window_days = WINDOW_DAYS[window_key]
+    window_start = datetime.now() - timedelta(days=window_days)
+    try:
+        first_dt = datetime.strptime(first_provision, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return value, False, None
+    if first_dt <= window_start:
+        return value, False, None
+    active_days = max(1, (datetime.now() - first_dt).days)
+    if active_days >= window_days:
+        return value, False, None
+    active_months = max(1, round(active_days / 30.44))
+    window_months = round(window_days / 30.44)
+    extrapolated = round(value * window_months / active_months)
+    return extrapolated, True, active_months
+
+
 def compute_performance_score(
     provisions_zero: bool, provisions_pct: float,
     touched_zero: bool, touched_pct: float,
@@ -118,44 +142,50 @@ def _compute_performance_score_with_breakdown(
     score += pts
     factors.append({"factor": "usage", "points": pts, "max": 25, "level": level, "reason": reason})
 
-    # --- Pipeline Touched (max 15) ---
+    # --- Pipeline Touched (max 25) ---
     if touched_zero:
         pts, level = 0, "none"
         reason = "$0 pipeline influenced — no linked opportunities"
+    elif touched_pct < 10:
+        pts, level = 3, "low"
+        reason = f"{_fmt_dollars(touched_raw)} pipeline — bottom 10% ({_pct_label(touched_pct)})"
+    elif touched_pct < 25:
+        pts, level = 7, "low"
+        reason = f"{_fmt_dollars(touched_raw)} pipeline — bottom 25% ({_pct_label(touched_pct)})"
     elif touched_pct < 50:
-        pts, level = 5, "moderate"
+        pts, level = 15, "moderate"
         reason = f"{_fmt_dollars(touched_raw)} pipeline — below median ({_pct_label(touched_pct)})"
     elif touched_pct < 75:
-        pts, level = 11, "strong"
+        pts, level = 22, "strong"
         reason = f"{_fmt_dollars(touched_raw)} pipeline — above median ({_pct_label(touched_pct)})"
     else:
-        pts, level = 15, "strong"
+        pts, level = 25, "strong"
         reason = f"{_fmt_dollars(touched_raw)} pipeline — top 25% ({_pct_label(touched_pct)})"
     score += pts
-    factors.append({"factor": "pipeline", "points": pts, "max": 15, "level": level, "reason": reason})
+    factors.append({"factor": "pipeline", "points": pts, "max": 25, "level": level, "reason": reason})
 
-    # --- Closed Sales (max 25) ---
+    # --- Closed Sales (max 15) ---
     if closed_zero:
         pts, level = 0, "none"
         reason = "$0 closed — no deals won from demos of this item"
     elif closed_pct < 50:
-        pts, level = 10, "moderate"
+        pts, level = 5, "moderate"
         reason = f"{_fmt_dollars(closed_amount)} closed — below median ({_pct_label(closed_pct)})"
     elif closed_pct < 75:
-        pts, level = 20, "strong"
+        pts, level = 11, "strong"
         reason = f"{_fmt_dollars(closed_amount)} closed — above median ({_pct_label(closed_pct)})"
     else:
-        pts, level = 25, "strong"
+        pts, level = 15, "strong"
         reason = f"{_fmt_dollars(closed_amount)} closed — top 25% ({_pct_label(closed_pct)})"
     score += pts
-    factors.append({"factor": "sales", "points": pts, "max": 25, "level": level, "reason": reason})
+    factors.append({"factor": "sales", "points": pts, "max": 15, "level": level, "reason": reason})
 
-    # --- Cost Efficiency (max 15) — continuous percentile-scaled ---
-    roi_val = (closed_amount / total_cost) if total_cost > 0 and closed_amount > 0 else 0
-    roi_label = f"{roi_val:.1f}x return ({_fmt_dollars(closed_amount)} closed / {_fmt_dollars(total_cost)} cost)"
+    # --- Cost Efficiency (max 15) — continuous percentile-scaled, based on pipeline ---
+    roi_val = (touched_raw / total_cost) if total_cost > 0 and touched_raw > 0 else 0
+    roi_label = f"{roi_val:.1f}x pipeline ROI ({_fmt_dollars(touched_raw)} pipeline / {_fmt_dollars(total_cost)} cost)"
     if roi_zero:
         pts, level = 0, "none"
-        reason = f"{_fmt_dollars(total_cost)} spent with $0 closed — no return on investment"
+        reason = f"{_fmt_dollars(total_cost)} spent with $0 pipeline — no pipeline return"
     elif total_cost == 0:
         pts, level = 0, "none"
         reason = "No cost data"
@@ -445,35 +475,46 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
         if not items_with_window:
             continue
 
+        for row, wm, w in items_with_window:
+            prov = w.get("provisions", 0)
+            first_prov = row.get("first_provision")
+            prov_ex, extrap, active_m = _extrapolate_count(prov, first_prov, wk)
+            exp_ex, _, _ = _extrapolate_count(w.get("experiences", 0), first_prov, wk)
+            w["provisions"] = prov_ex
+            w["experiences"] = exp_ex
+            w["extrapolated"] = extrap
+            if active_m is not None:
+                w["active_months"] = active_m
+            w["avg_cost_per_provision"] = round(w["total_cost"] / prov_ex, 2) if prov_ex > 0 else 0
+
         sorted_prov = sorted(w["provisions"] for _, _, w in items_with_window if w.get("provisions", 0) > 0)
         sorted_touched = sorted(w["pipeline_touched"] for _, _, w in items_with_window if w.get("pipeline_touched", 0) > 0)
         sorted_closed = sorted(w["closed_amount"] for _, _, w in items_with_window if w.get("closed_amount", 0) > 0)
         sorted_roi = sorted(
-            w["closed_amount"] / w["total_cost"]
+            w["pipeline_touched"] / w["total_cost"]
             for _, _, w in items_with_window
-            if w.get("total_cost", 0) > 0 and w.get("closed_amount", 0) > 0
+            if w.get("total_cost", 0) > 0 and w.get("pipeline_touched", 0) > 0
         )
 
         for row, wm, w in items_with_window:
-            prov = w.get("provisions", 0)
             touched = w.get("pipeline_touched", 0)
             closed = w.get("closed_amount", 0)
             cost = w.get("total_cost", 0)
-            has_roi = cost > 0 and closed > 0
-            roi_val = closed / cost if has_roi else 0
-            w["avg_cost_per_provision"] = round(cost / prov, 2) if prov > 0 else 0
+            has_roi = cost > 0 and touched > 0
+            roi_val = touched / cost if has_roi else 0
+
             score_args = dict(
-                provisions_zero=prov == 0,
-                provisions_pct=_percentile_rank(prov, sorted_prov),
+                provisions_zero=w["provisions"] == 0,
+                provisions_pct=_percentile_rank(w["provisions"], sorted_prov),
                 touched_zero=touched == 0,
                 touched_pct=_percentile_rank(touched, sorted_touched),
                 closed_zero=closed == 0,
                 closed_pct=_percentile_rank(closed, sorted_closed),
                 total_cost=cost,
                 closed_amount=closed,
-                provisions_raw=prov,
+                provisions_raw=w["provisions"],
                 touched_raw=touched,
-                roi_zero=closed == 0 and cost > 0,
+                roi_zero=touched == 0 and cost > 0,
                 roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
             w["performance_score"] = compute_performance_score(**score_args)
@@ -548,6 +589,7 @@ def _build_windowed_metrics(
                 "closed_amount": closed,
                 "total_cost": cost,
                 "avg_cost_per_provision": round(cost / provisions, 2) if provisions > 0 else 0,
+                "_first_provision": p.get("first_provision"),
             }
             entries.append((name, entry))
 
@@ -555,28 +597,30 @@ def _build_windowed_metrics(
         sorted_touched = sorted(e["pipeline_touched"] for _, e in entries if e["pipeline_touched"] > 0)
         sorted_closed = sorted(e["closed_amount"] for _, e in entries if e["closed_amount"] > 0)
         sorted_roi = sorted(
-            e["closed_amount"] / e["total_cost"]
+            e["pipeline_touched"] / e["total_cost"]
             for _, e in entries
-            if e["total_cost"] > 0 and e["closed_amount"] > 0
+            if e["total_cost"] > 0 and e["pipeline_touched"] > 0
         )
 
         for name, entry in entries:
             cost = entry["total_cost"]
             closed = entry["closed_amount"]
-            has_roi = cost > 0 and closed > 0
-            roi_val = closed / cost if has_roi else 0
+            touched = entry["pipeline_touched"]
+            entry.pop("_first_provision", None)
+            has_roi = cost > 0 and touched > 0
+            roi_val = touched / cost if has_roi else 0
             score_args = dict(
                 provisions_zero=entry["provisions"] == 0,
                 provisions_pct=_percentile_rank(entry["provisions"], sorted_prov),
-                touched_zero=entry["pipeline_touched"] == 0,
-                touched_pct=_percentile_rank(entry["pipeline_touched"], sorted_touched),
-                closed_zero=entry["closed_amount"] == 0,
-                closed_pct=_percentile_rank(entry["closed_amount"], sorted_closed),
+                touched_zero=touched == 0,
+                touched_pct=_percentile_rank(touched, sorted_touched),
+                closed_zero=closed == 0,
+                closed_pct=_percentile_rank(closed, sorted_closed),
                 total_cost=cost,
                 closed_amount=closed,
                 provisions_raw=entry["provisions"],
-                touched_raw=entry["pipeline_touched"],
-                roi_zero=closed == 0 and cost > 0,
+                touched_raw=touched,
+                roi_zero=touched == 0 and cost > 0,
                 roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
             )
             entry["performance_score"] = compute_performance_score(**score_args)
@@ -832,32 +876,42 @@ def run_reporting_sync(db, settings) -> dict:
 
     _recompute_windowed_scores(merged_rows)
 
+    for row in merged_rows:
+        prov_ex, extrap, active_m = _extrapolate_count(row["provisions"], row.get("first_provision"), "12m")
+        exp_ex, _, _ = _extrapolate_count(row.get("experiences", 0), row.get("first_provision"), "12m")
+        row["provisions"] = prov_ex
+        row["experiences"] = exp_ex
+        row["extrapolated"] = extrap
+        if active_m is not None:
+            row["active_months"] = active_m
+
     sorted_provisions = sorted(r["provisions"] for r in merged_rows if r["provisions"] > 0)
     sorted_touched = sorted(r["pipeline_touched"] for r in merged_rows if r["pipeline_touched"] > 0)
     sorted_closed = sorted(r["closed_amount"] for r in merged_rows if r["closed_amount"] > 0)
     sorted_roi = sorted(
-        r["closed_amount"] / r["total_cost"]
+        r["pipeline_touched"] / r["total_cost"]
         for r in merged_rows
-        if r["total_cost"] > 0 and r["closed_amount"] > 0
+        if r["total_cost"] > 0 and r["pipeline_touched"] > 0
     )
 
     for row in merged_rows:
         cost = row["total_cost"]
         closed = row["closed_amount"]
-        has_roi = cost > 0 and closed > 0
-        roi_val = closed / cost if has_roi else 0
+        touched = row["pipeline_touched"]
+        has_roi = cost > 0 and touched > 0
+        roi_val = touched / cost if has_roi else 0
         row["performance_score"] = compute_performance_score(
             provisions_zero=row["provisions"] == 0,
             provisions_pct=_percentile_rank(row["provisions"], sorted_provisions),
-            touched_zero=row["pipeline_touched"] == 0,
-            touched_pct=_percentile_rank(row["pipeline_touched"], sorted_touched),
-            closed_zero=row["closed_amount"] == 0,
-            closed_pct=_percentile_rank(row["closed_amount"], sorted_closed),
+            touched_zero=touched == 0,
+            touched_pct=_percentile_rank(touched, sorted_touched),
+            closed_zero=closed == 0,
+            closed_pct=_percentile_rank(closed, sorted_closed),
             total_cost=cost,
             closed_amount=closed,
             provisions_raw=row["provisions"],
-            touched_raw=row["pipeline_touched"],
-            roi_zero=closed == 0 and cost > 0,
+            touched_raw=touched,
+            roi_zero=touched == 0 and cost > 0,
             roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
         )
 
