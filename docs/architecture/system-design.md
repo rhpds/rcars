@@ -7,7 +7,7 @@ description: RCARS system overview, data sources, schema, worker architecture, f
 
 ## System Overview
 
-RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pulls from the RHDP catalog, analyzes lab content with an LLM, stores results in PostgreSQL with pgvector, and answers recommendation queries using vector similarity search and LLM ranking. The Advisor provides a multi-intent chat interface for catalog questions, performance metrics, and content overlap analysis.
+RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pulls from two content sources — the RHDP Babylon catalog and the Red Hat Architecture Center (OSSPA) — analyzes content with an LLM, stores results in PostgreSQL with pgvector, and answers recommendation queries using vector similarity search and LLM ranking. The Advisor provides a multi-intent chat interface for catalog questions, performance metrics, and content overlap analysis.
 
 ### Deployments
 
@@ -51,6 +51,7 @@ graph TB
     subgraph "External Systems"
         K8S[Babylon K8s API<br/>CatalogItem + AgnosticV CRDs]
         GH[GitHub<br/>Showroom repos]
+        GL[GitLab<br/>OSSPA portfolio architectures]
         LLM[LiteMaaS / Vertex AI<br/>Claude Sonnet + Haiku]
         RPT[Reporting MCP Server<br/>provisions + sales + cost]
     end
@@ -64,6 +65,7 @@ graph TB
     SW -->|process jobs| RD
     SW -->|read/write| PG
     SW -->|clone repos| GH
+    SW -->|clone repos| GL
     SW -->|LLM calls| LLM
     SW -->|read CRDs| K8S
     SW -->|query| RPT
@@ -100,6 +102,19 @@ Catalog items in RHDP are not all the same kind of thing. There are broadly thre
 - **Infrastructure CIs** — the underlying provisioning layer. RCARS does not interact with these.
 
 For content analysis and recommendations, what matters is whether a CI has a Showroom URL — that is where the lab content lives and what gets analyzed by the LLM. For infrastructure-aware queries, what matters is whether the CI uses AgnosticD v2 — those items have their workload roles extracted and mapped to products regardless of whether they have Showroom content. RCARS tracks the Published VCI ↔ Base CI relationship when it exists to avoid recommending the same underlying content twice.
+
+### OSSPA Portfolio Architectures
+
+RCARS ingests Red Hat Architecture Center portfolio architectures from two public OSSPA GitLab repositories. These are conceptual architecture assets — not provisioned environments — that complement Babylon labs when a sales team or learner needs an architectural overview rather than a hands-on lab.
+
+- **osspa-site** — provides `PAList.csv`, the inventory of all architecture assets with metadata (display name, status, solutions, verticals, products, and the path to each item's AsciiDoc content)
+- **portfolio-architecture-examples** — provides the AsciiDoc content files analyzed by the LLM
+
+Three asset types are ingested: Portfolio Architectures (`PA`), Validated Patterns (`VP`, which appear as `PA,VP`), and Solution Patterns (`SP`). All map to `content_type='architecture'` and `source='portfolio_arch'`. Interactive Experiences and standalone Demos are out of scope for Phase 1.
+
+Status is derived from the CSV: items where both `islive` and `showInCatalog` are true receive `status='prod'` and are visible in Advisor and Browse by default. Items where only one or neither flag is set receive `status='dev'` and are visible to curators only — the same gating pattern used for Babylon dev/event items.
+
+See [Portfolio Architectures](portfolio-architectures.md) for full details on the ingest pipeline, LLM analysis, and Browse integration.
 
 ### RHDP Reporting Database
 
@@ -227,7 +242,9 @@ Some tasks override the default timeout: stale check (3600s), workload scan (360
 
 ### Nightly Pipeline
 
-The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron:
+The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron. The pipeline is split into two independent sub-pipelines that run sequentially:
+
+**Babylon sub-pipeline:**
 
 1. **Catalog refresh** — pull latest CRDs from Babylon
 2. **Stale check** — `git ls-remote` to detect changed Showroom repos
@@ -235,6 +252,12 @@ The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron:
 4. **Infrastructure scan** — scan agDv2 collection repos for workload roles and base configs
 5. **Reporting sync** — pull reporting data from MCP server
 6. **Compute similarity** — recompute pairwise content overlap scores
+
+**OSSPA sub-pipeline:**
+
+7. **OSSPA sync** — fetch PAList.csv, clone portfolio-architecture-examples, analyze changed items, retire removed items
+
+Both sub-pipelines can also be triggered independently from the SyncPage UI or via the CLI (`rcars osspa sync` for OSSPA).
 
 ### LLM Provider Routing
 
@@ -256,7 +279,7 @@ The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 c
 ### Pages
 
 - **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details, infrastructure search) with typed envelope responses, follow-up chips, and session continuity.
-- **Browse** — Filterable catalog view with collapsible filter panel (Cloud Provider, Workloads multi-select, AgnosticD Config), server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration, and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
+- **Browse** — Filterable catalog view with collapsible filter panel. Supports both Babylon labs (Cloud Provider, Workloads, AgnosticD Config filters) and OSSPA architecture items (Solutions, Verticals, Audience filters). A Content Format filter switches between content types. Server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration (labs) or use cases and key components (architectures), and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
 - **Workloads & Automation** — Searchable catalog of infrastructure entries (workload roles and base configs) with type, category, and collection filters. Shows which catalog items use each entry. Accessible to all authenticated users.
 - **Content Analysis** — Overlap (pairwise similarity within a stage) and Performance (scored dashboard with Prod/Without Prod tabs, retirement workflow for low performers).
 - **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs).
