@@ -308,6 +308,8 @@ def strip_passthrough(text: str) -> str:
 
 def expand_includes(clone_root: Path, path: Path, max_bytes: int) -> str:
     """Inline repo-internal include:: directives."""
+    root_real = clone_root.resolve()
+
     def _expand(current: Path, depth: int, visited: set[Path], budget: list[int]) -> list[str]:
         try:
             source = current.read_text(errors="replace")
@@ -343,7 +345,7 @@ def expand_includes(clone_root: Path, path: Path, max_bytes: int) -> str:
                 continue
 
             try:
-                candidate_rel = (current.parent / target).relative_to(clone_root).as_posix()
+                candidate_rel = (current.parent / target).resolve().relative_to(root_real).as_posix()
             except ValueError:
                 candidate_rel = target
             resolved = resolve_repo_path(clone_root, candidate_rel)

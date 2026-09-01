@@ -2385,7 +2385,7 @@ class Database:
                        ce.scan_error_class, ce.scan_error, ce.scan_failed_at,
                        bi.showroom_url, bi.showroom_url_override
                 FROM content_entities ce
-                JOIN babylon_items bi ON bi.content_id = ce.content_id
+                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
                 WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL
                 ORDER BY ce.scan_failed_at DESC
             """)

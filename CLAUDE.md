@@ -25,7 +25,7 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
 - **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline (split into Babylon sub-pipeline + OSSPA sub-pipeline), and OSSPA sync jobs. Max 5 concurrent jobs, 600s timeout.
 - **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`). Scale via `recommend_worker_replicas` in Ansible vars.
-- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 15 tables.
+- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 17 tables.
 - **Redis** — Job queue (arq), pub/sub relay for SSE streaming, job progress channel.
 
 ## Repository Structure

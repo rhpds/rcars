@@ -54,8 +54,20 @@ LLM_JSON = {
 @pytest.fixture
 def db():
     import psycopg
+    from urllib.parse import urlparse
+    db_name = urlparse(TEST_DB_URL).path.lstrip("/")
+    if "test" not in db_name:
+        raise RuntimeError(
+            f"Refusing to run: database '{db_name}' does not contain 'test'. "
+            f"Set RCARS_TEST_DATABASE_URL to a test database."
+        )
     with psycopg.connect(TEST_DB_URL) as conn:
         conn.autocommit = True
+        effective_db = conn.execute("SELECT current_database()").fetchone()[0]
+        if "test" not in effective_db:
+            raise RuntimeError(
+                f"Refusing to run: effective database '{effective_db}' does not contain 'test'."
+            )
         conn.execute("CREATE EXTENSION IF NOT EXISTS vector")
         cur = conn.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
         for row in cur.fetchall():

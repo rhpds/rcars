@@ -813,15 +813,23 @@ async def run_osspa_sync_job(
 
     try:
         loop = asyncio.get_running_loop()
-        result = await asyncio.to_thread(
-            functools.partial(
-                run_osspa_sync,
-                wctx.db, wctx.settings,
-                force=force,
-                confirm_empty_inventory=confirm_empty_inventory,
-                on_progress=_progress_bridge(wctx, job_id, loop),
+        on_progress, pending_futures = _progress_bridge(wctx, job_id, loop)
+        try:
+            result = await asyncio.to_thread(
+                functools.partial(
+                    run_osspa_sync,
+                    wctx.db, wctx.settings,
+                    force=force,
+                    confirm_empty_inventory=confirm_empty_inventory,
+                    on_progress=on_progress,
+                )
             )
-        )
+        finally:
+            for fut in pending_futures:
+                try:
+                    await asyncio.wrap_future(fut)
+                except Exception:
+                    pass
         wctx.db.complete_job(job_id, result_json=result)
         log.info("osspa_sync_complete", action="osspa_sync_complete", **result)
         return result

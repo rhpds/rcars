@@ -381,11 +381,16 @@ function ScheduledMaintenance() {
     setLogOpen(true)
     setRunningBabylon(true)
     addLog('Starting Babylon pipeline (catalog sync → stale check → re-analyze → workload scan)...')
-    const result = await api.runBabylon()
-    addLog(`job_id=${result.job_id}`)
-    await pollJob(result.job_id)
-    setRunningBabylon(false)
-    loadSchedule()
+    try {
+      const result = await api.runBabylon()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunningBabylon(false)
+      loadSchedule()
+    }
   }
 
   const handleRunOsspa = async () => {
@@ -393,11 +398,16 @@ function ScheduledMaintenance() {
     setLogOpen(true)
     setRunningOsspa(true)
     addLog('Starting Architecture sync (OSSPA CSV fetch → upsert → analyze)...')
-    const result = await api.syncOsspa()
-    addLog(`job_id=${result.job_id}`)
-    await pollJob(result.job_id)
-    setRunningOsspa(false)
-    loadSchedule()
+    try {
+      const result = await api.syncOsspa()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunningOsspa(false)
+      loadSchedule()
+    }
   }
 
   const handleRun = async () => {
@@ -405,11 +415,16 @@ function ScheduledMaintenance() {
     setLogOpen(true)
     setRunning(true)
     addLog('Starting full maintenance pipeline (Babylon + Architectures)...')
-    const result = await api.runMaintenance()
-    addLog(`job_id=${result.job_id}`)
-    await pollJob(result.job_id)
-    setRunning(false)
-    loadSchedule()
+    try {
+      const result = await api.runMaintenance()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunning(false)
+      loadSchedule()
+    }
   }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
