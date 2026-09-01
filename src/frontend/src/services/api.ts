@@ -51,6 +51,10 @@ export const api = {
     include_retired?: string | boolean;
     limit?: number;
     offset?: number;
+    solutions?: string;
+    verticals?: string;
+    audience?: string;
+    difficulty?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
@@ -64,6 +68,10 @@ export const api = {
     if (params?.include_retired) qs.set('include_retired', String(params.include_retired));
     if (params?.limit) qs.set('limit', String(params.limit));
     if (params?.offset) qs.set('offset', String(params.offset));
+    if (params?.solutions) qs.set('solutions', params.solutions);
+    if (params?.verticals) qs.set('verticals', params.verticals);
+    if (params?.audience) qs.set('audience', params.audience);
+    if (params?.difficulty) qs.set('difficulty', params.difficulty);
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),
@@ -137,6 +145,8 @@ export const api = {
     last_pipeline: { job_id: string; status: string; created_at: string; completed_at: string | null; result: Record<string, unknown> | null; error: string | null } | null;
   }>('/admin/schedule'),
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
+  runBabylon: () => request<{ job_id: string }>('/admin/sync-babylon', { method: 'POST' }),
+  syncOsspa: (force = false) => request<{ job_id: string }>('/admin/sync-osspa', { method: 'POST', body: JSON.stringify({ force, confirm_empty_inventory: false }) }),
 
   // LLM provider
   getLlmProviderStatus: () => request<{

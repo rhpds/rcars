@@ -15,12 +15,17 @@ from rcars.config import Settings
 router = APIRouter(prefix="/catalog")
 
 
+# Identifiers may arrive as a bare Babylon ci_name (every existing caller) or as
+# a prefixed content_id. Anything unprefixed still means Babylon.
+_SOURCE_PREFIXES = ("babylon:", "pa:")
+
+
 def _resolve_to_content_id(identifier: str, db=None) -> str:
     """Return content_id from an identifier that may be a ci_name or content_id.
 
     When db is provided, validates existence and raises 404 if not found.
     """
-    content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    content_id = identifier if identifier.startswith(_SOURCE_PREFIXES) else f"babylon:{identifier}"
     if db is not None:
         entity = db.get_content_entity(content_id)
         if not entity:
@@ -29,7 +34,9 @@ def _resolve_to_content_id(identifier: str, db=None) -> str:
 
 
 def _resolve_item(identifier: str, db) -> dict | None:
-    """Resolve identifier (content_id or ci_name) to a full babylon item dict."""
+    """Resolve identifier to a full item dict, dispatching on the source prefix."""
+    if identifier.startswith("pa:"):
+        return db.get_portfolio_architecture(identifier)
     if identifier.startswith("babylon:"):
         return db.get_babylon_item(identifier)
     return db.get_babylon_item_by_ci_name(identifier)
@@ -48,13 +55,17 @@ async def list_catalog(
     request: Request,
     user: str = Depends(require_auth),
     search: str | None = Query(None, description="Case-insensitive text search on name and CI"),
-    content_type: str | None = Query(None, description="Comma-separated content types: lab,demo,workshop"),
+    content_type: str | None = Query(None, description="Comma-separated content types: lab,demo,architecture"),
     stage: str | None = Query(None, description="Comma-separated stages: prod,dev,event"),
     cloud_provider: str | None = Query(None, description="Filter by cloud provider"),
     workloads: str | None = Query(None, description="Comma-separated product names (AND semantics)"),
     agd_config: str | None = Query(None, description="Filter by AgnosticD config type"),
     content_filter: str | None = Query(None, description="Curator filter: unanalyzed, scan_failures, stale, needs_review"),
     category: str | None = None,
+    solutions: str | None = Query(None, description="Comma-separated solution areas (architecture items only)"),
+    verticals: str | None = Query(None, description="Comma-separated industry verticals (architecture items only)"),
+    audience: str | None = Query(None, description="Comma-separated target audiences"),
+    difficulty: str | None = Query(None, description="Filter by difficulty (beginner/intermediate/advanced)"),
     include_retired: str = Query("false", description="Retired items: false (exclude), true (include), only (retired only)"),
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
@@ -71,6 +82,10 @@ async def list_catalog(
         stage_list = None
     workload_list = [w.strip() for w in workloads.split(",")] if workloads else None
     content_type_list = [t.strip() for t in content_type.split(",")] if content_type else None
+    solutions_list = [s.strip() for s in solutions.split(",")] if solutions else None
+    verticals_list = [v.strip() for v in verticals.split(",")] if verticals else None
+    audience_list = [a.strip() for a in audience.split(",")] if audience else None
+    difficulty_val = difficulty.strip() if difficulty else None
 
     return db.list_content_entities_filtered(
         search=search,
@@ -81,6 +96,11 @@ async def list_catalog(
         workloads=workload_list,
         content_filter=content_filter,
         category=category,
+        solutions=solutions_list,
+        verticals=verticals_list,
+        audience=audience_list,
+        difficulty=difficulty_val,
+
         limit=limit,
         offset=offset,
         include_retired=include_retired,
@@ -216,10 +236,28 @@ async def infrastructure_items(
 )
 async def get_catalog_item(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
+    settings = request.app.state.settings
     item = _resolve_item(identifier, db)
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
     content_id = item["content_id"]
+
+    if item.get("source") == "portfolio_arch":
+        repo = settings.osspa_examples_repo_url.removesuffix(".git")
+        detail_page = item.get("detail_page") or ""
+        return {
+            **item,
+            "analysis": db.get_architecture_analysis(content_id),
+            "tags": db.get_enrichment_tags(content_id),
+            "workloads": [],
+            "acl_groups": [],
+            "reporting": None,
+            "source_url": (
+                f"{repo}/-/blob/{settings.osspa_examples_ref}/{detail_page}"
+                if detail_page else None
+            ),
+        }
+
     analysis = db.get_showroom_analysis(content_id)
     tags = db.get_enrichment_tags(content_id)
     workloads = db.get_workloads(content_id) if item.get("is_agd_v2") else []
@@ -263,7 +301,10 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
 async def get_analysis(identifier: str, request: Request, user: str = Depends(require_auth)):
     db = request.app.state.db
     content_id = _resolve_to_content_id(identifier, db)
-    analysis = db.get_showroom_analysis(content_id)
+    if content_id.startswith("pa:"):
+        analysis = db.get_architecture_analysis(content_id)
+    else:
+        analysis = db.get_showroom_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
     return analysis

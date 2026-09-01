@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from pydantic import BaseModel
 from fastapi.responses import PlainTextResponse
 from rcars.api.middleware.auth import require_admin, require_curator, invalidate_role_assignments_cache
 from rcars.api.schemas import (
@@ -223,6 +224,26 @@ async def run_maintenance(request: Request, user: str = Depends(require_admin)):
 
 
 @router.post(
+    "/sync-babylon",
+    summary="Trigger Babylon maintenance pipeline",
+    description="Manually triggers the Babylon sub-pipeline only (refresh → stale check → re-analyze → workload scan). Admin-only.",
+    response_model=JobResponse,
+)
+async def sync_babylon(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="maintenance", queue="ops", created_by=user)
+    try:
+        await arq_redis.enqueue_job(
+            "run_babylon_pipeline", job_id=job_id, _queue_name="arq:queue:scan"
+        )
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
+    return {"job_id": job_id}
+
+
+@router.post(
     "/sync-reporting",
     summary="Sync reporting metrics",
     description="Syncs provision, cost, and sales metrics from the RHDP Reporting MCP server. Admin-only.",
@@ -237,6 +258,45 @@ async def sync_reporting(request: Request, user: str = Depends(require_admin)):
     except Exception:
         db.fail_job(job_id, error="Failed to enqueue job")
         raise
+    return {"job_id": job_id}
+
+
+class SyncOsspaRequest(BaseModel):
+    force: bool = False
+    confirm_empty_inventory: bool = False
+
+
+@router.post(
+    "/sync-osspa",
+    summary="Sync portfolio architectures",
+    description=(
+        "Syncs Red Hat Architecture Center portfolio architectures from OSSPA GitLab. "
+        "Admin-only. `force` re-analyzes items whose content has not changed. "
+        "`confirm_empty_inventory` permits retiring every architecture when the "
+        "inventory has zero in-scope rows — only set it after verifying that is real."
+    ),
+    response_model=JobResponse,
+)
+async def sync_osspa(
+    request: Request,
+    body: SyncOsspaRequest = SyncOsspaRequest(),
+    user: str = Depends(require_admin),
+):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="osspa_sync", queue="ops", created_by=user)
+    try:
+        await arq_redis.enqueue_job(
+            "run_osspa_sync_job", job_id=job_id,
+            force=body.force, confirm_empty_inventory=body.confirm_empty_inventory,
+            _queue_name="arq:queue:scan",
+        )
+    except Exception:
+        db.fail_job(job_id, error="Failed to enqueue job")
+        raise
+    logger.info("osspa_sync_enqueued", component="rcars", action="sync_osspa",
+                job_id=job_id, created_by=user,
+                force=body.force, confirm_empty_inventory=body.confirm_empty_inventory)
     return {"job_id": job_id}
 
 

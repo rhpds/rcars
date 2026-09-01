@@ -8,6 +8,7 @@ import os
 import re
 import uuid
 from urllib.parse import urlsplit
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -268,6 +269,55 @@ CREATE INDEX IF NOT EXISTS idx_overlap_candidates_b ON overlap_candidates(conten
 CREATE INDEX IF NOT EXISTS idx_overlap_candidates_assessed ON overlap_candidates(assessed_at);
 
 -- ═══════════════════════════════════════════════════════════════════
+-- portfolio_architectures — OSSPA extension (1:1 with content_entities)
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS portfolio_architectures (
+    content_id          TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+    ppid                INTEGER NOT NULL UNIQUE,
+    pa_name             TEXT,
+    verticals           TEXT[],
+    solutions           TEXT[],
+    detail_page         TEXT,
+    image_url           TEXT,
+    is_live             BOOLEAN DEFAULT FALSE,
+    show_in_catalog     BOOLEAN DEFAULT FALSE,
+    last_manifest_sync  TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pa_ppid ON portfolio_architectures(ppid);
+
+-- ═══════════════════════════════════════════════════════════════════
+-- architecture_analysis — LLM output for portfolio architectures
+-- ═══════════════════════════════════════════════════════════════════
+CREATE TABLE IF NOT EXISTS architecture_analysis (
+    content_id                  TEXT PRIMARY KEY REFERENCES content_entities(content_id) ON DELETE CASCADE,
+
+    -- Shared contract (feeds triage, embeddings, content_entities denormalization)
+    summary                     TEXT,
+    products_json               JSONB,
+    topics_json                 JSONB,
+    audience_json               JSONB,
+    difficulty                  TEXT,
+    content_hash                TEXT,
+    last_analyzed               TIMESTAMPTZ,
+    is_stale                    BOOLEAN DEFAULT FALSE,
+    stale_commit                TEXT,
+
+    -- Architecture-specific
+    solution_areas_json         JSONB,
+    use_cases_json              JSONB,
+    key_components_json         JSONB,
+    detailed_topics_json        JSONB,
+    recommender_audience_json   JSONB,
+    asset_type                  TEXT,
+
+    -- Curator
+    enrichment_review_needed    BOOLEAN DEFAULT FALSE,
+    review_reasons              JSONB,
+    notes                       TEXT
+);
+
+-- ═══════════════════════════════════════════════════════════════════
 -- babylon_item_workloads — re-keyed from ci_name to content_id
 -- ═══════════════════════════════════════════════════════════════════
 CREATE TABLE IF NOT EXISTS babylon_item_workloads (
@@ -482,6 +532,50 @@ CREATE INDEX IF NOT EXISTS idx_vocab_unknown_status
 -- role-aware Advisor routing.
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS recommender_audience_json JSONB;
 
+-- Universal default-visibility gate — RHDPCD-28.
+-- Babylon's vocabulary (prod/event/dev) so one predicate serves every source.
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'prod';
+CREATE INDEX IF NOT EXISTS idx_ce_status ON content_entities(status);
+
+-- Backfill MUST ship with the ALTER: DEFAULT 'prod' is wrong for existing
+-- dev/event Babylon rows, and without this they leak through the default
+-- visibility filter until the next nightly catalog refresh. Idempotent —
+-- touches only rows whose status disagrees with their Babylon stage.
+UPDATE content_entities ce
+SET    status = bi.stage
+FROM   babylon_items bi
+WHERE  bi.content_id = ce.content_id
+  AND  bi.stage IS NOT NULL
+  AND  ce.status IS DISTINCT FROM bi.stage;
+
+-- Move scan tracking to content_entities so all sources (Babylon, OSSPA, future)
+-- share one consistent field. babylon_items retains the old columns as dead weight
+-- (safe — ALTER TABLE IF NOT EXISTS is idempotent). Backfill copies existing
+-- Babylon scan state so no data is lost. Idempotent — only touches unset rows.
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_status TEXT NOT NULL DEFAULT 'not_scanned';
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_error_class TEXT;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_error TEXT;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS scan_failed_at TIMESTAMPTZ;
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS last_refreshed TIMESTAMPTZ;
+
+UPDATE content_entities ce
+SET    scan_status       = bi.scan_status,
+       scan_error_class  = bi.scan_error_class,
+       scan_error        = bi.scan_error,
+       scan_failed_at    = bi.scan_failed_at,
+       last_refreshed    = bi.last_refreshed
+FROM   babylon_items bi
+WHERE  bi.content_id = ce.content_id
+  AND  ce.scan_status = 'not_scanned'
+  AND  bi.scan_status != 'not_scanned';
+
+UPDATE content_entities ce
+SET    scan_status = 'success'
+FROM   architecture_analysis aa
+WHERE  aa.content_id = ce.content_id
+  AND  aa.summary IS NOT NULL
+  AND  ce.scan_status = 'not_scanned';
+
 """
 
 
@@ -548,6 +642,30 @@ class Database:
                 cur.execute("DROP TABLE IF EXISTS workload_mapping CASCADE")
             conn.commit()
 
+    @contextmanager
+    def advisory_lock(self, lock_id: int):
+        """Session-level advisory lock. Yields True if acquired, False if held elsewhere.
+
+        The connection stays checked out for the whole block on purpose:
+        returning it to the pool would let a second sync reuse the same session
+        and reentrantly acquire the same lock. Session-level locks survive
+        commit, so the explicit commits here are safe.
+        """
+        with self._pool.connection() as conn:
+            got = bool(conn.execute(
+                "SELECT pg_try_advisory_lock(%s) AS locked", (lock_id,)).fetchone()["locked"])
+            conn.commit()
+            try:
+                yield got
+            finally:
+                if got:
+                    try:
+                        conn.rollback()  # clear any aborted-transaction state before unlocking
+                        conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+                        conn.commit()
+                    except Exception:
+                        logger.exception("advisory_unlock_failed")
+
     def drop_schema(self):
         hostname = urlsplit(self._url).hostname or ""
         is_local = hostname in ("localhost", "127.0.0.1")
@@ -569,6 +687,7 @@ class Database:
             "babylon_item_workloads", "babylon_item_acl_groups",
             "workload_aliases", "infrastructure",
             "vocabulary_unknown_terms",
+            "architecture_analysis", "portfolio_architectures",
             "babylon_items", "content_entities",
             # Legacy tables (ensure clean drop if they exist from previous schema)
             "catalog_item_workloads", "catalog_item_acl_groups",
@@ -609,6 +728,8 @@ class Database:
             "content_type": content_type,
             "is_hands_on": True,
             "display_name": item.get("display_name") or ci_name,
+            "status": item.get("stage"),
+            "last_refreshed": datetime.now(timezone.utc),
             "retired_at": None,
             "retirement_reason": None,
             "updated_at": datetime.now(timezone.utc),
@@ -628,8 +749,6 @@ class Database:
         for k in bi_fields:
             if k in item:
                 bi_data[k] = item[k]
-        bi_data["last_refreshed"] = datetime.now(timezone.utc)
-
         if "owners_json" in bi_data and bi_data["owners_json"] is not None:
             bi_data["owners_json"] = Jsonb(bi_data["owners_json"])
         if "instances_json" in bi_data and bi_data["instances_json"] is not None:
@@ -703,6 +822,119 @@ class Database:
         with self._pool.connection() as conn:
             cur = conn.execute(sql, {"ci_name": ci_name})
             return cur.fetchone()
+
+    # ── Portfolio architectures (OSSPA) ──
+
+    # Seeded from CSV on INSERT, owned by analyze_architecture_item afterward.
+    _OSSPA_CE_INSERT_ONLY = ("summary", "products_json", "topics_json", "audience_json", "difficulty")
+
+    def upsert_osspa_item(self, row: dict[str, Any]) -> str:
+        """Upsert one OSSPA row across content_entities + portfolio_architectures.
+
+        Also upserts the CSV-owned asset_type onto architecture_analysis so the
+        Browse badge is correct before the item has ever been analyzed.
+        """
+        content_id = row["content_id"]
+        now = datetime.now(timezone.utc)
+
+        ce_data = {
+            "content_id": content_id,
+            "source": "portfolio_arch",
+            "content_type": "architecture",
+            "is_hands_on": False,
+            "display_name": row["display_name"],
+            "status": row["status"],
+            "summary": row.get("summary"),
+            "products_json": Jsonb(row.get("products") or []),
+            "topics_json": Jsonb(row.get("topics") or []),
+            "audience_json": Jsonb(row.get("audience") or []),
+            "difficulty": None,
+            "retired_at": None,
+            "retirement_reason": None,
+            "updated_at": now,
+        }
+        ce_cols = list(ce_data)
+        ce_updates = [f"{k} = EXCLUDED.{k}" for k in ce_cols
+                      if k not in ("content_id", "source", *self._OSSPA_CE_INSERT_ONLY)]
+        ce_sql = f"""
+            INSERT INTO content_entities ({', '.join(ce_cols)})
+            VALUES ({', '.join(f'%({k})s' for k in ce_cols)})
+            ON CONFLICT (content_id) DO UPDATE SET {', '.join(ce_updates)}
+        """
+
+        pa_data = {
+            "content_id": content_id,
+            "ppid": row["ppid"],
+            "pa_name": row.get("pa_name"),
+            "verticals": list(row.get("verticals") or []),
+            "solutions": list(row.get("solutions") or []),
+            "detail_page": row.get("detail_page"),
+            "image_url": row.get("image_url"),
+            "is_live": bool(row.get("is_live")),
+            "show_in_catalog": bool(row.get("show_in_catalog")),
+            "last_manifest_sync": now,
+        }
+        pa_cols = list(pa_data)
+        pa_updates = [f"{k} = EXCLUDED.{k}" for k in pa_cols if k != "content_id"]
+        pa_sql = f"""
+            INSERT INTO portfolio_architectures ({', '.join(pa_cols)})
+            VALUES ({', '.join(f'%({k})s' for k in pa_cols)})
+            ON CONFLICT (content_id) DO UPDATE SET {', '.join(pa_updates)}
+        """
+
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(ce_sql, ce_data)
+                cur.execute(pa_sql, pa_data)
+                cur.execute(
+                    "INSERT INTO architecture_analysis (content_id, asset_type) VALUES (%s, %s) "
+                    "ON CONFLICT (content_id) DO UPDATE SET asset_type = EXCLUDED.asset_type",
+                    (content_id, row.get("asset_type")),
+                )
+            conn.commit()
+        return content_id
+
+    def get_portfolio_architecture(self, content_id: str) -> dict[str, Any] | None:
+        sql = """
+            SELECT ce.*, pa.*
+            FROM content_entities ce
+            JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            WHERE ce.content_id = %(content_id)s
+        """
+        with self._pool.connection() as conn:
+            return conn.execute(sql, {"content_id": content_id}).fetchone()
+
+    def count_active_osspa(self) -> int:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM content_entities "
+                "WHERE source = 'portfolio_arch' AND retired_at IS NULL"
+            ).fetchone()
+            return row["count"]
+
+    def retire_missing_osspa(self, active_content_ids: set[str]) -> list[dict]:
+        """Soft-retire portfolio_arch rows absent from the current in-scope set."""
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT content_id, display_name, retired_at FROM content_entities "
+                "WHERE source = 'portfolio_arch'"
+            ).fetchall()
+
+            newly_retired = []
+            for item in rows:
+                cid = item["content_id"]
+                if cid not in active_content_ids and item["retired_at"] is None:
+                    conn.execute(
+                        "UPDATE content_entities SET retired_at = NOW(), "
+                        "retirement_reason = 'Removed from OSSPA PAList.csv' "
+                        "WHERE content_id = %s", (cid,))
+                    newly_retired.append(item)
+            if newly_retired:
+                conn.commit()
+                logger.info("osspa_items_retired", component="rcars", action="retire_missing_osspa",
+                            count=len(newly_retired),
+                            items=[i["content_id"] for i in newly_retired])
+            return newly_retired
 
     def find_catalog_item_by_display_name_prefix(
         self, pattern: str, stages: list[str] | None = None,
@@ -800,6 +1032,10 @@ class Database:
         workloads: list[str] | None = None,
         content_filter: str | None = None,
         category: str | None = None,
+        solutions: list[str] | None = None,
+        verticals: list[str] | None = None,
+        audience: list[str] | None = None,
+        difficulty: str | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: str | bool = False,
@@ -824,26 +1060,32 @@ class Database:
 
         babylon_specific = any([stages, cloud_provider, agd_config, workloads, category])
 
+        # Universal default-visibility gate. ce.status is written from bi.stage
+        # for Babylon and from derive_osspa_status for OSSPA, so one predicate
+        # serves every source — no LEFT JOIN and no bi.content_id IS NULL
+        # fallthrough. bi.stage stays in the SELECT for curator stage badges.
         if stages:
-            conditions.append("bi.stage = ANY(%(stages)s)")
+            conditions.append("ce.status = ANY(%(stages)s)")
             params["stages"] = stages
-        elif babylon_specific:
-            conditions.append("bi.stage = 'prod'")
         else:
-            conditions.append("(bi.stage = 'prod' OR bi.content_id IS NULL)")
+            conditions.append("ce.status = 'prod'")
 
         if search:
             words = search.strip().split()
             if len(words) == 1:
                 conditions.append(
-                    "(ce.display_name ILIKE %(search)s OR bi.ci_name ILIKE %(search)s)"
+                    "(ce.display_name ILIKE %(search)s OR bi.ci_name ILIKE %(search)s"
+                    " OR pa.pa_name ILIKE %(search)s OR ce.content_id ILIKE %(search)s)"
                 )
                 params["search"] = f"%{search}%"
             else:
                 word_conds = []
                 for i, word in enumerate(words[:6]):
                     key = f"sw{i}"
-                    word_conds.append(f"(ce.display_name ILIKE %({key})s OR bi.ci_name ILIKE %({key})s)")
+                    word_conds.append(
+                        f"(ce.display_name ILIKE %({key})s OR bi.ci_name ILIKE %({key})s"
+                        f" OR pa.pa_name ILIKE %({key})s OR ce.content_id ILIKE %({key})s)"
+                    )
                     params[key] = f"%{word}%"
                 conditions.append(f"({' AND '.join(word_conds)})")
 
@@ -853,6 +1095,19 @@ class Database:
         if agd_config:
             conditions.append("bi.agd_config = %(agd_config)s")
             params["agd_config"] = agd_config
+
+        # Solutions and verticals live on portfolio_architectures, so selecting
+        # either narrows the result set to architecture items.
+        if solutions:
+            conditions.append("pa.solutions && %(solutions)s")
+            params["solutions"] = solutions
+        if verticals:
+            conditions.append("pa.verticals && %(verticals)s")
+            params["verticals"] = verticals
+        # Audience is an open dimension on content_entities — every source has it.
+        if audience:
+            conditions.append("ce.audience_json ?| %(audience)s")
+            params["audience"] = audience
 
         if workloads:
             import json as _json
@@ -873,10 +1128,17 @@ class Database:
         if content_filter == "unanalyzed":
             conditions.append("bi.showroom_url IS NOT NULL")
             conditions.append("bi.is_published IS NOT TRUE")
-            conditions.append("bi.scan_status NOT IN ('success', 'failed')")
+            conditions.append("ce.scan_status NOT IN ('success', 'failed')")
         elif content_filter == "scan_failures":
-            conditions.append("bi.scan_status = 'failed'")
-        elif content_filter == "stale":
+            conditions.append(
+                "(ce.scan_status = 'failed' OR "
+                "(ce.source = 'portfolio_arch' AND aa.summary IS NULL))"
+            )
+
+        if difficulty:
+            conditions.append("COALESCE(sa.difficulty, aa.difficulty) = %(difficulty)s")
+            params["difficulty"] = difficulty
+        if content_filter == "stale":
             joins.append(
                 "JOIN showroom_analysis sa_stale ON sa_stale.content_id = ce.content_id "
                 "AND sa_stale.is_stale = TRUE"
@@ -895,6 +1157,8 @@ class Database:
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {join_sql}
             {where}
         """
@@ -906,12 +1170,18 @@ class Database:
                    bi.is_agd_v2, bi.agd_config, bi.cloud_provider, bi.ocp_version,
                    bi.os_image, bi.worker_instance_count, bi.control_plane_instance_count,
                    bi.instances_json, bi.keywords, bi.description AS bi_description,
-                   bi.icon_url, bi.owners_json, bi.scan_status, bi.scan_error_class,
-                   bi.scan_error, bi.scan_failed_at, bi.last_crd_update, bi.last_refreshed,
-                   sa.is_stale, sa.enrichment_review_needed
+                   bi.icon_url, bi.owners_json, ce.scan_status, ce.scan_error_class,
+                   ce.scan_error, ce.scan_failed_at, bi.last_crd_update, ce.last_refreshed,
+                   pa.pa_name, pa.solutions, pa.verticals, pa.detail_page, pa.image_url,
+                   aa.asset_type,
+                   COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
+                   COALESCE(sa.enrichment_review_needed, aa.enrichment_review_needed)
+                       AS enrichment_review_needed
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {join_sql}
             {where}
             ORDER BY ce.content_id
@@ -929,8 +1199,12 @@ class Database:
 
         return {"items": items, "total": total}
 
-    def retire_removed_items(self, current_content_ids: set[str]) -> list[dict]:
-        """Mark content entities not in current CRD scan as retired."""
+    def retire_missing_babylon(self, current_content_ids: set[str]) -> list[dict]:
+        """Mark Babylon content entities not in the current CRD scan as retired.
+
+        Only touches source='babylon' rows — OSSPA lifecycle belongs to
+        retire_missing_osspa().
+        """
         if not current_content_ids:
             logger.warning("retire_skipped_empty_scan",
                            component="rcars", action="retire_removed",
@@ -1183,6 +1457,76 @@ class Database:
             )
             conn.commit()
 
+    # ── Architecture analysis (OSSPA) ──
+
+    def upsert_architecture_analysis(self, analysis: dict[str, Any]) -> None:
+        fields = [
+            "content_id", "summary", "products_json", "topics_json", "audience_json",
+            "recommender_audience_json", "difficulty", "content_hash", "last_analyzed",
+            "is_stale", "stale_commit",
+            "solution_areas_json", "use_cases_json", "key_components_json",
+            "detailed_topics_json", "asset_type",
+            "enrichment_review_needed", "review_reasons", "notes",
+        ]
+        present = {k: analysis.get(k) for k in fields if k in analysis}
+        if "last_analyzed" not in present:
+            present["last_analyzed"] = datetime.now(timezone.utc)
+
+        jsonb_fields = [
+            "products_json", "topics_json", "audience_json", "recommender_audience_json",
+            "solution_areas_json", "use_cases_json", "key_components_json",
+            "detailed_topics_json", "review_reasons",
+        ]
+        for f in jsonb_fields:
+            if f in present and present[f] is not None:
+                present[f] = Jsonb(present[f])
+
+        columns = list(present)
+        updates = [f"{k} = EXCLUDED.{k}" for k in columns if k != "content_id"]
+        sql = f"""
+            INSERT INTO architecture_analysis ({', '.join(columns)})
+            VALUES ({', '.join(f'%({k})s' for k in columns)})
+            ON CONFLICT (content_id) DO UPDATE SET {', '.join(updates)}
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, present)
+            conn.commit()
+
+    def get_architecture_analysis(self, content_id: str) -> dict[str, Any] | None:
+        with self._pool.connection() as conn:
+            return conn.execute(
+                "SELECT * FROM architecture_analysis WHERE content_id = %(content_id)s",
+                {"content_id": content_id},
+            ).fetchone()
+
+    def ensure_architecture_analysis_row(self, content_id: str, asset_type: str | None = None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO architecture_analysis (content_id, asset_type, is_stale) "
+                "VALUES (%s, %s, TRUE) "
+                "ON CONFLICT (content_id) DO UPDATE SET is_stale = TRUE",
+                (content_id, asset_type),
+            )
+            conn.commit()
+
+    def mark_architecture_stale(self, content_id: str, stale_commit: str | None = None) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "INSERT INTO architecture_analysis (content_id, is_stale, stale_commit) "
+                "VALUES (%s, TRUE, %s) "
+                "ON CONFLICT (content_id) DO UPDATE SET is_stale = TRUE, stale_commit = EXCLUDED.stale_commit",
+                (content_id, stale_commit),
+            )
+            conn.commit()
+
+    def clear_architecture_stale(self, content_id: str) -> None:
+        with self._pool.connection() as conn:
+            conn.execute(
+                "UPDATE architecture_analysis SET is_stale = FALSE, stale_commit = NULL "
+                "WHERE content_id = %s", (content_id,))
+            conn.commit()
+
     def get_showroom_analysis(self, content_id: str) -> dict[str, Any] | None:
         with self._pool.connection() as conn:
             cur = conn.execute(
@@ -1331,10 +1675,9 @@ class Database:
         stage_params: list = []
         if stages:
             stage_placeholders = ",".join(["%s"] * len(stages))
-            stage_filter = (
-                f"AND EXISTS (SELECT 1 FROM babylon_items bis "
-                f"WHERE bis.content_id = e.content_id AND bis.stage IN ({stage_placeholders}))"
-            )
+            # ce.status, not a babylon_items EXISTS subquery: architectures have
+            # no babylon_items row and would be silently dropped.
+            stage_filter = f"AND ce.status IN ({stage_placeholders})"
             stage_params = list(stages)
 
         ct_filter = ""
@@ -1378,7 +1721,7 @@ class Database:
                 LIMIT %s
             )
             SELECT g.*,
-                   ce.display_name, ce.is_hands_on,
+                   ce.display_name, ce.is_hands_on, ce.status,
                    bi.ci_name, bi.stage, bi.category, bi.showroom_url, bi.showroom_ref,
                    bi.is_published, bi.published_ci_name, bi.base_ci_name,
                    bi.catalog_namespace, sa.content_hash
@@ -1468,19 +1811,35 @@ class Database:
                 result[row["content_id"]].append(row)
             return result
 
+    def _is_architecture(self, content_id: str) -> bool:
+        entity = self.get_content_entity(content_id)
+        return (entity or {}).get("source") == "portfolio_arch"
+
     def set_enrichment_note(self, content_id: str, note: str) -> None:
         with self._pool.connection() as conn:
-            conn.execute(
-                "UPDATE showroom_analysis SET notes = %s WHERE content_id = %s", (note, content_id),
-            )
+            if self._is_architecture(content_id):
+                conn.execute(
+                    "INSERT INTO architecture_analysis (content_id, notes) VALUES (%s, %s) "
+                    "ON CONFLICT (content_id) DO UPDATE SET notes = EXCLUDED.notes",
+                    (content_id, note))
+            else:
+                conn.execute(
+                    "UPDATE showroom_analysis SET notes = %s WHERE content_id = %s",
+                    (note, content_id))
             conn.commit()
 
     def set_enrichment_review_flag(self, content_id: str, needed: bool) -> None:
         with self._pool.connection() as conn:
-            conn.execute(
-                "UPDATE showroom_analysis SET enrichment_review_needed = %s WHERE content_id = %s",
-                (needed, content_id),
-            )
+            if self._is_architecture(content_id):
+                conn.execute(
+                    "INSERT INTO architecture_analysis (content_id, enrichment_review_needed) "
+                    "VALUES (%s, %s) "
+                    "ON CONFLICT (content_id) DO UPDATE SET enrichment_review_needed = EXCLUDED.enrichment_review_needed",
+                    (content_id, needed))
+            else:
+                conn.execute(
+                    "UPDATE showroom_analysis SET enrichment_review_needed = %s WHERE content_id = %s",
+                    (needed, content_id))
             conn.commit()
 
     def set_curated_duration(self, content_id: str, duration_min: int | None, updated_by: str | None = None) -> None:
@@ -1657,11 +2016,42 @@ class Database:
                 if p not in seen:
                     seen.add(p)
                     product_names.append(p)
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                SELECT DISTINCT unnest(pa.solutions) AS value
+                FROM portfolio_architectures pa
+                JOIN content_entities ce ON ce.content_id = pa.content_id
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                ORDER BY value
+            """)
+            solutions_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT unnest(pa.verticals) AS value
+                FROM portfolio_architectures pa
+                JOIN content_entities ce ON ce.content_id = pa.content_id
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                ORDER BY value
+            """)
+            verticals_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT jsonb_array_elements_text(ce.audience_json) AS value
+                FROM content_entities ce
+                WHERE ce.retired_at IS NULL AND ce.status = 'prod'
+                  AND jsonb_typeof(ce.audience_json) = 'array'
+                ORDER BY value
+            """)
+            audience_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
         return {
             "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
             "cloud_providers": [row["cloud_provider"] for row in cloud_providers],
             "os_images": [row["os_image"] for row in os_images],
+            "solutions": solutions_list,
+            "verticals": verticals_list,
+            "audience": audience_list,
         }
 
     # ── Infrastructure catalog ──
@@ -1887,7 +2277,7 @@ class Database:
                 SELECT ce.content_id, ce.content_type, ce.display_name,
                        bi.ci_name, bi.category, bi.stage,
                        bi.showroom_url, bi.showroom_ref, bi.showroom_url_override,
-                       bi.content_path, bi.keywords, bi.scan_status,
+                       bi.content_path, bi.keywords, ce.scan_status,
                        bi.is_published, bi.published_ci_name, bi.base_ci_name,
                        sa.content_hash, sa.last_repo_commit
                 FROM content_entities ce
@@ -1977,12 +2367,12 @@ class Database:
         def _do(c):
             if status == "success":
                 c.execute(
-                    "UPDATE babylon_items SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
+                    "UPDATE content_entities SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
                     (content_id,),
                 )
             else:
                 c.execute(
-                    "UPDATE babylon_items SET scan_status = %s, scan_error_class = %s, scan_error = %s, scan_failed_at = %s WHERE content_id = %s",
+                    "UPDATE content_entities SET scan_status = %s, scan_error_class = %s, scan_error = %s, scan_failed_at = %s WHERE content_id = %s",
                     (status, error_class, error_message, datetime.now(timezone.utc), content_id),
                 )
         if conn:
@@ -1995,13 +2385,13 @@ class Database:
     def get_scan_failures(self) -> list[dict]:
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT bi.content_id, bi.ci_name, ce.display_name, bi.stage,
-                       bi.scan_error_class, bi.scan_error, bi.scan_failed_at,
+                SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage,
+                       ce.scan_error_class, ce.scan_error, ce.scan_failed_at,
                        bi.showroom_url, bi.showroom_url_override
-                FROM babylon_items bi
-                JOIN content_entities ce ON ce.content_id = bi.content_id
-                WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL
-                ORDER BY bi.scan_failed_at DESC
+                FROM content_entities ce
+                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+                WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL
+                ORDER BY ce.scan_failed_at DESC
             """)
             return cur.fetchall()
 
@@ -2025,7 +2415,7 @@ class Database:
                 analyzed = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN content_entities ce ON ce.content_id = sa.content_id WHERE sa.is_stale = TRUE AND ce.retired_at IS NULL")
                 stale = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL")
+                cur.execute("SELECT COUNT(*) as count FROM content_entities ce WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL")
                 scan_failures = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM content_entities WHERE retired_at IS NOT NULL")
                 retired = cur.fetchone()["count"]
@@ -2034,7 +2424,7 @@ class Database:
     def get_db_currency(self, stale_days: int = 3) -> dict:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT MAX(bi.last_refreshed) as max_refreshed FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE ce.retired_at IS NULL")
+                cur.execute("SELECT MAX(ce.last_refreshed) as max_refreshed FROM content_entities ce WHERE ce.retired_at IS NULL")
                 row = cur.fetchone()
                 last_refresh = row["max_refreshed"] if row else None
                 catalog_stale = True
@@ -2048,7 +2438,7 @@ class Database:
                 analyzed = cur.fetchone()["count"]
                 cur.execute("SELECT COUNT(*) as count FROM showroom_analysis sa JOIN content_entities ce ON ce.content_id = sa.content_id WHERE sa.is_stale = TRUE AND ce.retired_at IS NULL")
                 stale_count = cur.fetchone()["count"]
-                cur.execute("SELECT COUNT(*) as count FROM babylon_items bi JOIN content_entities ce ON ce.content_id = bi.content_id WHERE bi.scan_status = 'failed' AND ce.retired_at IS NULL")
+                cur.execute("SELECT COUNT(*) as count FROM content_entities ce WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL")
                 failed_count = cur.fetchone()["count"]
                 cur.execute(
                     "SELECT MAX(completed_at) as last_run FROM jobs "

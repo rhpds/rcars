@@ -23,9 +23,9 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
 
 - **Frontend** — React 19 SPA with PatternFly 6 and custom theme (light/dark mode). Pages: Advisor (chat + recommendations), History (past sessions), Browse (catalog + filter sidebar + curation), Workloads (curator infrastructure mappings), Content Analysis (Overlap + Performance), System (Status, Sync & Analysis, Recent Jobs, Token Usage, Query History). Vite dev server proxies `/api` to backend.
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
-- **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline. Max 5 concurrent jobs, 600s timeout.
+- **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline (split into Babylon sub-pipeline + OSSPA sub-pipeline), and OSSPA sync jobs. Max 5 concurrent jobs, 600s timeout.
 - **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`). Scale via `recommend_worker_replicas` in Ansible vars.
-- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 15 tables.
+- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 17 tables.
 - **Redis** — Job queue (arq), pub/sub relay for SSE streaming, job progress channel.
 
 ## Repository Structure
@@ -99,7 +99,9 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## Database
 
-PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/database.py` — this is the single source of truth. `rcars init-db` runs `create_schema()` (all `CREATE TABLE IF NOT EXISTS`) on every deploy. For column additions to existing tables, add `ALTER TABLE ADD COLUMN IF NOT EXISTS` at the bottom of `SCHEMA_SQL`. For structural changes, use `rcars init-db --drop` to drop and recreate. No Alembic — removed in the content model migration (RHDPCD-359). Key tables: `content_entities` (universal entity registry, card fields for Browse/triage), `babylon_items` (Babylon-specific extension, 1:1 with content_entities), `showroom_analysis` (LLM results + content_hash), `embeddings` (768-dim vectors with content_type + source), `advisor_sessions` (query history), `babylon_item_workloads` + `workload_mapping` (infrastructure metadata), `performance_channels` + `performance_scores` (multi-channel performance metrics + scoring), `retirement_workflow` (retirement lifecycle tracking for low performers).
+PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/database.py` — this is the single source of truth. `rcars init-db` runs `create_schema()` (all `CREATE TABLE IF NOT EXISTS`) on every deploy. For column additions to existing tables, add `ALTER TABLE ADD COLUMN IF NOT EXISTS` at the bottom of `SCHEMA_SQL`. For structural changes, use `rcars init-db --drop` to drop and recreate. No Alembic — removed in the content model migration (RHDPCD-359). Key tables: `content_entities` (universal entity registry, card fields for Browse/triage), `babylon_items` (Babylon-specific extension, 1:1 with content_entities), `showroom_analysis` (LLM results + content_hash), `embeddings` (768-dim vectors with content_type + source), `advisor_sessions` (query history), `babylon_item_workloads` + `workload_mapping` (infrastructure metadata), `performance_channels` + `performance_scores` (multi-channel performance metrics + scoring), `retirement_workflow` (retirement lifecycle tracking for low performers), `portfolio_architectures` + `architecture_analysis` (OSSPA portfolio architectures — `content_id` is `pa:{ppid}`, `source='portfolio_arch'`, `content_type='architecture'`).
+
+**Default visibility:** `content_entities.status` (`prod`/`event`/`dev`, Babylon's vocabulary) gates Advisor retrieval and Browse for every source. Babylon writes it from `babylon_items.stage`; OSSPA derives it from the CSV `islive` + `showInCatalog` booleans. `WHERE status = 'prod' AND retired_at IS NULL` is the default filter; curator views omit the status clause.
 
 **Soft-delete:** Items that disappear from Babylon CRDs get `retired_at = NOW()` instead of being deleted. All active-item queries filter on `retired_at IS NULL`. Items that reappear in a future scan are automatically un-retired. Browse page has a curator-only "Show Retired" toggle.
 
@@ -140,7 +142,7 @@ Zero-value items (no provisions, no pipeline, no sales, cost with no sales) rece
 
 ## CLI
 
-Entry point: `rcars` (installed via `pip install -e ".[dev]"`). Run `rcars --help` for full command list. Key commands: `init-db`, `refresh`, `scan`, `status`, `serve`. Subgroups: `rcars infra`, `rcars workload`, `rcars reporting-db` (sync/show/status for reporting metrics).
+Entry point: `rcars` (installed via `pip install -e ".[dev]"`). Run `rcars --help` for full command list. Key commands: `init-db`, `refresh`, `scan`, `status`, `serve`. Subgroups: `rcars infra`, `rcars workload`, `rcars reporting-db` (sync/show/status for reporting metrics), `rcars osspa` (sync — syncs Architecture Center portfolio architectures from OSSPA GitLab).
 
 ## Build & Deploy
 

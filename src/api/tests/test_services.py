@@ -196,3 +196,40 @@ def test_multi_base_published_ci():
 
     # agd_config: same on both bases, single value
     assert published.get("agd_config") == "openshift-cluster"
+
+
+def test_format_single_candidate_handles_architecture():
+    from rcars.services.recommender.models import Candidate
+    from rcars.services.recommender.rationale import _format_single_candidate
+
+    candidate = Candidate(
+        content_id="pa:275",
+        display_name="Multitenant Setup for RHACS",
+        content_type="architecture",
+        summary="An architecture for multi-tenant RHACS.",
+        topics=["security"],
+        products=["Red Hat Advanced Cluster Security"],
+        difficulty="intermediate",
+        duration_min=None,
+        category="architecture",
+        source="portfolio_arch",
+        is_hands_on=False,
+        relevance_score=88,
+    )
+    analysis = {
+        "audience_json": ["security architects"],
+        "solution_areas_json": ["Application Platform"],
+        "use_cases_json": ["Isolate tenants in a shared cluster"],
+        "key_components_json": ["RHACS", "OpenShift"],
+        "asset_type": "PA",
+    }
+
+    text = _format_single_candidate(candidate, analysis)
+
+    assert "Asset Type: Portfolio Architecture" in text
+    assert "Solution Areas: Application Platform" in text
+    assert "Use Cases: Isolate tenants in a shared cluster" in text
+    assert "Key Components: RHACS; OpenShift" in text
+    assert "Audience: security architects" in text
+    assert "Duration" not in text
+    assert "reference architecture" not in text.lower()

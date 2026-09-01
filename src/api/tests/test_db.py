@@ -352,3 +352,19 @@ def test_search_infrastructure_embeddings(db):
     far_vec = [0.0] * 767 + [1.0]
     results_far = db.search_infrastructure_embeddings(far_vec, limit=5, quality_threshold=0.99)
     assert all(r["role_name"] != "test_workload_role" for r in results_far)
+
+
+def test_retire_missing_babylon_ignores_other_sources(db):
+    db.upsert_babylon_catalog_item({"ci_name": "keep.prod", "display_name": "Keep", "stage": "prod"})
+    with db.pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO content_entities (content_id, source, content_type, is_hands_on, display_name) "
+            "VALUES ('pa:1', 'portfolio_arch', 'architecture', FALSE, 'An Architecture')"
+        )
+        conn.commit()
+
+    retired = db.retire_missing_babylon({"babylon:keep.prod"})
+
+    assert retired == []
+    entity = db.get_content_entity("pa:1")
+    assert entity["retired_at"] is None

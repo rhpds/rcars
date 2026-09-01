@@ -95,7 +95,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
                 {candidate.stage.toUpperCase()}
               </span>
             )}
-            {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name.startsWith('zt-')) && (
+            {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name?.startsWith('zt-')) && (
               <span className="rec-badge" style={{ background: 'var(--score-green-bg)', color: 'var(--score-green)' }}>ZT</span>
             )}
             {formatLabel && (

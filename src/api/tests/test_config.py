@@ -1,3 +1,4 @@
+import pytest
 from rcars.config import Settings
 
 
@@ -77,3 +78,39 @@ def test_chat_router_threshold_validated():
     import pytest
     with pytest.raises(ValueError):
         Settings(database_url="postgresql://x/x", chat_router_confidence_threshold=1.5)
+
+
+def test_osspa_defaults():
+    s = Settings(database_url="postgresql://x/y")
+    assert s.osspa_sync_enabled is True
+    assert s.osspa_palist_url.endswith("PAList.csv")
+    assert s.osspa_examples_repo_url.endswith("portfolio-architecture-examples.git")
+    assert s.osspa_examples_ref == "main"
+    assert s.osspa_csv_fetch_timeout_s == 15
+    assert s.osspa_clone_timeout_s == 60
+    assert s.osspa_max_adoc_bytes == 200000
+    assert s.osspa_retire_shrink_guard_pct == 0.5
+    assert s.osspa_advisory_lock_id == 736372
+
+
+def test_osspa_analysis_model_inherits_default_model():
+    s = Settings(database_url="postgresql://x/y")
+    assert s.osspa_analysis_model == s.model
+
+    s2 = Settings(database_url="postgresql://x/y", osspa_analysis_model="claude-haiku-4-5")
+    assert s2.osspa_analysis_model == "claude-haiku-4-5"
+
+
+def test_osspa_clone_dir_derives_from_clone_dir():
+    s = Settings(database_url="postgresql://x/y", clone_dir="/tmp/rcars-clones")
+    assert s.osspa_clone_dir == "/tmp/rcars-clones/osspa-examples"
+
+    s2 = Settings(database_url="postgresql://x/y", osspa_clone_dir="/var/osspa")
+    assert s2.osspa_clone_dir == "/var/osspa"
+
+
+def test_osspa_shrink_guard_must_be_a_fraction():
+    with pytest.raises(ValueError):
+        Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=1.5)
+    with pytest.raises(ValueError):
+        Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=0)

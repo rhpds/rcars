@@ -16,11 +16,28 @@ SINGLE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rational
 SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_synthesis.txt"
 
 
+# Never "Reference Architecture" — these are curated examples, not standards.
+ASSET_TYPE_LABELS = {
+    "VP": "Validated Pattern",
+    "SP": "Solution Pattern",
+    "PA": "Portfolio Architecture",
+}
+
+
+def _primary_asset_type(raw: str | None) -> str:
+    """VP wins over PA when a row carries both, matching the Browse badge."""
+    tokens = [t.strip().upper() for t in str(raw or "").split(",") if t.strip()]
+    for candidate in ("VP", "SP", "PA"):
+        if candidate in tokens:
+            return candidate
+    return ""
+
+
 def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
     """Format one candidate with full analysis data for the per-candidate prompt.
 
     Routes by content_type: lab/demo gets full showroom data,
-    sandbox gets infrastructure metadata.
+    sandbox gets infrastructure metadata, architecture gets solution areas/use cases.
     """
     lines = [
         f"Content ID: {c.content_id}",
@@ -30,10 +47,13 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
         f"Relevance Score: {c.relevance_score or 0}%",
         f"Summary: {c.summary}",
         f"Difficulty: {c.difficulty}",
-        f"Duration: {c.duration_min or '?'} min",
+    ]
+    if c.content_type != "architecture":
+        lines.append(f"Duration: {c.duration_min or '?'} min")
+    lines.extend([
         f"Topics: {', '.join(c.topics)}",
         f"Products: {', '.join(c.products)}",
-    ]
+    ])
 
     if c.content_type in ("lab", "demo"):
         # Full showroom data for guided content
@@ -68,6 +88,18 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
             wl_names = [w.get("product_name", "") for w in workloads if w.get("product_name")]
             if wl_names:
                 lines.append(f"Workloads: {'; '.join(wl_names)}")
+    elif c.content_type == "architecture":
+        # Read-through portfolio architecture — no modules, no provisioning.
+        lines.append(f"Asset Type: {ASSET_TYPE_LABELS.get(_primary_asset_type(analysis.get('asset_type')), 'Architecture')}")
+        audience = analysis.get("audience_json", [])
+        if audience:
+            lines.append(f"Audience: {', '.join(audience)}")
+        for key, label in (("solution_areas_json", "Solution Areas"),
+                           ("use_cases_json", "Use Cases"),
+                           ("key_components_json", "Key Components")):
+            values = analysis.get(key) or []
+            if values:
+                lines.append(f"{label}: {'; '.join(str(v) for v in values)}")
 
     return "\n".join(lines)
 
@@ -211,6 +243,10 @@ def generate_rationale(
             if workloads:
                 analysis["workload_classifications"] = workloads
             analyses[c.content_id] = analysis
+        elif c.content_type == "architecture":
+            analysis = db.get_architecture_analysis(c.content_id)
+            if analysis:
+                analyses[c.content_id] = analysis
 
     # Phase 3a: Parallel per-candidate Sonnet calls
     tokens_by_provider: dict[str, dict[str, int]] = {}

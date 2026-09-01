@@ -4,6 +4,11 @@ import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
+import {
+  contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel,
+  architectureDetailUrl, architectureSubline,
+  type ContentFormat,
+} from './browse/helpers'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -14,16 +19,19 @@ function safeHref(url: string | null): string {
 /* ── Types ── */
 
 interface CatalogItem {
-  ci_name: string
-  content_id?: string
+  content_id: string
+  ci_name: string | null          // Babylon-only — null for architectures
+  source?: string
   content_type?: string
+  is_hands_on?: boolean
+  status?: string
   display_name: string
-  category: string
-  stage: string
-  catalog_namespace: string
+  category: string | null
+  stage: string | null
+  catalog_namespace: string | null
   showroom_url: string | null
   showroom_ref: string | null
-  scan_status: string
+  scan_status: string | null
   is_published?: boolean
   is_stale?: boolean
   enrichment_review_needed?: boolean
@@ -31,6 +39,12 @@ interface CatalogItem {
   agd_config?: string | null
   cloud_provider?: string | null
   retired_at?: string | null
+  // Architecture fields (null for Babylon rows)
+  pa_name?: string | null
+  asset_type?: string | null
+  solutions?: string[] | null
+  verticals?: string[] | null
+  detail_page?: string | null
 }
 
 interface Module {
@@ -45,16 +59,21 @@ interface LearningObjectives {
 }
 
 interface ItemDetail {
-  ci_name: string
+  ci_name: string | null
   content_id?: string
   content_type?: string
+  source?: string
+  status?: string
+  pa_name?: string | null
+  detail_page?: string | null
+  source_url?: string | null
   display_name: string
-  category: string
-  stage: string
-  catalog_namespace: string
+  category: string | null
+  stage: string | null
+  catalog_namespace: string | null
   showroom_url: string | null
   showroom_ref: string | null
-  scan_status: string
+  scan_status: string | null
   content_path: string | null
   showroom_url_override: string | null
   scan_error_class: string | null
@@ -71,6 +90,11 @@ interface ItemDetail {
     audience_json: string[] | null
     modules_json: Module[] | null
     learning_objectives_json: LearningObjectives | null
+    // Architecture-only
+    asset_type?: string | null
+    use_cases_json?: string[] | null
+    key_components_json?: string[] | null
+    solution_areas_json?: string[] | null
     notes: string | null
     is_stale: boolean
     enrichment_review_needed: boolean
@@ -92,6 +116,9 @@ interface Facets {
   agd_configs: string[]
   cloud_providers: string[]
   os_images: string[]
+  solutions: string[]
+  verticals: string[]
+  audience: string[]
 }
 
 type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
@@ -100,10 +127,6 @@ const PAGE_SIZE = 50
 const OBJECTIVES_PREVIEW_COUNT = 5
 
 /* ── Helpers ── */
-
-function isZtItem(item: CatalogItem): boolean {
-  return item.catalog_namespace?.startsWith('zt-') || item.ci_name.startsWith('zt-')
-}
 
 function catalogUrl(ciName: string, namespace: string): string {
   return `https://catalog.demo.redhat.com/catalog?item=${namespace}/${ciName}`
@@ -185,6 +208,7 @@ function CollapsibleSection({
 
 function CuratorDrawer({
   ciName,
+  babylonOnlyActions,
   detail,
   newTag,
   onNewTagChange,
@@ -231,6 +255,7 @@ function CuratorDrawer({
   analyzing: boolean
   onAnalyze: () => void
   onClose: () => void
+  babylonOnlyActions: boolean
 }) {
   const [savedUrl, setSavedUrl] = useState(false)
   const [savedPath, setSavedPath] = useState(false)
@@ -285,55 +310,59 @@ function CuratorDrawer({
             />
           </div>
 
-          {/* Curated Duration */}
-          <div className="browse-drawer-field">
-            <label className="browse-drawer-label">Curated Duration (min)</label>
-            <input
-              type="number"
-              className="browse-drawer-input"
-              value={curatedDuration}
-              onChange={(e) => onDurationChange(e.target.value)}
-              onBlur={onDurationSave}
-              onKeyDown={(e) => { if (e.key === 'Enter') onDurationSave() }}
-              placeholder={detail.analysis?.estimated_duration_min ? `${detail.analysis.estimated_duration_min} (AI)` : 'Duration (min)'}
-            />
-          </div>
+          {babylonOnlyActions && (
+            <>
+              {/* Curated Duration */}
+              <div className="browse-drawer-field">
+                <label className="browse-drawer-label">Curated Duration (min)</label>
+                <input
+                  type="number"
+                  className="browse-drawer-input"
+                  value={curatedDuration}
+                  onChange={(e) => onDurationChange(e.target.value)}
+                  onBlur={onDurationSave}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onDurationSave() }}
+                  placeholder={detail.analysis?.estimated_duration_min ? `${detail.analysis.estimated_duration_min} (AI)` : 'Duration (min)'}
+                />
+              </div>
 
-          {/* URL Override */}
-          <div className="browse-drawer-field">
-            <label className="browse-drawer-label">URL Override</label>
-            <div className="browse-drawer-input-row">
-              <input
-                type="text"
-                className="browse-drawer-input"
-                value={overrideUrl}
-                onChange={(e) => onOverrideUrlChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave() }}
-                placeholder="Override Showroom URL..."
-              />
-              <button className="browse-btn-action" onClick={() => onOverrideUrlSave().then(() => flashSave(setSavedUrl))}>
-                {savedUrl ? 'Saved' : 'Set URL'}
-              </button>
-            </div>
-          </div>
+              {/* URL Override */}
+              <div className="browse-drawer-field">
+                <label className="browse-drawer-label">URL Override</label>
+                <div className="browse-drawer-input-row">
+                  <input
+                    type="text"
+                    className="browse-drawer-input"
+                    value={overrideUrl}
+                    onChange={(e) => onOverrideUrlChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave() }}
+                    placeholder="Override Showroom URL..."
+                  />
+                  <button className="browse-btn-action" onClick={() => onOverrideUrlSave().then(() => flashSave(setSavedUrl))}>
+                    {savedUrl ? 'Saved' : 'Set URL'}
+                  </button>
+                </div>
+              </div>
 
-          {/* Content Path */}
-          <div className="browse-drawer-field">
-            <label className="browse-drawer-label">Content Path</label>
-            <div className="browse-drawer-input-row">
-              <input
-                type="text"
-                className="browse-drawer-input"
-                value={contentPath}
-                onChange={(e) => onContentPathChange(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
-                placeholder="Content path (e.g. docs/labs/)"
-              />
-              <button className="browse-btn-action" onClick={() => onContentPathSave().then(() => flashSave(setSavedPath))}>
-                {savedPath ? 'Saved' : 'Set Path'}
-              </button>
-            </div>
-          </div>
+              {/* Content Path */}
+              <div className="browse-drawer-field">
+                <label className="browse-drawer-label">Content Path</label>
+                <div className="browse-drawer-input-row">
+                  <input
+                    type="text"
+                    className="browse-drawer-input"
+                    value={contentPath}
+                    onChange={(e) => onContentPathChange(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') onContentPathSave() }}
+                    placeholder="Content path (e.g. docs/labs/)"
+                  />
+                  <button className="browse-btn-action" onClick={() => onContentPathSave().then(() => flashSave(setSavedPath))}>
+                    {savedPath ? 'Saved' : 'Set Path'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
 
           {/* Actions */}
           <div className="browse-drawer-actions">
@@ -344,13 +373,15 @@ function CuratorDrawer({
             >
               {flagged ? 'Flagged for review' : 'Flag for review'}
             </button>
-            <button
-              className="browse-btn-action browse-btn-action--primary"
-              onClick={onAnalyze}
-              disabled={analyzing}
-            >
-              {analyzing ? 'Analyzing...' : 'Re-analyze'}
-            </button>
+            {babylonOnlyActions && (
+              <button
+                className="browse-btn-action browse-btn-action--primary"
+                onClick={onAnalyze}
+                disabled={analyzing}
+              >
+                {analyzing ? 'Analyzing...' : 'Re-analyze'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -377,6 +408,29 @@ export function BrowsePage() {
   const [contentFilter, setContentFilter] = useState<ContentFilter | ''>(
     (searchParams.get('content_filter') as ContentFilter) || ''
   )
+  const [formats, setFormats] = useState<Set<ContentFormat>>(
+    () => new Set(
+      searchParams.get('format') === 'architecture' ? ['architecture'] as ContentFormat[]
+        : searchParams.get('format') === 'all' ? ['hands_on', 'architecture'] as ContentFormat[]
+        : ['hands_on'] as ContentFormat[]
+    )
+  )
+  const toggleFormat = (format: ContentFormat) => {
+    setFormats(prev => {
+      const next = new Set(prev)
+      if (next.has(format)) next.delete(format)
+      else next.add(format)
+      return next.size === 0 ? new Set<ContentFormat>(['hands_on']) : next
+    })
+  }
+  const [selectedSolutions, setSelectedSolutions] = useState<string[]>(
+    searchParams.get('solutions')?.split(',').filter(Boolean) || [])
+  const [selectedVerticals, setSelectedVerticals] = useState<string[]>(
+    searchParams.get('verticals')?.split(',').filter(Boolean) || [])
+  const [selectedAudience, setSelectedAudience] = useState<string[]>(
+    searchParams.get('audience')?.split(',').filter(Boolean) || [])
+  const [selectedDifficulty, setSelectedDifficulty] = useState<string>(
+    searchParams.get('difficulty') || '')
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   useEffect(() => {
@@ -388,6 +442,11 @@ export function BrowsePage() {
       setAgdConfig('')
       setSelectedWorkloads([])
       setContentFilter('')
+      setFormats(new Set<ContentFormat>(['hands_on']))
+      setSelectedSolutions([])
+      setSelectedVerticals([])
+      setSelectedAudience([])
+      setSelectedDifficulty('')
       setPage(1)
     }
   }, [location.state, searchParams])
@@ -438,10 +497,17 @@ export function BrowsePage() {
         limit: PAGE_SIZE,
         offset: (targetPage - 1) * PAGE_SIZE,
       }
+      const effectiveFormats = new Set(formats)
+      if (selectedSolutions.length > 0 || selectedVerticals.length > 0) effectiveFormats.add('architecture')
+      params.content_type = contentTypeParam(effectiveFormats)
       if (searchVal) params.search = searchVal
       if (cloudProvider) params.cloud_provider = cloudProvider
       if (agdConfig) params.agd_config = agdConfig
       if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
+      if (selectedSolutions.length > 0) params.solutions = selectedSolutions.join(',')
+      if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
+      if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
+      if (selectedDifficulty) params.difficulty = selectedDifficulty
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
@@ -452,7 +518,7 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, contentFilter, formats])
 
   // Sync URL params
   useEffect(() => {
@@ -463,10 +529,17 @@ export function BrowsePage() {
     if (cloudProvider) params.cloud_provider = cloudProvider
     if (agdConfig) params.agd_config = agdConfig
     if (selectedWorkloads.length > 0) params.workloads = selectedWorkloads.join(',')
+    if (selectedSolutions.length > 0) params.solutions = selectedSolutions.join(',')
+    if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
+    if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
+    if (selectedDifficulty) params.difficulty = selectedDifficulty
+    const showsArchitecture = formats.has('architecture')
+    const showsHandsOn = formats.has('hands_on')
+    if (showsArchitecture) params.format = showsHandsOn ? 'all' : 'architecture'
     if (contentFilter) params.content_filter = contentFilter
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, contentFilter, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, formats, contentFilter, page, setSearchParams])
 
   // Fetch on filter change
   useEffect(() => {
@@ -497,6 +570,21 @@ export function BrowsePage() {
   selectedWorkloads.forEach(wl => {
     activeFilters.push({ label: wl, onRemove: () => setSelectedWorkloads(prev => prev.filter(w => w !== wl)) })
   })
+  selectedSolutions.forEach(s => {
+    activeFilters.push({ label: s, onRemove: () => setSelectedSolutions(prev => prev.filter(v => v !== s)) })
+  })
+  selectedVerticals.forEach(v => {
+    activeFilters.push({ label: v, onRemove: () => setSelectedVerticals(prev => prev.filter(x => x !== v)) })
+  })
+  selectedAudience.forEach(a => {
+    activeFilters.push({ label: a, onRemove: () => setSelectedAudience(prev => prev.filter(x => x !== a)) })
+  })
+  if (selectedDifficulty) {
+    activeFilters.push({ label: selectedDifficulty, onRemove: () => setSelectedDifficulty('') })
+  }
+  if (formats.has('architecture')) {
+    activeFilters.push({ label: 'Architectures', onRemove: () => toggleFormat('architecture') })
+  }
   if (contentFilter) {
     activeFilters.push({ label: CONTENT_FILTER_LABELS[contentFilter], onRemove: () => setContentFilter('') })
   }
@@ -505,6 +593,11 @@ export function BrowsePage() {
     setCloudProvider('')
     setAgdConfig('')
     setSelectedWorkloads([])
+    setSelectedSolutions([])
+    setSelectedVerticals([])
+    setSelectedAudience([])
+    setSelectedDifficulty('')
+    setFormats(new Set<ContentFormat>(['hands_on']))
     setContentFilter('')
   }
 
@@ -644,10 +737,44 @@ export function BrowsePage() {
       <div className="browse-content">
         {/* Filter sidebar */}
         <div className="browse-filter-sidebar">
-          {/* Infrastructure filters — AgnosticD v2 only */}
+          {/* Content Type */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Workloads & Automation</div>
-            <div className="browse-filter-group-note">AgnosticD v2 items only</div>
+            <div className="browse-filter-group-label">Content Type</div>
+            <StageToggle label="Hands-on Labs" active={formats.has('hands_on')} onToggle={() => toggleFormat('hands_on')} />
+            <StageToggle label="Architectures" active={formats.has('architecture')} onToggle={() => toggleFormat('architecture')} />
+          </div>
+
+          {/* Audience & Difficulty — AI-derived, shared across both content types */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Audience & Difficulty</div>
+            <div className="browse-filter-group-note">AI-derived from content analysis</div>
+            <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '8px 0 4px' }}>Difficulty</div>
+            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+              {(['beginner', 'intermediate', 'advanced'] as const).map(d => (
+                <button
+                  key={d}
+                  className={`browse-curator-pill${selectedDifficulty === d ? ' active' : ''}`}
+                  onClick={() => setSelectedDifficulty(selectedDifficulty === d ? '' : d)}
+                >
+                  {d.charAt(0).toUpperCase() + d.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Architecture Filters */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Architecture Filters</div>
+            <div className="browse-filter-group-note">Architecture items only</div>
+            <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
+            <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
+          </div>
+
+          {/* Lab Infrastructure — AgnosticD v2 only */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Hands-on Labs</div>
+            <div className="browse-filter-group-note">AgnosticD v2 hands-on lab items only</div>
             <select
               className="browse-filter-select"
               value={cloudProvider}
@@ -701,13 +828,15 @@ export function BrowsePage() {
         ) : (
           <>
             {items.map(item => {
-              const isExpanded = expandedItems.has(item.ci_name)
-              const detail = itemDetails[item.ci_name]
+              const key = itemKey(item)
+              const isExpanded = expandedItems.has(key)
+              const detail = itemDetails[key]
               const isZt = isZtItem(item)
+              const isArch = isArchitecture(item)
 
               return (
                 <div
-                  key={item.ci_name}
+                  key={key}
                   className={`browse-item${isExpanded ? ' expanded' : ''}`}
                   style={item.retired_at ? { opacity: 0.6 } : undefined}
                 >
@@ -716,30 +845,33 @@ export function BrowsePage() {
                     <div className="browse-item-header-left">
                       <div
                         className="browse-item-title"
-                        onClick={() => handleExpand(item.ci_name)}
+                        onClick={() => handleExpand(key)}
                         role="button"
                         tabIndex={0}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(item.ci_name) } }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleExpand(key) } }}
                       >
                         <span className="browse-expand-icon">{isExpanded ? '▼' : '▶'}</span>
                         {item.display_name || item.ci_name}
-                        {item.stage !== 'prod' && (
+                        {!isArch && item.stage && item.stage !== 'prod' && (
                           <Badge className={item.stage === 'dev' ? 'badge-dev' : 'badge-event'}>
                             {item.stage.toUpperCase()}
                           </Badge>
                         )}
                         {isZt && <Badge className="badge-zt">ZT</Badge>}
-                        {item.is_agd_v2 && <Badge className="badge-v2">v2</Badge>}
-                        {item.scan_status === 'failed' && <Badge className="badge-failed">FAILED</Badge>}
+                        {!isArch && item.is_agd_v2 && <Badge className="badge-v2">v2</Badge>}
+                        {isArch && <Badge className="badge-v2">{assetTypeLabel(item.asset_type)}</Badge>}
+                        {!isArch && item.scan_status === 'failed' && <Badge className="badge-failed">FAILED</Badge>}
                         {item.enrichment_review_needed && <Badge className="badge-review">needs review</Badge>}
                         {item.retired_at && (
                           <Badge className="badge-retired">RETIRED {new Date(item.retired_at).toLocaleDateString()}</Badge>
                         )}
                       </div>
-                      <div className="browse-item-ci">{item.ci_name} &middot; {item.category}</div>
+                      <div className="browse-item-ci">
+                        {isArch ? architectureSubline(item) : `${item.ci_name ?? item.pa_name} · ${item.category}`}
+                      </div>
                     </div>
                     {auth.isCurator && isExpanded && detail && (
-                      <button className="browse-btn-action" onClick={() => setDrawerItem(item.ci_name)}>
+                      <button className="browse-btn-action" onClick={() => setDrawerItem(key)}>
                         Edit
                       </button>
                     )}
@@ -791,7 +923,7 @@ export function BrowsePage() {
                         const lo = detail.analysis.learning_objectives_json
                         const allObjectives = [...(lo.stated || []), ...(lo.inferred || [])]
                         if (allObjectives.length === 0) return null
-                        const showAll = objectivesExpanded.has(item.ci_name)
+                        const showAll = objectivesExpanded.has(key)
                         const visible = showAll ? allObjectives : allObjectives.slice(0, OBJECTIVES_PREVIEW_COUNT)
                         const remaining = allObjectives.length - OBJECTIVES_PREVIEW_COUNT
                         return (
@@ -803,7 +935,7 @@ export function BrowsePage() {
                             {remaining > 0 && !showAll && (
                               <button
                                 className="browse-objectives-more"
-                                onClick={() => setObjectivesExpanded(prev => new Set(prev).add(item.ci_name))}
+                                onClick={() => setObjectivesExpanded(prev => new Set(prev).add(key))}
                               >
                                 Show {remaining} more...
                               </button>
@@ -811,7 +943,7 @@ export function BrowsePage() {
                             {showAll && allObjectives.length > OBJECTIVES_PREVIEW_COUNT && (
                               <button
                                 className="browse-objectives-more"
-                                onClick={() => setObjectivesExpanded(prev => { const s = new Set(prev); s.delete(item.ci_name); return s })}
+                                onClick={() => setObjectivesExpanded(prev => { const s = new Set(prev); s.delete(key); return s })}
                               >
                                 Show less
                               </button>
@@ -846,6 +978,44 @@ export function BrowsePage() {
                           )}
                         </div>
                       ) : null}
+
+                      {/* 3b. Architecture-specific fields */}
+                      {isArch && detail.analysis && (
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).use_cases_json?.length ||
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).key_components_json?.length ||
+                        (detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}).solution_areas_json?.length
+                      ) ? (() => {
+                        const arch = detail.analysis as {use_cases_json?: string[] | null; key_components_json?: string[] | null; solution_areas_json?: string[] | null}
+                        return (
+                          <div className="browse-card-section">
+                            <SectionLabel color="blue">Architecture Details</SectionLabel>
+                            {arch.use_cases_json && arch.use_cases_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Use Cases</div>
+                                <div className="browse-pill-row">
+                                  {arch.use_cases_json.map((u, i) => <Pill key={i} variant="topic">{u}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                            {arch.key_components_json && arch.key_components_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Key Components</div>
+                                <div className="browse-pill-row">
+                                  {arch.key_components_json.map((k, i) => <Pill key={i} variant="product">{k}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                            {arch.solution_areas_json && arch.solution_areas_json.length > 0 && (
+                              <div className="browse-pill-group">
+                                <div className="browse-pill-sublabel">Solution Areas</div>
+                                <div className="browse-pill-row">
+                                  {arch.solution_areas_json.map((s, i) => <Pill key={i} variant="topic">{s}</Pill>)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })() : null}
 
                       {/* 4. Modules (collapsible) */}
                       {detail.analysis?.modules_json && detail.analysis.modules_json.length > 0 && (
@@ -929,17 +1099,34 @@ export function BrowsePage() {
 
                       {/* 8. Links */}
                       <div className="browse-links">
-                        <a
-                          href={catalogUrl(item.ci_name, item.catalog_namespace || 'babylon-catalog-prod')}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          RHDP Catalog
-                        </a>
-                        {item.showroom_url && (
-                          <a href={safeHref(item.showroom_ref ? `${item.showroom_url}/tree/${item.showroom_ref}` : item.showroom_url)} target="_blank" rel="noopener noreferrer">
-                            Showroom Repo
-                          </a>
+                        {isArch ? (
+                          <>
+                            <a href={safeHref(architectureDetailUrl(item.pa_name))} target="_blank" rel="noopener noreferrer">
+                              View Architecture
+                            </a>
+                            {detail.source_url && (
+                              <a href={safeHref(detail.source_url)} target="_blank" rel="noopener noreferrer">
+                                Source (.adoc)
+                              </a>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            {item.ci_name && (
+                              <a
+                                href={catalogUrl(item.ci_name, item.catalog_namespace || 'babylon-catalog-prod')}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                RHDP Catalog
+                              </a>
+                            )}
+                            {item.showroom_url && (
+                              <a href={safeHref(item.showroom_ref ? `${item.showroom_url}/tree/${item.showroom_ref}` : item.showroom_url)} target="_blank" rel="noopener noreferrer">
+                                Showroom Repo
+                              </a>
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -980,6 +1167,7 @@ export function BrowsePage() {
           analyzing={analyzing === drawerItem}
           onAnalyze={() => handleAnalyze(drawerItem)}
           onClose={() => setDrawerItem(null)}
+          babylonOnlyActions={!isArchitecture(drawerDetail || {})}
         />
       )}
     </div>
