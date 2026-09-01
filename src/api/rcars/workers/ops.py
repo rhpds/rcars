@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import functools
 import shutil
 import traceback
@@ -688,13 +689,13 @@ from rcars.services.osspa_sync import run_osspa_sync
 
 def _progress_bridge(
     wctx: WorkerContext, job_id: str, loop
-) -> tuple[Callable[[str, str], None], list[asyncio.Future]]:
+) -> tuple[Callable[[str, str], None], list[concurrent.futures.Future[None]]]:
     """Let the synchronous sync publish SSE progress from its worker thread.
 
     Returns the callback and the list of in-flight futures so the caller can
     drain them before publishing the completion message.
     """
-    pending: list[asyncio.Future] = []
+    pending: list[concurrent.futures.Future[None]] = []
 
     def _publish(phase: str, message: str) -> None:
         fut = asyncio.run_coroutine_threadsafe(
@@ -704,7 +705,7 @@ def _progress_bridge(
         )
         pending.append(fut)
 
-        def _log_exc(f: asyncio.Future) -> None:
+        def _log_exc(f: concurrent.futures.Future[None]) -> None:
             exc = f.exception()
             if exc:
                 logger.warning("osspa_progress_publish_error", job_id=job_id, error=str(exc))
@@ -725,18 +726,20 @@ async def run_osspa_pipeline(ctx: dict, job_id: str) -> dict:
 
     loop = asyncio.get_running_loop()
     on_progress, pending_futures = _progress_bridge(wctx, job_id, loop)
-    result = await asyncio.to_thread(
-        functools.partial(
-            run_osspa_sync,
-            wctx.db, wctx.settings,
-            on_progress=on_progress,
+    try:
+        result = await asyncio.to_thread(
+            functools.partial(
+                run_osspa_sync,
+                wctx.db, wctx.settings,
+                on_progress=on_progress,
+            )
         )
-    )
-    for fut in pending_futures:
-        try:
-            await asyncio.wrap_future(fut)
-        except Exception:
-            pass  # already logged by done callback
+    finally:
+        for fut in pending_futures:
+            try:
+                await asyncio.wrap_future(fut)
+            except Exception:
+                pass  # already logged by done callback
     log.info("osspa_pipeline_complete", action="pipeline_step_complete", step="osspa", **result)
     return result
 
