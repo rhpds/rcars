@@ -475,6 +475,18 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
         if not items_with_window:
             continue
 
+        for row, wm, w in items_with_window:
+            prov = w.get("provisions", 0)
+            first_prov = row.get("first_provision")
+            prov_ex, extrap, active_m = _extrapolate_count(prov, first_prov, wk)
+            exp_ex, _, _ = _extrapolate_count(w.get("experiences", 0), first_prov, wk)
+            w["provisions"] = prov_ex
+            w["experiences"] = exp_ex
+            w["extrapolated"] = extrap
+            if active_m is not None:
+                w["active_months"] = active_m
+            w["avg_cost_per_provision"] = round(w["total_cost"] / prov_ex, 2) if prov_ex > 0 else 0
+
         sorted_prov = sorted(w["provisions"] for _, _, w in items_with_window if w.get("provisions", 0) > 0)
         sorted_touched = sorted(w["pipeline_touched"] for _, _, w in items_with_window if w.get("pipeline_touched", 0) > 0)
         sorted_closed = sorted(w["closed_amount"] for _, _, w in items_with_window if w.get("closed_amount", 0) > 0)
@@ -485,33 +497,22 @@ def _recompute_windowed_scores(merged_rows: list[dict]) -> None:
         )
 
         for row, wm, w in items_with_window:
-            prov = w.get("provisions", 0)
             touched = w.get("pipeline_touched", 0)
             closed = w.get("closed_amount", 0)
             cost = w.get("total_cost", 0)
             has_roi = cost > 0 and touched > 0
             roi_val = touched / cost if has_roi else 0
-            w["avg_cost_per_provision"] = round(cost / prov, 2) if prov > 0 else 0
-
-            first_prov = row.get("first_provision")
-            prov_ex, extrap, active_m = _extrapolate_count(prov, first_prov, wk)
-            exp_ex, _, _ = _extrapolate_count(w.get("experiences", 0), first_prov, wk)
-            w["provisions"] = prov_ex
-            w["experiences"] = exp_ex
-            w["extrapolated"] = extrap
-            if active_m is not None:
-                w["active_months"] = active_m
 
             score_args = dict(
-                provisions_zero=prov_ex == 0,
-                provisions_pct=_percentile_rank(prov_ex, sorted_prov),
+                provisions_zero=w["provisions"] == 0,
+                provisions_pct=_percentile_rank(w["provisions"], sorted_prov),
                 touched_zero=touched == 0,
                 touched_pct=_percentile_rank(touched, sorted_touched),
                 closed_zero=closed == 0,
                 closed_pct=_percentile_rank(closed, sorted_closed),
                 total_cost=cost,
                 closed_amount=closed,
-                provisions_raw=prov_ex,
+                provisions_raw=w["provisions"],
                 touched_raw=touched,
                 roi_zero=touched == 0 and cost > 0,
                 roi_pct=_percentile_rank(roi_val, sorted_roi) if has_roi else 0,
