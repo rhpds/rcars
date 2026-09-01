@@ -756,6 +756,7 @@ async def nonprod_unignore(base_name: str, request: Request, user: str = Depends
 @router.get(
     "/overlap",
     summary="Content overlap report — verdict-based, paginated",
+    tags=["Content Analysis"],
 )
 async def overlap_report(
     request: Request,
@@ -782,6 +783,7 @@ async def overlap_report(
 @router.post(
     "/overlap/assess",
     summary="On-demand overlap assessment for a pair",
+    tags=["Content Analysis"],
 )
 async def overlap_assess(
     request: Request,
@@ -801,6 +803,7 @@ async def overlap_assess(
 @router.get(
     "/overlap/{content_id_a}/{content_id_b}",
     summary="Get cached LLM overlap assessment for a pair",
+    tags=["Content Analysis"],
 )
 async def overlap_assessment_detail(
     request: Request,

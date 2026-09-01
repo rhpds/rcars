@@ -125,6 +125,21 @@ class Settings(BaseSettings):
     pipeline_hour: int = 4
     pipeline_minute: int = 0
 
+    # Portfolio Architecture ingest (RHDPCD-28)
+    osspa_sync_enabled: bool = True
+    osspa_palist_url: str = (
+        "https://gitlab.com/osspa/osspa-site/-/raw/main/src/app/ArchitectureList/PAList.csv"
+    )
+    osspa_examples_repo_url: str = "https://gitlab.com/osspa/portfolio-architecture-examples.git"
+    osspa_examples_ref: str = "main"
+    osspa_clone_dir: str = ""             # empty → {clone_dir}/osspa-examples
+    osspa_csv_fetch_timeout_s: int = 15
+    osspa_clone_timeout_s: int = 60
+    osspa_max_adoc_bytes: int = 200000
+    osspa_retire_shrink_guard_pct: float = 0.5
+    osspa_advisory_lock_id: int = 736372
+    osspa_analysis_model: str = ""        # empty → falls back to settings.model
+
     def model_post_init(self, __context) -> None:
         if not self.vertex_project_id:
             self.vertex_project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
@@ -154,6 +169,15 @@ class Settings(BaseSettings):
             intent, sep, role = part.partition(":")
             if not sep or role.strip() not in ("any", "curator", "admin"):
                 raise ValueError(f"chat_intent_roles entries must be 'intent:any|curator|admin', got {part!r}")
+        if not self.osspa_analysis_model:
+            self.osspa_analysis_model = self.model
+        if not self.osspa_clone_dir:
+            self.osspa_clone_dir = f"{self.clone_dir.rstrip('/')}/osspa-examples"
+        if not 0 < self.osspa_retire_shrink_guard_pct <= 1:
+            raise ValueError(
+                f"osspa_retire_shrink_guard_pct must be in (0, 1], got {self.osspa_retire_shrink_guard_pct}")
+        if self.osspa_max_adoc_bytes < 1024:
+            raise ValueError(f"osspa_max_adoc_bytes must be >= 1024, got {self.osspa_max_adoc_bytes}")
 
     @property
     def curator_emails(self) -> list[str]:

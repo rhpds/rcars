@@ -255,6 +255,17 @@ def search(
             duration_min = None
             duration_source = "ai"
             learning_objs = []
+        elif content_type == "architecture":
+            # Card fields live on content_entities; extras the rationale
+            # prompt wants live on architecture_analysis.
+            entity = db.get_content_entity(content_id)
+            summary = (entity or {}).get("summary", "")
+            topics = (entity or {}).get("topics_json", []) or []
+            products = (entity or {}).get("products_json", []) or []
+            difficulty = (entity or {}).get("difficulty", "")
+            duration_min = None
+            duration_source = "ai"
+            learning_objs = []
         else:
             # Fallback for unknown content types
             summary = row.get("summary", "")

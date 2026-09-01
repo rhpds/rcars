@@ -33,7 +33,7 @@ def seed_items(db):
         for cid, name in [("test:a", "Item A"), ("test:b", "Item B"), ("test:c", "Item C")]:
             conn.execute(
                 "INSERT INTO content_entities (content_id, source, content_type, display_name) "
-                "VALUES (%s, 'test', 'lab', %s) ON CONFLICT DO NOTHING",
+                "VALUES (%s, 'babylon', 'lab', %s) ON CONFLICT DO NOTHING",
                 (cid, name),
             )
         conn.execute(
@@ -165,3 +165,22 @@ def test_prune_stale_retired(db, seed_items):
     with db.pool.connection() as conn:
         rows = conn.execute("SELECT * FROM overlap_candidates").fetchall()
     assert len(rows) == 0
+
+
+def test_overlap_candidates_exclude_non_babylon_sources(db):
+    with db.pool.connection() as conn:
+        for cid, source in (("babylon:a.prod", "babylon"), ("pa:1", "portfolio_arch")):
+            conn.execute(
+                "INSERT INTO content_entities (content_id, source, content_type, is_hands_on, display_name) "
+                "VALUES (%s, %s, 'lab', TRUE, %s)", (cid, source, cid))
+            conn.execute(
+                "INSERT INTO showroom_analysis (content_id, products_json, topics_json, content_hash) "
+                "VALUES (%s, '[\"OpenShift\"]'::jsonb, '[\"gitops\", \"pipelines\"]'::jsonb, %s)",
+                (cid, cid))
+        conn.commit()
+
+    generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
+
+    with db.pool.connection() as conn:
+        rows = conn.execute("SELECT content_id_a, content_id_b FROM overlap_candidates").fetchall()
+    assert rows == []

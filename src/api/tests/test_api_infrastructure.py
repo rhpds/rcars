@@ -91,3 +91,22 @@ def test_old_workload_mappings_removed(client):
 
     resp = client.get("/api/v1/catalog/workload-mappings/unmapped")
     assert resp.status_code in (404, 405)
+
+
+def test_sync_osspa_endpoint_enqueues_a_job(client, monkeypatch):
+    enqueued = {}
+
+    async def _enqueue(name, **kwargs):
+        enqueued["name"] = name
+        enqueued["kwargs"] = kwargs
+
+    client.app.state.arq_redis.enqueue_job = _enqueue
+
+    resp = client.post("/api/v1/admin/sync-osspa",
+                       json={"force": True, "confirm_empty_inventory": False})
+
+    assert resp.status_code == 200
+    assert "job_id" in resp.json()
+    assert enqueued["name"] == "run_osspa_sync_job"
+    assert enqueued["kwargs"]["force"] is True
+    assert enqueued["kwargs"]["confirm_empty_inventory"] is False

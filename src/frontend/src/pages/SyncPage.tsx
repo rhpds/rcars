@@ -344,6 +344,8 @@ function ScheduledMaintenance() {
   const [log, setLog] = useState<string[]>([])
   const [logOpen, setLogOpen] = useState(false)
   const [running, setRunning] = useState(false)
+  const [runningBabylon, setRunningBabylon] = useState(false)
+  const [runningOsspa, setRunningOsspa] = useState(false)
   const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
 
   const loadSchedule = useCallback(() => {
@@ -352,18 +354,12 @@ function ScheduledMaintenance() {
 
   useEffect(() => { loadSchedule() }, [loadSchedule])
 
-  const handleRun = async () => {
-    setLog([])
-    setLogOpen(true)
-    setRunning(true)
-    addLog('Starting maintenance pipeline...')
-    const result = await api.runMaintenance()
-    addLog(`job_id=${result.job_id}`)
+  const pollJob = async (jobId: string) => {
     let seen = 0
     await new Promise<void>((resolve) => {
       const interval = setInterval(async () => {
         try {
-          const job = await api.getJob(result.job_id)
+          const job = await api.getJob(jobId)
           const messages = (job.progress_json?.messages ?? []) as Array<{ message?: string }>
           for (let i = seen; i < messages.length; i++) {
             if (messages[i].message) addLog(messages[i].message!)
@@ -378,8 +374,57 @@ function ScheduledMaintenance() {
       }, 3000)
       setTimeout(() => { clearInterval(interval); resolve() }, 3 * 60 * 60 * 1000)
     })
-    setRunning(false)
-    loadSchedule()
+  }
+
+  const handleRunBabylon = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunningBabylon(true)
+    addLog('Starting Babylon pipeline (catalog sync → stale check → re-analyze → workload scan)...')
+    try {
+      const result = await api.runBabylon()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunningBabylon(false)
+      loadSchedule()
+    }
+  }
+
+  const handleRunOsspa = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunningOsspa(true)
+    addLog('Starting Architecture sync (OSSPA CSV fetch → upsert → analyze)...')
+    try {
+      const result = await api.syncOsspa()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunningOsspa(false)
+      loadSchedule()
+    }
+  }
+
+  const handleRun = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunning(true)
+    addLog('Starting full maintenance pipeline (Babylon + Architectures)...')
+    try {
+      const result = await api.runMaintenance()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunning(false)
+      loadSchedule()
+    }
   }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' })
@@ -397,14 +442,21 @@ function ScheduledMaintenance() {
     <div className="admin-section">
       <h3>Scheduled Maintenance</h3>
       <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: '1.7' }}>
-        <p style={{ margin: '0 0 6px' }}>Runs automatically every night in four steps:</p>
-        <ol style={{ margin: '0 0 6px 20px', listStyleType: 'decimal' }}>
+        <p style={{ margin: '0 0 6px' }}>Runs automatically every night as two independent sub-pipelines. Run them separately or together.</p>
+        <p style={{ margin: '0 0 4px' }}><strong>Babylon pipeline</strong></p>
+        <ol style={{ margin: '0 0 8px 20px', listStyleType: 'decimal' }}>
           <li><strong>Catalog Sync</strong> — pulls latest metadata from all Babylon namespaces; retires items that no longer exist</li>
           <li><strong>Check Stale</strong> — compares Showroom content hashes to find items changed since last analysis</li>
-          <li><strong>Re-Analyze</strong> — processes any stale or unanalyzed items</li>
+          <li><strong>Re-Analyze</strong> — processes any stale or unanalyzed Showroom items</li>
           <li><strong>Workload Scan</strong> — checks AgnosticD repositories for new or changed roles; updates the infrastructure catalog</li>
         </ol>
-        <p style={{ margin: 0 }}>Use the button below to trigger the full pipeline manually without waiting for the scheduled run.</p>
+        <p style={{ margin: '0 0 4px' }}><strong>Architecture pipeline</strong></p>
+        <ol style={{ margin: '0 0 8px 20px', listStyleType: 'decimal' }}>
+          <li><strong>CSV Fetch</strong> — pulls the current portfolio architecture inventory from OSSPA GitLab</li>
+          <li><strong>Upsert &amp; Retire</strong> — adds new architectures, updates changed ones, retires removed ones</li>
+          <li><strong>LLM Analysis</strong> — analyzes new or changed architectures to extract topics, audience, and summary</li>
+        </ol>
+        <p style={{ margin: 0 }}><strong>Full pipeline</strong> — runs the Babylon pipeline first, then the Architecture pipeline, in sequence.</p>
       </div>
       {schedule && (
         <>
@@ -423,9 +475,17 @@ function ScheduledMaintenance() {
           )}
         </>
       )}
-      <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running}>
-        {running ? 'Running...' : 'Run Maintenance Now'}
-      </Button>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <Button variant="secondary" size="sm" onClick={handleRunBabylon} isDisabled={running || runningBabylon || runningOsspa}>
+          {runningBabylon ? 'Running...' : 'Run Babylon Pipeline'}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleRunOsspa} isDisabled={running || runningBabylon || runningOsspa}>
+          {runningOsspa ? 'Running...' : 'Run Architecture Pipeline'}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running || runningBabylon || runningOsspa}>
+          {running ? 'Running...' : 'Run Full Pipeline'}
+        </Button>
+      </div>
       <LogWindow lines={log} isOpen={logOpen} onToggle={() => setLogOpen(!logOpen)} />
     </div>
   )

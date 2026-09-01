@@ -4,9 +4,10 @@ interface WorkloadMultiSelectProps {
   options: string[]
   selected: string[]
   onChange: (selected: string[]) => void
+  placeholder?: string
 }
 
-export function WorkloadMultiSelect({ options, selected, onChange }: WorkloadMultiSelectProps) {
+export function WorkloadMultiSelect({ options, selected, onChange, placeholder = 'Select workloads...' }: WorkloadMultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -35,7 +36,7 @@ export function WorkloadMultiSelect({ options, selected, onChange }: WorkloadMul
 
   const sorted = [...options].sort((a, b) => a.localeCompare(b))
   const hasSelection = selected.length > 0
-  const label = hasSelection ? `${selected.length} selected` : 'Select workloads...'
+  const label = hasSelection ? `${selected.length} selected` : placeholder
 
   return (
     <div className="wl-multiselect" ref={ref}>

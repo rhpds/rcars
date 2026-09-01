@@ -108,7 +108,7 @@ def refresh():
         if i % 25 == 0 or i == len(items):
             _print(f"  upserted {i}/{len(items)} items...")
 
-    retired = db.retire_removed_items(current_content_ids)
+    retired = db.retire_missing_babylon(current_content_ids)
     if retired:
         for r in retired:
             _print(f"  retired: {r['content_id']} (stage={r.get('stage', '?')})")
@@ -759,3 +759,54 @@ def vocab_stage_rescan(execute: bool):
         _print(f"Staged {staged} item(s) for re-analysis. Now run: rcars scan")
     finally:
         db.close()
+
+
+# ── Portfolio architecture (OSSPA) commands ──
+
+@cli.group(name="osspa")
+def osspa_group():
+    """Portfolio architecture ingest commands."""
+    pass
+
+
+@osspa_group.command("sync")
+@click.option("--force", is_flag=True, default=False,
+              help="Re-analyze every item, bypassing the content-hash check")
+@click.option("--confirm-empty-inventory", is_flag=True, default=False,
+              help="Permit retiring ALL architectures when the inventory has zero in-scope rows")
+def osspa_sync_cmd(force: bool, confirm_empty_inventory: bool):
+    """Sync portfolio architectures from OSSPA GitLab."""
+    from rcars.services.osspa_sync import run_osspa_sync
+
+    settings = Settings()
+    db = Database(settings.database_url)
+    try:
+        _print("Syncing portfolio architectures from OSSPA...")
+        try:
+            result = run_osspa_sync(
+                db, settings, force=force,
+                confirm_empty_inventory=confirm_empty_inventory,
+                on_progress=lambda phase, message: _print(f"  {message}"),
+            )
+        except Exception as e:
+            _print(f"ERROR: {e}")
+            raise SystemExit(1)
+    finally:
+        db.close()
+
+    if result["status"] == "locked":
+        _print("  Another OSSPA sync is already running — nothing to do.")
+        return
+    if result["status"] == "aborted_empty_inventory":
+        _print("  ABORTED: no in-scope rows in PAList.csv. Nothing was upserted or retired.")
+        _print("  Re-run with --confirm-empty-inventory only if the inventory is genuinely empty.")
+        raise SystemExit(1)
+
+    _print(f"  In scope:  {result['scoped_rows']}")
+    _print(f"  Upserted:  {result['upserted']}")
+    _print(f"  Analyzed:  {result['analyzed']}")
+    _print(f"  Unchanged: {result['skipped']}")
+    _print(f"  Retired:   {result['retired']}")
+    _print(f"  Failed:    {result['failed']}")
+    if result["retire_skipped_reason"]:
+        _print(f"  WARNING: retirement skipped ({result['retire_skipped_reason']})")
