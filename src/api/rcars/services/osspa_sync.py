@@ -391,7 +391,7 @@ def read_detail_adoc(clone_root: Path, detail_page: str, max_bytes: int) -> Adoc
 
 
 # Ordered on purpose — the hash must be stable across runs.
-_HASH_FIELDS = ("summary", "products", "solutions", "verticals", "meta_keyword")
+_HASH_FIELDS = ("display_name", "asset_type", "summary", "products", "solutions", "verticals", "meta_keyword")
 
 
 def compute_content_hash(full_text: str, payload: dict[str, Any]) -> str:

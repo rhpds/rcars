@@ -659,8 +659,12 @@ class Database:
                 yield got
             finally:
                 if got:
-                    conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
-                    conn.commit()
+                    try:
+                        conn.rollback()  # clear any aborted-transaction state before unlocking
+                        conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+                        conn.commit()
+                    except Exception:
+                        logger.exception("advisory_unlock_failed")
 
     def drop_schema(self):
         hostname = urlsplit(self._url).hostname or ""

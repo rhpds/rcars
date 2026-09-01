@@ -240,15 +240,18 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         raise
 
 
-async def run_babylon_pipeline(ctx: dict, job_id: str) -> dict:
+async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = True) -> dict:
     """Babylon sub-pipeline: catalog refresh → stale check → re-analyze →
     workload/config scan → sandbox summaries → reporting sync → overlap.
 
     Self-contained: own step numbering, own progress phases, own stats dict.
-    Callable on its own or from run_nightly_pipeline.
+    Callable on its own or from run_nightly_pipeline (pass own_lifecycle=False
+    when the caller manages the job record).
     """
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
+    if own_lifecycle:
+        wctx.db.update_job_status(job_id, "running")
 
     warnings = []
     refresh_result = None
@@ -520,6 +523,12 @@ async def run_babylon_pipeline(ctx: dict, job_id: str) -> dict:
         "warnings": warnings,
     }
 
+    if own_lifecycle:
+        if warnings:
+            wctx.db.complete_job(job_id, result_json={**result, "status": "complete_with_warnings"})
+        else:
+            wctx.db.complete_job(job_id, result_json=result)
+
     return result
 
 
@@ -714,15 +723,21 @@ def _progress_bridge(
     return _publish, pending
 
 
-async def run_osspa_pipeline(ctx: dict, job_id: str) -> dict:
+async def run_osspa_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = True) -> dict:
     """OSSPA sub-pipeline: CSV fetch + scope → clone → upsert + retire → analyze."""
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
 
+    if own_lifecycle:
+        wctx.db.update_job_status(job_id, "running")
+
     if not wctx.settings.osspa_sync_enabled:
         log.info("osspa_pipeline_skipped", action="pipeline_step_skipped",
                  step="osspa", reason="osspa_sync_enabled=false")
-        return {"status": "disabled"}
+        result = {"status": "disabled"}
+        if own_lifecycle:
+            wctx.db.complete_job(job_id, result_json=result)
+        return result
 
     loop = asyncio.get_running_loop()
     on_progress, pending_futures = _progress_bridge(wctx, job_id, loop)
@@ -734,6 +749,10 @@ async def run_osspa_pipeline(ctx: dict, job_id: str) -> dict:
                 on_progress=on_progress,
             )
         )
+    except Exception as exc:
+        if own_lifecycle:
+            wctx.db.fail_job(job_id, error=str(exc))
+        raise
     finally:
         for fut in pending_futures:
             try:
@@ -741,6 +760,8 @@ async def run_osspa_pipeline(ctx: dict, job_id: str) -> dict:
             except Exception:
                 pass  # already logged by done callback
     log.info("osspa_pipeline_complete", action="pipeline_step_complete", step="osspa", **result)
+    if own_lifecycle:
+        wctx.db.complete_job(job_id, result_json=result)
     return result
 
 
@@ -760,7 +781,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     warnings: list[str] = []
     babylon_result: dict = {}
     try:
-        babylon_result = await run_babylon_pipeline(ctx, job_id)
+        babylon_result = await run_babylon_pipeline(ctx, job_id, own_lifecycle=False)
         warnings.extend(babylon_result.get("warnings") or [])
     except Exception as exc:
         msg = f"Babylon pipeline failed: {exc}"
@@ -772,7 +793,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
 
     osspa_result: dict = {"status": "error"}
     try:
-        osspa_result = await run_osspa_pipeline(ctx, job_id)
+        osspa_result = await run_osspa_pipeline(ctx, job_id, own_lifecycle=False)
     except Exception as exc:
         msg = f"OSSPA pipeline failed: {exc}"
         warnings.append(msg)

@@ -497,7 +497,9 @@ export function BrowsePage() {
         limit: PAGE_SIZE,
         offset: (targetPage - 1) * PAGE_SIZE,
       }
-      params.content_type = contentTypeParam(formats)
+      const effectiveFormats = new Set(formats)
+      if (selectedSolutions.length > 0 || selectedVerticals.length > 0) effectiveFormats.add('architecture')
+      params.content_type = contentTypeParam(effectiveFormats)
       if (searchVal) params.search = searchVal
       if (cloudProvider) params.cloud_provider = cloudProvider
       if (agdConfig) params.agd_config = agdConfig

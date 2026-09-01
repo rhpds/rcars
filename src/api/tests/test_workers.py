@@ -68,11 +68,11 @@ async def test_nightly_pipeline_runs_osspa_after_babylon(monkeypatch):
 
     order = []
 
-    async def _babylon(ctx, job_id):
+    async def _babylon(ctx, job_id, **kwargs):
         order.append("babylon")
         return {"refresh": None, "warnings": []}
 
-    async def _osspa(ctx, job_id):
+    async def _osspa(ctx, job_id, **kwargs):
         order.append("osspa")
         return {"status": "complete"}
 
@@ -89,10 +89,10 @@ async def test_nightly_pipeline_runs_osspa_after_babylon(monkeypatch):
 async def test_osspa_pipeline_runs_even_when_babylon_fails(monkeypatch):
     from rcars.workers import ops
 
-    async def _babylon(ctx, job_id):
+    async def _babylon(ctx, job_id, **kwargs):
         raise RuntimeError("babylon exploded")
 
-    async def _osspa(ctx, job_id):
+    async def _osspa(ctx, job_id, **kwargs):
         return {"status": "complete"}
 
     monkeypatch.setattr(ops, "run_babylon_pipeline", _babylon)
