@@ -102,7 +102,7 @@ class RecommendationLowResponse(BaseModel):
 
 
 class RecommendationMediumResponse(BaseModel):
-    job_id: str = Field(description="Job ID; poll via GET /advisor/query/{job_id}/result or stream via GET /advisor/query/{job_id}/stream")
+    job_id: str = Field(description="Job ID — poll via GET /advisor/query/{job_id}/result or stream via GET /advisor/query/{job_id}/stream")
 
 
 class ChatSubmitResponse(BaseModel):

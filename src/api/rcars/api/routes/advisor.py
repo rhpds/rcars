@@ -36,10 +36,10 @@ class SelectRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(max_length=2000)
-    session_id: str | None = None
-    stages: list[str] = ["prod"]
-    include_zt: bool = True
-    routed: dict | None = None
+    session_id: str | None = Field(default=None, description="Pass back from a previous response to maintain conversation context")
+    stages: list[str] = Field(default=["prod"], description="Lifecycle stages to search: prod, event, dev")
+    include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items")
+    routed: dict | None = Field(default=None, description="Skip the intent router. Example: {\"intent\": \"recommend\", \"args\": {\"search_query\": \"your query\"}}")
 
 
 def _advisor_limit() -> str:
@@ -106,6 +106,12 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         "Returns a `job_id` and `session_id`. Use `GET /advisor/query/{job_id}/stream` for real-time SSE updates "
         "or `GET /advisor/query/{job_id}/result` to poll. Pass the `session_id` back on subsequent messages "
         "to maintain conversation context.\n\n"
+        "**Bypass the router:** Pass `routed` to skip intent classification and go directly to a handler. "
+        "Example for forced recommend:\n"
+        "```json\n"
+        '{"message": "OpenShift AI demos", "routed": {"intent": "recommend", "args": {"search_query": "OpenShift AI demos"}}}\n'
+        "```\n"
+        "Available intents for `routed`: `recommend`, `overlap`, `performance`, `item_facts`, `infrastructure`.\n\n"
         "Rate-limited per user (default: 50/hour, shared with the deprecated /query endpoint)."
     ),
     response_model=ChatSubmitResponse,

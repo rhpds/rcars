@@ -26,7 +26,7 @@ logger = structlog.get_logger()
 
 LOW_EFFORT_TIMEOUT_S = 10.0
 
-router = APIRouter(prefix="/recommendations")
+router = APIRouter(prefix="/advisor/recommendations")
 
 
 class RecommendationRequest(BaseModel):
@@ -58,8 +58,11 @@ def _recommendation_limit() -> str:
         "`RecommendationMediumResponse` with a `job_id`. "
         "Poll `GET /advisor/query/{job_id}/result` for ranked results, "
         "or stream via `GET /advisor/query/{job_id}/stream`.\n\n"
-        "For the full pipeline with rationale (20-30s), use `POST /advisor/chat` instead — "
-        "it handles all intents (recommend, performance, overlap, etc.).\n\n"
+        "**For the full pipeline with rationale (20-30s),** use `POST /advisor/chat` instead. "
+        "To skip the intent router and force the recommend intent, pass:\n"
+        "```json\n"
+        '{"message": "your query", "routed": {"intent": "recommend", "args": {"search_query": "your query"}}}\n'
+        "```\n\n"
         "**Auth:** API keys (`X-API-Key`), K8s ServiceAccount bearer tokens, or OAuth."
     ),
     response_model=RecommendationLowResponse | RecommendationMediumResponse,
