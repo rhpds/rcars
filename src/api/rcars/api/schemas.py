@@ -67,6 +67,44 @@ class QuerySubmitResponse(BaseModel):
     job_id: str = Field(description="Job ID; poll via /advisor/query/{job_id}/result or stream via /advisor/query/{job_id}/stream")
 
 
+# ── Recommendations ───────────────────────────────────────────────
+
+class RecommendationCandidate(BaseModel):
+    content_id: str = Field(description="Unique content identifier (e.g. 'babylon:my_demo.prod')")
+    ci_name: str | None = Field(default=None, description="Catalog item name (Babylon items only)")
+    display_name: str = Field(description="Human-readable display name")
+    tier: str = Field(description="Relevance tier: white (unranked), yellow (relevant), green (top pick)")
+    relevance_score: int | None = Field(default=None, description="Triage relevance score 0-100 (medium effort only)")
+    vector_similarity_pct: int = Field(description="Vector similarity percentage 0-100")
+    stage: str = Field(description="Lifecycle stage: prod, event, dev")
+    catalog_namespace: str = ""
+    duration_min: int | None = Field(default=None, description="Estimated duration in minutes")
+    duration_source: str = Field(default="ai", description="'curated' or 'ai'")
+    learning_objectives: list[str] = []
+    provisions_quarter: int | None = Field(default=None, description="Provisions in the last quarter")
+    avg_cost_per_provision: float | None = Field(default=None, description="Average cost per provision (USD)")
+    sales_impact: str | None = Field(default=None, description="Sales impact tier: high, medium, low, none")
+
+    model_config = {"extra": "ignore"}
+
+
+class RecommendationMetadata(BaseModel):
+    effort: str = Field(description="Effort level used: low or medium")
+    elapsed_s: float = Field(description="Wall-clock time in seconds")
+    total_candidates: int = Field(description="Total candidates before limit applied")
+    returned: int = Field(description="Number of candidates returned")
+
+
+class RecommendationLowResponse(BaseModel):
+    candidates: list[RecommendationCandidate] = Field(description="Matched content items sorted by vector similarity")
+    overall_assessment: str | None = Field(default=None, description="Always null for low effort")
+    metadata: RecommendationMetadata
+
+
+class RecommendationMediumResponse(BaseModel):
+    job_id: str = Field(description="Job ID; poll via GET /advisor/query/{job_id}/result or stream via GET /advisor/query/{job_id}/stream")
+
+
 class ChatSubmitResponse(BaseModel):
     job_id: str
     session_id: str
