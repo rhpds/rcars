@@ -35,11 +35,42 @@ class SelectRequest(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    message: str = Field(max_length=2000)
+    message: str = Field(max_length=2000, description="Natural-language message. Always required — used for logging even when routed is set.")
     session_id: str | None = Field(default=None, description="Pass back from a previous response to maintain conversation context")
     stages: list[str] = Field(default=["prod"], description="Lifecycle stages to search: prod, event, dev")
-    include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items")
-    routed: dict | None = Field(default=None, description="Skip the intent router. Example: {\"intent\": \"recommend\", \"args\": {\"search_query\": \"your query\"}}")
+    include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
+    routed: dict | None = Field(
+        default=None,
+        description=(
+            "Optional. Skip the intent router and go directly to a handler. "
+            "If omitted, the LLM router classifies the message automatically. "
+            "Intents: recommend, overlap, performance, item_facts, infrastructure."
+        ),
+        json_schema_extra={
+            "examples": [
+                None,
+                {"intent": "recommend", "args": {"search_query": "OpenShift AI demos"}},
+            ]
+        },
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "message": "Find labs about OpenShift AI",
+                    "stages": ["prod"],
+                    "include_zt": True,
+                },
+                {
+                    "message": "OpenShift AI demos for beginners",
+                    "routed": {"intent": "recommend", "args": {"search_query": "OpenShift AI demos for beginners"}},
+                    "stages": ["prod"],
+                    "include_zt": True,
+                },
+            ]
+        }
+    }
 
 
 def _advisor_limit() -> str:
