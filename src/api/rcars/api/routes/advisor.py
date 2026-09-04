@@ -127,22 +127,46 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
     summary="Submit a chat message",
     description=(
         "The primary advisor endpoint. Routes a natural-language message to a deterministic intent handler "
-        "based on LLM classification. Supported intents:\n\n"
-        "- **recommend** — content recommendations (e.g. 'Find labs for OpenShift AI')\n"
-        "- **performance** — usage and sales metrics (e.g. 'How is LB2144 performing?')\n"
-        "- **overlap** — content similarity analysis (e.g. 'What overlaps with this demo?')\n"
-        "- **infrastructure** — workload roles and base configs (e.g. 'What workload deploys OpenShift AI?')\n"
-        "- **item_facts** — catalog item details (e.g. 'Tell me about the ACS workshop')\n"
-        "- **help** — explains RCARS features (e.g. 'What does the score mean?')\n\n"
+        "based on LLM classification.\n\n"
         "Returns a `job_id` and `session_id`. Use `GET /advisor/query/{job_id}/stream` for real-time SSE updates "
         "or `GET /advisor/query/{job_id}/result` to poll. Pass the `session_id` back on subsequent messages "
         "to maintain conversation context.\n\n"
-        "**Bypass the router:** Pass `routed` to skip intent classification and go directly to a handler. "
-        "Example for forced recommend:\n"
+        "## Intents\n\n"
+        "When `routed` is omitted, the LLM router classifies the message automatically. "
+        "To bypass the router, pass `routed` with the intent and args shown below.\n\n"
+        "### recommend\n"
+        "Find content for a topic, event, or audience.\n"
         "```json\n"
-        '{"message": "OpenShift AI demos", "routed": {"intent": "recommend", "args": {"search_query": "OpenShift AI demos"}}}\n'
+        '{"intent": "recommend", "args": {"search_query": "OpenShift AI demos for beginners"}}\n'
         "```\n"
-        "Available intents for `routed`: `recommend`, `overlap`, `performance`, `item_facts`, `infrastructure`.\n\n"
+        "`args.search_query` (required): the search text. "
+        "`args.constraints` (optional): `{\"performance\": \"high_usage\"}` or `{\"duration\": \"2 hours\"}`.\n\n"
+        "### performance\n"
+        "Usage, cost, and sales metrics for specific items.\n"
+        "```json\n"
+        '{"intent": "performance", "args": {"window": "6m"}, "item_refs": ["OpenShift Virtualization Roadshow"]}\n'
+        "```\n"
+        "`item_refs` (required, top-level): display names or LB numbers (e.g. `[\"LB2144\"]`). "
+        "`args.window` (optional): `3m`, `6m`, `9m`, or `12m` (default `6m`).\n\n"
+        "### overlap\n"
+        "Find content similar to a specific item.\n"
+        "```json\n"
+        '{"intent": "overlap", "args": {"item_ref": "LB2144"}, "item_refs": ["LB2144"]}\n'
+        "```\n"
+        "`item_refs` (required, top-level): the item to compare. "
+        "`args.item_ref`: same value (used by the handler).\n\n"
+        "### item_facts\n"
+        "Details about a specific catalog item (summary, modules, products).\n"
+        "```json\n"
+        '{"intent": "item_facts", "args": {"item_ref": "LB2144"}, "item_refs": ["LB2144"]}\n'
+        "```\n\n"
+        "### infrastructure\n"
+        "Workload roles and base configs for a technology.\n"
+        "```json\n"
+        '{"intent": "infrastructure", "args": {"search_query": "OpenShift AI"}}\n'
+        "```\n\n"
+        "**Note:** `item_refs` uses display names or LB numbers — not CI names like `my-demo.prod`. "
+        "The resolver matches references to catalog items.\n\n"
         "Rate-limited per user (default: 50/hour, shared with the deprecated /query endpoint)."
     ),
     response_model=ChatSubmitResponse,
