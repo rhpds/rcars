@@ -7,6 +7,7 @@ For full pipeline with rationale, use POST /advisor/chat instead.
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from fastapi import APIRouter, Depends, Request, HTTPException
@@ -19,17 +20,22 @@ from rcars.api.schemas import RecommendationLowResponse, RecommendationMediumRes
 from rcars.config import Settings
 from rcars.services.recommender.pipeline import run_query
 from rcars.services.recommender.serialize import candidates_with_performance
+import structlog
+
+logger = structlog.get_logger()
+
+LOW_EFFORT_TIMEOUT_S = 10.0
 
 router = APIRouter(prefix="/recommendations")
 
 
 class RecommendationRequest(BaseModel):
-    query: str = Field(max_length=2000, description="Natural-language search query (e.g. 'OpenShift AI workshop for beginners')")
+    query: str = Field(min_length=1, max_length=2000, description="Natural-language search query (e.g. 'OpenShift AI workshop for beginners')")
     effort: Literal["low", "medium"] = Field(
         default="medium",
         description="low = vector search only, returns inline (~1-2s). medium = vector search + LLM triage, returns job_id (~5-10s).",
     )
-    stages: list[str] = Field(default=["prod"], description="Lifecycle stages to search: prod, event, dev. Non-curator users cannot access dev.")
+    stages: list[Literal["prod", "event", "dev"]] = Field(default=["prod"], description="Lifecycle stages to search. Non-curator users cannot access dev.")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of candidates to return (low effort only)")
 
@@ -98,6 +104,7 @@ def _recommendation_limit() -> str:
             },
         },
         429: {"description": "Rate limit exceeded or query already running"},
+        504: {"description": "Low-effort search timed out"},
     },
 )
 @limiter.limit(_recommendation_limit)
@@ -108,7 +115,7 @@ async def get_recommendations(
     settings: Settings = request.app.state.settings
 
     is_limited = not settings.is_curator(user) and not settings.is_admin(user)
-    stages = body.stages
+    stages = list(body.stages)
     if "dev" in stages and is_limited:
         stages = [s for s in stages if s != "dev"]
 
@@ -120,10 +127,16 @@ async def get_recommendations(
 
 async def _run_low(body, db, settings, stages):
     t0 = time.monotonic()
-    state = await run_query(
-        query=body.query, db=db, settings=settings,
-        stages=stages, include_zt=body.include_zt, depth="low",
-    )
+    try:
+        state = await asyncio.wait_for(
+            run_query(
+                query=body.query, db=db, settings=settings,
+                stages=stages, include_zt=body.include_zt, depth="low",
+            ),
+            timeout=LOW_EFFORT_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Recommendation search timed out. Retry with effort=medium.")
     candidates_json = candidates_with_performance(state, db)[:body.limit]
     elapsed = round(time.monotonic() - t0, 2)
     return {
@@ -143,14 +156,19 @@ async def _run_medium(body, request, db, settings, stages, user, is_limited):
     job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user, limit_active=is_limited)
     if job_id is None:
         raise HTTPException(status_code=429, detail="You already have a query running. Please wait for it to complete.")
-    await arq_redis.enqueue_job(
-        "run_recommendation",
-        job_id=job_id,
-        query=body.query,
-        stages=stages,
-        depth="medium",
-        include_zt=body.include_zt,
-        user_email=user,
-        _queue_name="arq:queue:recommend",
-    )
+    try:
+        await arq_redis.enqueue_job(
+            "run_recommendation",
+            job_id=job_id,
+            query=body.query,
+            stages=stages,
+            depth="medium",
+            include_zt=body.include_zt,
+            user_email=user,
+            _queue_name="arq:queue:recommend",
+        )
+    except Exception:
+        logger.error("enqueue_failed", job_id=job_id, action="enqueue_failed")
+        db.fail_job(job_id, error="Failed to enqueue recommendation job")
+        raise HTTPException(status_code=503, detail="Job queue unavailable. Please retry.")
     return {"job_id": job_id}

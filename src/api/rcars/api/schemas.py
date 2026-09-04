@@ -85,7 +85,7 @@ class RecommendationCandidate(BaseModel):
     avg_cost_per_provision: float | None = Field(default=None, description="Average cost per provision (USD)")
     sales_impact: str | None = Field(default=None, description="Sales impact tier: high, medium, low, none")
 
-    model_config = {"extra": "allow"}
+    model_config = {"extra": "ignore"}
 
 
 class RecommendationMetadata(BaseModel):
