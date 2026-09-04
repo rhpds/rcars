@@ -65,8 +65,14 @@ class ChatRequest(BaseModel):
                 {
                     "message": "OpenShift AI demos for beginners",
                     "routed": {"intent": "recommend", "args": {"search_query": "OpenShift AI demos for beginners"}},
-                    "stages": ["prod"],
-                    "include_zt": True,
+                },
+                {
+                    "message": "How is the OpenShift Virtualization Roadshow performing?",
+                    "routed": {"intent": "performance", "args": {"window": "6m"}, "item_refs": ["Experience OpenShift Virtualization Roadshow"]},
+                },
+                {
+                    "message": "Tell me about the OpenShift AI workshop",
+                    "routed": {"intent": "item_facts", "args": {"item_ref": "Hands-on with Red Hat OpenShift AI"}},
                 },
             ]
         }
@@ -144,28 +150,30 @@ async def submit_query(body: QueryRequest, request: Request, user: str = Depends
         "### performance\n"
         "Usage, cost, and sales metrics for specific items.\n"
         "```json\n"
-        '{"intent": "performance", "args": {"window": "6m"}, "item_refs": ["OpenShift Virtualization Roadshow"]}\n'
+        '{"intent": "performance", "args": {"window": "6m"}, "item_refs": ["Experience OpenShift Virtualization Roadshow"]}\n'
         "```\n"
-        "`item_refs` (required, top-level): display names or LB numbers (e.g. `[\"LB2144\"]`). "
-        "`args.window` (optional): `3m`, `6m`, `9m`, or `12m` (default `6m`).\n\n"
+        "`item_refs` (required, **top-level**): display names of items to look up. "
+        "`args.window` (optional): `3m`, `6m`, `9m`, or `12m` (default `6m`). "
+        "Performance is the only intent that requires top-level `item_refs`.\n\n"
         "### overlap\n"
         "Find content similar to a specific item.\n"
         "```json\n"
-        '{"intent": "overlap", "args": {"item_ref": "LB2144"}, "item_refs": ["LB2144"]}\n'
+        '{"intent": "overlap", "args": {"item_ref": "Red Hat Enterprise Linux Workshop"}}\n'
         "```\n"
-        "`item_refs` (required, top-level): the item to compare. "
-        "`args.item_ref`: same value (used by the handler).\n\n"
+        "`args.item_ref` (required): display name of the item to compare.\n\n"
         "### item_facts\n"
         "Details about a specific catalog item (summary, modules, products).\n"
         "```json\n"
-        '{"intent": "item_facts", "args": {"item_ref": "LB2144"}, "item_refs": ["LB2144"]}\n'
-        "```\n\n"
+        '{"intent": "item_facts", "args": {"item_ref": "Hands-on with Red Hat OpenShift AI"}}\n'
+        "```\n"
+        "`args.item_ref` (required): display name of the item.\n\n"
         "### infrastructure\n"
         "Workload roles and base configs for a technology.\n"
         "```json\n"
         '{"intent": "infrastructure", "args": {"search_query": "OpenShift AI"}}\n'
-        "```\n\n"
-        "**Note:** `item_refs` uses display names or LB numbers — not CI names like `my-demo.prod`. "
+        "```\n"
+        "`args.search_query` (required): technology or workload to look up.\n\n"
+        "**Note:** Use display names for items, not CI names like `my-demo.prod`. "
         "The resolver matches references to catalog items.\n\n"
         "Rate-limited per user (default: 50/hour, shared with the deprecated /query endpoint)."
     ),
