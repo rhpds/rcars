@@ -110,6 +110,11 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     embed = embed_fn or generate_embedding
     guesses = db.search_embeddings(embed(ref, prefix="search_query"),
                                    limit=3, stages=stages)
+    ref_lower = ref.lower()
+    for g in guesses:
+        g_name = (g.get("display_name") or "").lower()
+        if g_name and (g_name in ref_lower or ref_lower in g_name):
+            return {"item": g}
     return {"guesses": guesses}
 
 
