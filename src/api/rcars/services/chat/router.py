@@ -100,6 +100,9 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
         if item:
+            item_name = (item.get("display_name") or "").lower()
+            if item_name and (item_name in ref.lower() or ref.lower() in item_name):
+                return {"item": item}
             ties = _find_keyword_ties(db, words, item, stages)
             if ties:
                 return {"guesses": ties}
