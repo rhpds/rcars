@@ -65,14 +65,15 @@ def pattern_check(message: str) -> RouterOutput | None:
 
 
 def _expand_vocab_aliases(words: set[str]) -> set[str]:
-    """Replace vocabulary aliases with their canonical name's words.
-    'eda' → {'event', 'driven', 'ansible'}; unknown words pass through unchanged."""
+    """Expand pure abbreviations/aliases to their canonical name's words.
+    Only expands when the original word does not appear in the canonical name,
+    so 'eda' → {'event','driven','ansible'} but 'ansible' stays as-is."""
     vocab = load_vocabulary()
     expanded = set(words)
     for word in words:
         for dim in DIMENSIONS:
             canonical = vocab.exact_lookup.get(dim, {}).get(word)
-            if canonical:
+            if canonical and word not in canonical.lower():
                 expanded |= {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", canonical)} - STOP_WORDS
                 break
     return expanded
