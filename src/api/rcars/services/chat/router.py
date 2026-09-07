@@ -64,10 +64,13 @@ def pattern_check(message: str) -> RouterOutput | None:
     return None
 
 
-def _expand_vocab_aliases(words: set[str]) -> set[str]:
+def _expand_vocab_aliases(words: set[str], min_overlap: int = 3) -> set[str]:
     """Expand pure abbreviations/aliases to their canonical name's words.
-    Only expands when the original word does not appear in the canonical name,
-    so 'eda' → {'event','driven','ansible'} but 'ansible' stays as-is."""
+    Only expands when the keyword set is too small to reach min_overlap on its
+    own — avoids adding noisy generic words when we already have enough keywords.
+    Also skips expansion when the word appears in its own canonical name."""
+    if len(words) >= min_overlap:
+        return words
     vocab = load_vocabulary()
     expanded = set(words)
     for word in words:
