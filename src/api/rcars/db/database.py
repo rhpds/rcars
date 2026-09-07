@@ -1535,6 +1535,16 @@ class Database:
             )
             return cur.fetchone()
 
+    def get_analysis(self, content_id: str) -> dict[str, Any] | None:
+        """Get analysis for any content type — routes to the right table."""
+        entity = self.get_content_entity(content_id)
+        if not entity:
+            return None
+        ct = entity.get("content_type")
+        if ct == "architecture":
+            return self.get_architecture_analysis(content_id)
+        return self.get_showroom_analysis(content_id)
+
     def get_showroom_analysis_by_ci_name(self, ci_name: str) -> dict[str, Any] | None:
         content_id = f"babylon:{ci_name}"
         return self.get_showroom_analysis(content_id)

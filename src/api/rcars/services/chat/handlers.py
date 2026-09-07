@@ -27,18 +27,25 @@ class HandlerResult:
 
 def _item_card(db: Database, item: dict) -> dict:
     cid = item["content_id"]
-    analysis = db.get_showroom_analysis(cid) or {}
+    entity = db.get_content_entity(cid) or {}
+    content_type = entity.get("content_type")
+    analysis = db.get_analysis(cid) or {}
     lo = analysis.get("learning_objectives_json") or {}
-    return {
+    card = {
         "content_id": cid, "ci_name": item.get("ci_name"),
         "display_name": item.get("display_name", cid), "stage": item.get("stage"),
-        "content_type": (db.get_content_entity(cid) or {}).get("content_type"),
+        "content_type": content_type,
         "summary": analysis.get("summary"),
         "products": analysis.get("products_json") or [],
         "modules": (lo.get("stated") if isinstance(lo, dict) else []) or [],
         "workloads": get_item_workloads(db.pool, cid),
         "neighbors": [],
     }
+    if content_type == "architecture":
+        card["solution_areas"] = analysis.get("solution_areas_json") or []
+        card["use_cases"] = analysis.get("use_cases_json") or []
+        card["key_components"] = analysis.get("key_components_json") or []
+    return card
 
 
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
