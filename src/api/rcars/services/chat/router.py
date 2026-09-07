@@ -87,7 +87,8 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     The router's belief that an item exists is never trusted."""
     stages = stages or ["prod"]
     if ref.startswith("content_id:"):  # pre-routed chip fast-path
-        item = db.get_babylon_item(ref.removeprefix("content_id:"))
+        cid = ref.removeprefix("content_id:")
+        item = db.get_babylon_item(cid) or db.get_content_entity(cid)
         if item:
             return {"item": item}
     m = _LB_RE.search(ref)
@@ -157,8 +158,8 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
                                               scope={"type": "ordinal", "turn": turn["n"], "index": i + 1})
                                          for i, r in enumerate(turn["results"][:5])])
             picked = turn["results"][idx]
-            item = db.get_babylon_item(picked["id"]) or {"content_id": picked["id"],
-                                                         "display_name": picked["name"]}
+            item = db.get_babylon_item(picked["id"]) or db.get_content_entity(picked["id"]) or {
+                "content_id": picked["id"], "display_name": picked["name"]}
             items = [item]
             scope_ids = [picked["id"]]
         else:

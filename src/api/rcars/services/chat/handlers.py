@@ -95,7 +95,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
         return HandlerResult(
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
-    anchors = res.items or [db.get_babylon_item(cid) or {"content_id": cid, "display_name": cid}
+    anchors = res.items or [db.get_babylon_item(cid) or db.get_content_entity(cid) or {"content_id": cid, "display_name": cid}
                             for cid in res.scope_ids]
     anchor = anchors[0]
     cid = anchor["content_id"]
@@ -202,7 +202,7 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     item = (res.items[0] if res.items
-            else (db.get_babylon_item(res.scope_ids[0])
+            else (db.get_babylon_item(res.scope_ids[0]) or db.get_content_entity(res.scope_ids[0])
                   or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
 
