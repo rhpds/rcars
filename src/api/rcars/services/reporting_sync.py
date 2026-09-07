@@ -765,6 +765,15 @@ def run_reporting_sync(db, settings) -> dict:
                  touched=len(w_touched[wk]), closed=len(w_closed[wk]),
                  cost=len(w_cost[wk]), unique_users=len(w_uu[wk]))
 
+    # Detect names that appear in shorter windows but not 12m (possible
+    # upstream name collision — e.g. partner-agnosticv UUID duplicates).
+    names_12m = set(w_provisions["12m"])
+    for wk in ("3m", "6m", "9m"):
+        drift = set(w_provisions[wk]) - names_12m
+        if drift:
+            log.warning("window_name_drift", window=wk,
+                        names=sorted(drift)[:20], count=len(drift))
+
     prov_data = w_provisions["12m"]
     touched_data = w_touched["12m"]
     closed_data = w_closed["12m"]
