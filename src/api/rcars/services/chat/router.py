@@ -17,6 +17,8 @@ from rcars.services.analyzer import generate_embedding
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
 from rcars.services.recommender.pipeline import extract_urls
 from rcars.services.recommender.vector_search import STOP_WORDS
+from rcars.services.vocabulary.loader import load_vocabulary
+from rcars.services.vocabulary.models import DIMENSIONS
 
 logger = structlog.get_logger(component="chat")
 
@@ -62,6 +64,20 @@ def pattern_check(message: str) -> RouterOutput | None:
     return None
 
 
+def _expand_vocab_aliases(words: set[str]) -> set[str]:
+    """Replace vocabulary aliases with their canonical name's words.
+    'eda' → {'event', 'driven', 'ansible'}; unknown words pass through unchanged."""
+    vocab = load_vocabulary()
+    expanded = set(words)
+    for word in words:
+        for dim in DIMENSIONS:
+            canonical = vocab.exact_lookup.get(dim, {}).get(word)
+            if canonical:
+                expanded |= {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", canonical)} - STOP_WORDS
+                break
+    return expanded
+
+
 def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: list[str]) -> list[dict] | None:
     """If other items tie with `best` on keyword overlap, return all tied items."""
     stage_placeholders = ",".join(["%s"] * len(stages))
@@ -96,7 +112,7 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
         item = db.find_catalog_item_by_display_name_prefix(f"LB{m.group(1)}%", stages=stages)
         if item:
             return {"item": item}
-    words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS
+    words = _expand_vocab_aliases({w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS)
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
         if item:
