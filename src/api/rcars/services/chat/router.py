@@ -89,9 +89,10 @@ def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: lis
     best_overlap = _prefix_overlap(keywords, best_name_words)
     with db.pool.connection() as conn:
         rows = conn.execute(
-            f"SELECT ce.content_id, ce.display_name, bi.stage "
-            f"FROM content_entities ce JOIN babylon_items bi ON bi.content_id = ce.content_id "
-            f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
+            f"SELECT ce.content_id, ce.display_name, ce.status "
+            f"FROM content_entities ce "
+            f"LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id "
+            f"WHERE ce.status IN ({stage_placeholders}) AND ce.retired_at IS NULL",
             (*stages,)).fetchall()
     tied = []
     for row in rows:
