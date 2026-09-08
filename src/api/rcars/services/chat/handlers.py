@@ -27,18 +27,25 @@ class HandlerResult:
 
 def _item_card(db: Database, item: dict) -> dict:
     cid = item["content_id"]
-    analysis = db.get_showroom_analysis(cid) or {}
+    entity = db.get_content_entity(cid) or {}
+    content_type = entity.get("content_type")
+    analysis = db.get_analysis(cid) or {}
     lo = analysis.get("learning_objectives_json") or {}
-    return {
+    card = {
         "content_id": cid, "ci_name": item.get("ci_name"),
         "display_name": item.get("display_name", cid), "stage": item.get("stage"),
-        "content_type": (db.get_content_entity(cid) or {}).get("content_type"),
+        "content_type": content_type,
         "summary": analysis.get("summary"),
         "products": analysis.get("products_json") or [],
         "modules": (lo.get("stated") if isinstance(lo, dict) else []) or [],
         "workloads": get_item_workloads(db.pool, cid),
         "neighbors": [],
     }
+    if content_type == "architecture":
+        card["solution_areas"] = analysis.get("solution_areas_json") or []
+        card["use_cases"] = analysis.get("use_cases_json") or []
+        card["key_components"] = analysis.get("key_components_json") or []
+    return card
 
 
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
@@ -95,7 +102,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
         return HandlerResult(
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
-    anchors = res.items or [db.get_babylon_item(cid) or {"content_id": cid, "display_name": cid}
+    anchors = res.items or [db.get_babylon_item(cid) or db.get_content_entity(cid) or {"content_id": cid, "display_name": cid}
                             for cid in res.scope_ids]
     anchor = anchors[0]
     cid = anchor["content_id"]
@@ -202,7 +209,7 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
             blocks=[Block(type="notice", data={"kind": "no_items"})],
             scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
     item = (res.items[0] if res.items
-            else (db.get_babylon_item(res.scope_ids[0])
+            else (db.get_babylon_item(res.scope_ids[0]) or db.get_content_entity(res.scope_ids[0])
                   or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
 

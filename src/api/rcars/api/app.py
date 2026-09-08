@@ -13,7 +13,7 @@ from rcars.logging import setup_logging
 from rcars.api.middleware.request_logging import RequestLoggingMiddleware
 from rcars.api.middleware.rate_limit import limiter
 from arq.connections import ArqRedis
-from rcars.api.routes import health, auth, advisor, catalog, analysis, admin
+from rcars.api.routes import health, auth, advisor, catalog, analysis, admin, recommendations
 
 
 @asynccontextmanager
@@ -103,5 +103,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(catalog.router, prefix="/api/v1", tags=["Catalog"])
     app.include_router(analysis.router, prefix="/api/v1")
     app.include_router(admin.router, prefix="/api/v1", tags=["Administration"])
+    app.include_router(recommendations.router, prefix="/api/v1", tags=["Advisor"])
 
     return app

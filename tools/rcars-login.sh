@@ -2,8 +2,8 @@
 # rcars-login.sh — Get an RCARS API key via OpenShift OAuth (implicit grant)
 #
 # Usage:
-#   ./rcars-login.sh --server URL --oauth-server URL
-#   ./rcars-login.sh --server URL --oauth-server URL --no-server  # manual mode
+#   ./rcars-login.sh --server URL --oauth-server URL --client-id rcars-api-dev
+#   ./rcars-login.sh --server URL --oauth-server URL --client-id rcars-api-dev --no-server  # manual mode
 #   ./rcars-login.sh token    # print saved key
 #   ./rcars-login.sh status   # show login status
 #
@@ -37,12 +37,13 @@ cmd_status() {
 }
 
 cmd_login() {
-    local server="" oauth_server="" no_server=0
+    local server="" oauth_server="" client_id="rcars-api" no_server=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --server)       server="$2";       shift 2 ;;
             --oauth-server) oauth_server="$2"; shift 2 ;;
+            --client-id)    client_id="$2";    shift 2 ;;
             --no-server)    no_server=1;        shift   ;;
             *) echo "Unknown option: $1" >&2; exit 1 ;;
         esac
@@ -127,7 +128,7 @@ PYEOF
     # ── Open browser ──────────────────────────────────────────────────────────
     local auth_url
     auth_url="${oauth_server}/oauth/authorize"
-    auth_url+="?client_id=rcars-api"
+    auth_url+="?client_id=${client_id}"
     auth_url+="&redirect_uri=$(urlencode "$redirect_uri")"
     auth_url+="&response_type=token"
     auth_url+="&state=${state}"
@@ -211,8 +212,8 @@ case "${1:-}" in
     status) cmd_status ;;
     "")
         echo "Usage:"
-        echo "  $(basename "$0") --server URL --oauth-server URL    # login"
-        echo "  $(basename "$0") --server URL --oauth-server URL --no-server  # manual mode"
+        echo "  $(basename "$0") --server URL --oauth-server URL --client-id ID    # login"
+        echo "  $(basename "$0") --server URL --oauth-server URL --client-id ID --no-server  # manual mode"
         echo "  $(basename "$0") token                              # print saved key"
         echo "  $(basename "$0") status                             # show login status"
         exit 1

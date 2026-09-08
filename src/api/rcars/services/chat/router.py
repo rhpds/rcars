@@ -17,6 +17,8 @@ from rcars.services.analyzer import generate_embedding
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
 from rcars.services.recommender.pipeline import extract_urls
 from rcars.services.recommender.vector_search import STOP_WORDS
+from rcars.services.vocabulary.loader import load_vocabulary
+from rcars.services.vocabulary.models import DIMENSIONS
 
 logger = structlog.get_logger(component="chat")
 
@@ -62,6 +64,24 @@ def pattern_check(message: str) -> RouterOutput | None:
     return None
 
 
+def _expand_vocab_aliases(words: set[str], min_overlap: int = 3) -> set[str]:
+    """Expand pure abbreviations/aliases to their canonical name's words.
+    Only expands when the keyword set is too small to reach min_overlap on its
+    own — avoids adding noisy generic words when we already have enough keywords.
+    Also skips expansion when the word appears in its own canonical name."""
+    if len(words) >= min_overlap:
+        return words
+    vocab = load_vocabulary()
+    expanded = set(words)
+    for word in words:
+        for dim in DIMENSIONS:
+            canonical = vocab.exact_lookup.get(dim, {}).get(word)
+            if canonical and word not in canonical.lower():
+                expanded |= {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", canonical)} - STOP_WORDS
+                break
+    return expanded
+
+
 def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: list[str]) -> list[dict] | None:
     """If other items tie with `best` on keyword overlap, return all tied items."""
     stage_placeholders = ",".join(["%s"] * len(stages))
@@ -69,9 +89,10 @@ def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: lis
     best_overlap = _prefix_overlap(keywords, best_name_words)
     with db.pool.connection() as conn:
         rows = conn.execute(
-            f"SELECT ce.content_id, ce.display_name, bi.stage "
-            f"FROM content_entities ce JOIN babylon_items bi ON bi.content_id = ce.content_id "
-            f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
+            f"SELECT ce.content_id, ce.display_name, ce.status "
+            f"FROM content_entities ce "
+            f"LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id "
+            f"WHERE ce.status IN ({stage_placeholders}) AND ce.retired_at IS NULL",
             (*stages,)).fetchall()
     tied = []
     for row in rows:
@@ -87,7 +108,8 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     The router's belief that an item exists is never trusted."""
     stages = stages or ["prod"]
     if ref.startswith("content_id:"):  # pre-routed chip fast-path
-        item = db.get_babylon_item(ref.removeprefix("content_id:"))
+        cid = ref.removeprefix("content_id:")
+        item = db.get_babylon_item(cid) or db.get_content_entity(cid)
         if item:
             return {"item": item}
     m = _LB_RE.search(ref)
@@ -95,10 +117,13 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
         item = db.find_catalog_item_by_display_name_prefix(f"LB{m.group(1)}%", stages=stages)
         if item:
             return {"item": item}
-    words = {w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS
+    words = _expand_vocab_aliases({w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS)
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
         if item:
+            item_name = (item.get("display_name") or "").lower()
+            if item_name and (item_name in ref.lower() or ref.lower() in item_name):
+                return {"item": item}
             ties = _find_keyword_ties(db, words, item, stages)
             if ties:
                 return {"guesses": ties}
@@ -106,6 +131,11 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
     embed = embed_fn or generate_embedding
     guesses = db.search_embeddings(embed(ref, prefix="search_query"),
                                    limit=3, stages=stages)
+    ref_lower = ref.lower()
+    for g in guesses:
+        g_name = (g.get("display_name") or "").lower()
+        if g_name and (g_name in ref_lower or ref_lower in g_name):
+            return {"item": g}
     return {"guesses": guesses}
 
 
@@ -157,8 +187,8 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
                                               scope={"type": "ordinal", "turn": turn["n"], "index": i + 1})
                                          for i, r in enumerate(turn["results"][:5])])
             picked = turn["results"][idx]
-            item = db.get_babylon_item(picked["id"]) or {"content_id": picked["id"],
-                                                         "display_name": picked["name"]}
+            item = db.get_babylon_item(picked["id"]) or db.get_content_entity(picked["id"]) or {
+                "content_id": picked["id"], "display_name": picked["name"]}
             items = [item]
             scope_ids = [picked["id"]]
         else:

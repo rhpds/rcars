@@ -225,6 +225,7 @@ def main():
 
     parser.add_argument("--server", dest="top_server", help=argparse.SUPPRESS)
     parser.add_argument("--oauth-server", dest="top_oauth_server", help=argparse.SUPPRESS)
+    parser.add_argument("--client-id", dest="top_client_id", default=None, help=argparse.SUPPRESS)
 
     args = parser.parse_args()
 
@@ -239,6 +240,7 @@ def main():
     elif args.top_server:
         args.server = args.top_server
         args.oauth_server = args.top_oauth_server
+        args.client_id = args.top_client_id or "rcars-api"
         cmd_login(args)
     else:
         parser.print_help()

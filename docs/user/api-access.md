@@ -21,8 +21,11 @@ chmod +x tools/rcars-login.sh
 
 ./tools/rcars-login.sh \
   --server https://rcars-api.apps.cluster.example.com \
-  --oauth-server https://oauth-openshift.apps.cluster.example.com
+  --oauth-server https://oauth-openshift.apps.cluster.example.com \
+  --client-id rcars-api-dev
 ```
+
+The `--client-id` must match the OAuthClient name on the cluster (`rcars-api-dev` for dev, `rcars-api-prod` for prod).
 
 On headless or remote systems (no browser), add `--no-server`. The script will print the authorize URL for you to open manually, then prompt you to paste back the callback URL:
 
@@ -30,6 +33,7 @@ On headless or remote systems (no browser), add `--no-server`. The script will p
 ./tools/rcars-login.sh \
   --server https://rcars-api.apps.cluster.example.com \
   --oauth-server https://oauth-openshift.apps.cluster.example.com \
+  --client-id rcars-api-dev \
   --no-server
 ```
 
@@ -38,7 +42,8 @@ On headless or remote systems (no browser), add `--no-server`. The script will p
 ```bash
 python3 tools/rcars-login.py \
   --server https://rcars-api.apps.cluster.example.com \
-  --oauth-server https://oauth-openshift.apps.cluster.example.com
+  --oauth-server https://oauth-openshift.apps.cluster.example.com \
+  --client-id rcars-api-dev
 ```
 
 Both scripts save credentials to `~/.config/rcars/credentials.json` (permissions: 600).

@@ -28,6 +28,9 @@ export function ItemCardBlock({ block }: ItemCardBlockProps) {
   const products = (block.data.products || []) as string[]
   const modules = (block.data.modules || []) as string[]
   const workloads = (block.data.workloads || []) as string[]
+  const solutionAreas = (block.data.solution_areas || []) as string[]
+  const useCases = (block.data.use_cases || []) as string[]
+  const keyComponents = (block.data.key_components || []) as string[]
   const neighbors = (block.data.neighbors || []) as ItemNeighbor[]
 
   if (!displayName) return null
@@ -117,6 +120,50 @@ export function ItemCardBlock({ block }: ItemCardBlockProps) {
         </div>
       )}
 
+      {solutionAreas.length > 0 && (
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Solution Areas
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {solutionAreas.map((s, i) => (
+              <span key={i} style={{
+                padding: '2px 6px', borderRadius: '3px', fontSize: '11px',
+                background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
+              }}>{s}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {useCases.length > 0 && (
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Use Cases
+          </div>
+          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+            {useCases.slice(0, 5).join(', ')}
+            {useCases.length > 5 && ` +${useCases.length - 5} more`}
+          </div>
+        </div>
+      )}
+
+      {keyComponents.length > 0 && (
+        <div style={{ marginBottom: '12px' }}>
+          <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '4px' }}>
+            Key Components
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+            {keyComponents.map((k, i) => (
+              <span key={i} style={{
+                padding: '2px 6px', borderRadius: '3px', fontSize: '11px',
+                background: 'var(--bg-subtle)', color: 'var(--text-secondary)',
+              }}>{k}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {neighbors.length > 0 && (
         <div style={{ marginBottom: '12px', paddingTop: '12px', borderTop: '1px solid var(--border-subtle)' }}>
           <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: '6px' }}>
@@ -151,7 +198,8 @@ export function ItemCardBlock({ block }: ItemCardBlockProps) {
           </a>
         )}
         <a
-          href={'/browse?search=' + encodeURIComponent(displayName)}
+          href={'/browse?search=' + encodeURIComponent(displayName) +
+            (contentType === 'architecture' ? '&format=architecture' : '')}
           target="_blank"
           rel="noopener noreferrer"
           style={{ color: 'var(--text-link)' }}

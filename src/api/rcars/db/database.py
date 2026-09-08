@@ -976,10 +976,10 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    f"SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage, bi.is_published "
+                    f"SELECT ce.content_id, ce.display_name, bi.is_published "
                     f"FROM content_entities ce "
-                    f"JOIN babylon_items bi ON bi.content_id = ce.content_id "
-                    f"WHERE bi.stage IN ({stage_placeholders}) AND ce.retired_at IS NULL",
+                    f"LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id "
+                    f"WHERE ce.status IN ({stage_placeholders}) AND ce.retired_at IS NULL",
                     (*stage_list,),
                 )
                 best_item = None
@@ -992,7 +992,8 @@ class Database:
                         best_overlap = overlap
                         best_item = row
                 if best_item:
-                    return self.get_babylon_item(best_item["content_id"])
+                    cid = best_item["content_id"]
+                    return self.get_babylon_item(cid) or self.get_content_entity(cid)
                 return None
 
     def list_catalog_items(
@@ -1534,6 +1535,16 @@ class Database:
                 {"content_id": content_id},
             )
             return cur.fetchone()
+
+    def get_analysis(self, content_id: str) -> dict[str, Any] | None:
+        """Get analysis for any content type — routes to the right table."""
+        entity = self.get_content_entity(content_id)
+        if not entity:
+            return None
+        ct = entity.get("content_type")
+        if ct == "architecture":
+            return self.get_architecture_analysis(content_id)
+        return self.get_showroom_analysis(content_id)
 
     def get_showroom_analysis_by_ci_name(self, ci_name: str) -> dict[str, Any] | None:
         content_id = f"babylon:{ci_name}"
