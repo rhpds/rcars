@@ -1,14 +1,15 @@
 """Phase 1 — vector search with quality threshold."""
 
-import logging
 import re
 import time
+
+import structlog
 
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 _CI_REF_PATTERN = re.compile(r'\bLB(\d{3,4})\b', re.IGNORECASE)
 
@@ -61,10 +62,10 @@ def _resolve_ci_references(
     for lab_num in _CI_REF_PATTERN.findall(query):
         item = db.find_catalog_item_by_display_name_prefix(f"LB{lab_num}%", stages=stages)
         if item:
-            log.info("ci_resolve: LB%s → %s (%s)", lab_num, item["content_id"], item.get("display_name", ""))
+            log.info("ci_resolve_match", lab_num=lab_num, content_id=item["content_id"], display_name=item.get("display_name", ""))
             resolved_items.append(item)
         else:
-            log.info("ci_resolve: LB%s not found in catalog", lab_num)
+            log.info("ci_resolve_miss", lab_num=lab_num)
 
     # Strategy 2: keyword overlap against display_names (only if no LB match)
     if not resolved_items:
@@ -72,7 +73,7 @@ def _resolve_ci_references(
         if len(query_words) >= 2:
             item = db.find_catalog_item_by_keyword_overlap(query_words, stages=stages, min_overlap=3)
             if item:
-                log.info("ci_resolve: keyword match → %s (%s)", item["content_id"], item.get("display_name", ""))
+                log.info("ci_resolve_keyword_match", content_id=item["content_id"], display_name=item.get("display_name", ""))
                 resolved_items.append(item)
 
     results = []
@@ -85,8 +86,7 @@ def _resolve_ci_references(
             embed_content_id = item["content_id"]
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
         if not embedding:
-            log.info("ci_resolve: no embedding for %s (looked up %s), skipping",
-                     item["content_id"], embed_content_id)
+            log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
             continue
 
         neighbors = db.search_embeddings(
@@ -122,7 +122,7 @@ def search(
     quality_threshold = 1.0 - distance_cutoff
 
     embed_text = _strip_embedding_filler(query)
-    log.info("embedding query: %r → %r", query, embed_text)
+    log.info("embedding_query", query=query, embed_text=embed_text)
     query_embedding = generate_embedding(embed_text, prefix="search_query")
 
     rows = db.search_embeddings(
@@ -137,7 +137,7 @@ def search(
 
     ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
     if ci_ref_rows:
-        log.info("ci_resolve: adding %d neighbor results from CI references", len(ci_ref_rows))
+        log.info("ci_resolve_neighbors", count=len(ci_ref_rows))
         seen = {r["content_id"] for r in rows}
         for row in ci_ref_rows:
             if row["content_id"] not in seen:
@@ -170,8 +170,8 @@ def search(
             if not include_zt and (prod_ci_name.startswith("zt-") or prod_item.get("catalog_namespace", "").startswith("zt-")):
                 promoted_rows.append(row)
                 continue
-            log.info("stage_promote: %s (stage=%s) → %s (prod, same content_hash)",
-                     row["content_id"], row.get("stage"), prod_content_id)
+            log.info("stage_promote", content_id=row["content_id"],
+                     from_stage=row.get("stage"), to_content_id=prod_content_id)
             row = {**row,
                    "content_id": prod_content_id,
                    "ci_name": prod_ci_name,
@@ -190,8 +190,7 @@ def search(
             pub_content_id = f"babylon:{row['published_ci_name']}"
             published_item = db.get_babylon_item(pub_content_id)
             if published_item:
-                log.debug("vector search: promoting base CI %s → published %s",
-                          row["content_id"], pub_content_id)
+                log.debug("vector_search_promote_published", content_id=row["content_id"], published=pub_content_id)
                 rows[i] = {**row,
                            "content_id": pub_content_id,
                            "ci_name": published_item.get("ci_name", row["published_ci_name"]),
@@ -200,8 +199,7 @@ def search(
                            "is_published": True,
                            "base_ci_name": row.get("ci_name")}
             else:
-                log.debug("vector search: base CI %s has published_ci_name=%s but not in DB, keeping base",
-                          row["content_id"], row["published_ci_name"])
+                log.debug("vector_search_published_not_in_db", content_id=row["content_id"], published_ci_name=row["published_ci_name"])
 
     # Dedup by content_id after all promotions — keep the highest similarity
     seen_ids: dict[str, int] = {}
@@ -310,14 +308,12 @@ def search(
     elapsed = time.monotonic() - t0
     phase = "VECTOR_DONE" if candidates else "NO_MATCHES"
 
-    log.info(
-        "vector search: %d candidates (threshold=%.2f, elapsed=%.3fs)",
-        len(candidates), quality_threshold, elapsed,
-    )
+    log.info("vector_search_complete", candidates=len(candidates),
+             threshold=quality_threshold, elapsed=round(elapsed, 3))
     for c in candidates:
-        log.info("  vector: %s [%s] (%s) dist=%.3f sim=%d%%",
-                 c.content_id, c.ci_name or "-", c.display_name,
-                 c.vector_distance, c.vector_similarity_pct)
+        log.info("vector_search_candidate", content_id=c.content_id,
+                 ci_name=c.ci_name or "-", display_name=c.display_name,
+                 distance=round(c.vector_distance, 3), similarity_pct=c.vector_similarity_pct)
 
     return QueryState(
         phase=phase,

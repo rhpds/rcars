@@ -7,14 +7,15 @@ This module never sets enrichment_review_needed and never writes review_reasons.
 
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
+
+import structlog
 
 from rcars.services.vocabulary.loader import load_vocabulary
 from rcars.services.vocabulary.models import Vocabulary, squash_key
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 # Analyzer output key -> vocabulary dimension. Keys absent from a given
 # analyzer's output are skipped, so one map serves Babylon and OSSPA.
@@ -193,12 +194,9 @@ def normalize_analysis(
     if unknowns and db is not None:
         _record_unknowns(db, unknowns, content_id)
 
-    log.info(
-        "vocabulary_normalized content_id=%s content_type=%s unknown_terms=%d",
-        content_id,
-        content_type,
-        len(unknowns),
-    )
+    log.info("vocabulary_normalized",
+             content_id=content_id, content_type=content_type,
+             unknown_terms=len(unknowns))
     return result
 
 
@@ -212,4 +210,4 @@ def _record_unknowns(db: Any, unknowns: list[tuple[str, str]], content_id: str |
         try:
             db.record_unknown_term(dimension, term, example_content_id=content_id)
         except Exception:
-            log.exception("vocabulary: failed to record unknown term %s/%s", dimension, term)
+            log.exception("vocabulary_record_unknown_failed", dimension=dimension, term=term)

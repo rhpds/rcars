@@ -10,11 +10,11 @@ Verbs are a NUDGE. Nothing is validated, rejected, or flagged.
 
 from __future__ import annotations
 
-import logging
+import structlog
 
 from rcars.services.vocabulary.models import DEFAULT_CONTENT_MODE, Vocabulary
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 # The template cannot use str.format() — it contains literal braces from its
 # JSON output example — so injection replaces an explicit sentinel token.
@@ -25,11 +25,8 @@ def _mode_for(vocab: Vocabulary, content_type: str) -> str:
     mode = vocab.content_modes.get((content_type or "").lower())
     if mode:
         return mode
-    log.warning(
-        "vocabulary: no content_modes entry for content_type=%r, falling back to %s",
-        content_type,
-        DEFAULT_CONTENT_MODE,
-    )
+    log.warning("vocabulary_content_mode_fallback",
+               content_type=content_type, fallback=DEFAULT_CONTENT_MODE)
     return DEFAULT_CONTENT_MODE
 
 

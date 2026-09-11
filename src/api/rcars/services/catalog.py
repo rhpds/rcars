@@ -5,17 +5,17 @@ and extracts catalog metadata and Showroom URLs using a strict allowlist.
 """
 
 import json
-import logging
 import urllib3
 from datetime import datetime
 from typing import Any
 
+import structlog
 from kubernetes import client, config as k8s_config
 
 # Suppress SSL warnings for clusters with self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 # Only these fields are extracted from AgnosticVComponent spec.definition.
 # Everything else (vault secrets, SSH keys, credentials) is discarded.
@@ -480,7 +480,7 @@ class CatalogReader:
             )
         except client.ApiException as e:
             if e.status == 404:
-                log.debug("AgnosticVComponent %s not found in %s", name, namespace)
+                log.debug("agnosticv_component_not_found", name=name, namespace=namespace)
                 return None
             raise
 
@@ -492,14 +492,14 @@ class CatalogReader:
         items = []
 
         for ns_idx, ns in enumerate(namespaces, 1):
-            log.info("Reading CatalogItems from namespace %d/%d: %s", ns_idx, len(namespaces), ns)
+            log.info("catalog_reading_namespace", ns_idx=ns_idx, total=len(namespaces), namespace=ns)
             try:
                 crds = self.list_catalog_items(ns)
             except client.ApiException as e:
-                log.error("Failed to list CatalogItems in %s: %s", ns, e.reason)
+                log.error("catalog_list_failed", namespace=ns, reason=e.reason)
                 continue
 
-            log.info("Found %d CatalogItems in %s, processing...", len(crds), ns)
+            log.info("catalog_items_found", count=len(crds), namespace=ns)
             for i, crd in enumerate(crds, 1):
                 # Skip CatalogItems the agnosticv-operator is holding open after AgnosticVComponent
                 # deletion (active ResourceClaims prevent immediate cleanup). Two signals required:
@@ -514,7 +514,7 @@ class CatalogReader:
                     and any(c.get("message") == "Deleted from AgnosticV" for c in _ops_comments)
                 ):
                     ci_name = crd.get("metadata", {}).get("name", "unknown")
-                    log.info("Skipping CatalogItem %s (deleted from AgnosticV, pending ResourceClaim drain)", ci_name)
+                    log.info("catalog_skip_deleted", ci_name=ci_name)
                     continue
 
                 item = extract_catalog_item(crd)
@@ -524,13 +524,13 @@ class CatalogReader:
                     ci_name, component_namespace
                 )
                 if not component:
-                    log.info("Skipping CatalogItem %s (no AgnosticVComponent found)", ci_name)
+                    log.info("catalog_skip_no_component", ci_name=ci_name)
                     continue
                 url, ref = extract_showroom_url(component)
                 item["showroom_url"] = url
                 item["showroom_ref"] = ref
                 if url:
-                    log.debug("  %s: showroom=%s ref=%s", ci_name, url, ref)
+                    log.debug("catalog_showroom_found", ci_name=ci_name, showroom_url=url, ref=ref)
 
                 infra = extract_infrastructure_metadata(component)
                 if infra:
@@ -558,9 +558,9 @@ class CatalogReader:
                 items.append(item)
 
                 if i % 50 == 0:
-                    log.info("  processed %d/%d items in %s", i, len(crds), ns)
+                    log.info("catalog_progress", processed=i, total=len(crds), namespace=ns)
 
-            log.info("Completed %s: %d items", ns, len(crds))
+            log.info("catalog_namespace_complete", namespace=ns, items=len(crds))
 
         _apply_component_inheritance(items)
 
