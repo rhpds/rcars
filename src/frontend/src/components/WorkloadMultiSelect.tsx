@@ -12,12 +12,14 @@ export function WorkloadMultiSelect({ options, selected, onChange, placeholder =
   const [filterText, setFilterText] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
+  const closePanel = () => { setIsOpen(false); setFilterText('') }
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setFilterText('') }
+      if (ref.current && !ref.current.contains(e.target as Node)) closePanel()
     }
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false)
+      if (e.key === 'Escape') closePanel()
     }
     document.addEventListener('mousedown', handleClickOutside)
     document.addEventListener('keydown', handleEscape)
@@ -43,7 +45,7 @@ export function WorkloadMultiSelect({ options, selected, onChange, placeholder =
     <div className="wl-multiselect" ref={ref}>
       <div
         className={`wl-multiselect-trigger${hasSelection ? ' active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => isOpen ? closePanel() : setIsOpen(true)}
       >
         {label} ▾
       </div>
