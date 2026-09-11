@@ -201,7 +201,7 @@ def parse_event_url(
              output_tokens=output_tokens, provider=llm_result.provider)
 
     result = parse_analysis_response(llm_result.text)
-    if result:
+    if isinstance(result, dict):
         log.info("event_parser_parsed", event_name=result.get("event_name"),
                  themes=result.get("themes"))
     return result

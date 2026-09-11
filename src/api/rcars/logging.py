@@ -47,7 +47,7 @@ def _add_component(component: str):
 
 def _reorder_keys(logger, method_name, event_dict):
     ordered = {}
-    for key in ("timestamp", "component", "log_level", "event"):
+    for key in ("timestamp", "component", "level", "event"):
         if key in event_dict:
             ordered[key] = event_dict.pop(key)
     ordered.update(event_dict)
