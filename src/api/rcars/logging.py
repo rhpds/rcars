@@ -37,6 +37,10 @@ def setup_logging(level: str = "INFO", component: str = "api") -> None:
     root.addHandler(handler)
     root.setLevel(log_level)
 
+    # arq logs job results with truncation and its own timestamp format;
+    # our workers already emit structured job_complete events, so silence arq
+    logging.getLogger("arq").setLevel(logging.WARNING)
+
 
 def _add_component(component: str):
     def processor(logger, method_name, event_dict):
