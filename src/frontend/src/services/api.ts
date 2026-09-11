@@ -250,7 +250,7 @@ export const api = {
   // Performance analysis
   getPerformanceDashboard: (params?: {
     sort_by?: string; sort_dir?: string; min_score?: number;
-    search?: string; window?: string; channel?: string; workflow_status?: string;
+    search?: string; window?: string; channel?: string; workflow_status?: string; include_retired?: string;
   }) => {
     const qs = new URLSearchParams()
     if (params) {
