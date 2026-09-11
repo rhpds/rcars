@@ -379,7 +379,7 @@ export function PerformancePage() {
           </div>
         </div>
 
-        {isCurator && (
+        {(isCurator || isAdmin) && (
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Retirement Status</div>
             <div className="ret-filter-group">
@@ -644,7 +644,7 @@ export function PerformancePage() {
                               </div>
                             )}
 
-                            {isCurator && (
+                            {(isCurator || isAdmin) && (
                               <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center',
                                 borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
                                 {isAdmin && (muted ? (

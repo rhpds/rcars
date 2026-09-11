@@ -398,8 +398,8 @@ export function BrowsePage() {
 
   // Filter state
   const [search, setSearch] = useState(searchParams.get('search') || '')
-  const [showDev, setShowDev] = useState(auth.isCurator && (searchParams.get('stage')?.includes('dev') || false))
-  const [showEvent, setShowEvent] = useState(auth.isCurator && (searchParams.get('stage')?.includes('event') || false))
+  const [showDev, setShowDev] = useState((auth.isCurator || auth.isAdmin) && (searchParams.get('stage')?.includes('dev') || false))
+  const [showEvent, setShowEvent] = useState((auth.isCurator || auth.isAdmin) && (searchParams.get('stage')?.includes('event') || false))
   const [cloudProvider, setCloudProvider] = useState(searchParams.get('cloud_provider') || '')
   const [agdConfig, setAgdConfig] = useState(searchParams.get('agd_config') || '')
   const [selectedWorkloads, setSelectedWorkloads] = useState<string[]>(
@@ -712,8 +712,8 @@ export function BrowsePage() {
           onChange={(e) => handleSearchChange(e.target.value)}
         />
         <div className="browse-toolbar-divider" />
-        {auth.isCurator && <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
-        {auth.isCurator && <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />}
+        {(auth.isCurator || auth.isAdmin) && <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
+        {(auth.isCurator || auth.isAdmin) && <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />}
 
         {/* Active filter chips */}
         {activeFilters.length > 0 && (
@@ -803,7 +803,7 @@ export function BrowsePage() {
           </div>
 
           {/* Curator filters — curator/admin only */}
-          {auth.isCurator && (
+          {(auth.isCurator || auth.isAdmin) && (
             <div className="browse-filter-group">
               <div className="browse-filter-group-label">Curator Tools</div>
               <div className="browse-curator-pills">
@@ -870,7 +870,7 @@ export function BrowsePage() {
                         {isArch ? architectureSubline(item) : `${item.ci_name ?? item.pa_name} · ${item.category}`}
                       </div>
                     </div>
-                    {auth.isCurator && isExpanded && detail && (
+                    {(auth.isCurator || auth.isAdmin) && isExpanded && detail && (
                       <button className="browse-btn-action" onClick={() => setDrawerItem(key)}>
                         Edit
                       </button>

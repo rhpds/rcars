@@ -13,7 +13,7 @@ const stageBadgeClass: Record<string, string> = {
 }
 
 export function NonProdItemsPage() {
-  const { isCurator } = useAuth()
+  const { isCurator, isAdmin } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [search, setSearch] = useState(searchParams.get('search') || '')
@@ -174,11 +174,11 @@ export function NonProdItemsPage() {
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
     : 'never'
 
-  if (!isCurator) {
+  if (!isCurator && !isAdmin) {
     return (
       <div style={{ padding: '24px', textAlign: 'center' }}>
         <h3>Access Restricted</h3>
-        <p>Non-Prod Items is available to curators only.</p>
+        <p>Non-Prod Items is available to curators and admins only.</p>
       </div>
     )
   }
