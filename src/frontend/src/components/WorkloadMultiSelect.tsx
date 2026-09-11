@@ -9,11 +9,12 @@ interface WorkloadMultiSelectProps {
 
 export function WorkloadMultiSelect({ options, selected, onChange, placeholder = 'Select workloads...' }: WorkloadMultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [filterText, setFilterText] = useState('')
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false)
+      if (ref.current && !ref.current.contains(e.target as Node)) { setIsOpen(false); setFilterText('') }
     }
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsOpen(false)
@@ -34,7 +35,7 @@ export function WorkloadMultiSelect({ options, selected, onChange, placeholder =
     }
   }
 
-  const sorted = [...options].sort((a, b) => a.localeCompare(b))
+  const sorted = [...options].sort((a, b) => a.localeCompare(b)).filter(o => o.toLowerCase().includes(filterText.toLowerCase()))
   const hasSelection = selected.length > 0
   const label = hasSelection ? `${selected.length} selected` : placeholder
 
@@ -48,6 +49,15 @@ export function WorkloadMultiSelect({ options, selected, onChange, placeholder =
       </div>
       {isOpen && (
         <div className="wl-multiselect-panel">
+          <input
+            className="wl-multiselect-search"
+            type="text"
+            placeholder="Search..."
+            value={filterText}
+            onChange={e => setFilterText(e.target.value)}
+            onClick={e => e.stopPropagation()}
+            autoFocus
+          />
           {sorted.map(opt => (
             <label key={opt} className="wl-multiselect-option">
               <input

@@ -1785,6 +1785,19 @@ details.ca-band-section:not([open]) > .ca-band-header {
   color: var(--text-link);
 }
 
+.wl-multiselect-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+
 .wl-multiselect-panel {
   position: absolute;
   top: 100%;
