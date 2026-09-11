@@ -369,7 +369,7 @@ export function AdvisorPage() {
           )}
           <div ref={chatEndRef} />
         </div>
-        {showSettings && auth.isCurator && (
+        {showSettings && (auth.isCurator || auth.isAdmin) && (
           <div style={{
             display: 'flex', gap: '12px', padding: '8px 12px', alignItems: 'center',
             background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)',

@@ -45,7 +45,7 @@ export function RcarsSidebar() {
             Catalog
           </NavLink>
 
-          {auth.isCurator && (
+          {(auth.isCurator || auth.isAdmin) && (
             <NavLink
               to="/browse/workloads"
               className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
@@ -54,11 +54,11 @@ export function RcarsSidebar() {
             </NavLink>
           )}
 
-          {(auth.isCurator || auth.canViewPerformance) && (
+          {(auth.isCurator || auth.isAdmin || auth.canViewPerformance) && (
             <div className="rcars-nav-section-label">Analysis</div>
           )}
 
-          {auth.isCurator && (
+          {(auth.isCurator || auth.isAdmin) && (
             <NavLink
               to="/analysis/overlap"
               className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
@@ -67,7 +67,7 @@ export function RcarsSidebar() {
             </NavLink>
           )}
 
-          {auth.isCurator && (
+          {(auth.isCurator || auth.isAdmin) && (
             <NavLink
               to="/analysis/nonprod"
               className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
