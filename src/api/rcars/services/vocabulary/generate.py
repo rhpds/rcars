@@ -8,14 +8,15 @@ database a second, divergent source of truth.
 
 from __future__ import annotations
 
-import logging
+
 from typing import Any
 
+import structlog
 import yaml
 
 from rcars.services.vocabulary.models import DIMENSIONS, Vocabulary
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 _GENERATED_BANNER = (
     "# ─────────────────────────────────────────────────────────────────────────\n"
@@ -74,7 +75,7 @@ def generate_vocabulary_yaml(vocab: Vocabulary, decisions: list[dict[str, Any]])
         if status == "aliased":
             target = decision.get("resolved_to")
             if not target:
-                log.warning("vocabulary generate: aliased decision for '%s' has empty resolved_to", term)
+                log.warning("vocabulary_generate_empty_resolved_to", term=term)
                 continue
             matched = False
             for entry in data[dimension]:
@@ -84,7 +85,7 @@ def generate_vocabulary_yaml(vocab: Vocabulary, decisions: list[dict[str, Any]])
                     matched = True
                     break
             if not matched:
-                log.warning("vocabulary generate: aliased target '%s' not found in %s for term '%s'", target, dimension, term)
+                log.warning("vocabulary_generate_target_not_found", target=target, dimension=dimension, term=term)
         elif status == "promoted":
             if not any(e["name"] == term for e in data[dimension]):
                 data[dimension].append({"name": term, "aliases": []})

@@ -18,7 +18,7 @@ def setup_logging(level: str = "INFO", component: str = "api") -> None:
     ]
 
     structlog.configure(
-        processors=[*shared_processors, structlog.processors.JSONRenderer()],
+        processors=[*shared_processors, _reorder_keys, structlog.processors.JSONRenderer()],
         wrapper_class=structlog.make_filtering_bound_logger(log_level),
         context_class=dict,
         logger_factory=structlog.PrintLoggerFactory(),
@@ -28,7 +28,7 @@ def setup_logging(level: str = "INFO", component: str = "api") -> None:
     # Route standard logging (used by analyzer.py, recommender services)
     # through structlog so all output is JSON on stdout.
     formatter = structlog.stdlib.ProcessorFormatter(
-        processors=[*shared_processors, structlog.stdlib.ProcessorFormatter.remove_processors_meta, structlog.processors.JSONRenderer()],
+        processors=[*shared_processors, structlog.stdlib.ProcessorFormatter.remove_processors_meta, _reorder_keys, structlog.processors.JSONRenderer()],
     )
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
@@ -37,12 +37,25 @@ def setup_logging(level: str = "INFO", component: str = "api") -> None:
     root.addHandler(handler)
     root.setLevel(log_level)
 
+    # arq logs job results with truncation and its own timestamp format;
+    # our workers already emit structured job_complete events, so silence arq
+    logging.getLogger("arq").setLevel(logging.WARNING)
+
 
 def _add_component(component: str):
     def processor(logger, method_name, event_dict):
         event_dict["component"] = component
         return event_dict
     return processor
+
+
+def _reorder_keys(logger, method_name, event_dict):
+    ordered = {}
+    for key in ("timestamp", "component", "level", "event"):
+        if key in event_dict:
+            ordered[key] = event_dict.pop(key)
+    ordered.update(event_dict)
+    return ordered
 
 
 def get_logger() -> structlog.BoundLogger:

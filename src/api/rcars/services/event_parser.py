@@ -5,7 +5,6 @@ and extracts structured profiles via Sonnet.
 """
 
 import ipaddress
-import logging
 import re
 import socket
 from pathlib import Path
@@ -13,10 +12,11 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
+import structlog
 
 from rcars.services.analyzer import parse_analysis_response
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 EVENT_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "match_event.txt"
 
@@ -74,10 +74,10 @@ def _fetch_html(url: str, timeout: int = 30, _max_redirects: int = 5) -> str | N
                 continue
             response.raise_for_status()
             return response.text
-        log.warning("event_parser: too many redirects for %s", url)
+        log.warning("event_parser_too_many_redirects", url=url)
         return None
     except (httpx.HTTPError, ValueError) as e:
-        log.warning("event_parser: failed to fetch %s: %s", url, e)
+        log.warning("event_parser_fetch_failed", url=url, error=str(e))
         return None
 
 
@@ -131,7 +131,7 @@ def fetch_event_content(url: str, max_chars: int = 80000) -> str | None:
     Follows links to schedule, program, tracks, talks, and similar pages
     on the same domain to gather richer event context.
     """
-    log.info("event_parser: fetching landing page %s", url)
+    log.info("event_parser_fetch_landing", url=url)
     landing_html = _fetch_html(url)
     if not landing_html:
         return None
@@ -145,14 +145,14 @@ def fetch_event_content(url: str, max_chars: int = 80000) -> str | None:
     content_pages = _find_content_pages(links, url)
 
     if content_pages:
-        log.info("event_parser: found %d content pages: %s",
-                 len(content_pages), [urlparse(u).path for u in content_pages])
+        log.info("event_parser_content_pages", count=len(content_pages),
+                 paths=[urlparse(u).path for u in content_pages])
     else:
-        log.info("event_parser: no content subpages found, using landing page only")
+        log.info("event_parser_no_subpages")
 
     for page_url in content_pages:
         if total_chars >= max_chars:
-            log.info("event_parser: reached %d char limit, skipping remaining pages", max_chars)
+            log.info("event_parser_char_limit", max_chars=max_chars)
             break
         page_html = _fetch_html(page_url)
         if not page_html:
@@ -162,7 +162,7 @@ def fetch_event_content(url: str, max_chars: int = 80000) -> str | None:
         section = f"\n\n=== Subpage: {path} ===\n{page_text}"
         sections.append(section)
         total_chars += len(section)
-        log.info("event_parser: fetched %s (%d chars)", path, len(page_text))
+        log.info("event_parser_fetched_subpage", path=path, chars=len(page_text))
 
     combined = "\n".join(sections)
     return combined[:max_chars]
@@ -182,7 +182,7 @@ def parse_event_url(
     if not page_text:
         return None
 
-    log.info("event_parser: sending %d chars to %s for analysis", len(page_text), model)
+    log.info("event_parser_analyzing", chars=len(page_text), model=model)
 
     template = EVENT_PROMPT_PATH.read_text()
 
@@ -197,11 +197,12 @@ def parse_event_url(
 
     input_tokens = llm_result.input_tokens
     output_tokens = llm_result.output_tokens
-    log.info("event_parser: response received (in=%d out=%d tokens, provider=%s)",
-             input_tokens, output_tokens, llm_result.provider)
+    log.info("event_parser_response", input_tokens=input_tokens,
+             output_tokens=output_tokens, provider=llm_result.provider)
 
     result = parse_analysis_response(llm_result.text)
-    if result:
-        log.info("event_parser: parsed event=%s themes=%s",
-                 result.get("event_name"), result.get("themes"))
+    if not isinstance(result, dict):
+        return None
+    log.info("event_parser_parsed", event_name=result.get("event_name"),
+             themes=result.get("themes"))
     return result

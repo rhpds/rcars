@@ -60,7 +60,9 @@ async def run_recommendation(
 
         )
 
-        log.info("job_complete", action="job_complete", results=len(state.candidates))
+        log.info("job_complete", action="job_complete",
+                 results=len(state.candidates),
+                 query=query[:120])
         return results
 
     except Exception as e:

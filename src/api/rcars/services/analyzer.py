@@ -6,7 +6,6 @@ structured analysis, generates embeddings, and stores results.
 
 import hashlib
 import json
-import logging
 import re
 import shutil
 import subprocess
@@ -15,7 +14,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-log = logging.getLogger(__name__)
+import structlog
+
+log = structlog.get_logger()
 
 # Content signals that indicate boilerplate (case-insensitive)
 BOILERPLATE_SIGNALS = [
@@ -57,7 +58,7 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | list | None:
     try:
         parsed = json.loads(text)
         if not isinstance(parsed, (dict, list)):
-            log.warning("parse_analysis_response: unexpected JSON type %s", type(parsed).__name__)
+            log.warning("parse_unexpected_json_type", json_type=type(parsed).__name__)
             return None
         return parsed
     except json.JSONDecodeError:
@@ -90,10 +91,10 @@ def parse_analysis_response(response_text: str) -> dict[str, Any] | list | None:
                 except json.JSONDecodeError:
                     continue
             if recovered:
-                log.warning("Recovered %d entries from truncated JSON array", len(recovered))
+                log.warning("parse_truncated_recovery", entries=len(recovered))
                 return recovered
 
-        log.warning("Failed to parse analysis response as JSON: %s", text[:200])
+        log.warning("parse_analysis_failed", text_preview=text[:200])
         return None
 
 
@@ -234,8 +235,8 @@ def _run_git_with_retry(cmd: list[str], timeout: int = 120, max_retries: int = 3
         except subprocess.CalledProcessError as e:
             if _is_github_throttle(e.stderr) and attempt < max_retries - 1:
                 wait = 10 * (2 ** attempt)
-                log.warning("GitHub throttle on attempt %d/%d, waiting %ds: %s",
-                            attempt + 1, max_retries, wait, cmd[:3])
+                log.warning("github_throttle_retry", attempt=attempt + 1,
+                            max_retries=max_retries, wait_seconds=wait)
                 time.sleep(wait)
                 continue
             raise
@@ -257,7 +258,7 @@ def ls_remote_sha(url: str, ref: str | None) -> str | None:
         return None
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         stderr = getattr(e, "stderr", "") or ""
-        log.warning("ls-remote failed for %s (ref=%s): %s", url, ref, stderr.strip()[:200])
+        log.warning("ls_remote_failed", url=url, ref=ref, stderr=stderr.strip()[:200])
         return None
 
 
@@ -301,7 +302,7 @@ def resolve_refs_to_shas(
                     ref_lookup.setdefault(refname, sha)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
             stderr = getattr(e, "stderr", "") or ""
-            log.warning("ls-remote batch failed for %s: %s", url, stderr.strip()[:200])
+            log.warning("ls_remote_batch_failed", url=url, stderr=stderr.strip()[:200])
 
         for ref in refs:
             if ref_lookup is not None:
@@ -312,8 +313,8 @@ def resolve_refs_to_shas(
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
     resolved = sum(1 for v in result.values() if v is not None)
-    log.info("resolve_refs_to_shas complete: %d pairs, %d resolved, %d failed, %dms",
-             len(result), resolved, len(result) - resolved, elapsed_ms)
+    log.info("resolve_refs_complete", pairs=len(result), resolved=resolved,
+             failed=len(result) - resolved, elapsed_ms=elapsed_ms)
     return result
 
 
@@ -358,18 +359,18 @@ def clone_showroom(
         return clone_path
     except subprocess.CalledProcessError as e:
         if ref and ("not found" in e.stderr or "could not find" in e.stderr.lower()):
-            log.warning("Ref %s not found for %s, trying default branch", ref, url)
+            log.warning("clone_ref_fallback", ref=ref, url=url)
             cmd_fallback = ["git", "clone", "--depth", "1", url, str(clone_path)]
             try:
                 _run_git_with_retry(cmd_fallback, timeout=120)
                 return clone_path
             except subprocess.CalledProcessError as e2:
-                log.error("Failed to clone %s: %s", url, e2.stderr.strip()[:200])
+                log.error("clone_failed", url=url, stderr=e2.stderr.strip()[:200])
                 return None
-        log.error("Failed to clone %s (ref=%s): %s", url, ref, e.stderr.strip()[:200])
+        log.error("clone_failed", url=url, ref=ref, stderr=e.stderr.strip()[:200])
         return None
     except subprocess.TimeoutExpired:
-        log.error("Clone timed out for %s", url)
+        log.error("clone_timeout", url=url)
         return None
 
 
@@ -415,7 +416,7 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
             files["_nav.adoc"] = nav_text
             nav_includes = _parse_nav_includes(nav_text)
             if nav_includes:
-                log.info("%s nav.adoc: %d active pages: %s", label, len(nav_includes), sorted(nav_includes))
+                log.info("nav_active_pages", ci_name=label, count=len(nav_includes), pages=sorted(nav_includes))
             else:
                 nav_includes = None
         except OSError:
@@ -424,12 +425,12 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
     if pages_dir.exists():
         for adoc_file in sorted(pages_dir.glob("*.adoc")):
             if nav_includes and adoc_file.name not in nav_includes:
-                log.info("%s skipping %s — not in nav.adoc", label, adoc_file.name)
+                log.info("nav_skip_file", ci_name=label, file=adoc_file.name)
                 continue
             try:
                 files[adoc_file.name] = adoc_file.read_text(errors="replace")
             except OSError as e:
-                log.warning("Could not read %s: %s", adoc_file, e)
+                log.warning("adoc_read_error", file=str(adoc_file), error=str(e))
 
     # For nav.adoc with subdirectory xrefs (e.g. 200-ops/lab_1.adoc),
     # also check those paths relative to ROOT/pages/
@@ -681,33 +682,33 @@ def analyze_showroom(
     clone_path = None
     try:
         # Clone
-        log.info("analyze %s: cloning %s (ref=%s)", ci_name, showroom_url, showroom_ref or "HEAD")
+        log.info("analyze_cloning", ci_name=ci_name, url=showroom_url, ref=showroom_ref or "HEAD")
         clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir)
         if not clone_path:
-            log.error("analyze %s: clone failed", ci_name)
+            log.error("analyze_clone_failed", ci_name=ci_name)
             return {"error": "clone_failed", "message": f"Failed to clone {showroom_url}"}
 
         # Get repo HEAD info
         head_sha, head_date = get_repo_head(clone_path)
-        log.info("analyze %s: cloned (HEAD=%s)", ci_name, head_sha[:8] if head_sha else "?")
+        log.info("analyze_cloned", ci_name=ci_name, head_sha=head_sha[:8] if head_sha else "?")
 
         # Read content
         raw_files = read_showroom_content(clone_path, content_path=content_path, ci_name=ci_name)
         if not raw_files:
             ref_info = f" (ref={showroom_ref})" if showroom_ref else " (ref=HEAD)"
             path_info = f", content_path={content_path}" if content_path else ""
-            log.warning("analyze %s: no .adoc files found in %s%s%s", ci_name, showroom_url, ref_info, path_info)
+            log.warning("analyze_no_adoc", ci_name=ci_name, url=showroom_url, ref=showroom_ref, content_path=content_path)
             return {"error": "no_content", "message": f"No .adoc files found in {showroom_url}{ref_info}{path_info}"}
 
         # Filter boilerplate
         content_files = filter_boilerplate_files(raw_files)
         if not content_files:
-            log.warning("analyze %s: all files filtered as boilerplate, using unfiltered", ci_name)
+            log.warning("analyze_all_boilerplate", ci_name=ci_name)
             content_files = raw_files
 
         total_chars = sum(len(v) for v in content_files.values())
-        log.info("analyze %s: %d content files (%d chars), %d filtered as boilerplate",
-                 ci_name, len(content_files), total_chars, len(raw_files) - len(content_files))
+        log.info("analyze_content", ci_name=ci_name, files=len(content_files),
+                 chars=total_chars, boilerplate=len(raw_files) - len(content_files))
 
         content_hash = hash_showroom_content(content_files)
 
@@ -718,8 +719,7 @@ def analyze_showroom(
             donor = db.find_donor_by_content_hash(content_hash, exclude_content_id=f"babylon:{ci_name}")
             if donor:
                 donor_name = donor["ci_name"]
-                log.info("analyze %s: reusing analysis from %s (same content_hash %s)",
-                         ci_name, donor_name, content_hash[:12])
+                log.info("analyze_reuse", ci_name=ci_name, donor=donor_name, content_hash=content_hash[:12])
                 donor_analysis = {
                     "content_type": donor.get("content_type"),
                     "summary": donor.get("summary"),
@@ -780,15 +780,15 @@ def analyze_showroom(
             ci_name, display_name, category, product, content_files,
             entity_content_type=entity_content_type,
         )
-        log.info("analyze %s: sending to %s (prompt ~%d chars)", ci_name, model, len(system_prompt) + len(user_message))
+        log.info("analyze_sending", ci_name=ci_name, model=model, prompt_chars=len(system_prompt) + len(user_message))
 
         from rcars.config import call_llm
         result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
         input_tokens = result.input_tokens
         output_tokens = result.output_tokens
-        log.info("analyze %s: response received (in=%d out=%d tokens, provider=%s)",
-                 ci_name, input_tokens, output_tokens, result.provider)
+        log.info("analyze_response", ci_name=ci_name, input_tokens=input_tokens,
+                 output_tokens=output_tokens, provider=result.provider)
 
         if db is not None:
             db.log_token_usage(
@@ -803,7 +803,7 @@ def analyze_showroom(
         response_text = result.text
         analysis = parse_analysis_response(response_text)
         if not analysis:
-            log.error("analyze %s: failed to parse Sonnet response", ci_name)
+            log.error("analyze_parse_failed", ci_name=ci_name)
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
 
         # Normalize ONCE, here — never at the individual write sites.
@@ -829,8 +829,8 @@ def analyze_showroom(
                 })
 
         elapsed = time.monotonic() - t0
-        log.info("analyze %s: complete (%.1fs, %d modules, %d embeddings)",
-                 ci_name, elapsed, len(modules), 1 + len(module_embeddings))
+        log.info("analyze_complete", ci_name=ci_name, elapsed=round(elapsed, 1),
+                 modules=len(modules), embeddings=1 + len(module_embeddings))
 
         # Assemble result
         return {
@@ -850,7 +850,7 @@ def analyze_showroom(
 
     except Exception:
         elapsed = time.monotonic() - t0
-        log.exception("analyze %s: failed after %.1fs", ci_name, elapsed)
+        log.exception("analyze_failed", ci_name=ci_name, elapsed=round(elapsed, 1))
         raise
 
     finally:

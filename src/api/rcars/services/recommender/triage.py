@@ -1,13 +1,14 @@
 """Phase 2 — Haiku triage for relevance scoring."""
 
-import logging
 import time
 from pathlib import Path
+
+import structlog
 
 from rcars.services.analyzer import parse_analysis_response
 from rcars.services.recommender.models import Candidate, QueryState
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 TRIAGE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "triage.txt"
 
@@ -65,7 +66,7 @@ def triage(
     triage_results = parse_analysis_response(response_text)
 
     if triage_results is None:
-        log.error("triage: failed to parse LLM response, raw=%s", response_text[:500])
+        log.error("triage_parse_failed", raw=response_text[:500])
 
     scores_by_key: dict[str, dict] = {}
     if isinstance(triage_results, list):
@@ -74,7 +75,7 @@ def triage(
                 if "content_id" in r:
                     scores_by_key[r["content_id"]] = r
                 elif "ci_name" in r:
-                    log.warning("triage: LLM returned ci_name instead of content_id: %s", r["ci_name"])
+                    log.warning("triage_ci_name_fallback", ci_name=r["ci_name"])
                     scores_by_key[f"babylon:{r['ci_name']}"] = r
     elif isinstance(triage_results, dict) and "recommendations" in triage_results:
         for r in triage_results["recommendations"]:
@@ -82,18 +83,19 @@ def triage(
                 if "content_id" in r:
                     scores_by_key[r["content_id"]] = r
                 elif "ci_name" in r:
-                    log.warning("triage: LLM returned ci_name instead of content_id: %s", r["ci_name"])
+                    log.warning("triage_ci_name_fallback", ci_name=r["ci_name"])
                     scores_by_key[f"babylon:{r['ci_name']}"] = r
     else:
-        log.warning("triage: unexpected result type=%s, keys=%s", type(triage_results).__name__,
-                    list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")
+        log.warning("triage_unexpected_result",
+                    result_type=type(triage_results).__name__,
+                    keys=list(triage_results.keys()) if isinstance(triage_results, dict) else "N/A")
 
     annotated = []
     relevant_count = 0
     for candidate in state.candidates:
         score_data = scores_by_key.get(candidate.content_id)
         if not score_data:
-            log.info("  triage: not scored %s — marking white", candidate.content_id)
+            log.info("triage_not_scored", content_id=candidate.content_id, tier="white")
             annotated.append(candidate)
             continue
 
@@ -108,12 +110,12 @@ def triage(
             candidate.tier = "yellow"
             candidate.relevant = True
             relevant_count += 1
-            log.info("  triage: yellow %s — score=%d (%s)", candidate.content_id, relevance, reason)
+            log.info("triage_scored", content_id=candidate.content_id, tier="yellow", score=relevance, reason=reason)
         else:
             candidate.tier = "white"
             candidate.relevant = False
-            log.info("  triage: white %s — score=%d relevant=%s (%s)",
-                     candidate.content_id, relevance, relevant, reason)
+            log.info("triage_scored", content_id=candidate.content_id, tier="white",
+                     score=relevance, relevant=relevant, reason=reason)
 
         annotated.append(candidate)
 
@@ -126,10 +128,9 @@ def triage(
     elapsed = time.monotonic() - t0
     phase = "TRIAGE_DONE" if relevant_count > 0 else "NO_MATCHES"
 
-    log.info(
-        "triage: %d/%d relevant, %d total returned (cutoff=%d, elapsed=%.3fs)",
-        relevant_count, len(state.candidates), len(annotated), triage_cutoff, elapsed,
-    )
+    log.info("triage_complete", relevant=relevant_count,
+             candidates=len(state.candidates), returned=len(annotated),
+             cutoff=triage_cutoff, elapsed=round(elapsed, 3))
 
     new_token_entry = {
         "operation": "triage",

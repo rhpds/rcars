@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import logging
 import sys
 
 import click
+import structlog
 from rich.console import Console
 from rich.table import Table
 
 from rcars.config import Settings
 from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
+from rcars.logging import setup_logging
 from rcars.services.analyzer import regenerate_embeddings
 from rcars.workers.scan import _sanitize_format_suitability
 
 console = Console()
-log = logging.getLogger("rcars")
+log = structlog.get_logger()
 
 
 def _print(msg: str):
@@ -39,12 +40,7 @@ def get_db() -> Database:
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 def cli(verbose: bool):
     """RCARS — RHDP Content Advisory & Recommendation System."""
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    setup_logging(level="DEBUG" if verbose else "INFO", component="cli")
 
 
 @cli.command("init-db")

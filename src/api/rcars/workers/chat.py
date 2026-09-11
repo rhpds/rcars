@@ -31,7 +31,10 @@ async def run_chat_turn(
         result = {**envelope, "session_id": session_id}
         wctx.db.complete_job(job_id, result_json=result)
         await on_progress({"phase": "complete", "results": len(envelope.get("blocks", []))})
-        log.info("job_complete", action="job_complete", intent=envelope.get("intent"))
+        log.info("job_complete", action="job_complete",
+                 intent=envelope.get("intent"),
+                 scope_echo=envelope.get("scope_echo"),
+                 blocks=len(envelope.get("blocks", [])))
         return result
     except Exception as e:
         log.error("job_failed", action="job_failed", error=str(e))
