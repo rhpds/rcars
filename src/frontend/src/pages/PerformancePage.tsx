@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
-type StatusFilter = 'all' | 'none' | 'in_process' | 'started' | 'muted'
+type StatusFilter = 'all' | 'none' | 'in_process' | 'started' | 'muted' | 'retired'
 type SortField = 'performance_score' | 'provisions' | 'pipeline_touched' | 'touched_roi'
   | 'closed_amount' | 'closed_roi' | 'total_cost' | 'display_name'
 
@@ -72,7 +72,8 @@ export function PerformancePage() {
         sort_by: sortBy, sort_dir: sortDir,
         search: search || undefined,
         window: window_, channel,
-        workflow_status: statusFilter !== 'all' && statusFilter !== 'muted' ? statusFilter : undefined,
+        workflow_status: statusFilter !== 'all' && statusFilter !== 'muted' && statusFilter !== 'retired' ? statusFilter : undefined,
+        include_retired: statusFilter === 'retired' ? 'only' : undefined,
       })
       setAllItems(data.items)
       setSyncedAt(data.synced_at)
@@ -383,7 +384,7 @@ export function PerformancePage() {
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Retirement Status</div>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', `Recommended (${recommendedCount})`], ['started', `In Progress (${inProgressCount})`], ...(isAdmin ? [['muted', 'Muted']] : [])] as [StatusFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['none', 'No Action'], ['in_process', `Recommended (${recommendedCount})`], ['started', `In Progress (${inProgressCount})`], ...(isAdmin ? [['muted', 'Muted']] : []), ...((isCurator || isAdmin) ? [['retired', 'Retired']] : [])] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                   {label}
