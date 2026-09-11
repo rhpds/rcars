@@ -706,8 +706,6 @@ spec:
               mountPath: /tmp
             - name: nginx-run
               mountPath: /var/run
-            - name: nginx-log
-              mountPath: /var/log/nginx
           livenessProbe:
             httpGet:
               path: /
@@ -736,8 +734,6 @@ spec:
         - name: nginx-tmp
           emptyDir: {}
         - name: nginx-run
-          emptyDir: {}
-        - name: nginx-log
           emptyDir: {}
 ---
 # ── OAuth Proxy (fronts the frontend service) ──

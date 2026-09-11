@@ -37,7 +37,7 @@ cmd_status() {
 }
 
 cmd_login() {
-    local server="" oauth_server="" client_id="rcars-api" no_server=0
+    local server="" oauth_server="" client_id="" no_server=0
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -51,6 +51,7 @@ cmd_login() {
 
     [[ -z "$server" ]]       && { echo "Error: --server is required" >&2; exit 1; }
     [[ -z "$oauth_server" ]] && { echo "Error: --oauth-server is required" >&2; exit 1; }
+    [[ -z "$client_id" ]]    && { echo "Error: --client-id is required (e.g. rcars-api-dev, rcars-api-prod)" >&2; exit 1; }
 
     server="${server%/}"
     oauth_server="${oauth_server%/}"

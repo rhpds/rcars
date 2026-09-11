@@ -217,7 +217,7 @@ def main():
     login_p = sub.add_parser("login", help="Authenticate and obtain an API key")
     login_p.add_argument("--server", required=True, help="RCARS API server URL")
     login_p.add_argument("--oauth-server", required=True, help="OAuth server URL")
-    login_p.add_argument("--client-id", default="rcars-api", help="OAuth client ID (default: rcars-api)")
+    login_p.add_argument("--client-id", required=True, help="OAuth client ID (e.g. rcars-api-dev, rcars-api-prod)")
 
     sub.add_parser("token", help="Print current API key")
     sub.add_parser("status", help="Show login status")
@@ -240,7 +240,10 @@ def main():
     elif args.top_server:
         args.server = args.top_server
         args.oauth_server = args.top_oauth_server
-        args.client_id = args.top_client_id or "rcars-api"
+        if not args.top_client_id:
+            print("Error: --client-id is required (e.g. rcars-api-dev, rcars-api-prod)")
+            sys.exit(1)
+        args.client_id = args.top_client_id
         cmd_login(args)
     else:
         parser.print_help()

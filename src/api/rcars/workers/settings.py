@@ -74,8 +74,8 @@ async def _reconcile_queued_orphans(db, redis) -> int:
     return db.fail_queued_orphans(orphaned)
 
 
-async def startup(ctx: dict) -> None:
-    setup_logging(level="INFO", component="worker")
+async def _startup(ctx: dict, component: str) -> None:
+    setup_logging(level="INFO", component=component)
     log = get_logger()
 
     settings = Settings()
@@ -100,6 +100,14 @@ async def startup(ctx: dict) -> None:
                  model_count=len(models), models=sorted(models))
 
     log.info("worker_started", action="worker_started")
+
+
+async def scan_startup(ctx: dict) -> None:
+    await _startup(ctx, "scan-worker")
+
+
+async def recommend_startup(ctx: dict) -> None:
+    await _startup(ctx, "recommend-worker")
 
 
 async def shutdown(ctx: dict) -> None:
@@ -144,7 +152,7 @@ class WorkerSettings:
     ] if _pipeline_enabled else []) + [
         cron(cleanup_orphaned_jobs, minute={0, 30}, timeout=60, unique=True),
     ]
-    on_startup = startup
+    on_startup = scan_startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
     max_jobs = _parse_max_jobs("RCARS_SCAN_MAX_JOBS", 5)
@@ -155,7 +163,7 @@ class WorkerSettings:
 class RecommendWorkerSettings:
     """Recommendation worker — handles advisor queries. Separate from scan to avoid starvation."""
     functions = [run_recommendation, run_chat_turn]
-    on_startup = startup
+    on_startup = recommend_startup
     on_shutdown = shutdown
     redis_settings = _redis_settings_from_url(os.environ.get("RCARS_REDIS_URL", "redis://localhost:6379"))
     max_jobs = _parse_max_jobs("RCARS_RECOMMEND_MAX_JOBS", 15)

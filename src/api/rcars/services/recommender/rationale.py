@@ -1,16 +1,17 @@
 """Phase 3 — per-candidate Sonnet rationale + Haiku content gap synthesis."""
 
-import logging
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+import structlog
+
 from rcars.services.analyzer import parse_analysis_response
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 SINGLE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_single.txt"
 SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_synthesis.txt"
@@ -122,7 +123,7 @@ def _call_rationale_single(
 
     result = parse_analysis_response(llm_result.text)
     if result is None:
-        log.warning("rationale_single: failed to parse response for %s", c.content_id)
+        log.warning("rationale_single_parse_failed", content_id=c.content_id)
         return {"content_id": c.content_id, "tokens": {"input": llm_result.input_tokens, "output": llm_result.output_tokens, "provider": llm_result.provider}}
 
     if isinstance(result, list) and result:
@@ -175,7 +176,7 @@ def _call_synthesis(
         result = result[0] if result else {}
     if not isinstance(result, dict):
         if result is not None:
-            log.warning("synthesis: unexpected response type %s", type(result).__name__)
+            log.warning("synthesis_unexpected_type", result_type=type(result).__name__)
         result = {}
 
     if "content_gaps" not in result:
@@ -270,7 +271,7 @@ def generate_rationale(
                 bucket["output"] += tokens.get("output", 0)
                 rationale_results[content_id] = result
             except Exception as e:
-                log.error("rationale_single: failed for %s: %s", content_id, e)
+                log.error("rationale_single_failed", content_id=content_id, error=str(e))
 
     # Apply rationale results to candidates
     for c in top_candidates:
@@ -285,10 +286,11 @@ def generate_rationale(
     matched = sum(1 for c in top_candidates if c.why_it_fits)
     if matched < len(top_candidates):
         missing = [c.content_id for c in top_candidates if not c.why_it_fits]
-        log.warning("rationale: %d/%d candidates missing why_it_fits", len(missing), len(top_candidates), missing=missing)
+        log.warning("rationale_missing_why_it_fits", missing_count=len(missing),
+                     total=len(top_candidates), missing=missing)
 
     rationale_elapsed = time.monotonic() - t0
-    log.info("rationale: %d/%d candidates completed (%.1fs)", matched, len(top_candidates), rationale_elapsed)
+    log.info("rationale_complete", matched=matched, total=len(top_candidates), elapsed=round(rationale_elapsed, 1))
 
     # Build overall_assessment deterministically from per-candidate results
     deterministic_assessment = _build_deterministic_assessment(top_candidates)
@@ -299,7 +301,7 @@ def generate_rationale(
     synthesis_tokens = synthesis_result.pop("tokens", {})
 
     elapsed = time.monotonic() - t0
-    log.info("synthesis: complete (%.1fs, model=%s)", time.monotonic() - t0 - rationale_elapsed, synthesis_model)
+    log.info("synthesis_complete", elapsed=round(time.monotonic() - t0 - rationale_elapsed, 1), model=synthesis_model)
 
     token_entries = [
         {

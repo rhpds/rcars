@@ -8,12 +8,13 @@ clear one uvicorn worker in one API replica.
 
 from __future__ import annotations
 
-import logging
+
 from functools import lru_cache
 from importlib.resources import files as _pkg_files
 from pathlib import Path
 from typing import Any
 
+import structlog
 import yaml
 
 from rcars.services.vocabulary.models import (
@@ -26,7 +27,7 @@ from rcars.services.vocabulary.models import (
     squash_key,
 )
 
-log = logging.getLogger(__name__)
+log = structlog.get_logger()
 
 
 def _resolve_path() -> Path:
@@ -123,7 +124,7 @@ def _build_lookups(
 def _validate(data: dict[str, Any], vocab: Vocabulary) -> None:
     unknown = set(data) - TOP_LEVEL_KEYS
     if unknown:
-        log.warning("vocabulary: ignoring unknown top-level keys: %s", ", ".join(sorted(unknown)))
+        log.warning("vocabulary_unknown_keys", keys=sorted(unknown))
 
     difficulty = {e.name.casefold() for e in vocab.entries("difficulty")}
     if difficulty != DIFFICULTY_LEVELS:
@@ -188,13 +189,10 @@ def load_vocabulary() -> Vocabulary:
     )
     _validate(data, vocab)
 
-    log.info(
-        "vocabulary_loaded path=%s products=%d solutions=%d verticals=%d platforms=%d modes=%d",
-        path,
-        len(vocab.entries("products")),
-        len(vocab.entries("solutions")),
-        len(vocab.entries("verticals")),
-        len(vocab.entries("platforms")),
-        len(vocab.content_modes),
-    )
+    log.info("vocabulary_loaded", path=str(path),
+             products=len(vocab.entries("products")),
+             solutions=len(vocab.entries("solutions")),
+             verticals=len(vocab.entries("verticals")),
+             platforms=len(vocab.entries("platforms")),
+             modes=len(vocab.content_modes))
     return vocab
