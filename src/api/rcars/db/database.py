@@ -2947,6 +2947,7 @@ class Database:
         search: str | None = None,
         workflow_status: str | None = None,
         channel: str = "rhdp",
+        include_retired: str | bool = False,
     ) -> list[dict]:
         allowed_sorts = {
             "performance_score", "provisions", "total_cost",
@@ -2957,7 +2958,12 @@ class Database:
             sort_by = "performance_score"
         direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
 
-        conditions = ["ce.retired_at IS NULL"]
+        retired_str = str(include_retired).lower()
+        conditions = []
+        if retired_str == "only":
+            conditions.append("ce.retired_at IS NOT NULL")
+        elif retired_str not in ("true", "1"):
+            conditions.append("ce.retired_at IS NULL")
         params: dict = {}
         params["channel"] = channel
 

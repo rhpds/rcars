@@ -88,6 +88,7 @@ async def performance_dashboard(
     window: str = Query("12m"),
     channel: str = Query("sales"),
     workflow_status: str | None = Query(None),
+    include_retired: str = Query("false"),
 ):
     if window not in WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(WINDOWS)}")
@@ -97,12 +98,17 @@ async def performance_dashboard(
 
     db = request.app.state.db
 
+    settings: Settings = request.app.state.settings
+    if not settings.is_curator(user) and not settings.is_admin(user):
+        include_retired = "false"
+
     items = db.list_performance_data(
         sort_by=sort_by, sort_dir=sort_dir,
         category=category,
         has_prod=has_prod, search=search,
         workflow_status=workflow_status,
         channel=source,
+        include_retired=include_retired,
     )
 
     import json as _json

@@ -46,10 +46,10 @@ export default function App() {
                   <Route path="/advisor" element={<AdvisorPage />} />
                 <Route path="/advisor/history" element={<HistoryPage />} />
                   <Route path="/browse" element={<BrowsePage />} />
-                  {auth.isCurator && (
+                  {(auth.isCurator || auth.isAdmin) && (
                     <Route path="/browse/workloads" element={<WorkloadsPage />} />
                   )}
-                  {auth.isCurator && (
+                  {(auth.isCurator || auth.isAdmin) && (
                     <>
                       <Route path="/analysis" element={<Navigate to="/analysis/overlap" replace />} />
                       <Route path="/analysis/overlap" element={<ContentOverlapPage />} />
