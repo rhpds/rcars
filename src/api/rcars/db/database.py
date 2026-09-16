@@ -914,6 +914,11 @@ class Database:
 
     def retire_missing_osspa(self, active_content_ids: set[str]) -> list[dict]:
         """Soft-retire portfolio_arch rows absent from the current in-scope set."""
+        if not active_content_ids:
+            logger.warning("retire_skipped_empty_scan",
+                           component="rcars", action="retire_removed",
+                           reason="Empty OSSPA scan result — refusing to retire all items")
+            return []
         with self._pool.connection() as conn:
             rows = conn.execute(
                 "SELECT content_id, display_name, retired_at FROM content_entities "
@@ -927,10 +932,6 @@ class Database:
                     conn.execute(
                         "UPDATE content_entities SET retired_at = NOW(), "
                         "retirement_reason = 'Removed from OSSPA PAList.csv' "
-                        "WHERE content_id = %s", (cid,))
-                    conn.execute(
-                        "UPDATE performance_scores SET performance_score = 0, "
-                        "score_breakdown = NULL, channel_scores = NULL "
                         "WHERE content_id = %s", (cid,))
                     newly_retired.append(item)
             if newly_retired:
