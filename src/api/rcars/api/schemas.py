@@ -333,6 +333,29 @@ class ReportingStatusResponse(BaseModel):
     last_synced: datetime | None = None
 
 
+# ── Field Source Content ────────────────────────────────────────────
+
+class FieldSourceProvision(BaseModel):
+    provisioned_at: datetime
+    retired_at: datetime | None
+
+
+class FieldSourceRepo(BaseModel):
+    git_repo: str
+    git_ref: str | None
+    catalog_item: str
+    provision_count: int
+    first_seen: datetime
+    last_seen: datetime
+    provisions: list[FieldSourceProvision]
+
+
+class FieldSourceResponse(BaseModel):
+    repos: list[FieldSourceRepo]
+    total_repos: int
+    total_provisions: int
+
+
 # ── API Keys ───────────────────────────────────────────────────────
 
 class CreateApiKeyRequest(BaseModel):

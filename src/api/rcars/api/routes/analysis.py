@@ -9,6 +9,7 @@ from rcars.api.schemas import (
     JobResponse, PerformanceDashboardResponse, WorkflowResponse,
     WorkflowGetResponse, StartRetirementResponse, CancelWorkflowResponse,
     ScanResponse, RescanResponse,
+    FieldSourceResponse, FieldSourceRepo, FieldSourceProvision,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.config import Settings
@@ -833,6 +834,56 @@ async def overlap_assessment_detail(
     if not row:
         return {"assessment": None, "assessed_at": None, "reason": "not_overlap"}
     return {"assessment": row["llm_assessment"], "assessed_at": row["assessed_at"]}
+
+
+@router.get(
+    "/field-source",
+    tags=["Field Source Content"],
+    summary="Field source content report",
+    description=(
+        "Returns provisioned git repos grouped by catalog item, "
+        "showing which external content sources are being used in the field. "
+        "Fixed 12-month window. Filter by catalog_item or pass 'all'."
+    ),
+    response_model=FieldSourceResponse,
+)
+async def field_source_report(
+    request: Request,
+    user: str = Depends(require_auth),
+    catalog_item: str = Query("all"),
+):
+    db = request.app.state.db
+    cat_filter = catalog_item if catalog_item != "all" else None
+    rows = db.get_field_source_summary(catalog_item=cat_filter)
+
+    # Group by (git_repo, git_ref, catalog_item)
+    groups: dict[tuple, list] = {}
+    for row in rows:
+        key = (row["git_repo"], row.get("git_ref"), row["catalog_item"])
+        groups.setdefault(key, []).append(row)
+
+    repos = []
+    for (repo, ref, cat), provisions in groups.items():
+        dates = [p["provisioned_at"] for p in provisions]
+        repos.append(FieldSourceRepo(
+            git_repo=repo,
+            git_ref=ref,
+            catalog_item=cat,
+            provision_count=len(provisions),
+            first_seen=min(dates),
+            last_seen=max(dates),
+            provisions=[FieldSourceProvision(
+                provisioned_at=p["provisioned_at"],
+                retired_at=p.get("retired_at"),
+            ) for p in provisions],
+        ))
+
+    repos.sort(key=lambda r: r.provision_count, reverse=True)
+    return FieldSourceResponse(
+        repos=repos,
+        total_repos=len(repos),
+        total_provisions=sum(r.provision_count for r in repos),
+    )
 
 
 @router.post(
