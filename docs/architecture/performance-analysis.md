@@ -50,7 +50,7 @@ Using the raw `provisions` table instead of `provisions_summary` produced ~5x in
 
 ## Data Import — Nightly Sync
 
-Reporting data is imported during the nightly maintenance pipeline (step 5 of 5, after catalog refresh → stale check → re-analysis → workload scan). It can also be triggered manually via `rcars reporting-db sync`.
+Reporting data is imported during the nightly maintenance pipeline (step 5 of the Babylon pipeline, after catalog refresh → stale check → re-analysis → workload scan). The reporting sync also pulls [field source content provisions](field-source-content.md) as a sub-step (5b). It can also be triggered manually via `rcars reporting-db sync`.
 
 ### What Gets Queried
 

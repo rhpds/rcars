@@ -118,7 +118,7 @@ See [Portfolio Architectures](portfolio-architectures.md) for full details on th
 
 ### RHDP Reporting Database
 
-RCARS imports usage, sales, and cost data from the RHDP reporting database via an MCP server. This is the same data source that powers the SuperSet management dashboard. See [Performance Analysis](performance-analysis.md) for full details on the data import, scoring methodology, and join approach.
+RCARS imports usage, sales, and cost data from the RHDP reporting database via an MCP server. This is the same data source that powers the SuperSet management dashboard. The reporting sync also pulls field source content provisions — Git repository URLs that field teams provide when ordering OCP and RHEL items. See [Performance Analysis](performance-analysis.md) for scoring and metrics, and [Field Source Content](field-source-content.md) for the field source visibility report.
 
 ---
 

@@ -39,6 +39,7 @@ nav:
       - Advisor Chat: architecture/advisor-chat.md
       - Content Overlap: architecture/content-overlap.md
       - Performance Analysis: architecture/performance-analysis.md
+      - Field Source Content: architecture/field-source-content.md
       - Infrastructure Catalog: architecture/infrastructure-catalog.md
       - Portfolio Architectures: architecture/portfolio-architectures.md
       - Data Design: architecture/data-design.md
