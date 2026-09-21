@@ -990,3 +990,80 @@ def run_reporting_sync(db, settings) -> dict:
     }
     log.info("sync_complete", **summary)
     return summary
+
+
+# ---------------------------------------------------------------------------
+# Field Source Content sync
+# ---------------------------------------------------------------------------
+
+FIELD_SOURCE_ITEMS: dict[str, dict] = {
+    "ocp": {
+        "catalog_id": 1969802,
+        "repo_param": "ocp4_workload_field_content_gitops_repo_url",
+        "ref_param": "ocp4_workload_field_content_gitops_repo_revision",
+    },
+    "rhel": {
+        "catalog_id": 1970262,
+        "repo_param": "vm_workload_field_content_git_repo_url",
+        "ref_param": "vm_workload_field_content_git_repo_revision",
+    },
+}
+
+
+def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str) -> str:
+    """Build SQL to pull field source provisions for one catalog item.
+
+    No environment filter — RHEL is DEV-only currently; including all envs
+    gives a complete usage picture for this visibility report.
+    """
+    return f"""
+        SELECT
+          rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ repo_param}' AS git_repo,
+          rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ ref_param}' AS git_ref,
+          p.provisioned_at,
+          p.retired_at,
+          p.uuid AS provision_uuid
+        FROM provisions p
+        JOIN resource_claim_log rcl ON rcl.provision_uuid = p.uuid
+        WHERE p.catalog_id = {catalog_id}
+          AND p.provisioned_at >= NOW() - INTERVAL '12 months'
+          AND rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ repo_param}' IS NOT NULL
+        ORDER BY p.provisioned_at DESC
+    """
+
+
+def run_field_source_sync(db, settings) -> dict:
+    """Pull field source content provision data from MCP, replace local table.
+
+    Returns dict with per-item counts and total, or {"error": ...} when MCP
+    is not configured.
+    """
+    url = settings.reporting_mcp_url
+    token = settings.reporting_mcp_token
+    if not url or not token:
+        return {"error": "reporting MCP not configured"}
+
+    log = logger.bind(action="field_source_sync")
+    all_rows: list[dict] = []
+    results: dict = {}
+
+    for item_key, cfg in FIELD_SOURCE_ITEMS.items():
+        sql = _build_field_source_sql(cfg["catalog_id"], cfg["repo_param"], cfg["ref_param"])
+        log.info("field_source_fetching", item=item_key, catalog_id=cfg["catalog_id"])
+        rows = mcp_query(sql, url=url, token=token)
+        for row in rows:
+            row["catalog_item"] = item_key
+        all_rows.extend(rows)
+        results[item_key] = len(rows)
+        log.info("field_source_fetched", item=item_key, rows=len(rows))
+
+    # Full replace: delete all, re-insert fresh from MCP
+    deleted = db.delete_field_source_provisions()
+    log.info("field_source_deleted_old", deleted=deleted)
+
+    if all_rows:
+        db.upsert_field_source_provisions(all_rows)
+
+    results["total"] = len(all_rows)
+    log.info("field_source_sync_complete", **results)
+    return results

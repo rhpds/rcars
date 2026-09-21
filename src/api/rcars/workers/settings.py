@@ -39,7 +39,8 @@ from rcars.workers.scan import run_analysis
 from arq import cron, func
 from rcars.workers.ops import (
     run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan,
-    run_reporting_sync_job, run_osspa_sync_job, run_babylon_pipeline, run_osspa_pipeline,
+    run_reporting_sync_job, run_field_source_sync_job, run_osspa_sync_job,
+    run_babylon_pipeline, run_osspa_pipeline,
 )
 
 # Maps the jobs.queue column value to the arq sorted-set key for that queue.
@@ -142,6 +143,7 @@ class WorkerSettings:
         func(run_nightly_pipeline, timeout=7200),
         func(run_workload_scan, timeout=3600),
         func(run_reporting_sync_job, timeout=600),
+        func(run_field_source_sync_job, timeout=600),
         func(run_osspa_sync_job, timeout=3600),
         func(run_babylon_pipeline, timeout=7200),
         func(run_osspa_pipeline, timeout=3600),

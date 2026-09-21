@@ -449,6 +449,19 @@ async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = 
         log.info("pipeline_reporting_sync_skipped", action="pipeline_step_skipped",
                  step="reporting_sync", reason="MCP URL or token not configured")
 
+    # Step 5b: Field Source Content sync (if configured)
+    if wctx.settings.reporting_mcp_url and wctx.settings.reporting_mcp_token:
+        try:
+            from rcars.services.reporting_sync import run_field_source_sync
+            fs_result = await asyncio.to_thread(run_field_source_sync, wctx.db, wctx.settings)
+            log.info("pipeline_field_source_sync_complete", action="pipeline_step_complete",
+                     step="field_source_sync", **fs_result)
+        except Exception as e:
+            msg = f"Step 5b failed (field source sync): {e}"
+            warnings.append(msg)
+            log.error("pipeline_field_source_sync_failed", action="pipeline_step_failed",
+                      step="field_source_sync", error=str(e))
+
     # Prune old completed/failed jobs — keep advisor query jobs (queue=recommend) indefinitely
     try:
         pruned = wctx.db.prune_old_jobs(retain_days=30)
@@ -686,6 +699,32 @@ async def run_reporting_sync_job(ctx: dict, job_id: str) -> dict:
         return result
     except Exception as e:
         log.error("reporting_sync_failed", action="reporting_sync_failed",
+                  error=str(e), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="failed", status="failed", message=str(e))
+        wctx.db.fail_job(job_id, error=str(e))
+        raise
+
+
+async def run_field_source_sync_job(ctx: dict, job_id: str) -> dict:
+    """Sync field source content provisions from MCP server (standalone)."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+
+    log.info("field_source_sync_started", action="field_source_sync_started")
+    wctx.db.update_job_status(job_id, "running")
+
+    try:
+        from rcars.services.reporting_sync import run_field_source_sync
+        result = await asyncio.to_thread(run_field_source_sync, wctx.db, wctx.settings)
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="complete", status="complete",
+                               message=f"Field source sync complete: {result.get('total', 0)} provisions")
+        wctx.db.complete_job(job_id, result_json=result)
+        log.info("field_source_sync_complete", action="field_source_sync_complete", **result)
+        return result
+    except Exception as e:
+        log.error("field_source_sync_failed", action="field_source_sync_failed",
                   error=str(e), traceback=traceback.format_exc())
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="failed", status="failed", message=str(e))
