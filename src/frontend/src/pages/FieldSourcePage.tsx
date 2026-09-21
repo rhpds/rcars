@@ -85,7 +85,7 @@ export function FieldSourcePage() {
             return (
               <Fragment key={key}>
                 <tr className="ca-row-clickable" onClick={() => toggleExpand(key)}>
-                  <td>{isExpanded ? '▾' : '▸'}</td>
+                  <td aria-expanded={isExpanded} aria-label="Toggle details">{isExpanded ? '▾' : '▸'}</td>
                   <td>
                     <a href={repo.git_repo} target="_blank" rel="noreferrer"
                        onClick={e => e.stopPropagation()}>

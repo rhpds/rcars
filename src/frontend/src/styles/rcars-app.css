@@ -665,6 +665,16 @@ body {
 .ca-env-dev { background: var(--pill-topic-bg); color: var(--text-link); }
 .ca-env-test { background: var(--bg-table-stripe); color: var(--text-muted); }
 
+.ca-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+.ca-badge--ocp  { background: var(--score-red-bg);   color: var(--score-red); }
+.ca-badge--rhel { background: var(--pill-topic-bg);  color: var(--text-link); }
+
 .ca-color-red { color: var(--score-red); }
 .ca-color-orange { color: var(--score-amber); }
 .ca-color-green { color: var(--score-green); }
