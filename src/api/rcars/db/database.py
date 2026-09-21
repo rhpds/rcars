@@ -576,6 +576,22 @@ WHERE  aa.content_id = ce.content_id
   AND  aa.summary IS NOT NULL
   AND  ce.scan_status = 'not_scanned';
 
+-- Field source provisions — RHDPCD-2028
+-- Tracks individual provisions by git repo+ref (catalog_item: 'ocp' or 'rhel').
+-- provision_uuid is the dedup key; retired_at reflects the provision end time.
+CREATE TABLE IF NOT EXISTS field_source_provisions (
+    id              SERIAL PRIMARY KEY,
+    catalog_item    TEXT NOT NULL,
+    git_repo        TEXT NOT NULL,
+    git_ref         TEXT,
+    provisioned_at  TIMESTAMPTZ NOT NULL,
+    retired_at      TIMESTAMPTZ,
+    provision_uuid  TEXT NOT NULL UNIQUE,
+    synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_fsp_catalog_item ON field_source_provisions(catalog_item);
+CREATE INDEX IF NOT EXISTS idx_fsp_git_repo ON field_source_provisions(git_repo);
+
 """
 
 
@@ -3588,3 +3604,52 @@ class Database:
                 cur.execute("DELETE FROM role_assignments WHERE id = %s", (id,))
                 conn.commit()
                 return cur.rowcount > 0
+
+    # ── Field source provisions — RHDPCD-2028 ──
+
+    def upsert_field_source_provisions(self, rows: list[dict]) -> int:
+        """Insert or update field source provision rows. Returns number of rows processed."""
+        if not rows:
+            return 0
+        sql = """
+            INSERT INTO field_source_provisions
+                (catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid, synced_at)
+            VALUES
+                (%(catalog_item)s, %(git_repo)s, %(git_ref)s, %(provisioned_at)s, %(retired_at)s, %(provision_uuid)s, NOW())
+            ON CONFLICT (provision_uuid) DO UPDATE SET
+                retired_at = EXCLUDED.retired_at,
+                synced_at = NOW()
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                for row in rows:
+                    cur.execute(sql, row)
+            conn.commit()
+        return len(rows)
+
+    def delete_field_source_provisions(self) -> int:
+        """Delete all field source provisions (for full-replace sync). Returns deleted count."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM field_source_provisions")
+                count = cur.rowcount
+            conn.commit()
+        return count
+
+    def get_field_source_summary(self, catalog_item: str | None = None, months: int = 12) -> list[dict]:
+        """Return provision rows within the given month window, optionally filtered by catalog_item."""
+        cutoff = datetime.now(timezone.utc) - timedelta(days=months * 30)
+        sql = """
+            SELECT catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid
+            FROM field_source_provisions
+            WHERE provisioned_at >= %s
+        """
+        params: list = [cutoff]
+        if catalog_item:
+            sql += " AND catalog_item = %s"
+            params.append(catalog_item)
+        sql += " ORDER BY git_repo, git_ref, provisioned_at DESC"
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
