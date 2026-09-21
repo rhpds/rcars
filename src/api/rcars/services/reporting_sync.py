@@ -1003,28 +1003,42 @@ FIELD_SOURCE_ITEMS: dict[str, dict] = {
         "catalog_id": 1969802,
         "repo_param": "ocp4_workload_field_content_gitops_repo_url",
         "ref_param": "ocp4_workload_field_content_gitops_repo_revision",
+        "cloud_provider_param": "ocp_cloud_provider",
+        "size_param": "cluster_size",
     },
     "rhel": {
         "catalog_id": 1970262,
         "repo_param": "vm_workload_field_content_git_repo_url",
         "ref_param": "vm_workload_field_content_git_repo_revision",
+        "cloud_provider_param": "cloud_provider",
+        "size_param": "node_instance_count",
+        "node_size_param": "node_size",
     },
 }
 
 
-def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str) -> str:
+def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str,
+                            cloud_provider_param: str, size_param: str,
+                            node_size_param: str | None = None) -> str:
     """Build SQL to pull field source provisions for one catalog item.
 
     No environment filter — RHEL is DEV-only currently; including all envs
     gives a complete usage picture for this visibility report.
     """
+    node_size_col = (
+        f"rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ node_size_param}' AS node_size,"
+        if node_size_param else ""
+    )
     return f"""
         SELECT
           p.uuid AS provision_uuid,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ repo_param}' AS git_repo,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ ref_param}' AS git_ref,
           p.provisioned_at,
-          p.retired_at
+          p.retired_at,
+          rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ cloud_provider_param}' AS cloud_provider,
+          { node_size_col}
+          rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ size_param}' AS cluster_size
         FROM provisions p
         JOIN resource_claim_log rcl ON rcl.provision_uuid = p.uuid
         WHERE p.catalog_id = {catalog_id}
@@ -1050,11 +1064,18 @@ def run_field_source_sync(db, settings) -> dict:
     results: dict = {}
 
     for item_key, cfg in FIELD_SOURCE_ITEMS.items():
-        sql = _build_field_source_sql(cfg["catalog_id"], cfg["repo_param"], cfg["ref_param"])
+        sql = _build_field_source_sql(
+            cfg["catalog_id"], cfg["repo_param"], cfg["ref_param"],
+            cfg["cloud_provider_param"], cfg["size_param"],
+            node_size_param=cfg.get("node_size_param"),
+        )
         log.info("field_source_fetching", item=item_key, catalog_id=cfg["catalog_id"])
         rows = mcp_query(sql, url=url, token=token)
         for row in rows:
             row["catalog_item"] = item_key
+            row["cloud_provider"] = (row.get("cloud_provider") or "cnv").lower()
+            row.setdefault("node_size", None)
+            row.setdefault("cluster_size", None)
         all_rows.extend(rows)
         results[item_key] = len(rows)
         log.info("field_source_fetched", item=item_key, rows=len(rows))

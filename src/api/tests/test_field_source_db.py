@@ -49,6 +49,8 @@ _ROWS = [
         "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-001",
+        "cloud_provider": "cnv",
+        "cluster_size": "sno", "node_size": None,
     },
     {
         "catalog_item": "ocp",
@@ -57,6 +59,8 @@ _ROWS = [
         "provisioned_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
         "retired_at": datetime(2026, 7, 5, tzinfo=timezone.utc),
         "provision_uuid": "uuid-002",
+        "cloud_provider": "aws",
+        "cluster_size": "multinode", "node_size": None,
     },
     {
         "catalog_item": "rhel",
@@ -65,6 +69,8 @@ _ROWS = [
         "provisioned_at": datetime(2026, 8, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-003",
+        "cloud_provider": "cnv",
+        "cluster_size": "single", "node_size": "small",
     },
 ]
 
@@ -100,6 +106,8 @@ def test_upsert_updates_retired_at(db):
         "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-retire-test",
+        "cloud_provider": "cnv",
+        "cluster_size": "sno", "node_size": None,
     }
     db.upsert_field_source_provisions([row])
 
@@ -121,6 +129,8 @@ def test_delete_field_source(db):
             "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
             "retired_at": None,
             "provision_uuid": "uuid-del-001",
+            "cloud_provider": "cnv",
+            "cluster_size": "sno", "node_size": None,
         }
     ]
     db.upsert_field_source_provisions(rows)

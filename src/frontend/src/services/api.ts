@@ -533,6 +533,9 @@ export interface VocabularyData {
 export interface FieldSourceProvision {
   provisioned_at: string
   retired_at: string | null
+  cloud_provider: string | null
+  cluster_size: string | null
+  node_size: string | null
 }
 
 export interface FieldSourceRepo {
@@ -540,6 +543,10 @@ export interface FieldSourceRepo {
   git_ref: string | null
   catalog_item: string
   provision_count: number
+  cnv_count: number
+  aws_count: number
+  sno_count: number
+  multinode_count: number
   first_seen: string
   last_seen: string
   provisions: FieldSourceProvision[]

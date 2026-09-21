@@ -338,6 +338,9 @@ class ReportingStatusResponse(BaseModel):
 class FieldSourceProvision(BaseModel):
     provisioned_at: datetime
     retired_at: datetime | None
+    cloud_provider: str | None = None
+    cluster_size: str | None = None
+    node_size: str | None = None
 
 
 class FieldSourceRepo(BaseModel):
@@ -345,6 +348,10 @@ class FieldSourceRepo(BaseModel):
     git_ref: str | None
     catalog_item: str
     provision_count: int
+    cnv_count: int = 0
+    aws_count: int = 0
+    sno_count: int = 0
+    multinode_count: int = 0
     first_seen: datetime
     last_seen: datetime
     provisions: list[FieldSourceProvision]

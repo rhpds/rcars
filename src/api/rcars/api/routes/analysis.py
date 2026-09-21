@@ -856,6 +856,13 @@ async def field_source_report(
     cat_filter = catalog_item if catalog_item != "all" else None
     rows = db.get_field_source_summary(catalog_item=cat_filter)
 
+    def _is_multinode(size: str | None) -> bool:
+        if size == "multinode":
+            return True
+        if size and size.isdigit() and int(size) > 1:
+            return True
+        return False
+
     # Group by (git_repo, git_ref, catalog_item)
     groups: dict[tuple, list] = {}
     for row in rows:
@@ -870,11 +877,18 @@ async def field_source_report(
             git_ref=ref,
             catalog_item=cat,
             provision_count=len(provisions),
+            cnv_count=sum(1 for p in provisions if p.get("cloud_provider") == "cnv"),
+            aws_count=sum(1 for p in provisions if p.get("cloud_provider") == "aws"),
+            sno_count=sum(1 for p in provisions if p.get("cluster_size") in ("sno", "1")),
+            multinode_count=sum(1 for p in provisions if _is_multinode(p.get("cluster_size"))),
             first_seen=min(dates),
             last_seen=max(dates),
             provisions=[FieldSourceProvision(
                 provisioned_at=p["provisioned_at"],
                 retired_at=p.get("retired_at"),
+                cloud_provider=p.get("cloud_provider"),
+                cluster_size=p.get("cluster_size"),
+                node_size=p.get("node_size"),
             ) for p in provisions],
         ))
 

@@ -62,10 +62,12 @@ def test_field_source_endpoint(client, db):
     db.upsert_field_source_provisions([
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
-         "retired_at": None, "provision_uuid": "api-uuid-1"},
+         "retired_at": None, "provision_uuid": "api-uuid-1",
+         "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None},
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
-         "retired_at": None, "provision_uuid": "api-uuid-2"},
+         "retired_at": None, "provision_uuid": "api-uuid-2",
+         "cloud_provider": "aws", "cluster_size": "multinode", "node_size": None},
     ])
     resp = client.get("/api/v1/analysis/field-source")
     assert resp.status_code == 200
@@ -79,10 +81,12 @@ def test_field_source_filter(client, db):
     db.upsert_field_source_provisions([
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
-         "retired_at": None, "provision_uuid": "filt-uuid-1"},
+         "retired_at": None, "provision_uuid": "filt-uuid-1",
+         "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None},
         {"catalog_item": "rhel", "git_repo": "https://github.com/ex/r2",
          "git_ref": "v1.0", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
-         "retired_at": None, "provision_uuid": "filt-uuid-2"},
+         "retired_at": None, "provision_uuid": "filt-uuid-2",
+         "cloud_provider": "cnv", "cluster_size": "single", "node_size": "small"},
     ])
     resp = client.get("/api/v1/analysis/field-source?catalog_item=ocp")
     assert resp.status_code == 200
