@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { api, FieldSourceData } from '../services/api'
 
 type CatalogFilter = 'all' | 'ocp' | 'rhel'
+type SortField = 'repository' | 'ref' | 'type' | 'provisions' | 'first_seen' | 'last_seen'
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
 
@@ -19,6 +20,8 @@ export function FieldSourcePage() {
   const [search, setSearch] = useState('')
   const [searchDisplay, setSearchDisplay] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [sortBy, setSortBy] = useState<SortField>('provisions')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const fetchData = useCallback(async () => {
@@ -56,6 +59,34 @@ export function FieldSourcePage() {
     return repoDisplayName(r.git_repo).toLowerCase().includes(q)
       || (r.git_ref?.toLowerCase().includes(q) ?? false)
   }) ?? []
+
+  const toggleSort = (field: SortField) => {
+    if (sortBy === field) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortBy(field)
+      setSortDir('desc')
+    }
+  }
+
+  const sortVal = (r: typeof filtered[0], f: SortField) => {
+    switch (f) {
+      case 'repository': return repoDisplayName(r.git_repo).toLowerCase()
+      case 'ref': return (r.git_ref ?? '').toLowerCase()
+      case 'type': return r.catalog_item
+      case 'provisions': return r.provision_count
+      case 'first_seen': return r.first_seen
+      case 'last_seen': return r.last_seen
+    }
+  }
+
+  const sorted = [...filtered].sort((a, b) => {
+    const av = sortVal(a, sortBy), bv = sortVal(b, sortBy)
+    const cmp = av < bv ? -1 : av > bv ? 1 : 0
+    return sortDir === 'desc' ? -cmp : cmp
+  })
+
+  const arrow = (field: SortField) => sortBy === field ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
 
   const ocpCount = data?.repos.filter(r => r.catalog_item === 'ocp').length ?? 0
   const rhelCount = data?.repos.filter(r => r.catalog_item === 'rhel').length ?? 0
@@ -129,16 +160,16 @@ export function FieldSourcePage() {
             <thead>
               <tr>
                 <th style={{ width: '2rem' }}></th>
-                <th>Repository</th>
-                <th>Ref</th>
-                <th>Type</th>
-                <th>Provisions</th>
-                <th>First Used</th>
-                <th>Last Used</th>
+                <th className="clickable" onClick={() => toggleSort('repository')}>Repository{arrow('repository')}</th>
+                <th className="clickable" onClick={() => toggleSort('ref')}>Ref{arrow('ref')}</th>
+                <th className="clickable" onClick={() => toggleSort('type')}>Type{arrow('type')}</th>
+                <th className="clickable num" onClick={() => toggleSort('provisions')}>Provisions{arrow('provisions')}</th>
+                <th className="clickable" onClick={() => toggleSort('first_seen')}>First Used{arrow('first_seen')}</th>
+                <th className="clickable" onClick={() => toggleSort('last_seen')}>Last Used{arrow('last_seen')}</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map(repo => {
+              {sorted.map(repo => {
                 const key = `${repo.git_repo}|${repo.git_ref}|${repo.catalog_item}`
                 const isExpanded = expanded.has(key)
                 return (
