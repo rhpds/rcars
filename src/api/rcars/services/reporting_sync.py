@@ -286,7 +286,7 @@ def mcp_query(
     timeout: int = 180,
 ) -> list[dict]:
     """Execute SQL via MCP server, auto-paginating past the per-call row cap."""
-    PAGE = 1000
+    PAGE = 500
     MAX_PAGES = 50
     all_rows: list[dict] = []
     offset = 0
@@ -1020,11 +1020,11 @@ def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str) ->
     """
     return f"""
         SELECT
+          p.uuid AS provision_uuid,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ repo_param}' AS git_repo,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ ref_param}' AS git_ref,
           p.provisioned_at,
-          p.retired_at,
-          p.uuid AS provision_uuid
+          p.retired_at
         FROM provisions p
         JOIN resource_claim_log rcl ON rcl.provision_uuid = p.uuid
         WHERE p.catalog_id = {catalog_id}

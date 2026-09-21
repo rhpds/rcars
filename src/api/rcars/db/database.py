@@ -3638,13 +3638,12 @@ class Database:
 
     def get_field_source_summary(self, catalog_item: str | None = None, months: int = 12) -> list[dict]:
         """Return provision rows within the given month window, optionally filtered by catalog_item."""
-        cutoff = datetime.now(timezone.utc) - timedelta(days=months * 30)
         sql = """
             SELECT catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid
             FROM field_source_provisions
-            WHERE provisioned_at >= %s
+            WHERE provisioned_at >= NOW() - make_interval(months => %s)
         """
-        params: list = [cutoff]
+        params: list = [months]
         if catalog_item:
             sql += " AND catalog_item = %s"
             params.append(catalog_item)

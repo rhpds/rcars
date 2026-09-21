@@ -177,7 +177,7 @@ export function FieldSourcePage() {
                     <tr className="ca-row-clickable" onClick={() => toggleExpand(key)}>
                       <td aria-expanded={isExpanded} aria-label="Toggle details">{isExpanded ? '▾' : '▸'}</td>
                       <td>
-                        {repo.git_repo ? (
+                        {repo.git_repo && /^https?:\/\//i.test(repo.git_repo) ? (
                           <a href={repo.git_repo} target="_blank" rel="noreferrer"
                              onClick={e => e.stopPropagation()}>
                             {repoDisplayName(repo.git_repo)}

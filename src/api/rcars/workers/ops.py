@@ -717,6 +717,8 @@ async def run_field_source_sync_job(ctx: dict, job_id: str) -> dict:
     try:
         from rcars.services.reporting_sync import run_field_source_sync
         result = await asyncio.to_thread(run_field_source_sync, wctx.db, wctx.settings)
+        if result.get("error"):
+            raise RuntimeError(result["error"])
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="complete", status="complete",
                                message=f"Field source sync complete: {result.get('total', 0)} provisions")
