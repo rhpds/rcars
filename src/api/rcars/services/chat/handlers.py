@@ -91,6 +91,7 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
                         "assessment": state.overall_assessment,
                         "top": [c["display_name"] for c in (green or cards)[:3]],
+                        "durations": {c["display_name"]: c.get("duration_min") for c in (green or cards)[:5] if c.get("duration_min")},
                         "scoped": scoped},
         anchor_ids=[c["content_id"] for c in (green or cards)[:5]],
         session_results=cards)
