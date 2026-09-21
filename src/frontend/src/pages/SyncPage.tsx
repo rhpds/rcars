@@ -380,7 +380,7 @@ function ScheduledMaintenance() {
     setLog([])
     setLogOpen(true)
     setRunningBabylon(true)
-    addLog('Starting Babylon pipeline (catalog sync → stale check → re-analyze → workload scan)...')
+    addLog('Starting Babylon pipeline (catalog sync → stale check → re-analyze → workload scan → reporting sync → field source sync)...')
     try {
       const result = await api.runBabylon()
       addLog(`job_id=${result.job_id}`)
@@ -449,6 +449,8 @@ function ScheduledMaintenance() {
           <li><strong>Check Stale</strong> — compares Showroom content hashes to find items changed since last analysis</li>
           <li><strong>Re-Analyze</strong> — processes any stale or unanalyzed Showroom items</li>
           <li><strong>Workload Scan</strong> — checks AgnosticD repositories for new or changed roles; updates the infrastructure catalog</li>
+          <li><strong>Reporting Sync</strong> — pulls performance metrics from the reporting database</li>
+          <li><strong>Field Source Sync</strong> — pulls field source content provision data from the reporting database</li>
         </ol>
         <p style={{ margin: '0 0 4px' }}><strong>Architecture pipeline</strong></p>
         <ol style={{ margin: '0 0 8px 20px', listStyleType: 'decimal' }}>
