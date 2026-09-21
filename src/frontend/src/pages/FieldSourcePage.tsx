@@ -194,7 +194,7 @@ export function FieldSourcePage() {
                           {repo.catalog_item.toUpperCase()}
                         </span>
                       </td>
-                      <td>{repo.provision_count}</td>
+                      <td style={{ textAlign: 'right' }}>{repo.provision_count}</td>
                       <td>{formatDate(repo.first_seen)}</td>
                       <td>{formatDate(repo.last_seen)}</td>
                     </tr>
