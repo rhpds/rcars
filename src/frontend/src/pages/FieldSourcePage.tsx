@@ -6,6 +6,7 @@ type CatalogFilter = 'all' | 'ocp' | 'rhel'
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
 
 const repoDisplayName = (url: string) => {
+  if (!url) return 'No automation repo provided'
   try { return new URL(url).pathname.replace(/^\//, '').replace(/\.git$/, '') }
   catch { return url }
 }
@@ -145,10 +146,16 @@ export function FieldSourcePage() {
                     <tr className="ca-row-clickable" onClick={() => toggleExpand(key)}>
                       <td aria-expanded={isExpanded} aria-label="Toggle details">{isExpanded ? '▾' : '▸'}</td>
                       <td>
-                        <a href={repo.git_repo} target="_blank" rel="noreferrer"
-                           onClick={e => e.stopPropagation()}>
-                          {repoDisplayName(repo.git_repo)}
-                        </a>
+                        {repo.git_repo ? (
+                          <a href={repo.git_repo} target="_blank" rel="noreferrer"
+                             onClick={e => e.stopPropagation()}>
+                            {repoDisplayName(repo.git_repo)}
+                          </a>
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                            {repoDisplayName(repo.git_repo)}
+                          </span>
+                        )}
                       </td>
                       <td><code>{repo.git_ref ?? '—'}</code></td>
                       <td>
