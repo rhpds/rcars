@@ -665,6 +665,9 @@ body {
 .ca-env-dev { background: var(--pill-topic-bg); color: var(--text-link); }
 .ca-env-test { background: var(--bg-table-stripe); color: var(--text-muted); }
 
+.ca-stats-row { display: flex; align-items: center; gap: 0.5rem; margin: 0.5rem 0; color: var(--text-muted); font-size: 0.85rem; }
+.ca-stats-sep { opacity: 0.5; }
+
 .ca-badge {
   display: inline-block;
   padding: 1px 6px;

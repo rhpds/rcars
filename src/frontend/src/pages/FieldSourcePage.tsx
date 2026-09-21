@@ -63,6 +63,7 @@ export function FieldSourcePage() {
 
       <div className="ca-stats-row">
         <span><strong>{data.total_repos}</strong> repos</span>
+        <span className="ca-stats-sep">·</span>
         <span><strong>{data.total_provisions}</strong> total provisions</span>
       </div>
 

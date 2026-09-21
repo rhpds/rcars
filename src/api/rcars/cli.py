@@ -567,7 +567,7 @@ def reporting_db_group():
 @click.pass_context
 def reporting_db_sync(ctx):
     """Sync reporting metrics from RHDP MCP server."""
-    from rcars.services.reporting_sync import run_reporting_sync
+    from rcars.services.reporting_sync import run_reporting_sync, run_field_source_sync
 
     settings = Settings()
     if not settings.reporting_mcp_url or not settings.reporting_mcp_token:
@@ -585,6 +585,14 @@ def reporting_db_sync(ctx):
     except Exception as e:
         _print(f"ERROR: {e}")
         raise SystemExit(1)
+
+    _print("Syncing field source content provisions...")
+    try:
+        fs_result = run_field_source_sync(db, settings)
+        _print(f"  OCP: {fs_result.get('ocp', 0)}, RHEL: {fs_result.get('rhel', 0)}, "
+               f"Total: {fs_result.get('total', 0)}")
+    except Exception as e:
+        _print(f"WARNING: Field source sync failed: {e}")
 
 
 @reporting_db_group.command("status")
