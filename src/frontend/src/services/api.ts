@@ -367,6 +367,10 @@ export const api = {
       { method: 'PUT', body: JSON.stringify({ action, resolved_to: resolvedTo ?? null }) },
     ),
   vocabularyGenerateUrl: () => `${BASE}/admin/vocabulary/generate`,
+
+  // Field Source Content
+  getFieldSource: (catalogItem = 'all') =>
+    request<FieldSourceData>(`/analysis/field-source?catalog_item=${catalogItem}`),
 };
 
 export interface RetirementWorkflow {
@@ -524,6 +528,27 @@ export interface VocabularyData {
   dimensions: Record<string, VocabEntry[]>
   content_modes: Record<string, string>
   ignored_terms: Record<string, string[]>
+}
+
+export interface FieldSourceProvision {
+  provisioned_at: string
+  retired_at: string | null
+}
+
+export interface FieldSourceRepo {
+  git_repo: string
+  git_ref: string | null
+  catalog_item: string
+  provision_count: number
+  first_seen: string
+  last_seen: string
+  provisions: FieldSourceProvision[]
+}
+
+export interface FieldSourceData {
+  repos: FieldSourceRepo[]
+  total_repos: number
+  total_provisions: number
 }
 
 export interface UnknownTerm {

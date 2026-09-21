@@ -13,6 +13,7 @@ import { ApiKeysPanel } from './components/admin/ApiKeysPanel'
 import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import { NonProdItemsPage } from './pages/NonProdItemsPage'
 import { PerformancePage } from './pages/PerformancePage'
+import { FieldSourcePage } from './pages/FieldSourcePage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
 import { RecentJobsPage } from './pages/RecentJobsPage'
@@ -59,6 +60,7 @@ export default function App() {
                   {auth.canViewPerformance && (
                     <Route path="/analysis/performance" element={<PerformancePage />} />
                   )}
+                  <Route path="/analysis/field-source" element={<FieldSourcePage />} />
                   {auth.isAdmin && (
                     <>
                       <Route path="/system/status" element={<StatusPage />} />
