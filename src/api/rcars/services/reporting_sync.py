@@ -285,8 +285,8 @@ def mcp_query(
     token: str,
     timeout: int = 180,
 ) -> list[dict]:
-    """Execute SQL via MCP server, auto-paginating past 500-row cap."""
-    PAGE = 500
+    """Execute SQL via MCP server, auto-paginating past the per-call row cap."""
+    PAGE = 1000
     MAX_PAGES = 50
     all_rows: list[dict] = []
     offset = 0
@@ -302,6 +302,8 @@ def mcp_query(
         if len(rows) < PAGE:
             break
         offset += PAGE
+    if len(all_rows) >= MAX_PAGES * PAGE:
+        logger.warning("mcp_query_truncated", rows=len(all_rows), sql=sql[:120])
     return all_rows
 
 
