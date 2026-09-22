@@ -849,7 +849,7 @@ async def overlap_assessment_detail(
 )
 async def field_source_report(
     request: Request,
-    user: str = Depends(require_auth),
+    user: str = Depends(require_curator),
     catalog_item: str = Query("all"),
 ):
     db = request.app.state.db
