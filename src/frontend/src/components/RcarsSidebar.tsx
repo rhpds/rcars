@@ -87,6 +87,15 @@ export function RcarsSidebar() {
 
           {(auth.isCurator || auth.isAdmin) && (
             <NavLink
+              to="/analysis/retirement"
+              className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
+            >
+              Retirement
+            </NavLink>
+          )}
+
+          {(auth.isCurator || auth.isAdmin) && (
+            <NavLink
               to="/analysis/field-source"
               className={({ isActive }) => `rcars-nav-item rcars-nav-item--indent${isActive ? ' active' : ''}`}
             >

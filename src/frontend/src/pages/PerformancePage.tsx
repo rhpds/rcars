@@ -193,9 +193,6 @@ export function PerformancePage() {
 
   const isIgnored = (i: PerformanceItem) => !!i.ignored_until
   const activeItems = allItems.filter(i => !isIgnored(i))
-  const recommendedCount = activeItems.filter(i => i.workflow_status === 'approved' || i.workflow_status === 'notified').length
-  const inProgressCount = activeItems.filter(i => i.workflow_status === 'started').length
-
   const extractNs = (name: string) => name.split('.')[0]
   const statusBaseItems = statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems
   const availableNamespaces = (() => {
@@ -380,11 +377,11 @@ export function PerformancePage() {
           </div>
         </div>
 
-        {(isCurator || isAdmin) && (
+        {isAdmin && (
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Retirement Status</div>
+            <div className="browse-filter-group-label">Status</div>
             <div className="ret-filter-group">
-              {([['all', 'All'], ['none', 'No Action'], ['in_process', `Recommended (${recommendedCount})`], ['started', `In Progress (${inProgressCount})`], ...(isAdmin ? [['muted', 'Muted']] : []), ...((isCurator || isAdmin) ? [['retired', 'Retired']] : [])] as [StatusFilter, string][]).map(([f, label]) => (
+              {([['all', 'All'], ['muted', 'Muted']] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
                   className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                   {label}
