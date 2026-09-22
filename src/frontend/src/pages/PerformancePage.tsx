@@ -78,7 +78,7 @@ export function PerformancePage() {
       setAllItems(data.items)
       setSyncedAt(data.synced_at)
     } finally { setLoading(false) }
-  }, [sortBy, sortDir, search, window_, channel, statusFilter])
+  }, [sortBy, sortDir, search, window_, channel])
 
   useEffect(() => { loadData() }, [loadData])
 

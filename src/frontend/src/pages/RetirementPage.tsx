@@ -26,7 +26,8 @@ const statusBadgeClass: Record<string, string> = {
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const date = d.includes('T') ? new Date(d) : new Date(d + 'T00:00:00')
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function fmtEmail(email: string | null) {

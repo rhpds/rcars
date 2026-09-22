@@ -674,8 +674,8 @@ async def retirement_dashboard(
         if not existing:
             seen[bn] = item
         else:
-            candidate_rank = (bool(item.get("workflow_raw_status")), item.get("provisions") or 0)
-            existing_rank = (bool(existing.get("workflow_raw_status")), existing.get("provisions") or 0)
+            candidate_rank = (bool(item.get("workflow_raw_status")), item.get("provisions") or item.get("np_provisions") or 0)
+            existing_rank = (bool(existing.get("workflow_raw_status")), existing.get("provisions") or existing.get("np_provisions") or 0)
             if candidate_rank > existing_rank:
                 seen[bn] = item
 
