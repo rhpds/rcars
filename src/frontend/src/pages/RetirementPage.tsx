@@ -307,8 +307,8 @@ export function RetirementPage() {
                         <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
-                        <td>{item.first_activity || '—'}</td>
-                        <td>{item.last_activity || '—'}</td>
+                        <td>{fmtDate(item.first_activity)}</td>
+                        <td>{fmtDate(item.last_activity)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">
@@ -331,7 +331,7 @@ export function RetirementPage() {
                                   <span className="ca-detail-value">{fmtDate(item.retirement_target_date)}</span>
                                 </div>
                               )}
-                              {item.performance_score != null && item.performance_score > 0 && (
+                              {item.performance_score != null && (
                                 <div className="ca-detail-item">
                                   <span className="ca-detail-label">Score</span>
                                   <span className="ca-detail-value">{item.performance_score}</span>
@@ -401,7 +401,7 @@ export function RetirementPage() {
                             <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center',
                               borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
                               <button className="ret-action-btn ret-action-btn--primary"
-                                onClick={(e) => { e.stopPropagation(); setDrawerItem(item as unknown as WorkflowItem) }}>
+                                onClick={(e) => { e.stopPropagation(); setDrawerItem(item as WorkflowItem) }}>
                                 Retirement Workflow
                               </button>
                             </div>

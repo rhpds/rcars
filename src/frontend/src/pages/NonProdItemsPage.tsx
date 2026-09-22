@@ -5,7 +5,7 @@ import { WorkflowDrawer, WorkflowItem } from '../components/performance/Workflow
 import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '6m' | '12m'
-type StatusFilter = 'all' | 'active' | 'muted'
+type StatusFilter = 'all' | 'muted'
 type SortField = 'provisions' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
 
 const stageBadgeClass: Record<string, string> = {

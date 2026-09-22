@@ -694,10 +694,13 @@ async def retirement_dashboard(
         w = wm.get(window, {})
 
         # Merge metrics: prefer perf, fall back to nonprod, then windowed
-        item["provisions"] = w.get("provisions", item.get("provisions") or item.get("np_provisions") or 0)
-        item["unique_users"] = w.get("unique_users", item.get("unique_users") or item.get("np_unique_users") or 0)
-        item["experiences"] = w.get("experiences", item.get("experiences") or item.get("np_experiences") or 0)
-        item["success_ratio"] = w.get("success_ratio", item.get("success_ratio") or item.get("np_success_ratio") or 0)
+        # Use `is not None` — `or` treats 0 as falsy and pulls wrong values
+        def _pref(a, b):
+            return a if a is not None else (b if b is not None else 0)
+        item["provisions"] = w.get("provisions", _pref(item.get("provisions"), item.get("np_provisions")))
+        item["unique_users"] = w.get("unique_users", _pref(item.get("unique_users"), item.get("np_unique_users")))
+        item["experiences"] = w.get("experiences", _pref(item.get("experiences"), item.get("np_experiences")))
+        item["success_ratio"] = w.get("success_ratio", _pref(item.get("success_ratio"), item.get("np_success_ratio")))
         item["first_activity"] = item.get("first_activity") or item.get("first_provision")
         item["last_activity"] = item.get("last_activity") or item.get("last_provision")
 
