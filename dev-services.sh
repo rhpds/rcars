@@ -3,11 +3,14 @@
 # Starts PostgreSQL, Redis, API, Worker, and Frontend for local development.
 #
 # Usage:
-#   ./dev-services.sh start    # Start all services
-#   ./dev-services.sh stop     # Stop all services
-#   ./dev-services.sh restart  # Restart all services
-#   ./dev-services.sh status   # Show service status
-#   ./dev-services.sh db-pull  # Dump dev DB and restore locally
+#   ./dev-services.sh start              # Start all services (admin role)
+#   ./dev-services.sh start --role user  # Start as regular user (no curator/admin)
+#   ./dev-services.sh start --role curator
+#   ./dev-services.sh start --role admin # Default
+#   ./dev-services.sh stop               # Stop all services
+#   ./dev-services.sh restart            # Restart all services
+#   ./dev-services.sh status             # Show service status
+#   ./dev-services.sh db-pull            # Dump dev DB and restore locally
 #
 # db-pull config (set via environment variables):
 #   RCARS_DEV_KUBECONFIG  Path to kubeconfig for dev cluster (required for db-pull)
@@ -29,9 +32,32 @@ FRONTEND_DIR="${PROJECT_DIR}/src/frontend"
 
 export RCARS_DATABASE_URL="postgresql://rcars:dev@localhost:5432/rcars"
 export RCARS_REDIS_URL="redis://localhost:6379"
-export RCARS_DEV_USER="${RCARS_DEV_USER:-dev@redhat.com}"
-export RCARS_ADMIN_EMAILS_STR="${RCARS_ADMIN_EMAILS_STR:-dev@redhat.com}"
-export RCARS_CURATOR_EMAILS_STR="${RCARS_CURATOR_EMAILS_STR:-dev@redhat.com}"
+_DEV_ROLE=""
+for arg in "$@"; do
+    if [[ "${arg}" == "--role" ]]; then _DEV_ROLE="__next__"; continue; fi
+    if [[ "${_DEV_ROLE}" == "__next__" ]]; then _DEV_ROLE="${arg}"; fi
+done
+_DEV_ROLE="${_DEV_ROLE:-admin}"
+
+export RCARS_DEV_USER="dev@redhat.com"
+case "${_DEV_ROLE}" in
+    user)
+        export RCARS_ADMIN_EMAILS_STR=""
+        export RCARS_CURATOR_EMAILS_STR=""
+        ;;
+    curator)
+        export RCARS_ADMIN_EMAILS_STR=""
+        export RCARS_CURATOR_EMAILS_STR="dev@redhat.com"
+        ;;
+    admin)
+        export RCARS_ADMIN_EMAILS_STR="dev@redhat.com"
+        export RCARS_CURATOR_EMAILS_STR="dev@redhat.com"
+        ;;
+    *)
+        echo "Unknown role: ${_DEV_ROLE} (use: user, curator, admin)"
+        exit 1
+        ;;
+esac
 export RCARS_EMBEDDING_URL="http://localhost:8000/v1"
 
 start_postgres() {
@@ -149,6 +175,7 @@ start() {
     start_frontend
     echo ""
     echo "RCARS dev environment ready."
+    echo "Role:      ${_DEV_ROLE} (${RCARS_DEV_USER})"
     echo "Frontend:  http://localhost:3000"
     echo "API docs:  http://localhost:8080/api/v1/docs"
     echo "Logs:      /tmp/rcars-*.log"
@@ -257,12 +284,14 @@ frontend_only() {
     echo "Logs:      /tmp/rcars-frontend.log"
 }
 
-case "${1:-start}" in
+# Strip --role from positional args
+_cmd="${1:-start}"
+case "${_cmd}" in
     start)    start ;;
     stop)     stop ;;
     restart)  stop; sleep 1; start ;;
     status)   show_status ;;
     frontend) frontend_only ;;
     db-pull)  db_pull ;;
-    *)        echo "Usage: $0 {start|stop|restart|status|frontend|db-pull}" ;;
+    *)        echo "Usage: $0 {start|stop|restart|status|frontend|db-pull} [--role user|curator|admin]" ;;
 esac
