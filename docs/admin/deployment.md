@@ -36,13 +36,22 @@ The `dev-services.sh` script starts the full RCARS stack locally for development
 ### Usage
 
 ```bash
-./dev-services.sh start    # Start all services
-./dev-services.sh stop     # Stop all services
-./dev-services.sh restart  # Restart all services
-./dev-services.sh status   # Check what's running
+./dev-services.sh start              # Start all services (admin role, default)
+./dev-services.sh start --role user  # Regular user — no curator or admin access
+./dev-services.sh start --role curator
+./dev-services.sh start --role admin
+./dev-services.sh stop               # Stop all services
+./dev-services.sh restart            # Restart all services
+./dev-services.sh status             # Check what's running
 ```
 
-Dev mode sets `RCARS_DEV_USER=dev@redhat.com` with full admin access — no OAuth or K8s auth needed.
+Dev mode sets `RCARS_DEV_USER=dev@redhat.com` — no OAuth or K8s auth needed. The `--role` flag controls which pages and API endpoints are accessible:
+
+| Role | Sees |
+|---|---|
+| `admin` (default) | Everything — Catalog, Analysis, System pages |
+| `curator` | Catalog + Analysis (Overlap, Non-Prod, Performance, Field Source) |
+| `user` | Catalog, Advisor, Performance |
 
 ### Accessing locally
 

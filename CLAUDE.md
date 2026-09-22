@@ -58,16 +58,18 @@ rcars-advisory/
 ## Running Locally
 
 ```bash
-./dev-services.sh start    # PostgreSQL (pgvector), Redis, API, Scan Worker, Recommend Worker, Frontend
-./dev-services.sh stop     # Stop all
-./dev-services.sh status   # Check what's running
+./dev-services.sh start              # Start all services (admin role, default)
+./dev-services.sh start --role user  # Regular user (no curator/admin)
+./dev-services.sh start --role curator
+./dev-services.sh stop               # Stop all
+./dev-services.sh status             # Check what's running
 ```
 
 - Frontend: http://localhost:3000
 - API docs: http://localhost:8080/api/v1/docs
 - Logs: /tmp/rcars-api.log, /tmp/rcars-scan-worker.log, /tmp/rcars-recommend-worker.log, /tmp/rcars-frontend.log
 
-Dev services set: `RCARS_DEV_USER=dev@redhat.com`, `RCARS_ADMIN_EMAILS_STR=dev@redhat.com`, `RCARS_CURATOR_EMAILS_STR=dev@redhat.com` (full access locally).
+Dev services set `RCARS_DEV_USER=dev@redhat.com`. The `--role` flag controls access: `admin` (default, full access), `curator` (catalog + analysis), `user` (catalog + advisor + performance only).
 
 ## Running Tests
 
