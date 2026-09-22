@@ -267,13 +267,13 @@ export function RetirementPage() {
                   <th>Status</th>
                   <th>Type</th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
-                    Provs {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
-                    Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('experiences')}>
-                    Exper {sortBy === 'experiences' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Experiences {sortBy === 'experiences' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('success_ratio')}>
                     Success {sortBy === 'success_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
@@ -307,8 +307,8 @@ export function RetirementPage() {
                         <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
-                        <td style={{ fontSize: '11px' }}>{item.first_activity || '—'}</td>
-                        <td style={{ fontSize: '11px' }}>{item.last_activity || '—'}</td>
+                        <td>{item.first_activity || '—'}</td>
+                        <td>{item.last_activity || '—'}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">

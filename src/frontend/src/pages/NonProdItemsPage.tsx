@@ -254,7 +254,7 @@ export function NonProdItemsPage() {
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Status</div>
           <div className="ret-filter-group">
-            {(['all', 'active', 'muted'] as StatusFilter[]).map(f => (
+            {(['all', 'muted'] as StatusFilter[]).map(f => (
               <button key={f} onClick={() => setStatusFilter(f)}
                 className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                 {f.charAt(0).toUpperCase() + f.slice(1)}
@@ -333,7 +333,7 @@ export function NonProdItemsPage() {
                   <th>Type</th>
                   <th>Stages</th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
-                    Provs {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
                     Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}

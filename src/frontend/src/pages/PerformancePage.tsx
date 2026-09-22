@@ -488,7 +488,7 @@ export function PerformancePage() {
                     Score {sortBy === 'performance_score' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
-                    Provs {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('pipeline_touched')}>
                     Touched {sortBy === 'pipeline_touched' && (sortDir === 'desc' ? '↓' : '↑')}
