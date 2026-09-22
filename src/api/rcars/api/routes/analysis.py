@@ -27,12 +27,12 @@ WINDOWS = {"3m", "6m", "9m", "12m"}
 CHANNEL_SOURCES = {"sales": "rhdp", "marketing": "interactive_labs"}
 
 
-def _base_name_to_content_id(base_name: str, db) -> str | None:
+def _base_name_to_content_id(base_name: str, db, *, include_retired: bool = False) -> str | None:
     """Resolve a catalog base name (e.g. 'ocp4-getting-started') to a content_id.
 
     Tries common stage suffixes via the DB lookup. Returns content_id or None.
     """
-    result = db.resolve_base_names_to_content_ids({base_name})
+    result = db.resolve_base_names_to_content_ids({base_name}, include_retired=include_retired)
     return result.get(base_name)
 
 
@@ -277,7 +277,7 @@ async def performance_dashboard(
 )
 async def get_workflow(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     wf = db.get_retirement_workflow(content_id) if content_id else None
     return {"workflow": wf}
 
@@ -291,7 +291,7 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 )
 async def review_item(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -319,7 +319,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
     db = request.app.state.db
     from datetime import datetime
 
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -370,7 +370,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 )
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -400,7 +400,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     settings = request.app.state.settings
     from datetime import datetime, timedelta
 
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -456,7 +456,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 )
 async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -489,7 +489,7 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 )
 async def update_notes(base_name: str, body: NotesRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
@@ -507,7 +507,7 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
-    content_id = _base_name_to_content_id(base_name, db)
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")

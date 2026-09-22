@@ -26,7 +26,7 @@ const statusBadgeClass: Record<string, string> = {
 
 function fmtDate(d: string | null) {
   if (!d) return '—'
-  const date = d.includes('T') ? new Date(d) : new Date(d + 'T00:00:00')
+  const date = d.length === 10 ? new Date(d + 'T00:00:00') : new Date(d)
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -326,18 +326,6 @@ export function RetirementPage() {
                                   </span>
                                 </div>
                               )}
-                              {item.retirement_target_date && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Target Date</span>
-                                  <span className="ca-detail-value">{fmtDate(item.retirement_target_date)}</span>
-                                </div>
-                              )}
-                              {item.performance_score != null && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Score</span>
-                                  <span className="ca-detail-value">{item.performance_score}</span>
-                                </div>
-                              )}
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Environments</span>
                                 <span className="ca-detail-value">
@@ -358,20 +346,6 @@ export function RetirementPage() {
                                   </span>
                                 </div>
                               )}
-                              {item.approval_reason && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Reason</span>
-                                  <span className="ca-detail-value">{item.approval_reason}</span>
-                                </div>
-                              )}
-                              {item.step_notified_by && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Notified By</span>
-                                  <span className="ca-detail-value">
-                                    {fmtEmail(item.step_notified_by)} on {fmtDate(item.step_notified_at)}
-                                  </span>
-                                </div>
-                              )}
                               {item.step_started_by && (
                                 <div className="ca-detail-item">
                                   <span className="ca-detail-label">Started By</span>
@@ -389,13 +363,12 @@ export function RetirementPage() {
                               {item.replacement_ci && (
                                 <div className="ca-detail-item">
                                   <span className="ca-detail-label">Replacement</span>
-                                  <span className="ca-detail-value">{item.replacement_name || item.replacement_ci}</span>
-                                </div>
-                              )}
-                              {item.curator_notes && (
-                                <div className="ca-detail-item" style={{ gridColumn: '1 / -1' }}>
-                                  <span className="ca-detail-label">Notes</span>
-                                  <span className="ca-detail-value">{item.curator_notes}</span>
+                                  <span className="ca-detail-value">
+                                    <a href={`/browse?search=${encodeURIComponent(item.replacement_name || item.replacement_ci)}`}
+                                      target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
+                                      {item.replacement_name || item.replacement_ci}
+                                    </a>
+                                  </span>
                                 </div>
                               )}
                             </div>
