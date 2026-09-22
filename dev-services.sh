@@ -240,7 +240,7 @@ db_pull() {
     local dump_file
     dump_file=$(mktemp /tmp/rcars-dev-dump.XXXXXX.sql)
     chmod 600 "${dump_file}"
-    trap 'rm -f "${dump_file}"' EXIT
+    trap "rm -f '${dump_file}'" RETURN
 
     echo "Pulling dev database from ${namespace}..."
 
@@ -269,8 +269,8 @@ db_pull() {
     podman exec -i "${PG_CONTAINER}" psql -U rcars -c "CREATE DATABASE ${tmp_db};" postgres
     podman exec -i "${PG_CONTAINER}" psql -v ON_ERROR_STOP=1 -U rcars "${tmp_db}" < "${dump_file}"
     echo "  ✓ Restore validated — swapping databases..."
-    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "DROP DATABASE IF EXISTS rcars;" postgres
-    podman exec -i "${PG_CONTAINER}" psql -U rcars -c "ALTER DATABASE ${tmp_db} RENAME TO rcars;" postgres
+    podman exec -i "${PG_CONTAINER}" psql -v ON_ERROR_STOP=1 -U rcars -c "DROP DATABASE IF EXISTS rcars WITH (FORCE);" postgres
+    podman exec -i "${PG_CONTAINER}" psql -v ON_ERROR_STOP=1 -U rcars -c "ALTER DATABASE ${tmp_db} RENAME TO rcars;" postgres
     echo "  ✓ Local database restored from dev"
 }
 

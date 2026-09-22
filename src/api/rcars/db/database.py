@@ -2946,7 +2946,7 @@ class Database:
             conn.commit()
         return deleted
 
-    def resolve_base_names_to_content_ids(self, base_names: set[str]) -> dict[str, str]:
+    def resolve_base_names_to_content_ids(self, base_names: set[str], *, include_retired: bool = False) -> dict[str, str]:
         if not base_names:
             return {}
         STAGE_SUFFIXES = [".prod", ".event", ".dev", ".test"]
@@ -2954,7 +2954,8 @@ class Database:
         for bn in base_names:
             for suffix in STAGE_SUFFIXES:
                 candidates.append(bn + suffix)
-        sql = """
+        retired_clause = "" if include_retired else "AND ce.retired_at IS NULL"
+        sql = f"""
             SELECT bi.ci_name, bi.content_id, ce.retired_at,
                    CASE bi.stage
                        WHEN 'prod' THEN 1 WHEN 'event' THEN 2
@@ -2963,7 +2964,7 @@ class Database:
                    END AS stage_priority
             FROM babylon_items bi
             JOIN content_entities ce ON ce.content_id = bi.content_id
-            WHERE bi.ci_name = ANY(%s) AND ce.retired_at IS NULL
+            WHERE bi.ci_name = ANY(%s) {retired_clause}
             ORDER BY stage_priority
         """
         result = {}
