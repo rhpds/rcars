@@ -233,6 +233,13 @@ class CancelWorkflowResponse(BaseModel):
     deleted: bool
 
 
+class RetirementDashboardResponse(BaseModel):
+    items: list[dict] = Field(description="Items in retirement workflow or already retired")
+    total: int
+    earliest_retired_at: str | None = None
+    window: str
+
+
 class ScanResponse(BaseModel):
     job_id: str
     enqueued: int = Field(description="Number of analysis jobs enqueued")

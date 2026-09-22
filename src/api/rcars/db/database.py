@@ -3454,6 +3454,60 @@ class Database:
             conn.commit()
         return deleted
 
+    def list_retirement_items(self, search: str | None = None) -> list[dict]:
+        """Items with an approved retirement workflow or soft-retired."""
+        params: dict = {}
+        conditions = ["(rw.step_approved_at IS NOT NULL OR ce.retired_at IS NOT NULL)"]
+        if search:
+            conditions.append("ce.display_name ILIKE %(search)s")
+            params["search"] = f"%{search}%"
+
+        where = f"WHERE {' AND '.join(conditions)}"
+
+        sql = f"""
+            SELECT ce.content_id, ce.display_name, ce.content_type, ce.retired_at,
+                   bi.stage, bi.catalog_namespace, bi.ci_name, bi.category,
+                   pc.provisions, pc.unique_users, pc.experiences,
+                   pc.success_ratio,
+                   pc.first_activity, pc.last_activity,
+                   pc.windowed_metrics AS perf_windowed_metrics,
+                   nu.provisions AS np_provisions, nu.unique_users AS np_unique_users,
+                   nu.experiences AS np_experiences, nu.success_ratio AS np_success_ratio,
+                   nu.first_provision, nu.last_provision,
+                   nu.windowed_metrics AS np_windowed_metrics,
+                   ps.performance_score, ps.score_breakdown,
+                   rw.status AS workflow_raw_status,
+                   rw.step_reviewed_at, rw.step_reviewed_by,
+                   rw.step_approved_at, rw.step_approved_by,
+                   rw.step_notified_at, rw.step_notified_by,
+                   rw.step_started_at, rw.step_started_by,
+                   rw.step_retired_at,
+                   rw.retirement_target_date,
+                   rw.jira_key, rw.jira_project,
+                   rw.approval_reason, rw.replacement_ci, rw.replacement_name,
+                   rw.curator_notes, rw.approval_snapshot,
+                   rw.created_at AS workflow_created_at, rw.updated_at AS workflow_updated_at
+            FROM content_entities ce
+            LEFT JOIN retirement_workflow rw ON rw.content_id = ce.content_id
+            LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+            LEFT JOIN performance_scores ps ON ps.content_id = ce.content_id
+            LEFT JOIN performance_channels pc ON pc.content_id = ce.content_id AND pc.channel = 'rhdp'
+            LEFT JOIN nonprod_usage nu ON nu.content_id = ce.content_id
+            {where}
+            ORDER BY ce.display_name ASC
+        """
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, params)
+                return cur.fetchall()
+
+    def get_earliest_retired_at(self) -> str | None:
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute("SELECT MIN(retired_at) AS earliest FROM content_entities WHERE retired_at IS NOT NULL")
+                row = cur.fetchone()
+                return str(row["earliest"]) if row and row["earliest"] else None
+
     def list_retirement_workflows(self, status: str | None = None) -> list[dict]:
         if status:
             sql = "SELECT * FROM retirement_workflow WHERE status = %s ORDER BY updated_at DESC"

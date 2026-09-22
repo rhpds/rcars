@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth, require_performance_view
 from rcars.api.schemas import (
-    JobResponse, PerformanceDashboardResponse, WorkflowResponse,
-    WorkflowGetResponse, StartRetirementResponse, CancelWorkflowResponse,
-    ScanResponse, RescanResponse,
+    JobResponse, PerformanceDashboardResponse, RetirementDashboardResponse,
+    WorkflowResponse, WorkflowGetResponse, StartRetirementResponse,
+    CancelWorkflowResponse, ScanResponse, RescanResponse,
     FieldSourceResponse, FieldSourceRepo, FieldSourceProvision,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
@@ -638,6 +638,120 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
         raise HTTPException(404, f"Item not found: {base_name}")
     db.log_action(base_name, "retirement_unignored", user, "Unmuted")
     return {"status": "ok"}
+
+
+RETIREMENT_WINDOWS = {"6m", "12m"}
+
+
+@router.get(
+    "/retirement",
+    tags=["Retirement"],
+    summary="Retirement report dashboard",
+    description="Returns items in retirement workflow or already retired, with usage metrics.",
+    response_model=RetirementDashboardResponse,
+)
+async def retirement_dashboard(
+    request: Request,
+    user: str = Depends(require_curator),
+    search: str | None = Query(None),
+    window: str = Query("12m"),
+):
+    if window not in RETIREMENT_WINDOWS:
+        raise HTTPException(400, f"window must be one of {sorted(RETIREMENT_WINDOWS)}")
+
+    db = request.app.state.db
+    raw_items = db.list_retirement_items(search=search)
+
+    import json as _json
+
+    # Derive base_name and deduplicate
+    seen: dict[str, dict] = {}
+    for item in raw_items:
+        bn = _extract_base_name_from_content_id(item.get("content_id", ""))
+        item["catalog_base_name"] = bn
+
+        existing = seen.get(bn)
+        if not existing:
+            seen[bn] = item
+        else:
+            candidate_rank = (bool(item.get("workflow_raw_status")), item.get("provisions") or item.get("np_provisions") or 0)
+            existing_rank = (bool(existing.get("workflow_raw_status")), existing.get("provisions") or existing.get("np_provisions") or 0)
+            if candidate_rank > existing_rank:
+                seen[bn] = item
+
+    items = list(seen.values())
+
+    # Apply windowed metrics + compute effective status
+    for item in items:
+        wm = item.pop("perf_windowed_metrics", None) or item.pop("np_windowed_metrics", None) or {}
+        item.pop("perf_windowed_metrics", None)
+        item.pop("np_windowed_metrics", None)
+        if isinstance(wm, str):
+            try:
+                wm = _json.loads(wm)
+            except (ValueError, TypeError):
+                wm = {}
+        w = wm.get(window, {})
+
+        # Merge metrics: prefer perf, fall back to nonprod, then windowed
+        # Use `is not None` — `or` treats 0 as falsy and pulls wrong values
+        def _pref(a, b):
+            return a if a is not None else (b if b is not None else 0)
+        item["provisions"] = w.get("provisions", _pref(item.get("provisions"), item.get("np_provisions")))
+        item["unique_users"] = w.get("unique_users", _pref(item.get("unique_users"), item.get("np_unique_users")))
+        item["experiences"] = w.get("experiences", _pref(item.get("experiences"), item.get("np_experiences")))
+        item["success_ratio"] = w.get("success_ratio", _pref(item.get("success_ratio"), item.get("np_success_ratio")))
+        item["first_activity"] = item.get("first_activity") or item.get("first_provision")
+        item["last_activity"] = item.get("last_activity") or item.get("last_provision")
+
+        # Clean up intermediate fields
+        for k in ("np_provisions", "np_unique_users", "np_experiences", "np_success_ratio",
+                   "first_provision", "last_provision"):
+            item.pop(k, None)
+
+        # Score breakdown from windowed metrics if available
+        item["score_breakdown"] = w.get("score_breakdown") or item.get("score_breakdown")
+        ws = w.get("performance_score")
+        item["performance_score"] = ws if ws is not None else item.get("performance_score")
+
+        # Effective status for the frontend
+        if item.get("retired_at") or item.get("step_retired_at"):
+            item["effective_status"] = "retired"
+        elif item.get("workflow_raw_status") in ("started",):
+            item["effective_status"] = "in_progress"
+        elif item.get("workflow_raw_status") in ("approved", "notified"):
+            item["effective_status"] = "recommended"
+        else:
+            item["effective_status"] = "retired"
+
+        # Serialize dates
+        for key in ("retired_at", "step_reviewed_at", "step_approved_at", "step_notified_at",
+                     "step_started_at", "step_retired_at", "retirement_target_date",
+                     "workflow_created_at", "workflow_updated_at"):
+            v = item.get(key)
+            if v and not isinstance(v, str):
+                item[key] = str(v)
+
+        if item.get("approval_snapshot") and isinstance(item["approval_snapshot"], str):
+            try:
+                item["approval_snapshot"] = _json.loads(item["approval_snapshot"])
+            except (ValueError, TypeError):
+                pass
+
+    # Enrich with stages
+    base_names = [i["catalog_base_name"] for i in items]
+    stages_map = db.get_stages_for_base_names(base_names, include_retired=True)
+    for item in items:
+        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+
+    earliest = db.get_earliest_retired_at()
+
+    return {
+        "items": items,
+        "total": len(items),
+        "earliest_retired_at": earliest,
+        "window": window,
+    }
 
 
 NONPROD_WINDOWS = {"6m", "12m"}

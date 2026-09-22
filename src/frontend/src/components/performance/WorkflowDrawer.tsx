@@ -11,7 +11,7 @@ export interface WorkflowItem {
   unique_users: number
   experiences: number
   success_ratio: number
-  failure_ratio: number
+  failure_ratio?: number
   performance_score?: number
   pipeline_touched?: number
   closed_amount?: number

@@ -14,6 +14,7 @@ import { ContentOverlapPage } from './pages/ContentAnalysisPage'
 import { NonProdItemsPage } from './pages/NonProdItemsPage'
 import { PerformancePage } from './pages/PerformancePage'
 import { FieldSourcePage } from './pages/FieldSourcePage'
+import { RetirementPage } from './pages/RetirementPage'
 import { StatusPage } from './pages/StatusPage'
 import { SyncPage } from './pages/SyncPage'
 import { RecentJobsPage } from './pages/RecentJobsPage'
@@ -59,6 +60,9 @@ export default function App() {
                   )}
                   {auth.canViewPerformance && (
                     <Route path="/analysis/performance" element={<PerformancePage />} />
+                  )}
+                  {(auth.isCurator || auth.isAdmin) && (
+                    <Route path="/analysis/retirement" element={<RetirementPage />} />
                   )}
                   <Route path="/analysis/field-source" element={<FieldSourcePage />} />
                   {auth.isAdmin && (

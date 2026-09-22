@@ -327,6 +327,18 @@ export const api = {
   unignoreNonprodItem: (baseName: string) =>
     request<{ status: string }>(`/analysis/nonprod/ignore/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
+  // Retirement report
+  getRetirementDashboard: (params?: { search?: string; window?: string }) => {
+    const qs = new URLSearchParams()
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') qs.set(k, String(v))
+      })
+    }
+    const query = qs.toString()
+    return request<RetirementDashboardResponse>(`/analysis/retirement${query ? '?' + query : ''}`)
+  },
+
   syncReporting: () =>
     request<{ job_id: string }>('/admin/sync-reporting', { method: 'POST' }),
 
@@ -498,6 +510,51 @@ export interface NonProdItem {
   jira_key?: string | null
   retirement_target_date?: string | null
   ignored_until?: string | null
+}
+
+export interface RetirementItem {
+  content_id: string
+  catalog_base_name: string
+  display_name: string
+  content_type: string | null
+  retired_at: string | null
+  provisions: number
+  unique_users: number
+  experiences: number
+  success_ratio: number
+  first_activity: string | null
+  last_activity: string | null
+  performance_score: number | null
+  score_breakdown: ScoreBreakdown | null
+  effective_status: string
+  workflow_raw_status: string | null
+  step_reviewed_at: string | null
+  step_reviewed_by: string | null
+  step_approved_at: string | null
+  step_approved_by: string | null
+  step_notified_at: string | null
+  step_notified_by: string | null
+  step_started_at: string | null
+  step_started_by: string | null
+  step_retired_at: string | null
+  retirement_target_date: string | null
+  jira_key: string | null
+  jira_project: string | null
+  approval_reason: string | null
+  replacement_ci: string | null
+  replacement_name: string | null
+  curator_notes: string | null
+  approval_snapshot: Record<string, unknown> | null
+  stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
+  stage: string | null
+  catalog_namespace: string | null
+}
+
+export interface RetirementDashboardResponse {
+  items: RetirementItem[]
+  total: number
+  earliest_retired_at: string | null
+  window: string
 }
 
 export interface NonProdDashboardResponse {
