@@ -335,7 +335,7 @@ export function RetirementPage() {
                                           {s.stage}
                                         </span>
                                       ))
-                                    : <span className="ca-color-muted">none</span>}
+                                    : '—'}
                                 </span>
                               </div>
                               <div className="ca-detail-item">
