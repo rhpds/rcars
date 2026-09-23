@@ -2406,7 +2406,8 @@ class Database:
             cur = conn.execute(
                 "SELECT ce.*, bi.* FROM content_entities ce "
                 "JOIN babylon_items bi ON bi.content_id = ce.content_id "
-                "WHERE bi.showroom_url = %s AND COALESCE(bi.showroom_ref, '') = COALESCE(%s, '') "
+                "WHERE COALESCE(bi.showroom_url_override, bi.showroom_url) = %s "
+                "AND COALESCE(bi.showroom_ref_override, bi.showroom_ref, '') = COALESCE(%s, '') "
                 "AND ce.retired_at IS NULL ORDER BY bi.ci_name",
                 (showroom_url, showroom_ref),
             )

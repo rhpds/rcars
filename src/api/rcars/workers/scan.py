@@ -133,7 +133,8 @@ async def run_analysis(ctx: dict, job_id: str, content_id: str, sha_siblings: li
             # Propagate analysis to siblings sharing the same Showroom content
             propagated_set = {content_id}
             effective_url = item.get("showroom_url_override") or item["showroom_url"]
-            siblings = wctx.db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
+            effective_ref = item.get("showroom_ref_override") or item.get("showroom_ref")
+            siblings = wctx.db.get_siblings_by_showroom(effective_url, effective_ref)
             for sibling in siblings:
                 sib_content_id = sibling["content_id"]
                 if sib_content_id in propagated_set:
