@@ -2324,7 +2324,7 @@ class Database:
             cur = conn.execute("""
                 SELECT ce.content_id, ce.content_type, ce.display_name,
                        bi.ci_name, bi.category, bi.stage,
-                       bi.showroom_url, bi.showroom_ref, bi.showroom_url_override,
+                       bi.showroom_url, bi.showroom_ref, bi.showroom_url_override, bi.showroom_ref_override,
                        bi.content_path, bi.keywords, ce.scan_status,
                        bi.is_published, bi.published_ci_name, bi.base_ci_name,
                        sa.content_hash, sa.last_repo_commit
@@ -2342,7 +2342,7 @@ class Database:
 
         groups: dict[tuple, list[dict]] = {}
         for item in all_needing:
-            key = (item.get("showroom_url_override") or item["showroom_url"], item.get("showroom_ref") or "")
+            key = (item.get("showroom_url_override") or item["showroom_url"], item.get("showroom_ref_override") or item.get("showroom_ref") or "")
             groups.setdefault(key, []).append(item)
 
         deduped = []
