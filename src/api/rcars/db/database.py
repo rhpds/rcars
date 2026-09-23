@@ -484,16 +484,16 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_session ON advisor_sessions(sess
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_user ON advisor_sessions(user_email);
 CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(created_at);
 
--- Advisor chat (multi-intent) — RHDPCD-599
+-- Advisor chat (multi-intent)
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS intent TEXT;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS envelope_json JSONB;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
 
--- Chat turn index uniqueness — RHDPCD-599
+-- Chat turn index uniqueness
 CREATE UNIQUE INDEX IF NOT EXISTS idx_advisor_sessions_session_turn
     ON advisor_sessions (session_id, turn_index);
 
--- Role assignments — RHDPCD-176
+-- Role assignments
 CREATE TABLE IF NOT EXISTS role_assignments (
     id SERIAL PRIMARY KEY,
     type VARCHAR(10) NOT NULL CHECK (type IN ('user', 'group')),
@@ -504,11 +504,11 @@ CREATE TABLE IF NOT EXISTS role_assignments (
     UNIQUE(type, value)
 );
 
--- Rename completions → experiences — RHDPCD-74
+-- Rename completions → experiences
 ALTER TABLE performance_channels ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
 ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS experiences INTEGER DEFAULT 0;
 
--- Controlled vocabulary — RHDPCD-507
+-- Controlled vocabulary
 -- The unit of review is the TERM, not the item: an unknown product means the
 -- LIST is missing a term, so vocabulary work never sets enrichment_review_needed.
 CREATE TABLE IF NOT EXISTS vocabulary_unknown_terms (
@@ -533,7 +533,7 @@ CREATE INDEX IF NOT EXISTS idx_vocab_unknown_status
 -- role-aware Advisor routing.
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS recommender_audience_json JSONB;
 
--- Universal default-visibility gate — RHDPCD-28.
+-- Universal default-visibility gate.
 -- Babylon's vocabulary (prod/event/dev) so one predicate serves every source.
 ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'prod';
 CREATE INDEX IF NOT EXISTS idx_ce_status ON content_entities(status);
@@ -577,7 +577,7 @@ WHERE  aa.content_id = ce.content_id
   AND  aa.summary IS NOT NULL
   AND  ce.scan_status = 'not_scanned';
 
--- Field source provisions — RHDPCD-2028
+-- Field source provisions
 -- Tracks individual provisions by git repo+ref (catalog_item: 'ocp' or 'rhel').
 -- provision_uuid is the dedup key; retired_at reflects the provision end time.
 CREATE TABLE IF NOT EXISTS field_source_provisions (
@@ -598,6 +598,9 @@ CREATE INDEX IF NOT EXISTS idx_fsp_git_repo ON field_source_provisions(git_repo)
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cloud_provider TEXT;
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cluster_size TEXT;
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS node_size TEXT;
+
+-- Git ref override for Showroom URL overrides
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS showroom_ref_override TEXT;
 
 """
 
@@ -3668,7 +3671,7 @@ class Database:
                 conn.commit()
                 return cur.rowcount > 0
 
-    # ── Field source provisions — RHDPCD-2028 ──
+    # ── Field source provisions ──
 
     def upsert_field_source_provisions(self, rows: list[dict]) -> int:
         """Insert or update field source provision rows. Returns number of rows processed."""
