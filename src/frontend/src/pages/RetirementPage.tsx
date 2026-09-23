@@ -315,17 +315,17 @@ export function RetirementPage() {
                         <tr className="ca-expanded-row">
                           <td colSpan={9}>
                             <div className="ca-detail">
-                              {item.jira_key && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Jira</span>
-                                  <span className="ca-detail-value">
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Jira</span>
+                                <span className="ca-detail-value">
+                                  {item.jira_key ? (
                                     <a href={`https://redhat.atlassian.net/browse/${item.jira_key}`}
                                       target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
                                       {item.jira_key}
                                     </a>
-                                  </span>
-                                </div>
-                              )}
+                                  ) : '—'}
+                                </span>
+                              </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Environments</span>
                                 <span className="ca-detail-value">
@@ -335,42 +335,40 @@ export function RetirementPage() {
                                           {s.stage}
                                         </span>
                                       ))
-                                    : <span className="ca-color-muted">none</span>}
+                                    : '—'}
                                 </span>
                               </div>
-                              {item.step_approved_by && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Approved By</span>
-                                  <span className="ca-detail-value">
-                                    {fmtEmail(item.step_approved_by)} on {fmtDate(item.step_approved_at)}
-                                  </span>
-                                </div>
-                              )}
-                              {item.step_started_by && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Started By</span>
-                                  <span className="ca-detail-value">
-                                    {fmtEmail(item.step_started_by)} on {fmtDate(item.step_started_at)}
-                                  </span>
-                                </div>
-                              )}
-                              {item.retired_at && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Retired</span>
-                                  <span className="ca-detail-value">{fmtDate(item.retired_at)}</span>
-                                </div>
-                              )}
-                              {item.replacement_ci && (
-                                <div className="ca-detail-item">
-                                  <span className="ca-detail-label">Replacement</span>
-                                  <span className="ca-detail-value">
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Requested By</span>
+                                <span className="ca-detail-value">
+                                  {item.step_approved_by
+                                    ? <>{fmtEmail(item.step_approved_by)} on {fmtDate(item.step_approved_at)}</>
+                                    : '—'}
+                                </span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Approved By</span>
+                                <span className="ca-detail-value">
+                                  {item.step_started_by
+                                    ? <>{fmtEmail(item.step_started_by)} on {fmtDate(item.step_started_at)}</>
+                                    : '—'}
+                                </span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Retired</span>
+                                <span className="ca-detail-value">{fmtDate(item.retired_at)}</span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Replacement</span>
+                                <span className="ca-detail-value">
+                                  {item.replacement_ci ? (
                                     <a href={`/browse?search=${encodeURIComponent(item.replacement_name || item.replacement_ci)}`}
                                       target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>
                                       {item.replacement_name || item.replacement_ci}
                                     </a>
-                                  </span>
-                                </div>
-                              )}
+                                  ) : '—'}
+                                </span>
+                              </div>
                             </div>
                             <div style={{ marginTop: '8px', display: 'flex', gap: '8px', alignItems: 'center',
                               borderTop: '1px solid var(--border-subtle)', paddingTop: '8px' }}>
