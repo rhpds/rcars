@@ -386,7 +386,8 @@ async def flag_item(identifier: str, request: Request, user: str = Depends(requi
 
 
 class OverrideUrlRequest(BaseModel):
-    url: str = Field(max_length=500, pattern=r'^https?://')
+    url: str | None = Field(default=None, max_length=500, pattern=r'^https?://')
+    ref: str | None = Field(default=None, max_length=200)
 
 
 @router.post(
@@ -398,7 +399,7 @@ class OverrideUrlRequest(BaseModel):
 async def override_url(identifier: str, body: OverrideUrlRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
     content_id = _resolve_to_content_id(identifier, db)
-    db.set_showroom_url_override(content_id, body.url)
+    db.set_showroom_url_override(content_id, body.url, body.ref)
     return {"status": "ok"}
 
 

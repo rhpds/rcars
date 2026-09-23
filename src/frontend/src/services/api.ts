@@ -98,10 +98,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ path }),
     }),
-  overrideUrl: (ciName: string, url: string) =>
+  overrideUrl: (ciName: string, url: string | null, ref?: string | null) =>
     request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/override-url`, {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify({ url, ref }),
     }),
   setCuratedDuration: (ciName: string, durationMin: number | null) =>
     request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/duration`, {

@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS babylon_items (
     showroom_ref    TEXT,
     content_path    TEXT,
     showroom_url_override TEXT,
+    showroom_ref_override TEXT,
 
     is_agd_v2       BOOLEAN DEFAULT FALSE,
     agd_config      TEXT,
@@ -790,7 +791,7 @@ class Database:
         bi_cols = list(bi_data.keys())
         bi_ph = [f"%({k})s" for k in bi_cols]
         bi_updates = [f"{k} = EXCLUDED.{k}" for k in bi_cols
-                      if k not in ("content_id", "showroom_url_override")]
+                      if k not in ("content_id", "showroom_url_override", "showroom_ref_override")]
         bi_sql = f"""
             INSERT INTO babylon_items ({', '.join(bi_cols)})
             VALUES ({', '.join(bi_ph)})
@@ -2351,7 +2352,8 @@ class Database:
     def get_stale_check_candidates(self) -> list[dict]:
         sql = """
             SELECT ce.content_id, bi.ci_name, bi.showroom_url, bi.showroom_ref,
-                   bi.showroom_url_override, sa.content_hash, sa.last_repo_commit
+                   bi.showroom_url_override, bi.showroom_ref_override,
+                   sa.content_hash, sa.last_repo_commit
             FROM content_entities ce
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             JOIN showroom_analysis sa ON sa.content_id = ce.content_id
@@ -2439,9 +2441,9 @@ class Database:
             """)
             return cur.fetchall()
 
-    def set_showroom_url_override(self, content_id: str, override_url: str | None):
+    def set_showroom_url_override(self, content_id: str, override_url: str | None, override_ref: str | None = None):
         with self._pool.connection() as conn:
-            conn.execute("UPDATE babylon_items SET showroom_url_override = %s WHERE content_id = %s", (override_url, content_id))
+            conn.execute("UPDATE babylon_items SET showroom_url_override = %s, showroom_ref_override = %s WHERE content_id = %s", (override_url, override_ref, content_id))
             conn.commit()
 
     # ── Status / currency ──

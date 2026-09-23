@@ -160,7 +160,7 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         groups: dict[tuple[str, str | None], list[dict]] = {}
         for item in checkable:
             url = item.get("showroom_url_override") or item["showroom_url"]
-            ref = item.get("showroom_ref")
+            ref = item.get("showroom_ref_override") or item.get("showroom_ref")
             groups.setdefault((url, ref), []).append(item)
 
         total_groups = len(groups)

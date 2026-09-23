@@ -76,6 +76,7 @@ interface ItemDetail {
   scan_status: string | null
   content_path: string | null
   showroom_url_override: string | null
+  showroom_ref_override: string | null
   scan_error_class: string | null
   scan_error: string | null
   scan_failed_at: string | null
@@ -222,6 +223,8 @@ function CuratorDrawer({
   onDurationSave,
   overrideUrl,
   onOverrideUrlChange,
+  overrideRef,
+  onOverrideRefChange,
   onOverrideUrlSave,
   contentPath,
   onContentPathChange,
@@ -246,6 +249,8 @@ function CuratorDrawer({
   onDurationSave: () => void
   overrideUrl: string
   onOverrideUrlChange: (val: string) => void
+  overrideRef: string
+  onOverrideRefChange: (val: string) => void
   onOverrideUrlSave: () => Promise<void>
   contentPath: string
   onContentPathChange: (val: string) => void
@@ -342,6 +347,15 @@ function CuratorDrawer({
                     {savedUrl ? 'Saved' : 'Set URL'}
                   </button>
                 </div>
+                <input
+                  type="text"
+                  className="browse-drawer-input"
+                  style={{ marginTop: '4px' }}
+                  value={overrideRef}
+                  onChange={(e) => onOverrideRefChange(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') onOverrideUrlSave().then(() => flashSave(setSavedUrl)) }}
+                  placeholder="Git ref (branch/tag, optional)"
+                />
               </div>
 
               {/* Content Path */}
@@ -468,6 +482,7 @@ export function BrowsePage() {
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
+  const [overrideRefs, setOverrideRefs] = useState<Record<string, string>>({})
   const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
@@ -618,6 +633,7 @@ export function BrowsePage() {
       setNoteTexts(prev => ({ ...prev, [ciName]: detail.analysis?.notes || '' }))
       setContentPaths(prev => ({ ...prev, [ciName]: detail.content_path || '' }))
       setOverrideUrls(prev => ({ ...prev, [ciName]: detail.showroom_url_override || '' }))
+      setOverrideRefs(prev => ({ ...prev, [ciName]: detail.showroom_ref_override || '' }))
       setCuratedDurations(prev => ({
         ...prev,
         [ciName]: detail.analysis?.curated_duration_min != null ? String(detail.analysis.curated_duration_min) : '',
@@ -676,9 +692,9 @@ export function BrowsePage() {
   }
 
   const handleOverrideUrl = async (ciName: string) => {
-    const url = overrideUrls[ciName]?.trim()
-    if (!url) return
-    await api.overrideUrl(ciName, url)
+    const url = overrideUrls[ciName]?.trim() || null
+    const ref = overrideRefs[ciName]?.trim() || null
+    await api.overrideUrl(ciName, url, ref)
     const detail = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetails(prev => ({ ...prev, [ciName]: detail }))
   }
@@ -1158,6 +1174,8 @@ export function BrowsePage() {
           onDurationSave={() => handleSetDuration(drawerItem)}
           overrideUrl={overrideUrls[drawerItem] ?? ''}
           onOverrideUrlChange={(val) => setOverrideUrls(prev => ({ ...prev, [drawerItem]: val }))}
+          overrideRef={overrideRefs[drawerItem] ?? ''}
+          onOverrideRefChange={(val) => setOverrideRefs(prev => ({ ...prev, [drawerItem]: val }))}
           onOverrideUrlSave={() => handleOverrideUrl(drawerItem)}
           contentPath={contentPaths[drawerItem] ?? ''}
           onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
