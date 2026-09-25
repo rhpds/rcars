@@ -423,7 +423,25 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     if entity and entity.get("display_name"):
         metrics["display_name"] = entity["display_name"]
 
-    wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days}
+    replacement_source = None
+    replacement_ci_full = None
+    repl_ci = wf.get("replacement_ci")
+    if repl_ci:
+        repl = db.get_content_entity(repl_ci)
+        if repl:
+            replacement_source = repl["source"]
+        else:
+            bi = db.get_babylon_item_by_ci_name(repl_ci)
+            if not bi:
+                for sfx in (".prod", ".event", ".dev"):
+                    bi = db.get_babylon_item_by_ci_name(f"{repl_ci}{sfx}")
+                    if bi:
+                        break
+            if bi:
+                replacement_source = "babylon"
+                replacement_ci_full = bi["ci_name"]
+
+    wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days, "replacement_source": replacement_source, "replacement_ci_full": replacement_ci_full}
 
     from rcars.services.jira import create_retirement_ticket
     try:

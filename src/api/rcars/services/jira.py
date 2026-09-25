@@ -98,10 +98,13 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
 
     catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
 
-    # Replacement: direct catalog URL (append .prod for the catalog link)
-    if replacement_ci:
-        repl_ci_prod = replacement_ci if replacement_ci.endswith(".prod") else f"{replacement_ci}.prod"
-        replacement_line = f"{catalog_base}/{repl_ci_prod}"
+    replacement_source = workflow.get("replacement_source")
+    replacement_ci_full = workflow.get("replacement_ci_full")
+    if replacement_ci and replacement_source == "babylon":
+        repl_ci_url = replacement_ci_full or (replacement_ci if replacement_ci.endswith(".prod") else f"{replacement_ci}.prod")
+        replacement_line = f"{catalog_base}/{repl_ci_url}"
+    elif replacement_ci:
+        replacement_line = replacement_name or replacement_ci
     else:
         replacement_line = "N/A"
 
@@ -139,11 +142,14 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     adoc_replacement_line = ""
     if replacement_ci:
         repl_name = replacement_name or replacement_ci
-        adoc_replacement_line = (
-            f' Please use this as an alternative: '
-            f'link:{catalog_base}/{repl_ci_prod}'
-            f'[{repl_name}, window="_blank"]'
-        )
+        if replacement_source == "babylon":
+            adoc_replacement_line = (
+                f' Please use this as an alternative: '
+                f'link:{catalog_base}/{repl_ci_url}'
+                f'[{repl_name}, window="_blank"]'
+            )
+        else:
+            adoc_replacement_line = f' Please use this as an alternative: {repl_name}'
 
     adoc_template = (
         "[IMPORTANT]\n"

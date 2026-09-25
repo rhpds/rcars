@@ -12,6 +12,8 @@ def _make_workflow(**overrides):
         "curator_notes": "Replaced by newer demo",
         "replacement_ci": "openshift_cnv.new_demo",
         "replacement_name": "New OpenShift Demo",
+        "replacement_source": "babylon",
+        "replacement_ci_full": "openshift_cnv.new_demo.prod",
         "target_days": 30,
         "jira_project": "GPTEINFRA",
         "approval_snapshot": {
