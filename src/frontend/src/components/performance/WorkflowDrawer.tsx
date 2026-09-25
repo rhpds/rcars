@@ -58,15 +58,17 @@ function ReplacementPicker({
     debounceRef.current = setTimeout(async () => {
       if (q.length < 2) { setResults([]); return }
       try {
-        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ ci_name: string; display_name: string; base_ci_name?: string; is_published?: boolean }> }
-        const stripStage = (name: string) => name.replace(/\.(prod|dev|event|test)$/, '')
+        const data = await api.listCatalog({ search: q, limit: 10 }) as { items: Array<{ content_id: string; ci_name: string | null; display_name: string; base_ci_name?: string | null; is_published?: boolean }> }
+        const stripStages = (name: string) => name.replace(/(\.(prod|dev|event|test))+$/, '')
         const byKey = new Map<string, { ci_name: string; display_name: string; isPublished: boolean }>()
         for (const i of data.items) {
-          const key = stripStage(i.base_ci_name || i.ci_name)
-          if (key === excludeBaseName) continue
+          const ciName = i.ci_name || i.content_id
+          const stripped = stripStages(ciName)
+          const key = stripStages(i.base_ci_name || ciName)
+          if (key === excludeBaseName || stripped === excludeBaseName) continue
           const existing = byKey.get(key)
           if (!existing || (i.is_published && !existing.isPublished)) {
-            byKey.set(key, { ci_name: i.is_published ? stripStage(i.ci_name) : key, display_name: i.display_name, isPublished: !!i.is_published })
+            byKey.set(key, { ci_name: stripStages(ciName), display_name: i.display_name, isPublished: !!i.is_published })
           }
         }
         setResults(Array.from(byKey.values()).map(v => ({ ci_name: v.ci_name, display_name: v.display_name })))
@@ -470,7 +472,7 @@ RHDP Content Team`
                         {wf?.replacement_ci && (
                           <div>
                             <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Replacement: </span>
-                            <a href={`/browse?search=${encodeURIComponent(wf.replacement_ci)}`} target="_blank" rel="noreferrer"
+                            <a href={`/browse?search=${encodeURIComponent(wf.replacement_name || wf.replacement_ci)}`} target="_blank" rel="noreferrer"
                               style={{ color: 'var(--text-link)', fontSize: '12px' }}>
                               {wf.replacement_name || wf.replacement_ci}
                             </a>
