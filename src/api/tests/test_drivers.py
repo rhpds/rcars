@@ -239,3 +239,22 @@ def test_format_triage_candidates_architecture():
     text = format_triage_candidates([c])
     assert "Content ID: pa:25" in text
     assert "Duration" not in text or "?" in text
+
+
+# --- Task 6: Orchestrator tests ---
+
+
+def test_orchestrator_single_category():
+    """Single driver should be grouped, not duplicated."""
+    from rcars.services.recommender.drivers import get_drivers_for_types
+    drivers = get_drivers_for_types(["lab", "demo"])
+    assert len(drivers) == 1  # Both map to hands_on driver
+
+
+def test_orchestrator_multi_category():
+    """Lab + architecture should produce two driver groups."""
+    from rcars.services.recommender.drivers import get_drivers_for_types
+    drivers = get_drivers_for_types(["lab", "demo", "architecture"])
+    assert len(drivers) == 2
+    assert "hands_on" in drivers
+    assert "architecture" in drivers
