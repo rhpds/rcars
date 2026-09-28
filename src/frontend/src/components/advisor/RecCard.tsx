@@ -16,7 +16,8 @@ function buildUrl(template: string, candidate: StreamCandidate): string {
     return `https://demo.redhat.com/catalog?item=${ns}/${candidate.ci_name}`
   }
   if (template === 'browse') {
-    return '/browse?search=' + encodeURIComponent(candidate.display_name)
+    const format = candidate.content_type === 'architecture' ? 'architecture' : 'hands_on'
+    return '/browse?search=' + encodeURIComponent(candidate.display_name) + '&format=' + format
   }
   return '#'
 }

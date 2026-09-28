@@ -64,6 +64,60 @@ function renderMarkdown(text: string) {
 
 
 
+const STREAMING_CATEGORY_LABELS: Record<string, string> = {
+  hands_on: 'Hands-on Labs & Demos',
+  architecture: 'Architectures',
+  _default: 'Results',
+}
+
+function bucketByCategory(candidates: StreamCandidate[]) {
+  const categories = new Map<string, StreamCandidate[]>()
+  for (const c of candidates) {
+    const key = c.content_type === 'architecture' ? 'architecture'
+      : (c.content_type === 'lab' || c.content_type === 'demo' || c.content_type === 'sandbox') ? 'hands_on'
+      : '_default'
+    const list = categories.get(key) || []
+    list.push(c)
+    categories.set(key, list)
+  }
+  return categories
+}
+
+function StreamingRecCards({ candidates, streamPhase }: { candidates: StreamCandidate[]; streamPhase?: string }) {
+  const [activeTab, setActiveTab] = useState<string | null>(null)
+  const categories = bucketByCategory(candidates)
+  const categoryKeys = Array.from(categories.keys())
+
+  const effectiveTab = activeTab && categories.has(activeTab) ? activeTab : categoryKeys[0] || '_default'
+
+  if (categoryKeys.length <= 1) {
+    return <RecCardList candidates={candidates} isComplete={false} streamPhase={streamPhase} />
+  }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid var(--border-subtle)', marginBottom: '12px' }}>
+        {categoryKeys.map(key => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            style={{
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              padding: '8px 16px', fontSize: '13px', fontWeight: 600,
+              color: effectiveTab === key ? 'var(--text-primary)' : 'var(--text-muted)',
+              borderBottom: effectiveTab === key ? '2px solid var(--score-green)' : '2px solid transparent',
+              marginBottom: '-2px',
+            }}
+          >
+            {STREAMING_CATEGORY_LABELS[key] || key} ({(categories.get(key) || []).length})
+          </button>
+        ))}
+      </div>
+      <RecCardList candidates={categories.get(effectiveTab) || []} isComplete={false} streamPhase={streamPhase} />
+    </div>
+  )
+}
+
 export function AdvisorPage() {
   const [searchParams] = useSearchParams()
   const auth = useAuth()
@@ -467,7 +521,7 @@ export function AdvisorPage() {
         </div>
 
         {streamingCandidates ? (
-          <RecCardList candidates={streamingCandidates} isComplete={false} streamPhase={stream.phase} />
+          <StreamingRecCards candidates={streamingCandidates} streamPhase={stream.phase} />
         ) : currentResults ? (
           <>
             {currentResults.blocks.map((b, i) => {
