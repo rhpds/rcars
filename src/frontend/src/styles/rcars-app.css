@@ -2203,7 +2203,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
 .chat-input-row {
   display: flex;
   gap: 10px;
-  margin-top: 14px;
+  margin-top: 6px;
   align-items: flex-end;
 }
 
@@ -2557,47 +2557,25 @@ details.ca-band-section:not([open]) > .ca-band-header {
 }
 
 /* ══════════════════════════════════════════════════════════════════
-   Toggle Switch
+   Filter Pills
    ══════════════════════════════════════════════════════════════════ */
 
-.rcars-toggle-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-sm);
-  cursor: pointer;
-  user-select: none;
-  font-size: 13px;
-  color: var(--text-muted);
-}
-.rcars-toggle-switch.active { color: var(--rcars-amber-vivid); }
-
-.rcars-toggle-switch-track {
-  width: 36px;
-  height: 18px;
-  border-radius: 9px;
-  background: var(--bg-input);
+.filter-pill {
   border: 1px solid var(--border-default);
-  position: relative;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  background: transparent;
+  color: var(--text-muted);
+  border-radius: 14px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: var(--ff-body);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
-.rcars-toggle-switch.active .rcars-toggle-switch-track {
-  background: var(--badge-amber-bg);
-  border-color: var(--rcars-amber-vivid);
-}
-
-.rcars-toggle-switch-knob {
-  width: 14px;
-  height: 14px;
-  border-radius: 7px;
-  background: var(--text-muted);
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  transition: left var(--transition-fast), background var(--transition-fast);
-}
-.rcars-toggle-switch.active .rcars-toggle-switch-knob {
-  left: 19px;
-  background: var(--rcars-amber-vivid);
+.filter-pill:hover { border-color: var(--border-focus); color: var(--text-primary); }
+.filter-pill.active {
+  background: var(--badge-blue-bg);
+  color: var(--text-link);
+  border-color: var(--text-link);
 }
 
 /* ══════════════════════════════════════════════════════════════════

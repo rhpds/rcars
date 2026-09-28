@@ -72,7 +72,8 @@ def _serialize_category_states(category_states: dict[str, QueryState], db, query
 
 
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
-                           stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+                           stages: list[str], include_zt: bool, on_progress,
+                           content_types: list[str] | None = None) -> HandlerResult:
     args = RecommendArgs.model_validate(res.output.args)
     query = res.message or args.search_query or " ".join(str(v) for v in args.constraints.values())
     if not query and res.scope_ids:
@@ -90,7 +91,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
 
     category_states = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
                                        on_progress=_relay, depth=depth,
-                                       scope_content_ids=res.scope_ids or None)
+                                       scope_content_ids=res.scope_ids or None,
+                                       content_types=content_types)
 
     cards, combined_state = _serialize_category_states(category_states, db, query)
     green = [c for c in cards if c["tier"] == "green"]
@@ -100,7 +102,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
     if scoped and not green:
         category_states = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
                                            on_progress=_relay, depth="high",
-                                           scope_content_ids=None)
+                                           scope_content_ids=None,
+                                           content_types=content_types)
         cards, combined_state = _serialize_category_states(category_states, db, query)
         green = [c for c in cards if c["tier"] == "green"]
         scoped = False

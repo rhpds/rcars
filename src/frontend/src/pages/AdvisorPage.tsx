@@ -63,23 +63,6 @@ function renderMarkdown(text: string) {
 }
 
 
-function RcarsToggle({ label, active, onToggle }: { label: string; active: boolean; onToggle: () => void }) {
-  return (
-    <div
-      className={`rcars-toggle-switch${active ? ' active' : ''}`}
-      onClick={onToggle}
-      role="switch"
-      aria-checked={active}
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle() } }}
-    >
-      <div className="rcars-toggle-switch-track">
-        <div className="rcars-toggle-switch-knob" />
-      </div>
-      <span>{label}</span>
-    </div>
-  )
-}
 
 export function AdvisorPage() {
   const [searchParams] = useSearchParams()
@@ -88,6 +71,9 @@ export function AdvisorPage() {
   const [input, setInput] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
+  const [showLabs, setShowLabs] = useState(true)
+  const [showDemos, setShowDemos] = useState(true)
+  const [showArchitectures, setShowArchitectures] = useState(false)
   const showZt = true
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -95,7 +81,6 @@ export function AdvisorPage() {
   const [activeTurn, setActiveTurn] = useState(0)
   const [sending, setSending] = useState(false)
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null)
-  const [showSettings, setShowSettings] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const layoutRef = useRef<HTMLDivElement>(null)
   const [chatWidthPct, setChatWidthPct] = useState(40)
@@ -222,6 +207,21 @@ export function AdvisorPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, stream.messages])
 
+  const getContentTypes = () => {
+    const types: string[] = []
+    if (showLabs) types.push('lab')
+    if (showDemos) types.push('demo')
+    if (showArchitectures) types.push('architecture')
+    return types
+  }
+
+  const contentTypeCount = [showLabs, showDemos, showArchitectures].filter(Boolean).length
+
+  const toggleContentType = (current: boolean, setter: (v: boolean) => void) => {
+    if (current && contentTypeCount <= 1) return
+    setter(!current)
+  }
+
   const handleSend = async () => {
     const query = input.trim()
     if (!query || sending) return
@@ -234,7 +234,7 @@ export function AdvisorPage() {
       const stages = ['prod']
       if (showDev) stages.push('dev')
       if (showEvent) stages.push('event')
-      const { job_id, session_id } = await api.submitChat(query, sessionId, stages, showZt)
+      const { job_id, session_id } = await api.submitChat(query, sessionId, stages, showZt, undefined, getContentTypes())
       setSessionId(session_id)
       setActiveJobId(job_id)
     } catch (err) {
@@ -259,7 +259,8 @@ export function AdvisorPage() {
         sessionId,
         stages,
         showZt,
-        { intent: chip.intent, args: chip.args, scope: chip.scope }
+        { intent: chip.intent, args: chip.args, scope: chip.scope },
+        getContentTypes()
       )
       setSessionId(session_id)
       setActiveJobId(job_id)
@@ -369,38 +370,26 @@ export function AdvisorPage() {
           )}
           <div ref={chatEndRef} />
         </div>
-        {showSettings && (auth.isCurator || auth.isAdmin) && (
-          <div style={{
-            display: 'flex', gap: '12px', padding: '8px 12px', alignItems: 'center',
-            background: 'var(--bg-card)', borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border-subtle)', marginBottom: '8px',
-          }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Include:</span>
-            <RcarsToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
-            <RcarsToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '0 0 6px' }}>
+          {([
+            { label: 'Labs', active: showLabs, toggle: () => toggleContentType(showLabs, setShowLabs) },
+            { label: 'Demos', active: showDemos, toggle: () => toggleContentType(showDemos, setShowDemos) },
+            { label: 'Architectures', active: showArchitectures, toggle: () => toggleContentType(showArchitectures, setShowArchitectures) },
+          ] as const).map(p => (
+            <button key={p.label} onClick={p.toggle} className={`filter-pill${p.active ? ' active' : ''}`}>
+              {p.label}
+            </button>
+          ))}
+          {(auth.isCurator || auth.isAdmin) && ([
+            { label: 'Dev', active: showDev, toggle: () => setShowDev(!showDev) },
+            { label: 'Event', active: showEvent, toggle: () => setShowEvent(!showEvent) },
+          ] as const).map(p => (
+            <button key={p.label} onClick={p.toggle} className={`filter-pill${p.active ? ' active' : ''}`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
         <div className="chat-input-row">
-          <button
-            className="btn-settings-toggle"
-            onClick={() => setShowSettings(!showSettings)}
-            title="Query settings"
-            aria-label="Toggle query settings"
-            style={{
-              background: showSettings ? 'var(--bg-card)' : 'transparent',
-              border: '1px solid var(--border-default)',
-              color: showSettings ? 'var(--text-link)' : 'var(--text-muted)',
-              padding: '8px 10px',
-              borderRadius: 'var(--radius-sm)',
-              cursor: 'pointer',
-              fontSize: '16px',
-              lineHeight: 1,
-              flexShrink: 0,
-              transition: 'color var(--transition-fast), background var(--transition-fast)',
-            }}
-          >
-            ⚙
-          </button>
           <div style={{ flex: 1, position: 'relative' }}>
             <textarea
               className="chat-input"

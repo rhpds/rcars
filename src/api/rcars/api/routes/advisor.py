@@ -39,6 +39,14 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, description="Pass back from a previous response to maintain conversation context")
     stages: list[str] = Field(default=["prod"], description="Lifecycle stages to search: prod, event, dev")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
+    content_types: list[str] | None = Field(
+        default=None,
+        description=(
+            "Content types to include in recommendation results. "
+            "Valid values: lab, demo, architecture. "
+            "When omitted, all registered content types are searched."
+        ),
+    )
     routed: dict | None = Field(
         default=None,
         description=(
@@ -207,7 +215,7 @@ async def submit_chat(body: ChatRequest, request: Request, user: str = Depends(r
     await arq_redis.enqueue_job(
         "run_chat_turn", job_id=job_id, message=body.message, session_id=session_id,
         stages=stages, include_zt=body.include_zt, user_email=user, is_admin=is_admin,
-        routed=body.routed,
+        routed=body.routed, content_types=body.content_types,
         _queue_name="arq:queue:recommend")
     return {"job_id": job_id, "session_id": session_id}
 

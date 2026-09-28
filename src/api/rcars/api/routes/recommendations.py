@@ -37,6 +37,7 @@ class RecommendationRequest(BaseModel):
     )
     stages: list[Literal["prod", "event", "dev"]] = Field(default=["prod"], description="Lifecycle stages to search. Non-curator users cannot access dev.")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
+    content_types: list[str] | None = Field(default=None, description="Content types to include: lab, demo, architecture. Omit for all.")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of candidates to return (low effort only)")
 
 
@@ -123,18 +124,19 @@ async def get_recommendations(
         stages = [s for s in stages if s != "dev"]
 
     if body.effort == "low":
-        return await _run_low(body, db, settings, stages)
+        return await _run_low(body, db, settings, stages, body.content_types)
 
     return await _run_medium(body, request, db, settings, stages, user, is_limited)
 
 
-async def _run_low(body, db, settings, stages):
+async def _run_low(body, db, settings, stages, content_types=None):
     t0 = time.monotonic()
     try:
         category_states = await asyncio.wait_for(
             run_query(
                 query=body.query, db=db, settings=settings,
                 stages=stages, include_zt=body.include_zt, depth="low",
+                content_types=content_types,
             ),
             timeout=LOW_EFFORT_TIMEOUT_S,
         )
