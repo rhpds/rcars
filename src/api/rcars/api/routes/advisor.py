@@ -39,11 +39,11 @@ class ChatRequest(BaseModel):
     session_id: str | None = Field(default=None, description="Pass back from a previous response to maintain conversation context")
     stages: list[str] = Field(default=["prod"], description="Lifecycle stages to search: prod, event, dev")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
-    content_types: list[str] | None = Field(
+    content_types: list[Literal["lab", "demo", "sandbox", "architecture"]] | None = Field(
         default=None,
         description=(
             "Content types to include in recommendation results. "
-            "Valid values: lab, demo, architecture. "
+            "Valid values: lab, demo, sandbox, architecture. "
             "When omitted, all registered content types are searched."
         ),
     )

@@ -37,7 +37,7 @@ class RecommendationRequest(BaseModel):
     )
     stages: list[Literal["prod", "event", "dev"]] = Field(default=["prod"], description="Lifecycle stages to search. Non-curator users cannot access dev.")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
-    content_types: list[str] | None = Field(default=None, description="Content types to include: lab, demo, architecture. Omit for all.")
+    content_types: list[Literal["lab", "demo", "sandbox", "architecture"]] | None = Field(default=None, description="Content types to include: lab, demo, sandbox, architecture. Omit for all.")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of candidates to return (low effort only)")
 
 

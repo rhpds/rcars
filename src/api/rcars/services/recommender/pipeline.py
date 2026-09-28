@@ -114,8 +114,19 @@ async def run_query(
             depth=depth, scope_content_ids=scope_content_ids,
         )
 
-    results = await asyncio.gather(*[_run_one(cat, drv) for cat, drv in drivers.items()])
-    return dict(results)
+    results = await asyncio.gather(
+        *[_run_one(cat, drv) for cat, drv in drivers.items()],
+        return_exceptions=True,
+    )
+    out: dict[str, QueryState] = {}
+    for (cat, _), res in zip(drivers.items(), results):
+        if isinstance(res, asyncio.CancelledError):
+            raise res
+        if isinstance(res, Exception):
+            logger.error("category_failed", category=cat, error=str(res))
+            continue
+        out[res[0]] = res[1]
+    return out
 
 
 async def run_category(

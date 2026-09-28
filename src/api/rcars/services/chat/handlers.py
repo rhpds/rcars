@@ -68,6 +68,10 @@ def _serialize_category_states(category_states: dict[str, QueryState], db, query
                 combined_state.content_gaps = (combined_state.content_gaps or []) + state.content_gaps
     if combined_state is None:
         combined_state = QueryState(phase="NO_MATCHES", candidates=[], query=query)
+    else:
+        candidate_state = next((s for s in category_states.values() if s.candidates), None)
+        if candidate_state is not None and candidate_state.overall_assessment is not None:
+            combined_state.overall_assessment = candidate_state.overall_assessment
     return all_cards, combined_state
 
 
