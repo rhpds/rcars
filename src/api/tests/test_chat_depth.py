@@ -47,6 +47,7 @@ def test_depth_low_stops_before_triage(db, monkeypatch):
         raise AssertionError("triage must not run at depth=low")
     monkeypatch.setattr(pipeline, "triage", boom)
 
-    state = asyncio.run(pipeline.run_query(
+    category_states = asyncio.run(pipeline.run_query(
         "Event-Driven Ansible automation", db, _settings(), depth="low"))
-    assert state.candidates  # vector results present, no triage/rationale
+    # run_query returns {category_key: QueryState}
+    assert any(state.candidates for state in category_states.values())
