@@ -11,6 +11,15 @@
 - message: "high-usage Ansible content for an EDA demo"
   expect: {intent: recommend}
 
+- message: "something that shows what Red Hat does in the SaaS space"
+  expect: {intent: recommend}
+
+- message: "content about OpenShift AI for a customer briefing"
+  expect: {intent: recommend}
+
+- message: "what do we have for edge computing?"
+  expect: {intent: recommend}
+
 - message: "how is our Ansible EDA content performing?"
   expect: {intent: performance}
 
@@ -88,6 +97,9 @@
 
 - message: "how does scoring work?"
   expect: {intent: help}
+
+- message: "what content do we have about OpenShift AI?"
+  expect: {intent: recommend}
 
 - message: "what does OpenShift AI do?"
   expect: {intent: out_of_scope}

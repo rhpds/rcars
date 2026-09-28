@@ -33,9 +33,10 @@ INTENTS: dict[str, IntentSpec] = {
         followups=({"label": "Overlap for these", "intent": "overlap", "scope_from": "results"},
                    {"label": "Performance of these", "intent": "performance", "scope_from": "results"},
                    {"label": "About #1", "intent": "item_facts", "scope_from": "ordinal1"}),
-        prompt_fragment=("recommend: the user wants content suggestions (find/suggest/need a lab or "
-                         "demo for X). Composite asks like 'high-usage Ansible for an EDA demo' are "
-                         "recommend with constraints.performance='high_usage', NOT performance."),
+        prompt_fragment=("recommend: the user wants content from the catalog — for a topic, audience, "
+                         "event, or use case. Includes exploratory asks ('something about X', "
+                         "'what do we have for Y'). Composite asks like 'high-usage Ansible content "
+                         "for EDA' are recommend with constraints.performance='high_usage', NOT performance."),
         examples=(
             {"message": "I need a 2-hour OpenShift virtualization lab for platform engineers",
              "output": {"intent": "recommend", "args": {"search_query": "2-hour OpenShift virtualization lab for platform engineers"},
@@ -44,6 +45,10 @@ INTENTS: dict[str, IntentSpec] = {
              "output": {"intent": "recommend",
                         "args": {"search_query": "Ansible content for an EDA demo",
                                  "constraints": {"performance": "high_usage"}},
+                        "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
+            {"message": "something that shows what Red Hat does in the SaaS space",
+             "output": {"intent": "recommend",
+                        "args": {"search_query": "Red Hat SaaS capabilities"},
                         "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
         )),
     "overlap": IntentSpec(

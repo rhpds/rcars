@@ -22,20 +22,22 @@ export const api = {
 
   // Advisor
   submitChat: (message: string, sessionId?: string | null, stages: string[] = ['prod'],
-               includeZt = true, routed?: Record<string, unknown>) =>
+               includeZt = true, routed?: Record<string, unknown>,
+               contentTypes?: string[] | null) =>
     request<{ job_id: string; session_id: string }>('/advisor/chat', {
       method: 'POST',
       body: JSON.stringify({ message, session_id: sessionId ?? null, stages,
-                             include_zt: includeZt, routed: routed ?? null }),
+                             include_zt: includeZt, routed: routed ?? null,
+                             content_types: contentTypes ?? null }),
     }),
   getQueryResult: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   listSessions: () => request<{ items: unknown[]; total: number }>('/advisor/sessions'),
   getSession: (sessionId: string) => request<{ session_id: string; turns: unknown[] }>(`/advisor/sessions/${sessionId}`),
-  selectRecommendation: (sessionId: string, turnIndex: number, ciName: string) =>
+  selectRecommendation: (sessionId: string, turnIndex: number, ciName: string, contentId?: string) =>
     request<{ status: string }>(`/advisor/sessions/${sessionId}/select`, {
       method: 'POST',
-      body: JSON.stringify({ turn_index: turnIndex, ci_name: ciName }),
+      body: JSON.stringify({ turn_index: turnIndex, ci_name: ciName, content_id: contentId }),
     }),
 
   // Catalog

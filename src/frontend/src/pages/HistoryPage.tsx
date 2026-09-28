@@ -149,7 +149,7 @@ export function HistoryPage() {
                             </div>
                           )}
                           {candidates.filter(c => c.tier === 'green').map(c => (
-                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} chosenCiName={turn.chosen_ci_name || undefined} />
+                            <RecCard key={c.content_id || c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} chosenCiName={turn.chosen_ci_name || undefined} />
                           ))}
                           {candidates.filter(c => c.tier === 'yellow').length > 0 && (
                             <div className="history-tier-label" style={{ color: 'var(--score-amber)' }}>
@@ -157,7 +157,7 @@ export function HistoryPage() {
                             </div>
                           )}
                           {candidates.filter(c => c.tier === 'yellow').map(c => (
-                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
+                            <RecCard key={c.content_id || c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
                           ))}
                           {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').length > 0 && (
                             <div className="history-tier-label" style={{ color: 'var(--text-muted)' }}>
@@ -165,7 +165,7 @@ export function HistoryPage() {
                             </div>
                           )}
                           {candidates.filter(c => c.tier !== 'green' && c.tier !== 'yellow').map(c => (
-                            <RecCard key={c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
+                            <RecCard key={c.content_id || c.ci_name} candidate={c} isComplete={true} sessionId={detail.session_id} turnIndex={turnIdx} />
                           ))}
                         </div>
                       )}

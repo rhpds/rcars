@@ -118,6 +118,7 @@ def _scope_echo(output: RouterOutput, res: Resolution, message: str) -> str:
 async def process_turn(*, message: str, session_id: str, user_email: str,
                        is_admin: bool = False, stages: list[str] | None = None,
                        include_zt: bool = True, routed: dict | None = None,
+                       content_types: list[str] | None = None,
                        db: Database, settings: Settings,
                        on_progress, llm_call=call_llm) -> dict:
     stages = stages or ["prod"]
@@ -175,7 +176,8 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
         else:
             await on_progress({"phase": "fetching", "status": "started", "intent": output.intent})
             handler = INTENTS[output.intent].handler
-            hres = await handler(res, db, settings, stages, include_zt, on_progress)
+            extra = {"content_types": content_types} if output.intent == "recommend" and content_types else {}
+            hres = await handler(res, db, settings, stages, include_zt, on_progress, **extra)
             await on_progress({"phase": "composing", "status": "started"})
             if output.intent in ("performance", "item_facts", "infrastructure"):
                 answer = build_scaffold(output.intent, hres.scaffold_facts)

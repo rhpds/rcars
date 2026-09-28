@@ -19,7 +19,7 @@ from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import RecommendationLowResponse, RecommendationMediumResponse
 from rcars.config import Settings
 from rcars.services.recommender.pipeline import run_query
-from rcars.services.recommender.serialize import candidates_with_performance
+from rcars.services.recommender.drivers import get_driver
 import structlog
 
 logger = structlog.get_logger()
@@ -37,6 +37,7 @@ class RecommendationRequest(BaseModel):
     )
     stages: list[Literal["prod", "event", "dev"]] = Field(default=["prod"], description="Lifecycle stages to search. Non-curator users cannot access dev.")
     include_zt: bool = Field(default=True, description="Include zero-touch (fully automated) items in results")
+    content_types: list[Literal["lab", "demo", "sandbox", "architecture"]] | None = Field(default=None, description="Content types to include: lab, demo, sandbox, architecture. Omit for all.")
     limit: int = Field(default=10, ge=1, le=50, description="Maximum number of candidates to return (low effort only)")
 
 
@@ -123,38 +124,49 @@ async def get_recommendations(
         stages = [s for s in stages if s != "dev"]
 
     if body.effort == "low":
-        return await _run_low(body, db, settings, stages)
+        return await _run_low(body, db, settings, stages, body.content_types)
 
-    return await _run_medium(body, request, db, settings, stages, user, is_limited)
+    return await _run_medium(body, request, db, settings, stages, user, is_limited, body.content_types)
 
 
-async def _run_low(body, db, settings, stages):
+async def _run_low(body, db, settings, stages, content_types=None):
     t0 = time.monotonic()
     try:
-        state = await asyncio.wait_for(
+        category_states = await asyncio.wait_for(
             run_query(
                 query=body.query, db=db, settings=settings,
                 stages=stages, include_zt=body.include_zt, depth="low",
+                content_types=content_types,
             ),
             timeout=LOW_EFFORT_TIMEOUT_S,
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Recommendation search timed out. Retry with effort=medium.")
-    candidates_json = candidates_with_performance(state, db)[:body.limit]
+
+    candidates_json = []
+    total_candidates = 0
+    for cat, state in category_states.items():
+        total_candidates += len(state.candidates)
+        driver_inst = get_driver(state.candidates[0].content_type) if state.candidates else None
+        if driver_inst:
+            candidates_json.extend([driver_inst.serialize(c, include_performance=True, db=db)
+                                    for c in state.candidates])
+    candidates_json = candidates_json[:body.limit]
+
     elapsed = round(time.monotonic() - t0, 2)
     return {
         "candidates": candidates_json,
-        "overall_assessment": state.overall_assessment,
+        "overall_assessment": None,
         "metadata": {
             "effort": "low",
             "elapsed_s": elapsed,
-            "total_candidates": len(state.candidates),
+            "total_candidates": total_candidates,
             "returned": len(candidates_json),
         },
     }
 
 
-async def _run_medium(body, request, db, settings, stages, user, is_limited):
+async def _run_medium(body, request, db, settings, stages, user, is_limited, content_types=None):
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user, limit_active=is_limited)
     if job_id is None:
@@ -168,6 +180,7 @@ async def _run_medium(body, request, db, settings, stages, user, is_limited):
             depth="medium",
             include_zt=body.include_zt,
             user_email=user,
+            content_types=content_types,
             _queue_name="arq:queue:recommend",
         )
     except Exception:

@@ -221,9 +221,8 @@ def search(
         content_type = row.get("content_type", "")
         ci_name = row.get("ci_name")
 
-        # Fetch analysis/card data based on content type
+        type_data: dict = {}
         if content_type in ("lab", "demo"):
-            # Analysis is stored on the base CI for published items
             if row.get("is_published") and row.get("base_ci_name"):
                 analysis_content_id = f"babylon:{row['base_ci_name']}"
             else:
@@ -243,63 +242,62 @@ def search(
                 else (analysis or {}).get("estimated_duration_min")
             )
             duration_source = "curated" if (analysis or {}).get("curated_duration_min") is not None else "ai"
+
+            type_data = {
+                "ci_name": ci_name,
+                "stage": row.get("stage", "prod"),
+                "catalog_namespace": row.get("catalog_namespace", ""),
+                "base_ci_name": row.get("base_ci_name"),
+                "category": row.get("category", ""),
+                "duration_min": duration_min,
+                "duration_source": duration_source,
+                "learning_objectives": learning_objs,
+            }
         elif content_type == "sandbox":
-            # Sandboxes: card fields from content_entities (no showroom analysis)
             entity = db.get_content_entity(content_id)
             summary = (entity or {}).get("summary", "")
             topics = (entity or {}).get("topics_json", []) or []
             products = (entity or {}).get("products_json", []) or []
             difficulty = (entity or {}).get("difficulty", "")
-            duration_min = None
-            duration_source = "ai"
-            learning_objs = []
+
+            type_data = {
+                "ci_name": ci_name,
+                "stage": row.get("stage", "prod"),
+                "catalog_namespace": row.get("catalog_namespace", ""),
+                "base_ci_name": row.get("base_ci_name"),
+                "category": row.get("category", ""),
+            }
         elif content_type == "architecture":
-            # Card fields live on content_entities; extras the rationale
-            # prompt wants live on architecture_analysis.
             entity = db.get_content_entity(content_id)
             summary = (entity or {}).get("summary", "")
             topics = (entity or {}).get("topics_json", []) or []
             products = (entity or {}).get("products_json", []) or []
             difficulty = (entity or {}).get("difficulty", "")
-            duration_min = None
-            duration_source = "ai"
-            learning_objs = []
+            arch_analysis = db.get_architecture_analysis(content_id) or {}
+            type_data = {"asset_type": arch_analysis.get("asset_type", "")}
         else:
-            # Fallback for unknown content types
             summary = row.get("summary", "")
             topics = []
             products = []
             difficulty = ""
-            duration_min = None
-            duration_source = "ai"
-            learning_objs = []
 
-        # Convert similarity to distance for backward compat
         best_similarity = row["best_similarity"]
         vector_distance = 1.0 - best_similarity
 
         candidates.append(Candidate(
             content_id=content_id,
             display_name=row.get("display_name", content_id),
-            category=row.get("category", ""),
-            summary=summary,
-            topics=topics,
-            products=products,
-            difficulty=difficulty,
-            duration_min=duration_min,
             content_type=content_type,
-            ci_name=ci_name,
             source=row.get("source", "babylon"),
+            summary=summary,
+            products=products,
+            topics=topics,
+            status=row.get("stage", "prod"),
+            difficulty=difficulty,
             is_hands_on=row.get("is_hands_on", True),
-            best_match_type=row.get("best_match_type", ""),
-            best_match_detail=row.get("best_match_module"),
-            stage=row.get("stage", "prod"),
-            duration_source=duration_source,
-            catalog_namespace=row.get("catalog_namespace", ""),
-            base_ci_name=row.get("base_ci_name"),
-            learning_objectives=learning_objs,
             vector_distance=vector_distance,
             vector_similarity_pct=Candidate.from_similarity(best_similarity),
+            type_data=type_data,
         ))
 
     # Sort by vector distance (ascending — smaller = better)
@@ -312,7 +310,7 @@ def search(
              threshold=quality_threshold, elapsed=round(elapsed, 3))
     for c in candidates:
         log.info("vector_search_candidate", content_id=c.content_id,
-                 ci_name=c.ci_name or "-", display_name=c.display_name,
+                 ci_name=c.type_data.get("ci_name") or "-", display_name=c.display_name,
                  distance=round(c.vector_distance, 3), similarity_pct=c.vector_similarity_pct)
 
     return QueryState(
