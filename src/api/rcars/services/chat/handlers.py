@@ -12,8 +12,9 @@ from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
 from rcars.services.chat.models import Block, InfrastructureArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.analyzer import generate_embedding
+from rcars.services.recommender.models import QueryState
 from rcars.services.recommender.pipeline import run_query
-from rcars.services.recommender.serialize import candidates_with_performance
+from rcars.services.recommender.drivers import get_driver
 from rcars.services.reporting_sync import compute_sales_impact
 
 
@@ -48,6 +49,28 @@ def _item_card(db: Database, item: dict) -> dict:
     return card
 
 
+def _serialize_category_states(category_states: dict[str, QueryState], db, query: str) -> tuple[list[dict], QueryState]:
+    """Serialize candidates from all categories with performance data."""
+    all_cards: list[dict] = []
+    combined_state = None
+    for cat, state in category_states.items():
+        driver = get_driver(state.candidates[0].content_type) if state.candidates else None
+        if driver:
+            cards = [driver.serialize(c, include_performance=True, db=db) for c in state.candidates]
+        else:
+            cards = []
+        all_cards.extend(cards)
+        if combined_state is None:
+            combined_state = state
+        else:
+            combined_state.candidates.extend(state.candidates)
+            if state.content_gaps:
+                combined_state.content_gaps = (combined_state.content_gaps or []) + state.content_gaps
+    if combined_state is None:
+        combined_state = QueryState(phase="NO_MATCHES", candidates=[], query=query)
+    return all_cards, combined_state
+
+
 async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                            stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
     args = RecommendArgs.model_validate(res.output.args)
@@ -65,19 +88,20 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
             return
         await on_progress(data)
 
-    state = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
-                            on_progress=_relay, depth=depth,
-                            scope_content_ids=res.scope_ids or None)
-    cards = candidates_with_performance(state, db)
+    category_states = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
+                                       on_progress=_relay, depth=depth,
+                                       scope_content_ids=res.scope_ids or None)
+
+    cards, combined_state = _serialize_category_states(category_states, db, query)
     green = [c for c in cards if c["tier"] == "green"]
 
     blocks: list[Block] = []
     scoped = bool(res.scope_ids)
     if scoped and not green:
-        state = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
-                                on_progress=_relay, depth="high",
-                                scope_content_ids=None)
-        cards = candidates_with_performance(state, db)
+        category_states = await run_query(query, db, settings, stages=stages, include_zt=include_zt,
+                                           on_progress=_relay, depth="high",
+                                           scope_content_ids=None)
+        cards, combined_state = _serialize_category_states(category_states, db, query)
         green = [c for c in cards if c["tier"] == "green"]
         scoped = False
         blocks.append(Block(type="notice", data={
@@ -85,13 +109,15 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
             "message": "No strong matches in your prior results. Expanded to the full catalog."}))
 
     blocks.append(Block(type="rec_cards", data={"candidates": cards,
-                                                "content_gaps": state.content_gaps}))
+                                                "content_gaps": combined_state.content_gaps}))
     return HandlerResult(
         blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
-                        "assessment": state.overall_assessment,
+                        "assessment": combined_state.overall_assessment,
                         "top": [c["display_name"] for c in (green or cards)[:3]],
-                        "durations": [{"content_id": c["content_id"], "display_name": c["display_name"], "duration_min": c["duration_min"]} for c in (green or cards)[:5] if c.get("duration_min") is not None],
+                        "durations": [{"content_id": c["content_id"], "display_name": c["display_name"],
+                                       "duration_min": c.get("duration_min")} for c in (green or cards)[:5]
+                                      if c.get("duration_min") is not None],
                         "scoped": scoped},
         anchor_ids=[c["content_id"] for c in (green or cards)[:5]],
         session_results=cards)

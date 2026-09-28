@@ -308,7 +308,7 @@ def search(
              threshold=quality_threshold, elapsed=round(elapsed, 3))
     for c in candidates:
         log.info("vector_search_candidate", content_id=c.content_id,
-                 ci_name=c.ci_name or "-", display_name=c.display_name,
+                 ci_name=c.type_data.get("ci_name") or "-", display_name=c.display_name,
                  distance=round(c.vector_distance, 3), similarity_pct=c.vector_similarity_pct)
 
     return QueryState(

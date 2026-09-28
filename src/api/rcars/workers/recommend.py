@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.recommender.pipeline import run_query
-from rcars.services.recommender.serialize import candidates_with_performance
+from rcars.services.recommender.drivers import get_driver
 import structlog
 
 logger = structlog.get_logger()
@@ -26,7 +26,7 @@ async def run_recommendation(
         async def on_progress(data: dict):
             await publish_progress(wctx.relay, job_id, wctx.db, **data)
 
-        state = await run_query(
+        category_states = await run_query(
             query=query,
             db=wctx.db,
             settings=wctx.settings,
@@ -36,18 +36,28 @@ async def run_recommendation(
             depth=depth,
         )
 
-        candidates_json = candidates_with_performance(state, wctx.db)
+        candidates_json = []
+        combined_assessment = None
+        combined_gaps = None
+        for cat, state in category_states.items():
+            driver_inst = get_driver(state.candidates[0].content_type) if state.candidates else None
+            if driver_inst:
+                candidates_json.extend([driver_inst.serialize(c, include_performance=True, db=wctx.db)
+                                        for c in state.candidates])
+            if state.overall_assessment:
+                combined_assessment = state.overall_assessment
+            if state.content_gaps:
+                combined_gaps = (combined_gaps or []) + state.content_gaps
 
         results = {
-            "phase": state.phase,
+            "phase": "COMPLETE" if candidates_json else "NO_MATCHES",
             "candidates": candidates_json,
-            "overall_assessment": state.overall_assessment,
-            "content_gaps": state.content_gaps,
+            "overall_assessment": combined_assessment,
+            "content_gaps": combined_gaps,
         }
 
         wctx.db.complete_job(job_id, result_json=results)
 
-        # Log to advisor_sessions for query history
         wctx.db.log_advisor_session(
             session_id=job_id,
             turn_index=0,
@@ -55,13 +65,11 @@ async def run_recommendation(
             query_text=query,
             event_url=None,
             results=candidates_json,
-            overall_assessment=state.overall_assessment,
-
-
+            overall_assessment=combined_assessment,
         )
 
         log.info("job_complete", action="job_complete",
-                 results=len(state.candidates),
+                 results=len(candidates_json),
                  query=query[:120])
         return results
 

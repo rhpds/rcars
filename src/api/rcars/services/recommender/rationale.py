@@ -17,40 +17,23 @@ SINGLE_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rational
 SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent.parent / "prompts" / "rationale_synthesis.txt"
 
 
-# Never "Reference Architecture" — these are curated examples, not standards.
-ASSET_TYPE_LABELS = {
-    "VP": "Validated Pattern",
-    "SP": "Solution Pattern",
-    "PA": "Portfolio Architecture",
-}
-
-
-def _primary_asset_type(raw: str | None) -> str:
-    """VP wins over PA when a row carries both, matching the Browse badge."""
-    tokens = [t.strip().upper() for t in str(raw or "").split(",") if t.strip()]
-    for candidate in ("VP", "SP", "PA"):
-        if candidate in tokens:
-            return candidate
-    return ""
-
-
 def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
     """Format one candidate with full analysis data for the per-candidate prompt.
 
-    Routes by content_type: lab/demo gets full showroom data,
-    sandbox gets infrastructure metadata, architecture gets solution areas/use cases.
+    Fallback for when no driver is provided. Routes by content_type.
     """
+    td = c.type_data
     lines = [
         f"Content ID: {c.content_id}",
         f"Display Name: {c.display_name}",
-        f"Category: {c.category}",
+        f"Category: {td.get('category', '')}",
         f"Content Type: {c.content_type}",
         f"Relevance Score: {c.relevance_score or 0}%",
         f"Summary: {c.summary}",
         f"Difficulty: {c.difficulty}",
     ]
     if c.content_type != "architecture":
-        lines.append(f"Duration: {c.duration_min or '?'} min")
+        lines.append(f"Duration: {td.get('duration_min') or '?'} min")
     lines.extend([
         f"Topics: {', '.join(c.topics)}",
         f"Products: {', '.join(c.products)}",
@@ -90,7 +73,7 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
             if wl_names:
                 lines.append(f"Workloads: {'; '.join(wl_names)}")
     elif c.content_type == "architecture":
-        # Read-through portfolio architecture — no modules, no provisioning.
+        from rcars.services.recommender.drivers.architecture import ASSET_TYPE_LABELS, _primary_asset_type
         lines.append(f"Asset Type: {ASSET_TYPE_LABELS.get(_primary_asset_type(analysis.get('asset_type')), 'Architecture')}")
         audience = analysis.get("audience_json", [])
         if audience:
@@ -277,10 +260,11 @@ def generate_rationale(
         rec = rationale_results.get(c.content_id, {})
         c.why_it_fits = rec.get("why_it_fits")
         c.how_to_use = rec.get("how_to_use")
-        c.rationale = c.why_it_fits or rec.get("rationale")
-        c.suggested_format = rec.get("suggested_format")
-        c.duration_notes = rec.get("duration_notes")
         c.caveats = rec.get("caveats")
+        if rec.get("suggested_format"):
+            c.type_data["suggested_format"] = rec["suggested_format"]
+        if rec.get("duration_notes"):
+            c.type_data["duration_notes"] = rec["duration_notes"]
 
     matched = sum(1 for c in top_candidates if c.why_it_fits)
     if matched < len(top_candidates):

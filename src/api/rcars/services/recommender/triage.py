@@ -122,12 +122,10 @@ def triage(
 
         if relevant and relevance >= triage_cutoff:
             candidate.tier = "yellow"
-            candidate.relevant = True
             relevant_count += 1
             log.info("triage_scored", content_id=candidate.content_id, tier="yellow", score=relevance, reason=reason)
         else:
             candidate.tier = "white"
-            candidate.relevant = False
             log.info("triage_scored", content_id=candidate.content_id, tier="white",
                      score=relevance, relevant=relevant, reason=reason)
 

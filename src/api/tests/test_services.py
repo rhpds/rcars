@@ -3,9 +3,9 @@ from rcars.services.recommender.models import Candidate, QueryState
 
 
 def test_candidate_similarity_pct():
-    assert Candidate.similarity_pct(0.0) == 100
-    assert Candidate.similarity_pct(0.5) == 75
-    assert Candidate.similarity_pct(1.0) == 50
+    assert Candidate.from_similarity(0.0) == 0
+    assert Candidate.from_similarity(0.5) == 50
+    assert Candidate.from_similarity(1.0) == 100
 
 
 def test_query_state_defaults():
@@ -19,18 +19,15 @@ def test_candidate_tier_defaults():
     c = Candidate(
         content_id="babylon:test.item",
         display_name="Test",
-        category="Workshops",
+        content_type="workshop",
+        source="babylon",
         summary="A test item",
         topics=["openshift"],
         products=["OpenShift"],
-        difficulty="beginner",
-        duration_min=60,
-        content_type="workshop",
-        ci_name="test.item",
     )
     assert c.tier == "white"
     assert c.relevance_score is None
-    assert c.rationale is None
+    assert c.why_it_fits is None
 
 
 def test_imports():
@@ -206,15 +203,14 @@ def test_format_single_candidate_handles_architecture():
         content_id="pa:275",
         display_name="Multitenant Setup for RHACS",
         content_type="architecture",
+        source="portfolio_arch",
         summary="An architecture for multi-tenant RHACS.",
         topics=["security"],
         products=["Red Hat Advanced Cluster Security"],
         difficulty="intermediate",
-        duration_min=None,
-        category="architecture",
-        source="portfolio_arch",
         is_hands_on=False,
         relevance_score=88,
+        type_data={"category": "architecture"},
     )
     analysis = {
         "audience_json": ["security architects"],

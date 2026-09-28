@@ -19,7 +19,7 @@ from rcars.api.middleware.rate_limit import limiter
 from rcars.api.schemas import RecommendationLowResponse, RecommendationMediumResponse
 from rcars.config import Settings
 from rcars.services.recommender.pipeline import run_query
-from rcars.services.recommender.serialize import candidates_with_performance
+from rcars.services.recommender.drivers import get_driver
 import structlog
 
 logger = structlog.get_logger()
@@ -131,7 +131,7 @@ async def get_recommendations(
 async def _run_low(body, db, settings, stages):
     t0 = time.monotonic()
     try:
-        state = await asyncio.wait_for(
+        category_states = await asyncio.wait_for(
             run_query(
                 query=body.query, db=db, settings=settings,
                 stages=stages, include_zt=body.include_zt, depth="low",
@@ -140,15 +140,28 @@ async def _run_low(body, db, settings, stages):
         )
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Recommendation search timed out. Retry with effort=medium.")
-    candidates_json = candidates_with_performance(state, db)[:body.limit]
+
+    candidates_json = []
+    total_candidates = 0
+    overall_assessment = None
+    for cat, state in category_states.items():
+        total_candidates += len(state.candidates)
+        if state.overall_assessment:
+            overall_assessment = state.overall_assessment
+        driver_inst = get_driver(state.candidates[0].content_type) if state.candidates else None
+        if driver_inst:
+            candidates_json.extend([driver_inst.serialize(c, include_performance=True, db=db)
+                                    for c in state.candidates])
+    candidates_json = candidates_json[:body.limit]
+
     elapsed = round(time.monotonic() - t0, 2)
     return {
         "candidates": candidates_json,
-        "overall_assessment": state.overall_assessment,
+        "overall_assessment": overall_assessment,
         "metadata": {
             "effort": "low",
             "elapsed_s": elapsed,
-            "total_candidates": len(state.candidates),
+            "total_candidates": total_candidates,
             "returned": len(candidates_json),
         },
     }
