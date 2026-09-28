@@ -145,11 +145,8 @@ async def _run_low(body, db, settings, stages, content_types=None):
 
     candidates_json = []
     total_candidates = 0
-    overall_assessment = None
     for cat, state in category_states.items():
         total_candidates += len(state.candidates)
-        if state.overall_assessment:
-            overall_assessment = state.overall_assessment
         driver_inst = get_driver(state.candidates[0].content_type) if state.candidates else None
         if driver_inst:
             candidates_json.extend([driver_inst.serialize(c, include_performance=True, db=db)
@@ -159,7 +156,7 @@ async def _run_low(body, db, settings, stages, content_types=None):
     elapsed = round(time.monotonic() - t0, 2)
     return {
         "candidates": candidates_json,
-        "overall_assessment": overall_assessment,
+        "overall_assessment": None,
         "metadata": {
             "effort": "low",
             "elapsed_s": elapsed,
