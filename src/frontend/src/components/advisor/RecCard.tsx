@@ -1,44 +1,27 @@
 import { useState } from 'react'
 import { api } from '../../services/api'
-
-interface Candidate {
-  ci_name: string
-  content_id?: string
-  content_type?: string
-  display_name: string
-  tier: string
-  relevance_score: number | null
-  vector_similarity_pct: number | null
-  stage: string
-  catalog_namespace: string
-  learning_objectives: string[]
-  why_it_fits: string | null
-  how_to_use: string | null
-  suggested_format: string | null
-  duration_notes: string | null
-  caveats: string | null
-  duration_min: number | null
-  duration_source: string | null
-  best_match_type?: string
-  best_match_detail?: string | null
-  provisions_quarter?: number | null
-  sales_impact?: string | null
-}
+import type { StreamCandidate } from '../../hooks/useJobStream'
 
 interface RecCardProps {
-  candidate: Candidate
+  candidate: StreamCandidate
   sessionId?: string
   turnIndex?: number
   chosenCiName?: string
   isComplete: boolean
 }
 
-function catalogUrl(ciName: string, namespace: string): string {
-  const ns = namespace || 'babylon-catalog-prod'
-  return `https://demo.redhat.com/catalog?item=${ns}/${ciName}`
+function buildUrl(template: string, candidate: StreamCandidate): string {
+  if (template === 'catalog' && candidate.ci_name) {
+    const ns = candidate.catalog_namespace || 'babylon-catalog-prod'
+    return `https://demo.redhat.com/catalog?item=${ns}/${candidate.ci_name}`
+  }
+  if (template === 'browse') {
+    return '/browse?search=' + encodeURIComponent(candidate.display_name)
+  }
+  return '#'
 }
 
-const FORMAT_LABELS: Record<string, string> = {
+const FALLBACK_FORMAT_LABELS: Record<string, string> = {
   hands_on_lab: 'Hands-on Lab',
   demo: 'Demo',
 }
@@ -46,34 +29,44 @@ const FORMAT_LABELS: Record<string, string> = {
 const FORMAT_COLORS: Record<string, { bg: string; color: string }> = {
   hands_on_lab: { bg: 'var(--badge-blue-bg)', color: 'var(--badge-blue-text)' },
   demo: { bg: 'var(--badge-amber-bg)', color: 'var(--badge-amber-text)' },
+  architecture: { bg: 'var(--badge-purple-bg, var(--badge-blue-bg))', color: 'var(--badge-purple-text, var(--badge-blue-text))' },
 }
 
 export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isComplete }: RecCardProps) {
   const [expanded, setExpanded] = useState(false)
-  const [selected, setSelected] = useState(chosenCiName === candidate.ci_name)
+  const [selected, setSelected] = useState(chosenCiName === candidate.content_id || chosenCiName === candidate.ci_name)
   const [showFullCaveat, setShowFullCaveat] = useState(false)
   const [showSalesInfo, setShowSalesInfo] = useState(false)
 
   const score = Math.min(100, Math.max(0, candidate.relevance_score ?? candidate.vector_similarity_pct ?? 0))
   const tier = candidate.tier as 'green' | 'yellow' | 'white'
   const tierClass = tier === 'green' ? 'tier-green' : tier === 'yellow' ? 'tier-yellow' : ''
+  const display = candidate.display
 
   const handleSelect = async () => {
     if (!sessionId || turnIndex == null) return
-    await api.selectRecommendation(sessionId, turnIndex, candidate.ci_name)
+    await api.selectRecommendation(sessionId, turnIndex, candidate.ci_name || candidate.content_id)
     setSelected(true)
   }
 
   const caveatText = candidate.caveats || ''
   const caveatTruncated = caveatText.length > 200 && !showFullCaveat
 
-  const durationSourceLabel = candidate.duration_min
-    ? (candidate.duration_source === 'curated' ? 'Curated duration' : 'AI duration estimate')
-    : null
-
-  const formatKey = candidate.suggested_format || ''
-  const formatLabel = FORMAT_LABELS[formatKey] || (formatKey ? formatKey.replace(/_/g, ' ') : null)
+  // Format badge — from display config or fallback
+  const formatBadge = display?.format_badge
+  const formatKey = formatBadge?.key || candidate.suggested_format || ''
+  const formatLabel = formatBadge?.label || FALLBACK_FORMAT_LABELS[formatKey] || (formatKey ? formatKey.replace(/_/g, ' ') : null)
   const formatStyle = FORMAT_COLORS[formatKey] || { bg: 'var(--badge-blue-bg)', color: 'var(--badge-blue-text)' }
+
+  // Header right — from display config or fallback to duration_min
+  const headerRight = display?.header_right
+  const durationDisplay = headerRight?.value || (candidate.duration_min ? `~${candidate.duration_min} min` : null)
+  const durationTooltip = headerRight?.tooltip || (candidate.duration_min
+    ? (candidate.duration_source === 'curated' ? 'Curated duration' : 'AI duration estimate')
+    : null)
+
+  // Stage display
+  const stage = candidate.stage || candidate.status || 'prod'
 
   return (
     <div className={`rec-card ${tierClass}`}>
@@ -90,9 +83,9 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="rec-title" style={{ fontFamily: 'var(--ff-display)' }}>{candidate.display_name}</div>
           <div className="rec-meta">
-            {candidate.stage !== 'prod' && (
-              <span className="rec-badge" style={{ background: candidate.stage === 'dev' ? 'var(--badge-blue-bg)' : 'var(--badge-amber-bg)', color: candidate.stage === 'dev' ? 'var(--badge-blue-text)' : 'var(--badge-amber-text)' }}>
-                {candidate.stage.toUpperCase()}
+            {stage !== 'prod' && (
+              <span className="rec-badge" style={{ background: stage === 'dev' ? 'var(--badge-blue-bg)' : 'var(--badge-amber-bg)', color: stage === 'dev' ? 'var(--badge-blue-text)' : 'var(--badge-amber-text)' }}>
+                {stage.toUpperCase()}
               </span>
             )}
             {(candidate.catalog_namespace?.startsWith('zt-') || candidate.ci_name?.startsWith('zt-')) && (
@@ -101,15 +94,20 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             {formatLabel && (
               <span className="rec-badge" style={{ background: formatStyle.bg, color: formatStyle.color }}>{formatLabel}</span>
             )}
-            <span style={{ fontFamily: 'var(--ff-mono)' }}>{candidate.ci_name}</span>
-            {durationSourceLabel && (
-              <><span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>·</span><span>{durationSourceLabel}</span></>
+            {candidate.ci_name && (
+              <span style={{ fontFamily: 'var(--ff-mono)' }}>{candidate.ci_name}</span>
+            )}
+            {durationTooltip && !durationDisplay && (
+              <><span style={{ color: 'var(--text-muted)', margin: '0 4px' }}>·</span><span>{durationTooltip}</span></>
             )}
           </div>
         </div>
-        {candidate.duration_min && (
-          <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500, flexShrink: 0, fontFamily: 'var(--ff-mono)' }}>
-            ~{candidate.duration_min} min
+        {durationDisplay && (
+          <span
+            style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 500, flexShrink: 0, fontFamily: 'var(--ff-mono)' }}
+            title={durationTooltip || undefined}
+          >
+            {durationDisplay}
           </span>
         )}
         <span className="rec-expand-hint">{expanded ? '▾' : '▸'}</span>
@@ -117,43 +115,60 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
 
       {expanded && (
         <div className="rec-expanded" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
-          {candidate.why_it_fits && (
-            <div className="rec-row">
-              <span className="rec-row-label">Why it fits</span>
-              <span className="rec-row-value">{candidate.why_it_fits}</span>
-            </div>
-          )}
-
-          {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
-            <div className="rec-row">
-              <span className="rec-row-label">Objectives</span>
-              <div className="rec-row-value">
-                <ul className="rec-objectives-list">
-                  {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
-                    <li key={i}>{obj}</li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          )}
-
-          {candidate.how_to_use && (
-            <div className="rec-row">
-              <span className="rec-row-label">How to use</span>
-              <div className="rec-row-value">
-                <div>{candidate.how_to_use}</div>
-                {candidate.duration_notes && (
-                  <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>{candidate.duration_notes}</div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!candidate.how_to_use && candidate.duration_notes && (
-            <div className="rec-row">
-              <span className="rec-row-label">Timing</span>
-              <span className="rec-row-value" style={{ color: 'var(--text-muted)' }}>{candidate.duration_notes}</span>
-            </div>
+          {/* Detail rows — from display config or fallback */}
+          {display?.detail_rows ? (
+            display.detail_rows.map((row, i) => {
+              const value = candidate[row.field] as string | string[] | null | undefined
+              if (!value || (Array.isArray(value) && value.length === 0)) return null
+              return (
+                <div key={i} className="rec-row">
+                  <span className="rec-row-label">{row.label}</span>
+                  {row.type === 'list' && Array.isArray(value) ? (
+                    <div className="rec-row-value">
+                      <ul className="rec-objectives-list">
+                        {(value as string[]).slice(0, row.max || 5).map((item, j) => (
+                          <li key={j}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <span className="rec-row-value">{value as string}</span>
+                  )}
+                </div>
+              )
+            })
+          ) : (
+            <>
+              {candidate.why_it_fits && (
+                <div className="rec-row">
+                  <span className="rec-row-label">Why it fits</span>
+                  <span className="rec-row-value">{candidate.why_it_fits}</span>
+                </div>
+              )}
+              {tier === 'green' && candidate.learning_objectives && candidate.learning_objectives.length > 0 && (
+                <div className="rec-row">
+                  <span className="rec-row-label">Objectives</span>
+                  <div className="rec-row-value">
+                    <ul className="rec-objectives-list">
+                      {candidate.learning_objectives.slice(0, 5).map((obj, i) => (
+                        <li key={i}>{obj}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              )}
+              {candidate.how_to_use && (
+                <div className="rec-row">
+                  <span className="rec-row-label">How to use</span>
+                  <div className="rec-row-value">
+                    <div>{candidate.how_to_use}</div>
+                    {candidate.duration_notes && (
+                      <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>{candidate.duration_notes}</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           {caveatText && (
@@ -170,6 +185,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             </div>
           )}
 
+          {/* Footer metrics — from display config or fallback */}
           {candidate.provisions_quarter !== null && candidate.provisions_quarter !== undefined && (
             <>
               <div style={{
@@ -228,21 +244,39 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
             </>
           )}
 
+          {/* Links — from display config or fallback */}
           <div className="rec-footer">
-            <a
-              href={catalogUrl(candidate.ci_name, candidate.catalog_namespace)}
-              target="_blank" rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View in RHDP Catalog
-            </a>
-            <a
-              href={'/browse?search=' + encodeURIComponent(candidate.display_name)}
-              target="_blank" rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              View in RCARS
-            </a>
+            {display?.links ? (
+              display.links.map((link, i) => (
+                <a
+                  key={i}
+                  href={buildUrl(link.url_template, candidate)}
+                  target="_blank" rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {link.label}
+                </a>
+              ))
+            ) : (
+              <>
+                {candidate.ci_name && (
+                  <a
+                    href={buildUrl('catalog', candidate)}
+                    target="_blank" rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    View in RHDP Catalog
+                  </a>
+                )}
+                <a
+                  href={buildUrl('browse', candidate)}
+                  target="_blank" rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  View in RCARS
+                </a>
+              </>
+            )}
           </div>
         </div>
       )}

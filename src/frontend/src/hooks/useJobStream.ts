@@ -1,33 +1,46 @@
 import { useState, useEffect } from 'react'
 
-interface ProgressMessage {
+export interface ProgressMessage {
   phase: string
   message: string
   done: boolean
+  category?: string
+}
+
+export interface DisplayConfig {
+  format_badge?: { label: string; key: string }
+  header_right?: { value: string; tooltip: string }
+  detail_rows?: Array<{ label: string; field: string; type?: string; max?: number }>
+  footer_metrics?: Array<{ label: string; field: string; type?: string }>
+  links?: Array<{ label: string; url_template: string }>
 }
 
 export interface StreamCandidate {
-  ci_name: string
-  content_id?: string
+  content_id: string
   content_type?: string
   display_name: string
   tier: string
   relevance_score: number | null
   vector_similarity_pct: number | null
-  stage: string
-  catalog_namespace: string
-  learning_objectives: string[]
+  status?: string
   why_it_fits: string | null
   how_to_use: string | null
-  suggested_format: string | null
-  duration_notes: string | null
   caveats: string | null
-  duration_min: number | null
-  duration_source: string | null
-  best_match_type?: string
-  best_match_detail?: string | null
+  display?: DisplayConfig
+  // Hands-on specific (via type_data serialization)
+  ci_name?: string
+  stage?: string
+  catalog_namespace?: string
+  learning_objectives?: string[]
+  duration_min?: number | null
+  duration_source?: string | null
+  suggested_format?: string | null
+  duration_notes?: string | null
   provisions_quarter?: number | null
   sales_impact?: string | null
+  avg_cost_per_provision?: number | null
+  // Allow additional fields from any driver
+  [key: string]: unknown
 }
 
 interface StreamState {
@@ -64,6 +77,7 @@ export function useJobStream(jobId: string | null): StreamState {
           phase: data.phase,
           message: data.user_message,
           done: data.status === 'complete' || data.phase === 'complete',
+          category: data.category,
         }
         return {
           phase: data.phase,

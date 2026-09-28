@@ -22,7 +22,7 @@ export function RecCardList({ candidates, isComplete, streamPhase, sessionId, tu
         <div style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
           Candidates ({candidates.length})
         </div>
-        {candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
+        {candidates.map(c => <RecCard key={c.content_id} candidate={c} isComplete={false} />)}
       </>
     )
   }
@@ -34,7 +34,7 @@ export function RecCardList({ candidates, isComplete, streamPhase, sessionId, tu
         <div style={{ fontSize: '11px', color: 'var(--score-amber)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>
           Evaluating top {Math.min(yellow.length, 5)} matches...
         </div>
-        {yellow.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={false} />)}
+        {yellow.map(c => <RecCard key={c.content_id} candidate={c} isComplete={false} />)}
         {white.length > 0 && (
           <CollapsibleTier label={`Also reviewed (${white.length})`} candidates={white} isComplete={false} />
         )}
@@ -47,7 +47,7 @@ export function RecCardList({ candidates, isComplete, streamPhase, sessionId, tu
       {green.length > 0 && (
         <div style={{ fontSize: '12px', color: 'var(--score-green)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '8px 0 4px' }}>Best fit ({green.length})</div>
       )}
-      {green.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
+      {green.map(c => <RecCard key={c.content_id} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
 
       {yellow.length > 0 && (
         <CollapsibleTier label={`Other options (${yellow.length})`} candidates={yellow} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />
@@ -79,7 +79,7 @@ function CollapsibleTier({ label, candidates, isComplete, sessionId, turnIndex }
       >
         {open ? '▾' : '▸'} {label}
       </button>
-      {open && candidates.map(c => <RecCard key={c.ci_name} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
+      {open && candidates.map(c => <RecCard key={c.content_id} candidate={c} isComplete={isComplete} sessionId={sessionId} turnIndex={turnIndex} />)}
     </div>
   )
 }
