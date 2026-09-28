@@ -17,9 +17,10 @@ from rcars.services.chat.router import Resolution, resolve_and_verify, route
 logger = structlog.get_logger(component="chat")
 
 OUT_OF_SCOPE_ANSWER = (
-    "I can help with five things: recommending RHDP content for an event or audience, "
+    "I can help with six things: recommending RHDP content for an event or audience, "
     "showing what overlaps with an item, reporting how items are performing, "
-    "describing what's in a catalog item, and explaining what a workload or base config does. "
+    "describing what's in a catalog item, answering follow-up questions about a specific item, "
+    "and explaining what a workload or base config does. "
     "Try one of those.")
 
 _HELP_TOPICS = {
@@ -179,7 +180,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
             extra = {"content_types": content_types} if output.intent == "recommend" and content_types else {}
             hres = await handler(res, db, settings, stages, include_zt, on_progress, **extra)
             await on_progress({"phase": "composing", "status": "started"})
-            if output.intent in ("performance", "item_facts", "infrastructure"):
+            if output.intent in ("performance", "item_facts", "item_chat", "infrastructure"):
                 answer = build_scaffold(output.intent, hres.scaffold_facts)
                 ausage = None
             else:

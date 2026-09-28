@@ -6,10 +6,10 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 
-from rcars.config import Settings
+from rcars.config import Settings, call_llm
 from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
-from rcars.services.chat.models import Block, InfrastructureArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
+from rcars.services.chat.models import Block, InfrastructureArgs, ItemChatArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.analyzer import generate_embedding
 from rcars.services.recommender.models import QueryState
@@ -278,6 +278,79 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
         anchor_ids=[item["content_id"]],
         session_results=[{"content_id": item["content_id"],
                           "display_name": card["display_name"]}])
+
+
+async def handle_item_chat(res: Resolution, db: Database, settings: Settings,
+                           stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
+    args = ItemChatArgs.model_validate(res.output.args)
+    question = args.question or res.message or ""
+    item = (res.items[0] if res.items
+            else (db.get_babylon_item(res.scope_ids[0]) or db.get_content_entity(res.scope_ids[0])
+                  or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
+    cid = item["content_id"]
+    display_name = item.get("display_name", cid)
+    entity = db.get_content_entity(cid) or {}
+    content_type = entity.get("content_type", "lab")
+
+    analysis = db.get_analysis(cid) or {}
+    context_parts = {}
+    if analysis.get("summary"):
+        context_parts["summary"] = analysis["summary"]
+    if analysis.get("products_json"):
+        context_parts["products"] = analysis["products_json"]
+    if analysis.get("topics_json"):
+        context_parts["topics"] = analysis["topics_json"]
+    lo = analysis.get("learning_objectives_json")
+    if lo:
+        context_parts["learning_objectives"] = lo.get("stated") if isinstance(lo, dict) else lo
+    if analysis.get("modules_json"):
+        context_parts["modules"] = analysis["modules_json"]
+    if analysis.get("solution_areas_json"):
+        context_parts["solution_areas"] = analysis["solution_areas_json"]
+    if analysis.get("use_cases_json"):
+        context_parts["use_cases"] = analysis["use_cases_json"]
+    if analysis.get("key_components_json"):
+        context_parts["key_components"] = analysis["key_components_json"]
+
+    sources = list(context_parts.keys())
+
+    if not context_parts:
+        answer_text = f"I don't have enough analysis data for **{display_name}** to answer that question."
+    else:
+        prompt = (
+            f"You are answering a question about a specific RHDP catalog item.\n\n"
+            f"Item: {display_name} (type: {content_type})\n"
+            f"Analysis data:\n{json.dumps(context_parts, default=str)}\n\n"
+            f"User question: {question}\n\n"
+            "Answer the question using ONLY the analysis data above. Be direct and specific. "
+            "If the data doesn't cover the question, say so honestly. "
+            "Keep it to 2-4 sentences. Use markdown for emphasis where helpful.")
+        try:
+            result = await asyncio.to_thread(
+                call_llm, settings, settings.chat_answer_model,
+                [{"role": "user", "content": prompt}],
+                max_tokens=400, temperature=0)
+            answer_text = result.text.strip()
+            db.log_token_usage("chat_item_chat", settings.chat_answer_model,
+                               result.input_tokens, result.output_tokens,
+                               query_text=question, provider=result.provider)
+        except Exception:
+            answer_text = f"I couldn't generate an answer right now. Here's what I know: {context_parts.get('summary', 'No summary available.')}"
+
+    block_data = {
+        "answer": answer_text,
+        "item": {"display_name": display_name, "content_id": cid, "content_type": content_type},
+        "sources": sources,
+    }
+    return HandlerResult(
+        blocks=[Block(type="item_answer", data=block_data)],
+        scaffold_facts={"display_name": display_name, "answer_text": answer_text},
+        anchor_ids=[cid],
+        session_results=[{"content_id": cid, "display_name": display_name}])
 
 
 _WORKLOAD_SIGNALS = (

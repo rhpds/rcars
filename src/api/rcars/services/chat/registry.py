@@ -8,7 +8,7 @@ from typing import Callable
 
 from rcars.services.chat import handlers
 from rcars.services.chat.models import (
-    Chip, HelpArgs, InfrastructureArgs, ItemFactsArgs, OverlapArgs, PerformanceArgs, RecommendArgs,
+    Chip, HelpArgs, InfrastructureArgs, ItemChatArgs, ItemFactsArgs, OverlapArgs, PerformanceArgs, RecommendArgs,
 )
 
 
@@ -104,6 +104,36 @@ INTENTS: dict[str, IntentSpec] = {
             {"message": "is there one without ARM?",
              "output": {"intent": "item_facts", "args": {"item_ref": "AWS Open Environment"}, "scope": None,
                         "item_refs": ["AWS Open Environment"], "confidence": 0.75, "clarify": None}},
+        )),
+    "item_chat": IntentSpec(
+        name="item_chat",
+        description="Follow-up question about a specific item — 'does this cover X', 'can I do Y with this'.",
+        args_model=ItemChatArgs, handler=handlers.handle_item_chat,
+        block_types=("item_answer",),
+        followups=({"label": "Show full details", "intent": "item_facts", "scope_from": "anchor"},
+                   {"label": "Find similar", "intent": "recommend", "scope_from": "anchor"}),
+        prompt_fragment=("item_chat: follow-up question about a specific item — 'does this cover X', "
+                         "'can I do Y with this', 'does it include Z'. NOT for 'what is this' "
+                         "(that's item_facts) or 'find me something' (that's recommend). "
+                         "The user is asking about content, capabilities, or coverage of ONE item "
+                         "they already know about or just saw."),
+        examples=(
+            {"message": "does this lab cover network policies?",
+             "output": {"intent": "item_chat", "args": {"question": "does this lab cover network policies?"},
+                        "scope": {"type": "ordinal", "turn": 0, "index": 1},
+                        "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "can I access OpenShift AI in the ROSA workshop?",
+             "output": {"intent": "item_chat", "args": {"question": "can I access OpenShift AI in the ROSA workshop?",
+                                                         "item_ref": "ROSA workshop"},
+                        "scope": None, "item_refs": ["ROSA workshop"], "confidence": 0.85, "clarify": None}},
+            {"message": "tell me more about this",
+             "output": {"intent": "item_chat", "args": {"question": "tell me more about this"},
+                        "scope": {"type": "ordinal", "turn": 0, "index": 1},
+                        "item_refs": [], "confidence": 0.8, "clarify": None}},
+            {"message": "does it support multi-tenancy?",
+             "output": {"intent": "item_chat", "args": {"question": "does it support multi-tenancy?"},
+                        "scope": {"type": "ordinal", "turn": 0, "index": 1},
+                        "item_refs": [], "confidence": 0.85, "clarify": None}},
         )),
     "infrastructure": IntentSpec(
         name="infrastructure",
