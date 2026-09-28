@@ -107,12 +107,16 @@ def _format_single_candidate(c: Candidate, analysis: dict[str, Any]) -> str:
 
 def _call_rationale_single(
     c: Candidate, analysis: dict[str, Any], query: str, settings, model: str,
+    driver=None,
 ) -> dict:
     """Generate rationale for a single candidate. Returns the parsed result dict."""
     from rcars.config import call_llm
 
     template = SINGLE_PROMPT_PATH.read_text()
-    candidate_text = _format_single_candidate(c, analysis)
+    if driver:
+        candidate_text = driver.format_for_rationale(c, analysis)
+    else:
+        candidate_text = _format_single_candidate(c, analysis)
 
     data_start = template.index("\n## Request\n")
     instructions_start = template.index("\n## Instructions\n")
@@ -207,6 +211,7 @@ def generate_rationale(
     state: QueryState,
     db: Database,
     settings,
+    driver=None,
     model: str = "claude-sonnet-4-6",
     top_n: int = 5,
 ) -> QueryState:
@@ -224,30 +229,24 @@ def generate_rationale(
     top_candidates = state.candidates[:top_n]
     remaining = state.candidates[top_n:]
 
-    # Fetch full analysis for top candidates, routed by content_type
+    # Fetch full analysis for top candidates via driver or content_type routing
     analyses = {}
     for c in top_candidates:
-        if c.content_type in ("lab", "demo"):
-            # Published CIs store analysis on their base CI
-            if c.base_ci_name:
-                analysis_content_id = f"babylon:{c.base_ci_name}"
-            else:
-                analysis_content_id = c.content_id
-            analysis = db.get_showroom_analysis(analysis_content_id)
+        if driver:
+            analysis = driver.fetch_analysis(db, c)
             if analysis:
                 analyses[c.content_id] = analysis
-        elif c.content_type == "sandbox":
-            # Sandboxes: infrastructure metadata + workload classifications
-            babylon_item = db.get_babylon_item(c.content_id)
-            workloads = db.get_workload_classifications(c.content_id)
-            analysis = {**(babylon_item or {})}
-            if workloads:
-                analysis["workload_classifications"] = workloads
-            analyses[c.content_id] = analysis
-        elif c.content_type == "architecture":
-            analysis = db.get_architecture_analysis(c.content_id)
-            if analysis:
-                analyses[c.content_id] = analysis
+        else:
+            if c.content_type in ("lab", "demo"):
+                base = c.type_data.get("base_ci_name")
+                analysis_cid = f"babylon:{base}" if base else c.content_id
+                analysis = db.get_showroom_analysis(analysis_cid)
+                if analysis:
+                    analyses[c.content_id] = analysis
+            elif c.content_type == "architecture":
+                analysis = db.get_architecture_analysis(c.content_id)
+                if analysis:
+                    analyses[c.content_id] = analysis
 
     # Phase 3a: Parallel per-candidate Sonnet calls
     tokens_by_provider: dict[str, dict[str, int]] = {}
@@ -257,7 +256,7 @@ def generate_rationale(
         futures = {}
         for c in top_candidates:
             analysis = analyses.get(c.content_id, {})
-            future = executor.submit(_call_rationale_single, c, analysis, state.query, settings, model)
+            future = executor.submit(_call_rationale_single, c, analysis, state.query, settings, model, driver)
             futures[future] = c.content_id
 
         for future in as_completed(futures):

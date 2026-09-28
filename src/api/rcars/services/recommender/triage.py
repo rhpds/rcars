@@ -17,21 +17,27 @@ def format_triage_candidates(candidates: list[Candidate]) -> str:
     """Format candidates compactly for the triage prompt."""
     parts = []
     for i, c in enumerate(candidates, 1):
+        td = c.type_data
         block = (
             f"--- Candidate {i} ---\n"
             f"Content ID: {c.content_id}\n"
             f"Content Type: {c.content_type}\n"
         )
-        if c.ci_name:
-            block += f"CI Name: {c.ci_name}\n"
+        ci_name = td.get("ci_name")
+        if ci_name:
+            block += f"CI Name: {ci_name}\n"
         block += (
             f"Display Name: {c.display_name}\n"
             f"Summary: {c.summary}\n"
             f"Topics: {', '.join(c.topics)}\n"
             f"Products: {', '.join(c.products)}\n"
-            f"Category: {c.category}\n"
-            f"Duration: {c.duration_min or '?'} min"
         )
+        category = td.get("category")
+        if category:
+            block += f"Category: {category}\n"
+        if c.is_hands_on:
+            duration = td.get("duration_min")
+            block += f"Duration: {duration or '?'} min"
         parts.append(block)
     return "\n\n".join(parts)
 
@@ -41,6 +47,7 @@ def triage(
     settings,
     model: str = "claude-haiku-4-5",
     triage_cutoff: int = 30,
+    guidance: str = "",
 ) -> QueryState:
     """Send candidates to Haiku for relevance triage.
 
@@ -57,6 +64,13 @@ def triage(
     data_start = template.index("\n## Request\n")
     instructions_start = template.index("\n## Instructions\n")
     system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
+    if guidance:
+        instructions_marker = "\n## Instructions\n"
+        if instructions_marker in system_prompt:
+            system_prompt = system_prompt.replace(
+                instructions_marker,
+                f"\n## Content-Type Guidance\n\n{guidance}{instructions_marker}",
+            )
     user_message = f"## Request\n\n{state.query}\n\n## Candidates\n\n{candidates_text}"
 
     from rcars.config import call_llm

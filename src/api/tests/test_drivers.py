@@ -219,3 +219,23 @@ def test_arch_serialize_with_performance_no_crash():
     result = driver.serialize(c, include_performance=True, db=mock_db)
     assert result.get("provisions_quarter") is None
     assert result.get("sales_impact") is None
+
+
+# --- Task 5: Triage + Rationale driver hook tests ---
+
+from rcars.services.recommender.triage import format_triage_candidates
+
+
+def test_format_triage_candidates_with_type_data():
+    c = _make_hands_on_candidate()
+    text = format_triage_candidates([c])
+    assert "Content ID: babylon:test-lab" in text
+    assert "Display Name: Test Lab" in text
+    assert "Duration: 120 min" in text
+
+
+def test_format_triage_candidates_architecture():
+    c = _make_arch_candidate()
+    text = format_triage_candidates([c])
+    assert "Content ID: pa:25" in text
+    assert "Duration" not in text or "?" in text
