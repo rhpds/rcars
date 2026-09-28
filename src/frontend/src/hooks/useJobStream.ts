@@ -87,7 +87,14 @@ export function useJobStream(jobId: string | null): StreamState {
           isComplete: data.phase === 'complete' || data.phase === 'failed',
           error: data.phase === 'failed' ? (data.error || 'Unknown error') : null,
           messages: [...prev.messages, newMessage],
-          candidates: data.candidate_data || prev.candidates,
+          candidates: data.candidate_data
+            ? (() => {
+                const incoming = data.candidate_data as StreamCandidate[]
+                if (!data.category) return incoming
+                const newIds = new Set(incoming.map((c: StreamCandidate) => c.content_id))
+                return [...prev.candidates.filter(c => !newIds.has(c.content_id)), ...incoming]
+              })()
+            : prev.candidates,
         }
       })
 

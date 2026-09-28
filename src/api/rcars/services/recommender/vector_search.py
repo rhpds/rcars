@@ -273,6 +273,8 @@ def search(
             topics = (entity or {}).get("topics_json", []) or []
             products = (entity or {}).get("products_json", []) or []
             difficulty = (entity or {}).get("difficulty", "")
+            arch_analysis = db.get_architecture_analysis(content_id) or {}
+            type_data = {"asset_type": arch_analysis.get("asset_type", "")}
         else:
             summary = row.get("summary", "")
             topics = []

@@ -32,10 +32,10 @@ export const api = {
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
   listSessions: () => request<{ items: unknown[]; total: number }>('/advisor/sessions'),
   getSession: (sessionId: string) => request<{ session_id: string; turns: unknown[] }>(`/advisor/sessions/${sessionId}`),
-  selectRecommendation: (sessionId: string, turnIndex: number, ciName: string) =>
+  selectRecommendation: (sessionId: string, turnIndex: number, ciName: string, contentId?: string) =>
     request<{ status: string }>(`/advisor/sessions/${sessionId}/select`, {
       method: 'POST',
-      body: JSON.stringify({ turn_index: turnIndex, ci_name: ciName }),
+      body: JSON.stringify({ turn_index: turnIndex, ci_name: ciName, content_id: contentId }),
     }),
 
   // Catalog

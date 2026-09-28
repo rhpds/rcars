@@ -45,7 +45,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
 
   const handleSelect = async () => {
     if (!sessionId || turnIndex == null) return
-    await api.selectRecommendation(sessionId, turnIndex, candidate.ci_name || candidate.content_id)
+    await api.selectRecommendation(sessionId, turnIndex, candidate.ci_name || candidate.content_id, candidate.content_id)
     setSelected(true)
   }
 
