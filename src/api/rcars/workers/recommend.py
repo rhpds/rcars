@@ -15,6 +15,7 @@ async def run_recommendation(
     prod_only: bool = True, include_zt: bool = True,
     user_email: str | None = None,
     depth: str = "high",
+    content_types: list[str] | None = None,
 ) -> dict:
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
@@ -34,6 +35,7 @@ async def run_recommendation(
             include_zt=include_zt,
             on_progress=on_progress,
             depth=depth,
+            content_types=content_types,
         )
 
         candidates_json = []

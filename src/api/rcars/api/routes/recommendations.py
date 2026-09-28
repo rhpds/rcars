@@ -126,7 +126,7 @@ async def get_recommendations(
     if body.effort == "low":
         return await _run_low(body, db, settings, stages, body.content_types)
 
-    return await _run_medium(body, request, db, settings, stages, user, is_limited)
+    return await _run_medium(body, request, db, settings, stages, user, is_limited, body.content_types)
 
 
 async def _run_low(body, db, settings, stages, content_types=None):
@@ -169,7 +169,7 @@ async def _run_low(body, db, settings, stages, content_types=None):
     }
 
 
-async def _run_medium(body, request, db, settings, stages, user, is_limited):
+async def _run_medium(body, request, db, settings, stages, user, is_limited, content_types=None):
     arq_redis = request.app.state.arq_redis
     job_id = db.create_job(job_type="recommend", queue="recommend", created_by=user, limit_active=is_limited)
     if job_id is None:
@@ -183,6 +183,7 @@ async def _run_medium(body, request, db, settings, stages, user, is_limited):
             depth="medium",
             include_zt=body.include_zt,
             user_email=user,
+            content_types=content_types,
             _queue_name="arq:queue:recommend",
         )
     except Exception:
