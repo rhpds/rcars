@@ -117,16 +117,17 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
 
     blocks.append(Block(type="rec_cards", data={"candidates": cards,
                                                 "content_gaps": combined_state.content_gaps}))
+    ranked = sorted(green or cards, key=lambda c: c.get("relevance_score") or 0, reverse=True)
     return HandlerResult(
         blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
                         "assessment": combined_state.overall_assessment,
-                        "top": [c["display_name"] for c in (green or cards)[:3]],
+                        "top": [c["display_name"] for c in ranked[:3]],
                         "durations": [{"content_id": c["content_id"], "display_name": c["display_name"],
-                                       "duration_min": c.get("duration_min")} for c in (green or cards)[:5]
+                                       "duration_min": c.get("duration_min")} for c in ranked[:5]
                                       if c.get("duration_min") is not None],
                         "scoped": scoped},
-        anchor_ids=[c["content_id"] for c in (green or cards)[:5]],
+        anchor_ids=[c["content_id"] for c in ranked[:5]],
         session_results=cards)
 
 
