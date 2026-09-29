@@ -341,14 +341,10 @@ async def handle_item_chat(res: Resolution, db: Database, settings: Settings,
         except Exception:
             answer_text = f"I couldn't generate an answer right now. Here's what I know: {context_parts.get('summary', 'No summary available.')}"
 
-    block_data = {
-        "answer": answer_text,
-        "item": {"display_name": display_name, "content_id": cid, "content_type": content_type},
-        "sources": sources,
-    }
     return HandlerResult(
-        blocks=[Block(type="item_answer", data=block_data)],
-        scaffold_facts={"display_name": display_name, "answer_text": answer_text},
+        blocks=[Block(type="item_card", data=_item_card(db, item))],
+        scaffold_facts={"display_name": display_name, "answer_text": answer_text,
+                        "sources": sources},
         anchor_ids=[cid],
         session_results=[{"content_id": cid, "display_name": display_name}])
 

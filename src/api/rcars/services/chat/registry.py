@@ -109,7 +109,7 @@ INTENTS: dict[str, IntentSpec] = {
         name="item_chat",
         description="Follow-up question about a specific item — 'does this cover X', 'can I do Y with this'.",
         args_model=ItemChatArgs, handler=handlers.handle_item_chat,
-        block_types=("item_answer",),
+        block_types=("item_card",),
         followups=({"label": "Show full details", "intent": "item_facts", "scope_from": "anchor"},
                    {"label": "Find similar", "intent": "recommend", "scope_from": "anchor"}),
         prompt_fragment=("item_chat: follow-up question about a specific item — 'does this cover X', "

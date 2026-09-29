@@ -35,7 +35,11 @@ _SCAFFOLDS = {
         + (f"{f['neighbor_count']} related items are listed under Overlapping Items — click any to explore similar content."
            if f.get("neighbor_count") else "No overlapping items were found in the catalog.")
     ),
-    "item_chat": lambda f: f.get("answer_text", "I couldn't find enough information to answer that."),
+    "item_chat": lambda f: (
+        f.get("answer_text", "I couldn't find enough information to answer that.")
+        + "\n\n*Based on stored analysis"
+        + (f" ({', '.join(s.replace('_', ' ') for s in f.get('sources', []))})" if f.get("sources") else "")
+        + " — answers may not reflect the full content.*"),
     "infrastructure": lambda f: (
         f"**{f.get('role_name', 'Unknown')}** is a {f.get('type', 'workload')} role"
         + (f" — products: {', '.join(f['products'][:3])}" if f.get("products") else "")
