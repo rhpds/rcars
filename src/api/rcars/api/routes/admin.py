@@ -483,6 +483,7 @@ async def delete_role_assignment(
 @router.get(
     "/vocabulary",
     summary="Current controlled vocabulary",
+    description="Returns all vocabulary dimensions (products, topics) with canonical names, aliases, and search terms.",
     response_model=VocabularyResponse,
 )
 async def get_vocabulary(user: str = Depends(require_admin)):
@@ -512,6 +513,7 @@ async def get_vocabulary(user: str = Depends(require_admin)):
 @router.get(
     "/vocabulary/unknowns",
     summary="Unknown-term review queue",
+    description="Lists terms encountered during scans that are not in the controlled vocabulary. Filter by status (pending/aliased/promoted/rejected) and dimension.",
     response_model=UnknownTermsResponse,
 )
 async def get_vocabulary_unknowns(
@@ -527,6 +529,7 @@ async def get_vocabulary_unknowns(
 @router.put(
     "/vocabulary/unknowns/{dimension}/{term:path}",
     summary="Record a decision on an unknown term",
+    description="Resolve an unknown term: alias it to a canonical name, promote it as new canonical, or reject it. Admin only.",
     response_model=UnknownTerm,
 )
 async def resolve_vocabulary_unknown(
@@ -564,6 +567,7 @@ async def resolve_vocabulary_unknown(
 @router.get(
     "/vocabulary/generate",
     summary="Download a merged vocabulary.yaml",
+    description="Generates a vocabulary.yaml file with all resolved unknown-term decisions merged in. Download and commit to update the packaged vocabulary.",
     response_class=PlainTextResponse,
 )
 async def generate_vocabulary(request: Request, user: str = Depends(require_admin)):

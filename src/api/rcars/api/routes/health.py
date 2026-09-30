@@ -10,6 +10,7 @@ router = APIRouter()
 @router.get(
     "/health",
     summary="Health check",
+    description="Simple liveness probe. Always returns 200 with status 'ok'.",
     response_model=HealthResponse,
     openapi_extra={"security": []},
 )
