@@ -44,6 +44,8 @@ class ChatRequest(BaseModel):
         description=(
             "Content types to include in recommendation results. "
             "Valid values: lab, demo, sandbox, architecture. "
+            "Hands-on content (lab, demo, sandbox) shares a single driver; "
+            "filtering to one also returns the others in the same category. "
             "When omitted, all registered content types are searched."
         ),
     )

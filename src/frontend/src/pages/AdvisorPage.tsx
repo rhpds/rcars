@@ -125,8 +125,7 @@ export function AdvisorPage() {
   const [input, setInput] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
-  const [showLabs, setShowLabs] = useState(true)
-  const [showDemos, setShowDemos] = useState(true)
+  const [showHandsOn, setShowHandsOn] = useState(true)
   const [showArchitectures, setShowArchitectures] = useState(false)
   const showZt = true
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -263,13 +262,12 @@ export function AdvisorPage() {
 
   const getContentTypes = () => {
     const types: string[] = []
-    if (showLabs) types.push('lab')
-    if (showDemos) types.push('demo')
+    if (showHandsOn) types.push('lab', 'demo')
     if (showArchitectures) types.push('architecture')
     return types
   }
 
-  const contentTypeCount = [showLabs, showDemos, showArchitectures].filter(Boolean).length
+  const contentTypeCount = [showHandsOn, showArchitectures].filter(Boolean).length
 
   const toggleContentType = (current: boolean, setter: (v: boolean) => void) => {
     if (current && contentTypeCount <= 1) return
@@ -439,8 +437,7 @@ export function AdvisorPage() {
         </div>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '0 0 6px' }}>
           {([
-            { label: 'Labs', active: showLabs, toggle: () => toggleContentType(showLabs, setShowLabs) },
-            { label: 'Demos', active: showDemos, toggle: () => toggleContentType(showDemos, setShowDemos) },
+            { label: 'Hands-on', active: showHandsOn, toggle: () => toggleContentType(showHandsOn, setShowHandsOn) },
             { label: 'Architectures', active: showArchitectures, toggle: () => toggleContentType(showArchitectures, setShowArchitectures) },
           ] as const).map(p => (
             <button key={p.label} onClick={p.toggle} className={`filter-pill${p.active ? ' active' : ''}`}>
