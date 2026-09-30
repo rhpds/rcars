@@ -6,10 +6,10 @@ import asyncio
 import json
 from dataclasses import dataclass, field
 
-from rcars.config import Settings
+from rcars.config import Settings, call_llm
 from rcars.db.database import Database
 from rcars.db.chat_sessions import get_item_workloads, get_performance_scores
-from rcars.services.chat.models import Block, InfrastructureArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
+from rcars.services.chat.models import Block, InfrastructureArgs, ItemChatArgs, ItemFactsArgs, PerformanceArgs, RecommendArgs
 from rcars.services.chat.router import Resolution
 from rcars.services.analyzer import generate_embedding
 from rcars.services.recommender.models import QueryState
@@ -34,6 +34,7 @@ def _item_card(db: Database, item: dict) -> dict:
     lo = analysis.get("learning_objectives_json") or {}
     card = {
         "content_id": cid, "ci_name": item.get("ci_name"),
+        "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
         "display_name": item.get("display_name", cid), "stage": item.get("stage"),
         "content_type": content_type,
         "summary": analysis.get("summary"),
@@ -69,9 +70,10 @@ def _serialize_category_states(category_states: dict[str, QueryState], db, query
     if combined_state is None:
         combined_state = QueryState(phase="NO_MATCHES", candidates=[], query=query)
     else:
-        candidate_state = next((s for s in category_states.values() if s.candidates), None)
-        if candidate_state is not None and candidate_state.overall_assessment is not None:
-            combined_state.overall_assessment = candidate_state.overall_assessment
+        assessments = [s.overall_assessment for s in category_states.values()
+                       if s.candidates and s.overall_assessment]
+        if assessments:
+            combined_state.overall_assessment = "\n\n".join(assessments)
     return all_cards, combined_state
 
 
@@ -82,6 +84,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
     query = res.message or args.search_query or " ".join(str(v) for v in args.constraints.values())
     if not query and res.scope_ids:
         query = " ".join(i.get("display_name", "") for i in (res.items or []) if i.get("display_name")) or "recommend similar content"
+    if res.items and not res.scope_ids and not args.search_query:
+        query = " ".join(i.get("display_name", "") for i in res.items if i.get("display_name")) or query
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
     depth = "medium" if res.scope_ids else "high"
 
@@ -117,16 +121,17 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
 
     blocks.append(Block(type="rec_cards", data={"candidates": cards,
                                                 "content_gaps": combined_state.content_gaps}))
+    ranked = sorted(green or cards, key=lambda c: c.get("relevance_score") or 0, reverse=True)
     return HandlerResult(
         blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
                         "assessment": combined_state.overall_assessment,
-                        "top": [c["display_name"] for c in (green or cards)[:3]],
+                        "top": [c["display_name"] for c in ranked[:3]],
                         "durations": [{"content_id": c["content_id"], "display_name": c["display_name"],
-                                       "duration_min": c.get("duration_min")} for c in (green or cards)[:5]
+                                       "duration_min": c.get("duration_min")} for c in ranked[:5]
                                       if c.get("duration_min") is not None],
                         "scoped": scoped},
-        anchor_ids=[c["content_id"] for c in (green or cards)[:5]],
+        anchor_ids=[c["content_id"] for c in ranked[:5]],
         session_results=cards)
 
 
@@ -278,6 +283,75 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
         anchor_ids=[item["content_id"]],
         session_results=[{"content_id": item["content_id"],
                           "display_name": card["display_name"]}])
+
+
+async def handle_item_chat(res: Resolution, db: Database, settings: Settings,
+                           stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
+    args = ItemChatArgs.model_validate(res.output.args)
+    question = args.question or res.message or ""
+    item = (res.items[0] if res.items
+            else (db.get_babylon_item(res.scope_ids[0]) or db.get_content_entity(res.scope_ids[0])
+                  or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
+    cid = item["content_id"]
+    display_name = item.get("display_name", cid)
+    entity = db.get_content_entity(cid) or {}
+    content_type = entity.get("content_type", "lab")
+
+    analysis = db.get_analysis(cid) or {}
+    context_parts = {}
+    if analysis.get("summary"):
+        context_parts["summary"] = analysis["summary"]
+    if analysis.get("products_json"):
+        context_parts["products"] = analysis["products_json"]
+    if analysis.get("topics_json"):
+        context_parts["topics"] = analysis["topics_json"]
+    lo = analysis.get("learning_objectives_json")
+    if lo:
+        context_parts["learning_objectives"] = lo.get("stated") if isinstance(lo, dict) else lo
+    if analysis.get("modules_json"):
+        context_parts["modules"] = analysis["modules_json"]
+    if analysis.get("solution_areas_json"):
+        context_parts["solution_areas"] = analysis["solution_areas_json"]
+    if analysis.get("use_cases_json"):
+        context_parts["use_cases"] = analysis["use_cases_json"]
+    if analysis.get("key_components_json"):
+        context_parts["key_components"] = analysis["key_components_json"]
+
+    sources = list(context_parts.keys())
+
+    if not context_parts:
+        answer_text = f"I don't have enough analysis data for **{display_name}** to answer that question."
+    else:
+        prompt = (
+            f"You are answering a question about a specific RHDP catalog item.\n\n"
+            f"Item: {display_name} (type: {content_type})\n"
+            f"Analysis data:\n{json.dumps(context_parts, default=str)}\n\n"
+            f"User question: {question}\n\n"
+            "Answer the question using ONLY the analysis data above. Be direct and specific. "
+            "If the data doesn't cover the question, say so honestly. "
+            "Keep it to 2-4 sentences. Use markdown for emphasis where helpful.")
+        try:
+            result = await asyncio.to_thread(
+                call_llm, settings, settings.chat_answer_model,
+                [{"role": "user", "content": prompt}],
+                max_tokens=400, temperature=0)
+            answer_text = result.text.strip()
+            db.log_token_usage("chat_item_chat", settings.chat_answer_model,
+                               result.input_tokens, result.output_tokens,
+                               query_text=question, provider=result.provider)
+        except Exception:
+            answer_text = f"I couldn't generate an answer right now. Here's what I know: {context_parts.get('summary', 'No summary available.')}"
+
+    return HandlerResult(
+        blocks=[Block(type="item_card", data=_item_card(db, item))],
+        scaffold_facts={"display_name": display_name, "answer_text": answer_text,
+                        "sources": sources},
+        anchor_ids=[cid],
+        session_results=[{"content_id": cid, "display_name": display_name}])
 
 
 _WORKLOAD_SIGNALS = (

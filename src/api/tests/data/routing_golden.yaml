@@ -74,6 +74,33 @@
       results: []
   expect: {intent: item_facts}
 
+- message: "does this lab cover network policies?"
+  context:
+    - n: 0
+      intent: item_facts
+      query: "tell me about the OpenShift Networking lab"
+      results: [{id: "babylon:ocp-networking", name: "OpenShift Networking Deep Dive"}]
+  expect: {intent: item_chat, scope_type: ordinal}
+
+- message: "can I access OpenShift AI in the ROSA workshop?"
+  expect: {intent: item_chat}
+
+- message: "tell me more about this"
+  context:
+    - n: 0
+      intent: item_facts
+      query: "what is the SAP demo?"
+      results: [{id: "babylon:sap-hana", name: "SAP HANA Demo"}]
+  expect: {intent: item_chat, scope_type: ordinal}
+
+- message: "does it support multi-tenancy?"
+  context:
+    - n: 0
+      intent: item_facts
+      query: "tell me about the OpenShift Virtualization lab"
+      results: [{id: "babylon:ocpvirt", name: "OpenShift Virtualization Roadshow"}]
+  expect: {intent: item_chat, scope_type: ordinal}
+
 - message: "what does the ocp4_workload_amq_streams workload do?"
   expect: {intent: infrastructure}
 

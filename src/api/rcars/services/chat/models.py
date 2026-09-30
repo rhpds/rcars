@@ -5,8 +5,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-INTENT_NAMES = ("recommend", "overlap", "performance", "item_facts", "infrastructure", "help", "out_of_scope")
-IntentName = Literal["recommend", "overlap", "performance", "item_facts", "infrastructure", "help", "out_of_scope"]
+INTENT_NAMES = ("recommend", "overlap", "performance", "item_facts", "item_chat", "infrastructure", "help", "out_of_scope")
+IntentName = Literal["recommend", "overlap", "performance", "item_facts", "item_chat", "infrastructure", "help", "out_of_scope"]
 
 
 class Scope(BaseModel):
@@ -72,6 +72,11 @@ class ItemFactsArgs(BaseModel):
 
 class InfrastructureArgs(BaseModel):
     search_query: str = ""
+
+
+class ItemChatArgs(BaseModel):
+    item_ref: str = ""
+    question: str = ""
 
 
 class HelpArgs(BaseModel):

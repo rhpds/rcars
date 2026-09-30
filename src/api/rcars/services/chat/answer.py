@@ -35,6 +35,11 @@ _SCAFFOLDS = {
         + (f"{f['neighbor_count']} related items are listed under Overlapping Items — click any to explore similar content."
            if f.get("neighbor_count") else "No overlapping items were found in the catalog.")
     ),
+    "item_chat": lambda f: (
+        f.get("answer_text", "I couldn't find enough information to answer that.")
+        + "\n\n*Based on stored analysis"
+        + (f" ({', '.join(s.replace('_', ' ') for s in f.get('sources', []))})" if f.get("sources") else "")
+        + " — answers may not reflect the full content.*"),
     "infrastructure": lambda f: (
         f"**{f.get('role_name', 'Unknown')}** is a {f.get('type', 'workload')} role"
         + (f" — products: {', '.join(f['products'][:3])}" if f.get("products") else "")
@@ -54,9 +59,10 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
                    settings: Settings, llm_call=call_llm) -> tuple[str, dict | None]:
     scaffold = build_scaffold(intent, facts)
     prompt = (
-        "Explain this data for the user in 2-4 sentences. If the data doesn't answer the "
-        "question, say so. Cite items only by the names given here — never invent items, "
-        "numbers, or reasons.\n\n"
+        "Summarize these results for the user. Preserve the numbered list format from "
+        "the assessment — keep items as a numbered list with bold names. Add one closing "
+        "sentence after the list. If the data doesn't answer the question, say so. "
+        "Cite items only by the names given here — never invent items, numbers, or reasons.\n\n"
         f"Facts: {json.dumps(facts, default=str)}\n"
         f"Related items (context only): {json.dumps(evidence_pack, default=str)}\n"
         f"User question: {question}")

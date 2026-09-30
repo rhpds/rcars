@@ -30,10 +30,10 @@ def test_envelope_round_trip():
 
 
 def test_performance_args_window_closed():
-    assert PerformanceArgs().window == "3m"
+    assert PerformanceArgs().window == "6m"
     with pytest.raises(ValidationError):
         PerformanceArgs(window="90d")
 
 
 def test_intent_names_complete():
-    assert INTENT_NAMES == ("recommend", "overlap", "performance", "item_facts", "infrastructure", "help", "out_of_scope")
+    assert INTENT_NAMES == ("recommend", "overlap", "performance", "item_facts", "item_chat", "infrastructure", "help", "out_of_scope")

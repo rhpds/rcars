@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { api } from '../services/api'
 import { RecCard } from '../components/advisor/RecCard'
 import { StreamCandidate } from '../hooks/useJobStream'
+import { renderMarkdown } from '../utils/renderMarkdown'
 
 interface SessionSummary {
   session_id: string
@@ -131,7 +132,7 @@ export function HistoryPage() {
                         {turn.envelope_json.intent.replace('_', ' ')}
                       </div>
                       <div className="history-assessment">
-                        {turn.envelope_json.answer}
+                        {renderMarkdown(turn.envelope_json.answer)}
                       </div>
                     </>
                   ) : (

@@ -8,6 +8,7 @@ import { RecCardList } from '../components/advisor/RecCardList'
 import { ChatEnvelope, ChatChip } from '../components/advisor/chatTypes'
 import { resolveBlockRenderer } from '../components/advisor/blocks/registry'
 import { BlockErrorBoundary } from '../components/advisor/BlockErrorBoundary'
+import { renderMarkdown } from '../utils/renderMarkdown'
 
 interface ChatMessage {
   role: 'user' | 'assistant'
@@ -16,51 +17,6 @@ interface ChatMessage {
   envelope?: ChatEnvelope
 }
 
-function renderMarkdown(text: string) {
-  const lines = text.split('\n')
-  const elements: React.ReactElement[] = []
-  let listItems: string[] = []
-
-  const flushList = () => {
-    if (listItems.length === 0) return
-    elements.push(
-      <ul key={`ul-${elements.length}`} style={{ margin: '6px 0', paddingLeft: '20px', listStyle: 'disc' }}>
-        {listItems.map((li, i) => <li key={i} dangerouslySetInnerHTML={{ __html: inlineMd(li) }} />)}
-      </ul>
-    )
-    listItems = []
-  }
-
-  const escapeHtml = (s: string) =>
-    s.replace(/&/g, '&amp;')
-     .replace(/</g, '&lt;')
-     .replace(/>/g, '&gt;')
-     .replace(/"/g, '&quot;')
-     .replace(/'/g, '&#39;')
-
-  const inlineMd = (s: string) =>
-    escapeHtml(s)
-     .replace(/\\([_*[\]()#])/g, '$1')
-     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-     .replace(/`([^`]+)`/g, '<code style="background:var(--bg-input);padding:1px 4px;border-radius:3px;font-size:12px">$1</code>')
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const bullet = line.match(/^[-–•]\s+(.*)/)
-    if (bullet) {
-      listItems.push(bullet[1])
-      continue
-    }
-    flushList()
-    if (line.trim() === '') {
-      elements.push(<div key={`br-${i}`} style={{ height: '8px' }} />)
-    } else {
-      elements.push(<p key={`p-${i}`} style={{ margin: '4px 0' }} dangerouslySetInnerHTML={{ __html: inlineMd(line) }} />)
-    }
-  }
-  flushList()
-  return <>{elements}</>
-}
 
 
 
@@ -125,8 +81,7 @@ export function AdvisorPage() {
   const [input, setInput] = useState('')
   const [showDev, setShowDev] = useState(false)
   const [showEvent, setShowEvent] = useState(false)
-  const [showLabs, setShowLabs] = useState(true)
-  const [showDemos, setShowDemos] = useState(true)
+  const [showHandsOn, setShowHandsOn] = useState(true)
   const [showArchitectures, setShowArchitectures] = useState(false)
   const showZt = true
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
@@ -263,13 +218,12 @@ export function AdvisorPage() {
 
   const getContentTypes = () => {
     const types: string[] = []
-    if (showLabs) types.push('lab')
-    if (showDemos) types.push('demo')
+    if (showHandsOn) types.push('lab', 'demo')
     if (showArchitectures) types.push('architecture')
     return types
   }
 
-  const contentTypeCount = [showLabs, showDemos, showArchitectures].filter(Boolean).length
+  const contentTypeCount = [showHandsOn, showArchitectures].filter(Boolean).length
 
   const toggleContentType = (current: boolean, setter: (v: boolean) => void) => {
     if (current && contentTypeCount <= 1) return
@@ -348,24 +302,37 @@ export function AdvisorPage() {
               <p style={{ fontSize: '13px', color: 'var(--rcars-amber-vivid)', marginBottom: '14px', fontStyle: 'italic' }}>
                 This is a beta release and we are regularly adding features.
               </p>
-              <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS knows about RHDP guided content and the automation that powers it. Ask it to:
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Finding &amp; Exploring Content
               </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need something about RHEL system administration for a customer workshop"
               </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
-              </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
-              </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Similar items</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Learn about an item</strong> — "What is the Ansible Lightspeed workshop about?"
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Automation &amp; workloads</strong> — "What deploys OpenShift AI?" or "What workloads configure an OpenShift cluster?"
+                <strong style={{ color: 'var(--text-primary)' }}>Explore further</strong> — "Does this cover network automation?" or "Can I access OpenShift AI in that lab?"
               </p>
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Content Analysis
+              </p>
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the ROSA Workshop?"
+              </p>
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Find similar items</strong> — "What overlaps with the Ansible EDA demo?"
+              </p>
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Exploring Automation &amp; Workloads
+              </p>
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Automation</strong> — "What deploys OpenShift AI?" or "What base configs provision a RHEL environment?"
+              </p>
+
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.
               </p>
@@ -426,8 +393,7 @@ export function AdvisorPage() {
         </div>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', padding: '0 0 6px' }}>
           {([
-            { label: 'Labs', active: showLabs, toggle: () => toggleContentType(showLabs, setShowLabs) },
-            { label: 'Demos', active: showDemos, toggle: () => toggleContentType(showDemos, setShowDemos) },
+            { label: 'Hands-on', active: showHandsOn, toggle: () => toggleContentType(showHandsOn, setShowHandsOn) },
             { label: 'Architectures', active: showArchitectures, toggle: () => toggleContentType(showArchitectures, setShowArchitectures) },
           ] as const).map(p => (
             <button key={p.label} onClick={p.toggle} className={`filter-pill${p.active ? ' active' : ''}`}>
