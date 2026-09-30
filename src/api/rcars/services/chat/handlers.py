@@ -34,6 +34,7 @@ def _item_card(db: Database, item: dict) -> dict:
     lo = analysis.get("learning_objectives_json") or {}
     card = {
         "content_id": cid, "ci_name": item.get("ci_name"),
+        "catalog_namespace": item.get("catalog_namespace", "babylon-catalog-prod"),
         "display_name": item.get("display_name", cid), "stage": item.get("stage"),
         "content_type": content_type,
         "summary": analysis.get("summary"),
