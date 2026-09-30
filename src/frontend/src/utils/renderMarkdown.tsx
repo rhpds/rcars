@@ -46,6 +46,10 @@ export function renderMarkdown(text: string) {
       listItems.push(numbered[1])
       continue
     }
+    if (line.trim() === '' && listItems.length > 0) {
+      const next = lines[i + 1]
+      if (next && (next.match(/^\d+\.\s+/) || next.match(/^[-–•]\s+/))) continue
+    }
     flushList()
     if (line.trim() === '') {
       elements.push(<div key={`br-${i}`} style={{ height: '8px' }} />)
