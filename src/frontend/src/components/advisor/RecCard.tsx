@@ -251,7 +251,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               display.links.map((link, i) => (
                 <a
                   key={i}
-                  href={link.url || buildUrl(link.url_template, candidate)}
+                  href={link.url || (link.url_template ? buildUrl(link.url_template, candidate) : '#')}
                   target="_blank" rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                 >
