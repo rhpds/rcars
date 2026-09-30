@@ -14,7 +14,7 @@ RCARS runs four application deployments plus infrastructure on OpenShift. For th
 
 Infrastructure: PostgreSQL 16 (pgvector, 20Gi PVC), Redis 7 (1Gi PVC), OAuthClient.
 
-Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-prod` (production branch). Each has its own namespace, service account, database, and secrets. Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain secrets and are gitignored.
+Two environments share the same cluster: `rcars-dev` (main branch) and `rcars-prod` (git tag, e.g. `v1.4.6`). Each has its own namespace, service account, database, and secrets. Ansible vars files (`ansible/vars/dev.yml`, `ansible/vars/prod.yml`) contain secrets and are gitignored.
 
 ---
 

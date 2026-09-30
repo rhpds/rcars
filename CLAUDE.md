@@ -21,11 +21,11 @@ Four deployments on OpenShift. React frontend → FastAPI API → arq workers + 
                               └─────────────┘
 ```
 
-- **Frontend** — React 19 SPA with PatternFly 6 and custom theme (light/dark mode). Pages: Advisor (chat + recommendations), History (past sessions), Browse (catalog + filter sidebar + curation), Workloads (curator infrastructure mappings), Content Analysis (Overlap + Performance), System (Status, Sync & Analysis, Recent Jobs, Token Usage, Query History). Vite dev server proxies `/api` to backend.
+- **Frontend** — React 19 SPA with PatternFly 6 and custom theme (light/dark mode). Pages: Advisor (chat + recommendations), History (past sessions), Browse (catalog + filter sidebar + curation), Workloads (curator infrastructure mappings), Analysis (Overlap, NonProd Items, Performance, Retirement, Field Source), System (Status, Sync, Recent Jobs, Tokens, Queries, API Keys, Roles, Vocabulary). Vite dev server proxies `/api` to backend.
 - **API** — FastAPI 2.0 with uvicorn. Receives requests, creates jobs, relays SSE progress from Redis pub/sub. Never processes LLM calls directly.
 - **Scan Worker** — arq worker on `arq:queue:scan`. Handles showroom analysis, catalog refresh, stale checks, nightly maintenance pipeline (split into Babylon sub-pipeline + OSSPA sub-pipeline), and OSSPA sync jobs. Max 5 concurrent jobs, 600s timeout.
 - **Recommend Worker** — arq worker on `arq:queue:recommend`. Handles advisor queries only (prevents starvation from long-running scans). Max 3 concurrent jobs per replica, 120s timeout. Sync LLM calls run in thread pool (`asyncio.to_thread`). Scale via `recommend_worker_replicas` in Ansible vars.
-- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 17 tables.
+- **PostgreSQL** — pgvector extension for 768-dim embeddings (nomic-embed-text-v1.5 via vLLM). 24 tables.
 - **Redis** — Job queue (arq), pub/sub relay for SSE streaming, job progress channel.
 
 ## Repository Structure
@@ -39,7 +39,7 @@ rcars-advisory/
 │   │   └── scripts/          # One-off migration scripts
 │   └── frontend/             # React SPA (Vite + TypeScript)
 │       ├── src/
-│       │   ├── pages/        # AdvisorPage, HistoryPage, BrowsePage, WorkloadsPage, ContentAnalysisPage, PerformancePage, StatusPage, SyncPage, RecentJobsPage, AdminPage
+│       │   ├── pages/        # AdvisorPage, HistoryPage, BrowsePage, WorkloadsPage, ContentAnalysisPage, NonProdItemsPage, PerformancePage, RetirementPage, FieldSourcePage, StatusPage, SyncPage, RecentJobsPage, AdminTokensPage, AdminQueriesPage, AdminRolesPage, VocabularyPage, ApiKeysPanel
 │       │   ├── components/   # RcarsMasthead, RcarsSidebar, advisor/, admin/
 │       │   ├── services/     # api.ts (API client)
 │       │   └── hooks/        # useAuth, useJobStream, usePrivateMode
@@ -88,7 +88,8 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 - **Progress streaming** via Redis pub/sub → SSE. API relays messages; it never processes LLM calls itself.
 - **Auth model:** Three modes checked in order: (1) dev bypass via `RCARS_DEV_USER`, (2) K8s ServiceAccount bearer tokens validated via TokenReview API against SA allowlist, (3) OAuth proxy headers (`X-Forwarded-Email`).
 - **Role enforcement:** `require_auth` (any authenticated user), `require_curator` (curator or admin), `require_admin` (admin only). Roles derived from `RCARS_CURATOR_EMAILS` and `RCARS_ADMIN_EMAILS` config.
-- **Chat routing:** LLM router output selects deterministic handlers; see `services/chat/registry.py` to add intents.
+- **Chat routing:** LLM router classifies into 8 intents (recommend, overlap, performance, item_facts, item_chat, infrastructure, help, out_of_scope). Each maps to a deterministic handler; see `services/chat/registry.py` to add intents.
+- **Content-type drivers:** The recommend pipeline routes through content-type-specific drivers (`HandsOnDriver` for labs/demos, `ArchitectureDriver` for portfolio architectures) that control triage prompts, rationale generation, and card formatting. See `services/recommender/drivers/`.
 - **Logging:** structlog JSON with `component`, `job_id`, `action` fields on every line. Verbose logging is preferred — too much is better than too little.
 - **Sibling propagation:** When multiple CIs share the same Showroom (same URL+ref), scan once and propagate analysis + embeddings to all siblings.
 - **Scan deduplication:** Refs are resolved to commit SHAs via batch `git ls-remote`. CIs sharing the same effective URL + SHA are scanned once and propagated. Falls back to ref-based grouping on resolution failure.
@@ -97,11 +98,11 @@ Requires PostgreSQL with pgvector on localhost:5432 and Redis on localhost:6379.
 
 ## API Reference
 
-46 endpoints across 6 route modules (advisor, catalog, analysis, admin, auth, health). All prefixed with `/api/v1`. Interactive docs at `/api/v1/docs` when running. Route files: `src/api/rcars/api/routes/`.
+78 endpoints across 7 route modules (advisor, catalog, analysis, admin, auth, health, recommendations). All prefixed with `/api/v1`. Interactive docs at `/api/v1/docs` when running. Route files: `src/api/rcars/api/routes/`.
 
 ## Database
 
-PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/database.py` — this is the single source of truth. `rcars init-db` runs `create_schema()` (all `CREATE TABLE IF NOT EXISTS`) on every deploy. For column additions to existing tables, add `ALTER TABLE ADD COLUMN IF NOT EXISTS` at the bottom of `SCHEMA_SQL`. For structural changes, use `rcars init-db --drop` to drop and recreate. No Alembic — removed in the content model migration (RHDPCD-359). Key tables: `content_entities` (universal entity registry, card fields for Browse/triage), `babylon_items` (Babylon-specific extension, 1:1 with content_entities), `showroom_analysis` (LLM results + content_hash), `embeddings` (768-dim vectors with content_type + source), `advisor_sessions` (query history), `babylon_item_workloads` + `workload_mapping` (infrastructure metadata), `performance_channels` + `performance_scores` (multi-channel performance metrics + scoring), `retirement_workflow` (retirement lifecycle tracking for low performers), `portfolio_architectures` + `architecture_analysis` (OSSPA portfolio architectures — `content_id` is `pa:{ppid}`, `source='portfolio_arch'`, `content_type='architecture'`).
+PostgreSQL with pgvector. Schema defined as `SCHEMA_SQL` in `src/api/rcars/db/database.py` — this is the single source of truth. `rcars init-db` runs `create_schema()` (all `CREATE TABLE IF NOT EXISTS`) on every deploy. For column additions to existing tables, add `ALTER TABLE ADD COLUMN IF NOT EXISTS` at the bottom of `SCHEMA_SQL`. For structural changes, use `rcars init-db --drop` to drop and recreate. No Alembic — removed in the content model migration (RHDPCD-359). Key tables: `content_entities` (universal entity registry, card fields for Browse/triage), `babylon_items` (Babylon-specific extension, 1:1 with content_entities), `showroom_analysis` (LLM results + content_hash), `embeddings` (768-dim vectors with content_type + source), `advisor_sessions` (query history), `babylon_item_workloads` + `infrastructure` (infrastructure metadata), `performance_channels` + `performance_scores` (multi-channel performance metrics + scoring), `retirement_workflow` (retirement lifecycle tracking for low performers), `portfolio_architectures` + `architecture_analysis` (OSSPA portfolio architectures — `content_id` is `pa:{ppid}`, `source='portfolio_arch'`, `content_type='architecture'`), `overlap_candidates` (precomputed overlap pairs), `nonprod_usage` (dev/event provision tracking), `role_assignments` (OpenShift group-based role mapping), `vocabulary_unknown_terms` (unresolved product terms from scans), `field_source_provisions` (field-sourced provision metrics).
 
 **Default visibility:** `content_entities.status` (`prod`/`event`/`dev`, Babylon's vocabulary) gates Advisor retrieval and Browse for every source. Babylon writes it from `babylon_items.stage`; OSSPA derives it from the CSV `islive` + `showInCatalog` booleans. `WHERE status = 'prod' AND retired_at IS NULL` is the default filter; curator views omit the status clause.
 
@@ -146,7 +147,7 @@ Zero-value items (no provisions, no pipeline, no sales, cost with no sales) rece
 
 ## CLI
 
-Entry point: `rcars` (installed via `pip install -e ".[dev]"`). Run `rcars --help` for full command list. Key commands: `init-db`, `refresh`, `scan`, `status`, `serve`. Subgroups: `rcars infra`, `rcars workload`, `rcars reporting-db` (sync/show/status for reporting metrics), `rcars osspa` (sync — syncs Architecture Center portfolio architectures from OSSPA GitLab).
+Entry point: `rcars` (installed via `pip install -e ".[dev]"`). Run `rcars --help` for full command list. Key commands: `init-db`, `refresh`, `scan`, `status`, `serve`. Subgroups: `rcars infra`, `rcars workload`, `rcars reporting-db` (sync/show/status for reporting metrics), `rcars osspa` (sync — syncs Architecture Center portfolio architectures from OSSPA GitLab), `rcars vocab` (unknowns/stage-rescan — controlled vocabulary management).
 
 ## Build & Deploy
 
