@@ -83,6 +83,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
     query = res.message or args.search_query or " ".join(str(v) for v in args.constraints.values())
     if not query and res.scope_ids:
         query = " ".join(i.get("display_name", "") for i in (res.items or []) if i.get("display_name")) or "recommend similar content"
+    if res.items and not res.scope_ids and not args.search_query:
+        query = " ".join(i.get("display_name", "") for i in res.items if i.get("display_name")) or query
     # scoped working-set questions run medium; full-catalog turns run the full pipeline
     depth = "medium" if res.scope_ids else "high"
 
