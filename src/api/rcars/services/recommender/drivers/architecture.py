@@ -87,7 +87,6 @@ class ArchitectureDriver(ContentTypeDriver):
             "caveats": candidate.caveats,
             "provisions_quarter": None,
             "sales_impact": None,
-            "pa_name": candidate.type_data.get("pa_name"),
             "display": self._build_display(candidate),
         }
 
@@ -99,6 +98,12 @@ class ArchitectureDriver(ContentTypeDriver):
             "label": ASSET_TYPE_LABELS.get(primary, "Architecture"),
             "key": f"architecture_{primary.lower()}" if primary else "architecture",
         }
+        pa_name = candidate.type_data.get("pa_name")
+        links = [{"label": "View in RCARS", "url_template": "browse"}]
+        if pa_name:
+            links.insert(0, {"label": "View Architecture",
+                             "url": f"https://www.redhat.com/architect/portfolio/detail/{pa_name}/"})
+        config["links"] = links
         return config
 
     def display_config(self) -> dict:
@@ -107,8 +112,5 @@ class ArchitectureDriver(ContentTypeDriver):
                 {"label": "Why it fits", "field": "why_it_fits"},
                 {"label": "How to use", "field": "how_to_use"},
             ],
-            "links": [
-                {"label": "View Architecture", "url_template": "architecture_center"},
-                {"label": "View in RCARS", "url_template": "browse"},
-            ],
+            "links": [],
         }

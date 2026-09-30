@@ -12,7 +12,7 @@ export interface DisplayConfig {
   header_right?: { value: string; tooltip: string }
   detail_rows?: Array<{ label: string; field: string; type?: string; max?: number }>
   footer_metrics?: Array<{ label: string; field: string; type?: string }>
-  links?: Array<{ label: string; url_template: string }>
+  links?: Array<{ label: string; url?: string; url_template?: string }>
 }
 
 export interface StreamCandidate {
@@ -39,8 +39,6 @@ export interface StreamCandidate {
   provisions_quarter?: number | null
   sales_impact?: string | null
   avg_cost_per_provision?: number | null
-  // Architecture specific
-  pa_name?: string | null
   // Allow additional fields from any driver
   [key: string]: unknown
 }
