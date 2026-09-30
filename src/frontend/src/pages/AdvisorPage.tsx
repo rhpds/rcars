@@ -351,7 +351,7 @@ export function AdvisorPage() {
                 Finding &amp; Exploring Content
               </p>
               <p className="hint" style={{ marginBottom: '6px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a hands-on RHEL lab for a sysadmin audience"
+                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need something about RHEL system administration for a customer workshop"
               </p>
               <p className="hint" style={{ marginBottom: '6px' }}>
                 <strong style={{ color: 'var(--text-primary)' }}>Learn about an item</strong> — "What is the Ansible Lightspeed workshop about?"
