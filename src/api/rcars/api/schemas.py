@@ -40,7 +40,7 @@ class HealthChecks(BaseModel):
 
 class ReadinessResponse(BaseModel):
     status: str = Field(examples=["ok", "degraded"])
-    checks: HealthChecks
+    checks: HealthChecks = Field(description="Per-dependency status (database, redis)")
 
 
 # ── Auth ────────────────────────────────────────────────────────────
@@ -98,7 +98,7 @@ class RecommendationMetadata(BaseModel):
 class RecommendationLowResponse(BaseModel):
     candidates: list[RecommendationCandidate] = Field(description="Matched content items sorted by vector similarity")
     overall_assessment: str | None = Field(default=None, description="Always null for low effort")
-    metadata: RecommendationMetadata
+    metadata: RecommendationMetadata = Field(description="Query metadata including timing and match count")
 
 
 class RecommendationMediumResponse(BaseModel):
@@ -283,7 +283,7 @@ class RunningJob(BaseModel):
 
 
 class WorkerHealthResponse(BaseModel):
-    queue_depths: QueueDepths
+    queue_depths: QueueDepths = Field(description="Number of pending jobs per arq queue")
     active_jobs: int
     running_jobs: list[RunningJob]
     failed_jobs_recent: int

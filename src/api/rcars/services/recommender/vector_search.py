@@ -268,13 +268,13 @@ def search(
                 "category": row.get("category", ""),
             }
         elif content_type == "architecture":
-            entity = db.get_content_entity(content_id)
-            summary = (entity or {}).get("summary", "")
-            topics = (entity or {}).get("topics_json", []) or []
-            products = (entity or {}).get("products_json", []) or []
-            difficulty = (entity or {}).get("difficulty", "")
+            pa = db.get_portfolio_architecture(content_id) or {}
+            summary = pa.get("summary", "")
+            topics = pa.get("topics_json", []) or []
+            products = pa.get("products_json", []) or []
+            difficulty = pa.get("difficulty", "")
             arch_analysis = db.get_architecture_analysis(content_id) or {}
-            type_data = {"asset_type": arch_analysis.get("asset_type", "")}
+            type_data = {"asset_type": arch_analysis.get("asset_type", ""), "pa_name": pa.get("pa_name")}
         else:
             summary = row.get("summary", "")
             topics = []

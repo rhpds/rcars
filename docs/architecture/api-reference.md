@@ -30,6 +30,7 @@ These docs are always in sync with the deployed code — they're generated from 
 | **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, infrastructure catalog |
 | **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, stale checks, single-item analysis |
 | **Performance** | `/api/v1/analysis/performance` | User+ (public) / Curator+ (if restricted) | Performance scoring, retirement workflow (review → approve → notify → start) |
+| **Recommendations** | `/api/v1/advisor/recommendations` | User | Direct recommendation queries (legacy non-chat path) |
 | **Administration** | `/api/v1/admin` | Admin | Jobs, workers, maintenance, token usage, overlap |
 
 ## Authentication

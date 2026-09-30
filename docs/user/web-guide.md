@@ -46,8 +46,8 @@ The sidebar is organized into four labeled sections:
 
 - **ADVISOR** — **New Session** starts a fresh advisor conversation. **History** shows your past sessions with saved recommendations.
 - **BROWSE** — **Catalog** is the main catalog browser with filtering and curation tools. **Workloads & Automation** is the infrastructure catalog, showing all scanned workload roles and base configs with linked catalog items.
-- **ANALYSIS** (curators + performance viewers) — **Overlap** (curator only) detects duplicate content. **Performance** provides data-driven performance scoring and retirement workflow.
-- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions. **API Keys** manages external API keys. **Access Control** manages role assignments.
+- **ANALYSIS** (curators + performance viewers) — **Overlap** (curator only) detects duplicate content. **Non-Prod Items** (curator only) tracks dev/event provision usage. **Performance** provides data-driven performance scoring. **Retirement** (curator only) manages the retirement workflow for low performers. **Field Source** (curator or admin only) shows field-sourced provision metrics.
+- **SYSTEM** (admin only) — **Status** shows system health. **Sync & Analysis** runs catalog operations. **Recent Jobs** lists background tasks. **Token Usage** tracks LLM consumption. **Query History** shows advisor sessions. **API Keys** manages external API keys. **Access Control** manages role assignments. **Vocabulary** manages the controlled product vocabulary.
 
 ### Theme Toggle
 

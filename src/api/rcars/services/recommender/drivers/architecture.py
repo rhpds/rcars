@@ -87,6 +87,7 @@ class ArchitectureDriver(ContentTypeDriver):
             "caveats": candidate.caveats,
             "provisions_quarter": None,
             "sales_impact": None,
+            "pa_name": candidate.type_data.get("pa_name"),
             "display": self._build_display(candidate),
         }
 
@@ -107,6 +108,7 @@ class ArchitectureDriver(ContentTypeDriver):
                 {"label": "How to use", "field": "how_to_use"},
             ],
             "links": [
+                {"label": "View Architecture", "url_template": "architecture_center"},
                 {"label": "View in RCARS", "url_template": "browse"},
             ],
         }

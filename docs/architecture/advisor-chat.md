@@ -50,7 +50,7 @@ Envelope ──── {intent, scope_echo, answer, blocks[], suggested_followups
 
 ## Intents
 
-Seven intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/chat/registry.py`):
+Eight intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/chat/registry.py`):
 
 | Intent | What it answers | Handler | Block Types | Role Gate |
 |--------|----------------|---------|-------------|-----------|
@@ -58,6 +58,7 @@ Seven intents, defined as `IntentSpec` entries in the `INTENTS` dict (`services/
 | `overlap` | "What overlaps with LB2144?" — content similarity for an item | `handle_overlap` | `item_card`, `overlap_table` | any |
 | `performance` | "How is this performing?" — provisions, users, cost, sales | `handle_performance` | `performance_table` | curator or admin |
 | `item_facts` | "What is the SAP HANA demo about?" — single item details | `handle_item_facts` | `item_card` | any |
+| `item_chat` | "Does this lab cover network policies?" — follow-up Q&A about a specific item | `handle_item_chat` | `item_card` | any |
 | `infrastructure` | "What workload deploys OpenShift AI?" — workload roles and base configs | `handle_infrastructure` | `infra_detail` | any |
 | `help` | "What does the score mean?" — explains RCARS features | `handle_help` | `notice` | any |
 | `out_of_scope` | "What's the weather?" — polite redirect | (none) | `notice` | any |

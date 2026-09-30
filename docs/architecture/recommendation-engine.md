@@ -187,6 +187,29 @@ Candidates that receive a rationale are promoted to the "green" tier — the hig
 
 ---
 
+## Content-Type Drivers
+
+The pipeline routes candidates through content-type-specific drivers that control triage prompts, rationale formatting, post-triage adjustments, and frontend card serialization. Two drivers are registered:
+
+| Driver | Content Types | Category Key | Purpose |
+|--------|--------------|--------------|---------|
+| `HandsOnDriver` | `workshop`, `demo`, `lab` | `hands_on` | Standard RHDP labs and demos — the original pipeline behavior |
+| `ArchitectureDriver` | `architecture` | `architecture` | OSSPA portfolio architectures — different triage guidance and card layout |
+
+Each driver implements the `ContentTypeDriver` interface (`services/recommender/drivers/base.py`):
+
+- `triage_guidance()` — extra text injected into the triage prompt for this content type
+- `format_for_rationale()` — formats a candidate with its analysis data for the rationale LLM call
+- `post_triage()` — type-specific adjustments after triage (e.g., duration penalty only applies to hands-on content)
+- `serialize()` — converts a candidate to JSON for the frontend, including display configuration
+- `display_config()` — static display settings for the frontend card renderer
+
+When the advisor receives a query with mixed content types (e.g., `content_types: ["workshop", "architecture"]`), the pipeline groups candidates by driver after vector search and runs triage/rationale for each group with its driver's prompts. Results are merged and returned with category labels so the frontend can render different card layouts per type.
+
+Adding a new content type: create a new driver class in `services/recommender/drivers/`, implement the interface, and register it in `drivers/__init__.py`.
+
+---
+
 ## Event URL Mode
 
 When a URL is detected in the user's query, RCARS runs an event parsing step before the main pipeline:
@@ -230,9 +253,9 @@ Currently supported acronyms:
 | CRW | Red Hat CodeReady Workspaces |
 | RHBK | Red Hat Build of Keycloak |
 
-In addition to acronyms, RCARS expands common product synonyms (e.g., "Red Hat AI" → "Red Hat OpenShift AI", "GitOps" → "Red Hat OpenShift GitOps ArgoCD Argo CD"). Both lists are defined in `src/api/rcars/data/product-terms.yaml`.
+In addition to acronyms, RCARS expands common product synonyms (e.g., "Red Hat AI" → "Red Hat OpenShift AI", "GitOps" → "Red Hat OpenShift GitOps ArgoCD Argo CD"). Both lists are managed by the controlled vocabulary system in `src/api/rcars/data/vocabulary.yaml`.
 
-Acronyms and synonyms not in this file will produce poor vector matches. The YAML file can be edited and redeployed without code changes.
+Terms not in the vocabulary will produce poor vector matches. The vocabulary file can be edited and redeployed without code changes. Use `rcars vocab unknowns` to see unresolved terms from recent scans.
 
 ---
 

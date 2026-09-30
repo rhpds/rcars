@@ -28,6 +28,7 @@ _HELP_TOPICS = {
         "I'm the RCARS advisor — I help you find, understand, and evaluate RHDP catalog content. "
         "I can: **recommend** content for an event or audience, show **overlap** between items, "
         "report **performance** across usage, cost, and sales, describe what's in a **catalog item**, "
+        "answer **follow-up questions** about a specific item's content and capabilities, "
         "and explain what **infrastructure & automation** components do. "
         "Just ask a question about any of these."),
     "recommend": (
@@ -52,6 +53,11 @@ _HELP_TOPICS = {
         "its summary, learning objectives, and related items in the catalog. "
         "You can ask by name or refer to items from a previous search. "
         "Example: \"What is the OpenShift Virtualization workshop about?\""),
+    "item_chat": (
+        "**Item Q&A** — once you're looking at a specific item, ask follow-up questions about "
+        "its content and capabilities: 'does this cover network policies?', 'can I do X with this?', "
+        "'does it include Y?'. I'll answer based on the item's analyzed content. "
+        "Example: \"Does this lab cover service mesh?\""),
     "infrastructure": (
         "**Infrastructure & Automation** — these are the building blocks that catalog items "
         "are assembled from. Workload roles are Ansible automation (from AgnosticD v2 collections) "
@@ -64,8 +70,8 @@ _HELP_TOPICS = {
     "workload": None,  # merged into infrastructure
     "scoring": (
         "**Scoring** rates each catalog item on a 0-80 scale across four factors: "
-        "Usage/provisions (max 25), Pipeline/opportunities touched (max 15), "
-        "Closed sales (max 25), and Cost efficiency/ROI (max 15). "
+        "Usage/provisions (max 25), Pipeline/opportunities touched (max 25), "
+        "Closed sales (max 15), and Cost efficiency/ROI (max 15). "
         "Points are awarded by percentile rank among items with non-zero activity. "
         "Items with zero activity in a factor get 0 points for that factor. "
         "Thresholds: Strong >= 55, Moderate >= 35, Low < 35."),

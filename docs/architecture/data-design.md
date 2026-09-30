@@ -110,18 +110,31 @@ Each step has `step_<name>_at` / `step_<name>_by` timestamps and actor fields. A
 ### Enrichment and curation
 
 - **`enrichment_tags`**: Curator-applied tags (tag_type + tag_value) on content entities -- audience, use-case, and custom classifications.
-- **`content_similarity`**: Pairwise cosine similarity scores between content entities, computed from summary embeddings. Used by the content overlap analysis.
+- **`overlap_candidates`**: Precomputed overlap pairs between content entities, replacing the former `content_similarity` table.
 
 ### Sessions and jobs
 
 - **`advisor_sessions`**: Query history -- each row is one turn in an advisor conversation. Tracks the query, intent, results (including the full chat envelope and scope), and which recommendation the user chose (`chosen_content_id`).
 - **`jobs`**: Async job tracking for long-running operations (scans, refreshes, queries). Stores status, progress, and results.
 
+### Portfolio architectures
+
+- **`portfolio_architectures`**: OSSPA Architecture Center portfolio architectures. `content_id` is `pa:{ppid}`, `source='portfolio_arch'`, `content_type='architecture'`.
+- **`architecture_analysis`**: LLM analysis results for portfolio architectures, linked to `portfolio_architectures`.
+
+### Retirement and reporting
+
+- **`retirement_workflow`**: Retirement lifecycle tracking for low-performing items (review → approve → notify → start).
+- **`nonprod_usage`**: Dev/event environment provision tracking for non-production items.
+- **`field_source_provisions`**: Field-sourced provision metrics from the reporting database.
+
 ### Auth and operational
 
 - **`api_keys`**: External API authentication -- hashed keys with prefixes, roles, scopes, and expiry.
+- **`role_assignments`**: OpenShift group-based role mapping for curator/admin access.
 - **`analysis_log`**: Audit trail of curator actions and system events.
 - **`token_usage`**: LLM token consumption tracking per operation, model, and provider. The `provider` column distinguishes between backends (e.g., `anthropic`, `litemaas`).
+- **`vocabulary_unknown_terms`**: Unresolved product terms encountered during scans, for vocabulary curation.
 
 ## Schema Management
 
@@ -318,19 +331,6 @@ CREATE TABLE IF NOT EXISTS retirement_workflow (
     jira_project        TEXT NOT NULL DEFAULT 'RHDPCD',
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ═══════════════════════════════════════════════════════════════════
--- content_similarity — pairwise embedding similarity
--- ═══════════════════════════════════════════════════════════════════
-CREATE TABLE IF NOT EXISTS content_similarity (
-    id SERIAL PRIMARY KEY,
-    content_id_a TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
-    content_id_b TEXT NOT NULL REFERENCES content_entities(content_id) ON DELETE CASCADE,
-    similarity_score REAL NOT NULL,
-    relationship_type TEXT NOT NULL DEFAULT 'overlap',
-    computed_at TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(content_id_a, content_id_b)
 );
 
 -- ═══════════════════════════════════════════════════════════════════

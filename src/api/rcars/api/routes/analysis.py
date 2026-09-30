@@ -864,6 +864,7 @@ async def nonprod_dashboard(
     "/nonprod/ignore/{base_name}",
     tags=["Non-Prod Items"],
     summary="Mute non-prod item for 30 days",
+    description="Suppress a non-prod item from reports for 30 days. Curator only.",
 )
 async def nonprod_ignore(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
@@ -883,6 +884,7 @@ async def nonprod_ignore(base_name: str, request: Request, user: str = Depends(r
     "/nonprod/ignore/{base_name}",
     tags=["Non-Prod Items"],
     summary="Unmute non-prod item",
+    description="Remove the 30-day mute from a non-prod item. Curator only.",
 )
 async def nonprod_unignore(base_name: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
@@ -899,6 +901,7 @@ async def nonprod_unignore(base_name: str, request: Request, user: str = Depends
 @router.get(
     "/overlap",
     summary="Content overlap report — verdict-based, paginated",
+    description="Returns paginated overlap pairs with optional filters by verdict, stage, and shared product/topic counts.",
     tags=["Content Analysis"],
 )
 async def overlap_report(
@@ -926,6 +929,7 @@ async def overlap_report(
 @router.post(
     "/overlap/assess",
     summary="On-demand overlap assessment for a pair",
+    description="Triggers an LLM assessment of two items' overlap. Returns verdict (redundant/complementary/differentiated) and reasoning. Curator only.",
     tags=["Content Analysis"],
 )
 async def overlap_assess(
@@ -946,6 +950,7 @@ async def overlap_assess(
 @router.get(
     "/overlap/{content_id_a}/{content_id_b}",
     summary="Get cached LLM overlap assessment for a pair",
+    description="Returns the stored LLM assessment for an overlap pair, if one exists. Does not trigger a new assessment.",
     tags=["Content Analysis"],
 )
 async def overlap_assessment_detail(
