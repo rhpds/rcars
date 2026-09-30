@@ -348,24 +348,37 @@ export function AdvisorPage() {
               <p style={{ fontSize: '13px', color: 'var(--rcars-amber-vivid)', marginBottom: '14px', fontStyle: 'italic' }}>
                 This is a beta release and we are regularly adding features.
               </p>
-              <p className="hint" style={{ marginBottom: '14px' }}>
-                RCARS knows about RHDP guided content and the automation that powers it. Ask it to:
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Finding &amp; Exploring Content
               </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a 2-hour hands-on lab for platform engineers covering OpenShift virtualization"
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Find content</strong> — "I need a hands-on RHEL lab for a sysadmin audience"
               </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Item facts</strong> — "What is the Parasol Insurance AI Workshop about?"
-              </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the OpenShift Virtualization Migration Factory demo?"
-              </p>
-              <p className="hint" style={{ marginBottom: '8px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Similar items</strong> — "What overlaps with Red Hat Trusted Application Pipeline?"
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Learn about an item</strong> — "What is the Ansible Lightspeed workshop about?"
               </p>
               <p className="hint" style={{ marginBottom: '14px' }}>
-                <strong style={{ color: 'var(--text-primary)' }}>Automation &amp; workloads</strong> — "What deploys OpenShift AI?" or "What workloads configure an OpenShift cluster?"
+                <strong style={{ color: 'var(--text-primary)' }}>Explore further</strong> — "Does this cover network automation?" or "Can I access OpenShift AI in that lab?"
               </p>
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Content Analysis
+              </p>
+              <p className="hint" style={{ marginBottom: '6px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Check performance</strong> — "How impactful is the ROSA Workshop?"
+              </p>
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Find similar items</strong> — "What overlaps with the Ansible EDA demo?"
+              </p>
+
+              <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                Exploring Automation &amp; Workloads
+              </p>
+              <p className="hint" style={{ marginBottom: '14px' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>Automation</strong> — "What deploys OpenShift AI?" or "What base configs provision a RHEL environment?"
+              </p>
+
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
                 Be specific about audience, topic, format, and time. Follow-up questions refine results.
               </p>

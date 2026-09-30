@@ -59,9 +59,10 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
                    settings: Settings, llm_call=call_llm) -> tuple[str, dict | None]:
     scaffold = build_scaffold(intent, facts)
     prompt = (
-        "Explain this data for the user in 2-4 sentences. If the data doesn't answer the "
-        "question, say so. Cite items only by the names given here — never invent items, "
-        "numbers, or reasons.\n\n"
+        "Summarize these results for the user. Preserve the numbered list format from "
+        "the assessment — keep items as a numbered list with bold names. Add one closing "
+        "sentence after the list. If the data doesn't answer the question, say so. "
+        "Cite items only by the names given here — never invent items, numbers, or reasons.\n\n"
         f"Facts: {json.dumps(facts, default=str)}\n"
         f"Related items (context only): {json.dumps(evidence_pack, default=str)}\n"
         f"User question: {question}")

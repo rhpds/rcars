@@ -126,15 +126,12 @@ def _build_deterministic_assessment(candidates: list[Candidate], max_picks: int 
     with_rationale = [c for c in candidates if c.why_it_fits]
     if not with_rationale:
         picks = candidates[:max_picks]
-        lines = [f"{c.display_name} ({c.relevance_score or 0}%) matched your query." for c in picks]
+        lines = [f"{i}. **{c.display_name}** — matched your query ({c.relevance_score or 0}%)."
+                 for i, c in enumerate(picks, 1)]
     else:
-        lines = []
-        for i, c in enumerate(with_rationale[:max_picks]):
-            if i == 0:
-                lines.append(f"{c.display_name} is the top pick because {c.why_it_fits}")
-            else:
-                lines.append(f"{c.display_name} fits because {c.why_it_fits}")
-    return "\n".join(lines)
+        lines = [f"{i}. **{c.display_name}** — {c.why_it_fits}"
+                 for i, c in enumerate(with_rationale[:max_picks], 1)]
+    return "\n\n".join(lines)
 
 
 def _call_synthesis(
