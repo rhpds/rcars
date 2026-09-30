@@ -15,9 +15,6 @@ function buildUrl(template: string, candidate: StreamCandidate): string {
     const ns = candidate.catalog_namespace || 'babylon-catalog-prod'
     return `https://demo.redhat.com/catalog?item=${ns}/${candidate.ci_name}`
   }
-  if (template === 'architecture_center' && candidate.pa_name) {
-    return `https://www.redhat.com/architect/portfolio/detail/${candidate.pa_name}/`
-  }
   if (template === 'browse') {
     const format = candidate.content_type === 'architecture' ? 'architecture' : 'hands_on'
     return '/browse?search=' + encodeURIComponent(candidate.display_name) + '&format=' + format
@@ -254,7 +251,7 @@ export function RecCard({ candidate, sessionId, turnIndex, chosenCiName, isCompl
               display.links.map((link, i) => (
                 <a
                   key={i}
-                  href={buildUrl(link.url_template, candidate)}
+                  href={link.url || buildUrl(link.url_template, candidate)}
                   target="_blank" rel="noopener noreferrer"
                   onClick={(e) => e.stopPropagation()}
                 >

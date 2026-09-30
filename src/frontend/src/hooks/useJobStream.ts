@@ -39,8 +39,6 @@ export interface StreamCandidate {
   provisions_quarter?: number | null
   sales_impact?: string | null
   avg_cost_per_provision?: number | null
-  // Architecture specific
-  pa_name?: string | null
   // Allow additional fields from any driver
   [key: string]: unknown
 }
