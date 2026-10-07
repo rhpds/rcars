@@ -266,40 +266,52 @@ export const api = {
 
   // Retirement workflows
   getRetirementWorkflow: (baseName: string) =>
-    request<{ workflow: RetirementWorkflow | null }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}`),
+    request<{ workflow: RetirementWorkflow | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
 
   reviewRetirementItem: (baseName: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
 
   approveRetirementItem: (baseName: string, reason: string, replacementCi?: string, replacementName?: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/approve`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/approve`, {
       method: 'PUT',
       body: JSON.stringify({ reason, replacement_ci: replacementCi || null, replacement_name: replacementName || null }),
     }),
 
   notifyRetirementOwner: (baseName: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/notify`, { method: 'PUT' }),
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notify`, { method: 'PUT' }),
 
   startRetirement: (baseName: string, targetDays?: number, jiraProject?: string) =>
-    request<{ status: string; workflow: RetirementWorkflow; jira_key: string }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/start`, {
+    request<{ status: string; workflow: RetirementWorkflow; jira_key: string }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/start`, {
       method: 'PUT',
       body: JSON.stringify({ target_days: targetDays ?? 30, jira_project: jiraProject ?? 'RHDPCD' }),
     }),
 
   updateRetirementNotes: (baseName: string, notes: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/notes`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/notes`, {
       method: 'PUT',
       body: JSON.stringify({ notes }),
     }),
 
   linkRetirementJira: (baseName: string, jiraKey: string) =>
-    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}/link-jira`, {
+    request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/link-jira`, {
       method: 'PUT',
       body: JSON.stringify({ jira_key: jiraKey }),
     }),
 
   cancelRetirementWorkflow: (baseName: string) =>
-    request<{ status: string; deleted: boolean }>(`/analysis/performance/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+    request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+
+  openAgvNoticePr: (baseName: string) =>
+    request<{ status: string; workflow: RetirementWorkflow; pr_url: string; pr_number: number; repo: string }>(
+      `/analysis/retirement/workflow/${encodeURIComponent(baseName)}/agv-notice`,
+      { method: 'POST' },
+    ),
+
+  openAgvRetirePr: (baseName: string) =>
+    request<{ status: string; workflow: RetirementWorkflow; pr_url: string; pr_number: number; repo: string }>(
+      `/analysis/retirement/workflow/${encodeURIComponent(baseName)}/agv-retire`,
+      { method: 'POST' },
+    ),
 
   ignoreItem: (baseName: string) =>
     request<{ status: string; ignored_until: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
@@ -408,6 +420,8 @@ export interface RetirementWorkflow {
   curator_notes: string | null
   jira_key: string | null
   jira_project: string
+  agv_notice_pr_url: string | null
+  agv_retire_pr_url: string | null
   created_at: string
   updated_at: string
 }

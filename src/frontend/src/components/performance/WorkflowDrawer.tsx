@@ -303,6 +303,18 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     setActionLoading(false)
   }
 
+  const handleOpenNoticePr = async () => {
+    setActionLoading(true)
+    setActionError(null)
+    try {
+      const { workflow } = await api.openAgvNoticePr(item.catalog_base_name)
+      setDrawerWorkflow(workflow)
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to open notice PR')
+    }
+    setActionLoading(false)
+  }
+
   const generateEmailTemplate = () => {
     const owners = item.owners || []
     const ownerNames = owners.map(o => o.name || o.email).join(', ') || 'Content Owner'
@@ -607,6 +619,19 @@ RHDP Content Team`
                             target="_blank" rel="noreferrer" className="ret-jira-link">
                             {wf.jira_key}
                           </a>
+                        )}
+                        {wf?.agv_notice_pr_url ? (
+                          <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
+                            className="ret-jira-link">
+                            Notice PR →
+                          </a>
+                        ) : isAdmin && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleOpenNoticePr}
+                            disabled={actionLoading}
+                            style={{ fontSize: '11px' }}>
+                            {actionLoading ? 'Opening PR...' : 'Open Notice PR'}
+                          </button>
                         )}
                         {isAdmin ? (
                           <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}

@@ -120,6 +120,11 @@ class Settings(BaseSettings):
     jira_api_email: str = ""
     jira_api_token: str = ""
 
+    # GitHub App (agv-retire PR creation — RHDPCD-2103)
+    github_app_id: str = ""
+    github_app_private_key: str = ""       # PEM contents; Ansible mounts as sealed secret
+    github_app_installation_id: str = ""   # installation ID for rhpds/zt-* orgs
+
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True
     pipeline_hour: int = 4

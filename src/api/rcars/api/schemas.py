@@ -233,6 +233,14 @@ class CancelWorkflowResponse(BaseModel):
     deleted: bool
 
 
+class AgvPrResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    workflow: dict | None = None
+    pr_url: str
+    pr_number: int
+    repo: str
+
+
 class RetirementDashboardResponse(BaseModel):
     items: list[dict] = Field(description="Items in retirement workflow or already retired")
     total: int

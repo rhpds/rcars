@@ -81,6 +81,42 @@ def _base_name_from_content_id(content_id: str) -> str:
     return name
 
 
+def build_retirement_adoc_notice(workflow: dict) -> str:
+    """Return the AsciiDoc retirement notice block for inclusion in description.adoc.
+
+    Uses the actual retirement target date if available, otherwise [DATE TBD].
+    """
+    replacement_ci = workflow.get("replacement_ci")
+    replacement_name = workflow.get("replacement_name")
+    replacement_source = workflow.get("replacement_source")
+    replacement_ci_full = workflow.get("replacement_ci_full")
+    catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
+
+    target_date = workflow.get("retirement_target_date")
+    date_str = str(target_date) if target_date else "[DATE TBD]"
+
+    adoc_replacement_line = ""
+    if replacement_ci and replacement_source == "babylon":
+        repl_ci_url = replacement_ci_full or (replacement_ci if replacement_ci.endswith(".prod") else f"{replacement_ci}.prod")
+        adoc_replacement_line = (
+            f" Please use this as an alternative: "
+            f"link:{catalog_base}/{repl_ci_url}[{replacement_name or replacement_ci}, window=\"_blank\"]"
+        )
+    elif replacement_ci:
+        adoc_replacement_line = f" Please use this as an alternative: {replacement_name or replacement_ci}"
+
+    return (
+        "[IMPORTANT]\n"
+        ".RETIREMENT NOTICE\n"
+        "****\n"
+        f"This item will be retired on *{date_str}*.{adoc_replacement_line}\n"
+        "\n"
+        "For any questions regarding this retirement, please contact "
+        "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
+        "****"
+    )
+
+
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
     """Build the Jira ticket description in Jira wiki markup."""
     base_name = (_base_name_from_content_id(workflow.get("content_id", ""))
@@ -138,29 +174,12 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
             return f"${val}"
         return str(val)
 
-    # AsciiDoc retirement notice template
-    adoc_replacement_line = ""
-    if replacement_ci:
-        repl_name = replacement_name or replacement_ci
-        if replacement_source == "babylon":
-            adoc_replacement_line = (
-                f' Please use this as an alternative: '
-                f'link:{catalog_base}/{repl_ci_url}'
-                f'[{repl_name}, window="_blank"]'
-            )
-        else:
-            adoc_replacement_line = f' Please use this as an alternative: {repl_name}'
-
-    adoc_template = (
-        "[IMPORTANT]\n"
-        ".RETIREMENT NOTICE\n"
-        "****\n"
-        f"This item will be retired on *[DATE TBD]*.{adoc_replacement_line}\n"
-        "\n"
-        "For any questions regarding this retirement, please contact "
-        "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
-        "****"
-    )
+    adoc_template = build_retirement_adoc_notice({
+        **workflow,
+        "replacement_source": replacement_source,
+        "replacement_ci_full": replacement_ci_full,
+        "retirement_target_date": None,  # Jira description always shows [DATE TBD]
+    })
 
     description = (
         f"*CI Name:* {display_name}\n\n"
