@@ -26,7 +26,7 @@ reviewed → approved → started → notified → retired
 - **reviewed**: RCARS recommends retirement (score-based)
 - **approved**: curator signs off with reason, replacement CI, target days
 - **started**: formal retirement begins — Jira ticket created today
-- **notified**: 30-day notice adoc added to the catalog item (manual today)
+- **notified**: notice adoc added to the catalog item (manual today)
 - **retired**: item removed from prod catalog (manual today)
 
 ---
@@ -35,67 +35,67 @@ reviewed → approved → started → notified → retired
 
 ### Phase 1 — `started` step triggers agv-retire notice PR
 
-When a curator clicks "Start Retirement" in the WorkflowDrawer, RCARS calls agv-retire (or its equivalent logic) to:
+When an admin initiates retirement in the WorkflowDrawer, RCARS calls the AgV access layer to:
 
-1. Create a PR on the relevant agnosticv namespace repo adding the AsciiDoc retirement notice to the catalog item's config.
-2. Store the PR URL(s) back in the RCARS workflow record (`agv_notice_pr_url`).
-3. Surface the PR link in the WorkflowDrawer UI so curators can track review status.
+1. Create a PR on the target agnosticv repo adding the AsciiDoc retirement notice to the catalog item's config.
+2. Store the PR URL back in the RCARS workflow record (`agv_notice_pr_url`).
+3. Surface the PR link in the WorkflowDrawer so the admin can track review status.
 
 The adoc template is already generated in `jira.py:build_retirement_description()` — this is the source of truth.
 
 ### Phase 2 — `retired` step triggers agv-retire removal PR
 
-When the target retirement date is reached and a curator marks the item as retired, RCARS:
+When the notice period expires and an admin marks the item ready for removal, RCARS:
 
-1. Calls agv-retire to create the removal PR (deletes or unpublishes the item from prod catalog).
-2. Stores the removal PR URL (`agv_retire_pr_url`) in the workflow.
-3. Marks the RCARS item as fully retired once the PR is merged (webhook or polling).
+1. Calls the AgV access layer to create the removal PR on the target agnosticv repo.
+2. Stores the removal PR URL (`agv_retire_pr_url`) in the workflow record.
+3. Surfaces the PR link in the WorkflowDrawer.
+
+Once a human merges the removal PR, the item disappears from the Babylon catalog on the next sync. RCARS's existing soft-delete mechanism (`retired_at = NOW()`) picks this up automatically — no webhook or polling required.
 
 ---
 
 ## Proposed Implementation Approach
 
-### agv-retire as a library / subprocess
+### AgV access layer (Python module)
 
-agv-retire is currently a CLI tool. Two clean options:
+The preferred approach is a native Python module in RCARS: `services/agv_access.py`. This provides generic git/GitHub operations — clone, branch, commit, push, open PR, close PR — that any part of RCARS can call. The retirement workflow is the first caller; other future needs that require touching AgV reuse the same layer.
 
-**Option A (preferred): HTTP sidecar**  
-Run agv-retire as a small FastAPI sidecar alongside the RCARS API pod. RCARS calls it over localhost. agv-retire handles GitHub auth via its own mounted secret. Clean separation, no credential bleed into RCARS config.
+**Option A: HTTP sidecar** (agv-retire container over localhost) — still viable but adds operational complexity. Not the preferred path.
 
-**Option B: Direct Python import**  
-Pull agv-retire's core functions into RCARS as a `services/agv_retire.py` module. Simpler operationally but tighter coupling.
+**Option B: Direct Python module** — `services/agv_access.py` implements the operations natively. Simpler to operate, easier to test, and builds a reusable foundation. Nate is leaning this direction; spec reflects that.
+
+The exact approach is still to be decided before implementation.
 
 ### Credential strategy
 
-The key constraint: agv-retire needs a GitHub token with write access to the target agnosticv namespace repos (e.g. `rhpds/agnosticv`, partner forks, etc.).
+v1 scope: **rhpds/agnosticv**, **zt-rhelbu/agnosticv**, **zt-ansiblebu/agnosticv**. Partner RHDP agnosticV is out of scope — RCARS is currently unaware of partner RHDP and will remain so until there is a clearer path forward. This can be revisited in a later iteration.
 
-Recommended approach:
+Two credential options:
 
-1. Create a **GitHub App** scoped to the agnosticv repos that RCARS needs to touch. App installs generate short-lived tokens — no long-lived PAT stored anywhere.
-2. Mount the GitHub App private key as a Kubernetes secret in the RCARS namespace.
-3. RCARS (or the agv-retire sidecar) exchanges the App key for an installation token at runtime.
+1. **GitHub App** — short-lived tokens, auditable, revocable. App scoped to the three target repos. RCARS exchanges the App private key (mounted as a Kubernetes sealed secret) for an installation token at runtime. Safest long-term option.
 
-This is the safest path — no stored PAT, auditable via GitHub App install logs, revocable without rotating a shared secret.
+2. **Service-account PAT as a sealed secret** — lower setup cost. Long-lived credential but acceptable for a first pass.
 
-**Alternative:** A dedicated service-account PAT stored as a sealed secret. Lower setup cost, works, but a long-lived credential. Acceptable if the GitHub App route is too much overhead for a first pass.
+Credential approach is also to be decided before implementation.
 
 ### New DB fields (retirement_workflow table)
 
 ```sql
 agv_notice_pr_url   TEXT    -- PR URL for the retirement notice adoc
-agv_retire_pr_url   TEXT    -- PR URL for the actual removal
-agv_notice_pr_state TEXT    -- open | merged | closed
-agv_retire_pr_state TEXT    -- open | merged | closed
+agv_retire_pr_url   TEXT    -- PR URL for the removal (informational only)
 ```
 
-### New API endpoint
+State tracking fields are not needed — the WorkflowDrawer surfaces the PR link only, and RCARS's soft-delete handles the retired state transition automatically when the item disappears from Babylon.
+
+### New API endpoints
 
 ```
 POST /analysis/retirement/{catalog_base_name}/agv-notice
 ```
 
-- Auth: curator or admin
-- Triggers agv-retire notice PR creation
+- Auth: admin only
+- Triggers notice PR creation via the AgV access layer
 - Returns `{ pr_url, pr_number, repo }`
 - Idempotent: if a PR already exists for this workflow, returns the existing one
 
@@ -105,13 +105,14 @@ POST /analysis/retirement/{catalog_base_name}/agv-retire
 
 - Auth: admin only
 - Triggers removal PR
-- Only callable once `step_notified_at` is set and target date is reached
+- Only callable once `step_notified_at` is set and the notice period has elapsed
+
+**Related:** Existing retirement endpoints are currently under `/analysis/performance/` — the wrong location. As part of this work, migrate them to `/analysis/retirement/` to consolidate all retirement routes in one place.
 
 ### WorkflowDrawer UI changes
 
-- Show PR link and state badge next to the "Start Retirement" step.
-- Add "Open PR" button that surfaces once the notice PR is created.
-- Show merge status (polling or webhook-driven).
+- Surface the PR link next to the relevant step once created.
+- No state badge or merge polling needed — when the removal PR merges, the item disappears from the active list via soft-delete and lives on in the retirement report.
 
 ---
 
@@ -126,21 +127,21 @@ POST /analysis/retirement/{catalog_base_name}/agv-retire
 | agnosticv notice PR merge | **Manual — always** | Intentional human gate |
 | agnosticv removal PR creation | Automated (this spec) | |
 | agnosticv removal PR merge | **Manual — always** | Intentional human gate |
-| RCARS status update | Automated (webhook/polling) | |
+| RCARS retired state update | Automated (soft-delete via Babylon sync) | |
 
 ---
 
 ## Open Questions / Risks
 
-1. **Multi-namespace agnosticv**: Some catalog items live in partner forks (e.g. `rhpds/agnosticv`, `zt-*` repos). agv-retire needs to know which repo to target. This mapping may need a lookup table or a convention from the CI name.
+1. **AgV namespace routing — decided:** v1 scope is **rhpds/agnosticv**, **zt-rhelbu**, **zt-ansiblebu**. The AgV access layer uses a routing table: `zt-ansiblebu.*` → `zt-ansiblebu/agnosticv`, `zt-rhelbu.*` → `zt-rhelbu/agnosticv`, everything else → `rhpds/agnosticv`.
 
-2. **30-day window**: The retirement notice period is fixed policy — this spec does not change it. RCARS already tracks `target_days` per workflow.
+2. **Notice period**: The window is already configurable per workflow (`target_days`, default 30). As part of this work, extend support to `0` days — implying immediate retirement. Useful for items that never went to prod and don't need a notice window.
 
-3. **Replacement CI in the adoc**: Already handled in `jira.py:build_retirement_description()`. The same data feeds the agv-retire adoc template.
+3. **Replacement CI in the adoc**: Already handled in `jira.py:build_retirement_description()`. The same data feeds the agv-retire adoc template — no change needed.
 
-4. **PR conflicts**: If the agnosticv repo already has a change in flight for the same CI, agv-retire's PR will need a unique branch name. Recommend `rcars/retire/{ci_base_name}/{workflow_id}` as the branch naming convention.
+4. **Branch naming**: Convention: `{ci-name}-{jira-issue}-{date}` (e.g. `demo-osp-RHDPCD-2103-20261007`). Unique per workflow run; avoids conflicts if a previous notice PR was abandoned.
 
-5. **Rollback / cancel**: If a curator cancels the retirement after the notice PR is opened, RCARS should close the GitHub PR automatically.
+5. **Rollback / cancel**: If an admin cancels the retirement after the notice PR is opened, RCARS should close the GitHub PR automatically via the AgV access layer.
 
 ---
 
@@ -152,6 +153,7 @@ Before this merges:
 - [ ] Credential path validated (GitHub App or PAT) — confirm token scopes are correct and least-privilege
 - [ ] WorkflowDrawer PR link surfaces correctly in RCARS dev environment
 - [ ] Cancel-retirement closes the open PR (not just orphans it)
+- [ ] 0-day immediate retirement path tested end-to-end
 - [ ] Nate Stephany review and approval
 
 ---
