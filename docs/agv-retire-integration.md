@@ -145,6 +145,18 @@ POST /analysis/retirement/{catalog_base_name}/agv-retire
 
 ---
 
+## Documentation Updates Required
+
+The following docs need to be updated as part of implementation — flag these in the plan so they ship with the code, not after:
+
+- **MkDocs site** (`docs/`) — add a retirement workflow page (or extend the existing one) covering the agv-retire integration: what triggers automatically, what stays manual, how to monitor PR status, and the cancel/rollback flow.
+- **API reference** — new endpoints (`/analysis/retirement/.../agv-notice` and `/analysis/retirement/.../agv-retire`) need to be documented with auth requirements, request/response shape, and idempotency behaviour.
+- **CLAUDE.md** — update the Architecture and API Reference sections to reflect the new `services/agv_access.py` module and the endpoint migration from `/analysis/performance/` to `/analysis/retirement/`.
+- **agv-retire Confluence page** — note that RCARS now drives notice and removal PR creation; update the manual steps to reflect what is no longer required.
+- **WorkflowDrawer inline help** — if the UI surfaces any tooltips or help text around the retirement steps, update them to reflect the automated PR creation flow.
+
+---
+
 ## Dev Testing Requirements
 
 Before this merges:
