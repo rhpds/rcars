@@ -51,13 +51,24 @@ def _branch_name(base_name: str, jira_key: str) -> str:
     return f"{slug}-{jira_key}-{today}"
 
 
-def _get_installation_token(settings) -> str:
-    """Exchange GitHub App credentials for a short-lived installation token."""
-    if not settings.github_app_id or not settings.github_app_private_key:
+def _get_installation_token(settings, owner: str) -> str:
+    """Exchange GitHub App credentials for a short-lived installation token.
+
+    Each org (rhpds, zt-rhelbu, zt-ansiblebu) requires its own installation ID
+    because GitHub App installation tokens are scoped per org installation.
+    """
+    if not settings.github_app_id or not settings.github_app_private_key or not settings.github_app_installation_id:
         raise RuntimeError(
             "GitHub App not configured. Set RCARS_GITHUB_APP_ID, "
             "RCARS_GITHUB_APP_PRIVATE_KEY, and RCARS_GITHUB_APP_INSTALLATION_ID."
         )
+
+    # Per-owner installation IDs — fall back to the default rhpds installation ID
+    owner_id_map = {
+        "zt-rhelbu": settings.github_app_installation_id_zt_rhelbu or settings.github_app_installation_id,
+        "zt-ansiblebu": settings.github_app_installation_id_zt_ansiblebu or settings.github_app_installation_id,
+    }
+    installation_id = owner_id_map.get(owner, settings.github_app_installation_id)
 
     now = int(time.time())
     private_key = settings.github_app_private_key.replace("\\n", "\n")
@@ -67,10 +78,7 @@ def _get_installation_token(settings) -> str:
         algorithm="RS256",
     )
 
-    token_url = (
-        f"{_GITHUB_API}/app/installations"
-        f"/{settings.github_app_installation_id}/access_tokens"
-    )
+    token_url = f"{_GITHUB_API}/app/installations/{installation_id}/access_tokens"
     resp = _gh(app_jwt, "POST", token_url)
     return resp["token"]
 
@@ -174,9 +182,20 @@ def create_notice_pr(settings, base_name: str, jira_key: str, workflow: dict) ->
 
     logger.info("agv_notice_pr_start", base_name=base_name, repo=f"{owner}/{repo_name}", branch=branch)
 
-    token = _get_installation_token(settings)
+    token = _get_installation_token(settings, owner)
     main_sha = _get_default_branch_sha(token, owner, repo_name)
-    _create_branch(token, owner, repo_name, branch, main_sha)
+
+    # Retry-safe: if the branch already exists, reuse it and any existing open PR
+    try:
+        _create_branch(token, owner, repo_name, branch, main_sha)
+    except RuntimeError as exc:
+        if "422" not in str(exc):
+            raise
+        existing_prs = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls?head={owner}:{branch}&state=open")
+        if existing_prs:
+            pr = existing_prs[0]
+            logger.info("agv_notice_pr_reused", pr_url=pr["html_url"])
+            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
     existing_content, file_sha = _get_file(token, owner, repo_name, desc_path)
     new_content = adoc_notice + "\n\n" + existing_content
@@ -221,9 +240,20 @@ def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
 
     logger.info("agv_retire_pr_start", base_name=base_name, repo=f"{owner}/{repo_name}", branch=branch)
 
-    token = _get_installation_token(settings)
+    token = _get_installation_token(settings, owner)
     main_sha = _get_default_branch_sha(token, owner, repo_name)
-    _create_branch(token, owner, repo_name, branch, main_sha)
+
+    # Retry-safe: if the branch already exists, reuse it and any existing open PR
+    try:
+        _create_branch(token, owner, repo_name, branch, main_sha)
+    except RuntimeError as exc:
+        if "422" not in str(exc):
+            raise
+        existing_prs = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls?head={owner}:{branch}&state=open")
+        if existing_prs:
+            pr = existing_prs[0]
+            logger.info("agv_retire_pr_reused", pr_url=pr["html_url"])
+            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
     _, file_sha = _get_file(token, owner, repo_name, prod_path)
     _delete_file(
@@ -256,7 +286,7 @@ def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
 def close_pr(settings, repo_full: str, pr_number: int) -> None:
     """Close an open agnosticv PR (e.g. on retirement cancellation)."""
     owner, repo_name = repo_full.split("/", 1)
-    token = _get_installation_token(settings)
+    token = _get_installation_token(settings, owner)
     _gh(token, "PATCH", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls/{pr_number}", {
         "state": "closed",
     })

@@ -122,8 +122,10 @@ class Settings(BaseSettings):
 
     # GitHub App (agv-retire PR creation — RHDPCD-2103)
     github_app_id: str = ""
-    github_app_private_key: str = ""       # PEM contents; Ansible mounts as sealed secret
-    github_app_installation_id: str = ""   # installation ID for rhpds/zt-* orgs
+    github_app_private_key: str = ""            # PEM contents; Ansible mounts as sealed secret
+    github_app_installation_id: str = ""        # installation ID for rhpds org
+    github_app_installation_id_zt_rhelbu: str = ""     # installation ID for zt-rhelbu org
+    github_app_installation_id_zt_ansiblebu: str = ""  # installation ID for zt-ansiblebu org
 
     # Scheduled maintenance pipeline
     pipeline_enabled: bool = True

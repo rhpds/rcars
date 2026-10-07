@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth, require_performance_view
@@ -546,7 +548,7 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
                     parts = pr_url.rstrip("/").split("/")
                     pr_number = int(parts[-1])
                     repo_full = f"{parts[-4]}/{parts[-3]}"
-                    close_pr(settings, repo_full, pr_number)
+                    await asyncio.to_thread(close_pr, settings, repo_full, pr_number)
                 except Exception as exc:
                     logger.warning("agv_pr_close_failed", pr_url=pr_url, error=str(exc))
 
@@ -593,7 +595,7 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
 
     jira_key = wf.get("jira_key", "")
     try:
-        result = create_notice_pr(settings, base_name, jira_key, wf)
+        result = await asyncio.to_thread(create_notice_pr, settings, base_name, jira_key, wf)
     except Exception as exc:
         logger.error("agv_notice_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create notice PR: {exc}") from exc
@@ -630,7 +632,9 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
         raise HTTPException(400, "Owner must be notified before opening the removal PR")
 
     target = wf.get("retirement_target_date")
-    if target and str(target) > str(_date.today()):
+    if not target:
+        raise HTTPException(400, "Retirement target date is not set")
+    if str(target) > str(_date.today()):
         raise HTTPException(400, f"Retirement target date has not been reached yet ({target})")
 
     if wf.get("agv_retire_pr_url"):
@@ -643,8 +647,10 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
         }
 
     jira_key = wf.get("jira_key", "")
+    if not jira_key:
+        raise HTTPException(400, "A Jira ticket must be linked before opening the removal PR")
     try:
-        result = create_retire_pr(settings, base_name, jira_key)
+        result = await asyncio.to_thread(create_retire_pr, settings, base_name, jira_key)
     except Exception as exc:
         logger.error("agv_retire_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create removal PR: {exc}") from exc
