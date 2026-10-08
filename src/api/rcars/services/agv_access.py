@@ -113,11 +113,23 @@ def _get_default_branch_sha(token: str, owner: str, repo: str) -> str:
     return data["object"]["sha"]
 
 
-def _get_file(token: str, owner: str, repo: str, path: str) -> tuple[str, str]:
-    """Return (content_str, file_sha) for an existing file."""
-    data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{path}")
+def _get_file(token: str, owner: str, repo: str, path: str, ref: str | None = None) -> tuple[str, str]:
+    """Return (content_str, file_sha) for an existing file.
+
+    Pass ref to read from a specific branch rather than the default branch.
+    """
+    url = f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{path}"
+    if ref:
+        url += f"?ref={ref}"
+    data = _gh(token, "GET", url)
     content = base64.b64decode(data["content"]).decode("utf-8")
     return content, data["sha"]
+
+
+def _find_open_pr(token: str, owner: str, repo: str, branch: str) -> dict | None:
+    """Return the first open PR for the branch, or None."""
+    prs = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/pulls?head={owner}:{branch}&state=open")
+    return prs[0] if prs else None
 
 
 def _create_branch(token: str, owner: str, repo: str, branch: str, sha: str) -> None:
@@ -185,25 +197,32 @@ def create_notice_pr(settings, base_name: str, jira_key: str, workflow: dict) ->
     token = _get_installation_token(settings, owner)
     main_sha = _get_default_branch_sha(token, owner, repo_name)
 
-    # Retry-safe: if the branch already exists, reuse it and any existing open PR
+    branch_existed = False
     try:
         _create_branch(token, owner, repo_name, branch, main_sha)
     except RuntimeError as exc:
         if "422" not in str(exc):
             raise
-        existing_prs = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls?head={owner}:{branch}&state=open")
-        if existing_prs:
-            pr = existing_prs[0]
+        branch_existed = True
+        pr = _find_open_pr(token, owner, repo_name, branch)
+        if pr:
             logger.info("agv_notice_pr_reused", pr_url=pr["html_url"])
             return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
-    existing_content, file_sha = _get_file(token, owner, repo_name, desc_path)
-    new_content = adoc_notice + "\n\n" + existing_content
+    # Read from the branch if it already existed — avoids a stale SHA conflict on retry
+    existing_content, file_sha = _get_file(token, owner, repo_name, desc_path, ref=branch if branch_existed else None)
+    if adoc_notice not in existing_content:
+        new_content = adoc_notice + "\n\n" + existing_content
+        _update_file(
+            token, owner, repo_name, desc_path, new_content, file_sha, branch,
+            f"retire: add retirement notice for {base_name} ({jira_key})",
+        )
 
-    _update_file(
-        token, owner, repo_name, desc_path, new_content, file_sha, branch,
-        f"retire: add retirement notice for {base_name} ({jira_key})",
-    )
+    # Re-check before creating — handles concurrent requests that both passed the branch check
+    pr = _find_open_pr(token, owner, repo_name, branch)
+    if pr:
+        logger.info("agv_notice_pr_reused", pr_url=pr["html_url"])
+        return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
     pr = _create_pr(
         token, owner, repo_name, branch,
@@ -243,23 +262,35 @@ def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
     token = _get_installation_token(settings, owner)
     main_sha = _get_default_branch_sha(token, owner, repo_name)
 
-    # Retry-safe: if the branch already exists, reuse it and any existing open PR
+    branch_existed = False
     try:
         _create_branch(token, owner, repo_name, branch, main_sha)
     except RuntimeError as exc:
         if "422" not in str(exc):
             raise
-        existing_prs = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls?head={owner}:{branch}&state=open")
-        if existing_prs:
-            pr = existing_prs[0]
+        branch_existed = True
+        pr = _find_open_pr(token, owner, repo_name, branch)
+        if pr:
             logger.info("agv_retire_pr_reused", pr_url=pr["html_url"])
             return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
-    _, file_sha = _get_file(token, owner, repo_name, prod_path)
-    _delete_file(
-        token, owner, repo_name, prod_path, file_sha, branch,
-        f"retire: remove {base_name} from prod catalog ({jira_key})",
-    )
+    # Delete prod.yaml — skip if already deleted on the branch (retry path)
+    try:
+        _, file_sha = _get_file(token, owner, repo_name, prod_path, ref=branch if branch_existed else None)
+        _delete_file(
+            token, owner, repo_name, prod_path, file_sha, branch,
+            f"retire: remove {base_name} from prod catalog ({jira_key})",
+        )
+    except RuntimeError as exc:
+        if "404" not in str(exc):
+            raise
+        # prod.yaml already absent from the branch — that's the desired state, continue to PR
+
+    # Re-check before creating — handles concurrent requests that both passed the branch check
+    pr = _find_open_pr(token, owner, repo_name, branch)
+    if pr:
+        logger.info("agv_retire_pr_reused", pr_url=pr["html_url"])
+        return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
     pr = _create_pr(
         token, owner, repo_name, branch,
