@@ -121,18 +121,32 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
 
     blocks.append(Block(type="rec_cards", data={"candidates": cards,
                                                 "content_gaps": combined_state.content_gaps}))
+    from rcars.services.recommender.pipeline import NO_MATCH_GUIDANCE
+    has_no_match = any(s.overall_assessment == NO_MATCH_GUIDANCE for s in category_states.values())
+    sorted_green = sorted(green, key=lambda c: c.get("relevance_score") or 0, reverse=True)
+    green_by_type: dict[str, list[dict]] = {}
+    for c in sorted_green:
+        green_by_type.setdefault(c.get("content_type", "unknown"), []).append(c)
+    top_items = [c for items in green_by_type.values() for c in items[:3]]
+    # Build per-item context for the LLM (only green items)
+    top_context = [{"display_name": c["display_name"], "content_type": c.get("content_type", ""),
+                    "relevance_score": c.get("relevance_score", 0),
+                    "why_it_fits": c.get("why_it_fits", "")} for c in top_items]
     ranked = sorted(green or cards, key=lambda c: c.get("relevance_score") or 0, reverse=True)
+    ranked_ids = {c["content_id"] for c in ranked}
+    ordered_results = ranked + [c for c in cards if c["content_id"] not in ranked_ids]
     return HandlerResult(
         blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
-                        "assessment": combined_state.overall_assessment,
-                        "top": [c["display_name"] for c in ranked[:3]] if green else [],
+                        "has_no_match": has_no_match,
+                        "top": [c["display_name"] for c in top_items],
+                        "top_context": top_context,
                         "durations": [{"content_id": c["content_id"], "display_name": c["display_name"],
                                        "duration_min": c.get("duration_min")} for c in ranked[:5]
                                       if c.get("duration_min") is not None] if green else [],
                         "scoped": scoped},
         anchor_ids=[c["content_id"] for c in ranked[:5]] if green else [],
-        session_results=cards)
+        session_results=ordered_results)
 
 
 async def handle_overlap(res: Resolution, db: Database, settings: Settings,
