@@ -203,7 +203,9 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                                 scope_echo=_scope_echo(output, res, message),
                                 answer=answer, blocks=hres.blocks,
                                 suggested_followups=followup_chips(
-                                    output.intent, turn_index, anchor))
+                                    output.intent, turn_index, anchor)
+                                    if hres.scaffold_facts.get("green_count", 1) > 0
+                                    else [])
             session_results = hres.session_results
             assessment = hres.scaffold_facts.get("assessment")
 

@@ -19,10 +19,11 @@ import structlog
 logger = structlog.get_logger()
 
 NO_MATCH_GUIDANCE = (
-    "I help with content recommendations, but I couldn't find a close match. "
-    "Try broadening your query — focus on the core topic and technology rather "
-    "than event names, lab numbers, or delivery constraints.\n\n"
-    "I currently know about all RHDP items that have demo or lab guides."
+    "No items in the catalog closely matched this query. "
+    "Try broadening your search to focus on the core topic or technology.\n\n"
+    "If you need to build something yourself, consider these as a starting point:\n"
+    "- [Field Sourced Content — OpenShift](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.ocp-field-asset.prod)\n"
+    "- [Field Sourced Content — RHEL](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.rhel-field-asset.prod)"
 )
 
 
