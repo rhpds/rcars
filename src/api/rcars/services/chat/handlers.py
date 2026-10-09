@@ -133,6 +133,8 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                     "relevance_score": c.get("relevance_score", 0),
                     "why_it_fits": c.get("why_it_fits", "")} for c in top_items]
     ranked = sorted(green or cards, key=lambda c: c.get("relevance_score") or 0, reverse=True)
+    ranked_ids = {c["content_id"] for c in ranked}
+    ordered_results = ranked + [c for c in cards if c["content_id"] not in ranked_ids]
     return HandlerResult(
         blocks=blocks,
         scaffold_facts={"result_count": len(cards), "green_count": len(green),
@@ -144,7 +146,7 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                                       if c.get("duration_min") is not None] if green else [],
                         "scoped": scoped},
         anchor_ids=[c["content_id"] for c in ranked[:5]] if green else [],
-        session_results=cards)
+        session_results=ordered_results)
 
 
 async def handle_overlap(res: Resolution, db: Database, settings: Settings,

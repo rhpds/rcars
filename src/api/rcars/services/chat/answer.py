@@ -119,4 +119,8 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
         return answer, usage
     except Exception as e:
         logger.warning("chat_answer_failed_using_template", component="chat", error=str(e)[:300])
-        return scaffold, None
+        fallback = scaffold
+        if facts.get("has_no_match"):
+            from rcars.services.recommender.pipeline import NO_MATCH_GUIDANCE
+            fallback = f"{fallback}\n\n{NO_MATCH_GUIDANCE}"
+        return fallback, None
