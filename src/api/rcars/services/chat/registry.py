@@ -30,8 +30,7 @@ INTENTS: dict[str, IntentSpec] = {
         description="Find content for an event, audience, or topic. The answer is content to go use.",
         args_model=RecommendArgs, handler=handlers.handle_recommend,
         block_types=("rec_cards",),
-        followups=({"label": "Overlap for these", "intent": "overlap", "scope_from": "results"},
-                   {"label": "Performance of these", "intent": "performance", "scope_from": "results"},
+        followups=({"label": "Performance of these", "intent": "performance", "scope_from": "results"},
                    {"label": "About #1", "intent": "item_facts", "scope_from": "ordinal1"}),
         prompt_fragment=("recommend: the user wants content from the catalog — for a topic, audience, "
                          "event, or use case. Includes exploratory asks ('something about X', "

@@ -3,6 +3,7 @@ next to correct data; call failure → template intro."""
 from __future__ import annotations
 
 import json
+import re
 
 import structlog
 
@@ -55,7 +56,7 @@ _SCAFFOLDS = {
 
 
 def _strip_formatting(text: str) -> str:
-    """Remove markdown headers, horizontal rules, and blockquotes."""
+    """Remove markdown headers, horizontal rules, blockquotes, and *(Label)* tags."""
     lines = []
     for line in text.split("\n"):
         stripped = line.strip()
@@ -67,7 +68,9 @@ def _strip_formatting(text: str) -> str:
             lines.append(stripped.lstrip(">").strip())
         else:
             lines.append(line)
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    text = re.sub(r'\s*\*\([^)]+\)\*', '', text)
+    return text
 
 
 def build_scaffold(intent: str, facts: dict) -> str:
@@ -83,9 +86,12 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
         return f"{scaffold}\n\n{NO_MATCH_GUIDANCE}", None
     if intent == "recommend":
         prompt = (
-            "Summarize these search results for the user. Be concise — one or two sentences "
-            "per item is enough. Only describe items listed in 'top_context'. "
-            "Never invent items, scores, or reasons not provided.\n\n"
+            "The user searched the RHDP catalog. Detailed result cards are shown "
+            "separately — do NOT repeat descriptions, modules, or product lists. "
+            "Instead, briefly introduce the top matches and say WHY each one fits "
+            "the user's query. One short sentence per item — what makes it a good "
+            "match for this specific request. End by pointing to the results panel "
+            "for details. No scores, no content type labels, no parenthetical tags.\n\n"
             f"Top matches: {json.dumps(facts.get('top_context', []), default=str)}\n"
             f"Total candidates: {facts.get('result_count', 0)}, "
             f"best-fit count: {facts.get('green_count', 0)}\n"
