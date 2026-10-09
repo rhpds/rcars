@@ -64,9 +64,10 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
     scaffold = build_scaffold(intent, facts)
     prompt = (
         "Summarize these results for the user. "
-        + (("No items scored well enough to recommend. Acknowledge this clearly and "
-            "suggest the user broaden or rephrase their search. Do NOT list or recommend "
-            "specific items by name. ")
+        + (("No items scored well enough to recommend. State this in one short paragraph — "
+            "no headers, no horizontal rules, no bullet lists, no blockquotes. "
+            "Do NOT list or recommend specific items by name. "
+            "Do NOT add suggestions or search tips — the assessment already covers that. ")
            if intent == "recommend" and not facts.get("top") else
            ("Preserve the numbered list format from the assessment — keep items as a "
             "numbered list with bold names. Add one closing sentence after the list. "))

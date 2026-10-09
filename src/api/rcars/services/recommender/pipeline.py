@@ -19,10 +19,10 @@ import structlog
 logger = structlog.get_logger()
 
 NO_MATCH_GUIDANCE = (
-    "I help with content recommendations, but I couldn't find a close match. "
-    "Try broadening your query — focus on the core topic and technology rather "
-    "than event names, lab numbers, or delivery constraints.\n\n"
-    "I currently know about all RHDP items that have demo or lab guides."
+    "No items in the catalog closely matched this query. "
+    "Try broadening your search to focus on the core topic or technology.\n\n"
+    "If this content doesn't exist yet, open a request in Jira or ask in "
+    "**#forum-demo-rcars** on Slack."
 )
 
 
