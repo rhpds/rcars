@@ -123,7 +123,18 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                                                 "content_gaps": combined_state.content_gaps}))
     from rcars.services.recommender.pipeline import NO_MATCH_GUIDANCE
     has_no_match = any(s.overall_assessment == NO_MATCH_GUIDANCE for s in category_states.values())
-    top_items = sorted(green, key=lambda c: c.get("relevance_score") or 0, reverse=True)[:3]
+    sorted_green = sorted(green, key=lambda c: c.get("relevance_score") or 0, reverse=True)
+    types_seen: set[str] = set()
+    type_reps: list[dict] = []
+    others: list[dict] = []
+    for c in sorted_green:
+        ct = c.get("content_type", "unknown")
+        if ct not in types_seen:
+            type_reps.append(c)
+            types_seen.add(ct)
+        else:
+            others.append(c)
+    top_items = (type_reps + others)[:3]
     # Build per-item context for the LLM (only green items)
     top_context = [{"display_name": c["display_name"], "content_type": c.get("content_type", ""),
                     "relevance_score": c.get("relevance_score", 0),
