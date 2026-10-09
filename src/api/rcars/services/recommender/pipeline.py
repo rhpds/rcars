@@ -21,10 +21,9 @@ logger = structlog.get_logger()
 NO_MATCH_GUIDANCE = (
     "No items in the catalog closely matched this query. "
     "Try broadening your search to focus on the core topic or technology.\n\n"
-    "If you need to build something yourself, consider "
-    "[Field Sourced Content — OpenShift](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.ocp-field-asset.prod) or "
-    "[Field Sourced Content — RHEL](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.rhel-field-asset.prod) "
-    "as a starting point."
+    "If you need to build something yourself, consider these as a starting point:\n"
+    "- [Field Sourced Content — OpenShift](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.ocp-field-asset.prod)\n"
+    "- [Field Sourced Content — RHEL](https://catalog.demo.redhat.com/catalog/babylon-catalog-prod?item=babylon-catalog-prod/published.rhel-field-asset.prod)"
 )
 
 
