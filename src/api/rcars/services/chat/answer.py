@@ -54,6 +54,22 @@ _SCAFFOLDS = {
 }
 
 
+def _strip_formatting(text: str) -> str:
+    """Remove markdown headers, horizontal rules, and blockquotes."""
+    lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped == "---":
+            continue
+        if stripped.startswith("#"):
+            lines.append(stripped.lstrip("#").strip())
+        elif stripped.startswith(">"):
+            lines.append(stripped.lstrip(">").strip())
+        else:
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def build_scaffold(intent: str, facts: dict) -> str:
     fn = _SCAFFOLDS.get(intent)
     return fn(facts) if fn else ""
@@ -63,23 +79,37 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
                    settings: Settings, llm_call=call_llm) -> tuple[str, dict | None]:
     scaffold = build_scaffold(intent, facts)
     if intent == "recommend" and not facts.get("top"):
-        return f"{scaffold}\n\n{facts.get('assessment', '')}", None
-    prompt = (
-        "Summarize these results for the user. "
-        "Preserve the numbered list format from the assessment — keep items as a "
-        "numbered list with bold names. Add one closing sentence after the list. "
-        "If the data doesn't answer the question, say so. "
-        "Cite items only by the names given here — never invent items, numbers, or reasons.\n\n"
-        f"Facts: {json.dumps(facts, default=str)}\n"
-        f"Related items (context only): {json.dumps(evidence_pack, default=str)}\n"
-        f"User question: {question}")
+        from rcars.services.recommender.pipeline import NO_MATCH_GUIDANCE
+        return f"{scaffold}\n\n{NO_MATCH_GUIDANCE}", None
+    if intent == "recommend":
+        prompt = (
+            "Summarize these search results for the user. Be concise — one or two sentences "
+            "per item is enough. Only describe items listed in 'top_context'. "
+            "Never invent items, scores, or reasons not provided.\n\n"
+            f"Top matches: {json.dumps(facts.get('top_context', []), default=str)}\n"
+            f"Total candidates: {facts.get('result_count', 0)}, "
+            f"best-fit count: {facts.get('green_count', 0)}\n"
+            f"User question: {question}")
+    else:
+        prompt = (
+            "Summarize these results for the user. Preserve the numbered list format from "
+            "the assessment — keep items as a numbered list with bold names. Add one closing "
+            "sentence after the list. If the data doesn't answer the question, say so. "
+            "Cite items only by the names given here — never invent items, numbers, or reasons.\n\n"
+            f"Facts: {json.dumps(facts, default=str)}\n"
+            f"Related items (context only): {json.dumps(evidence_pack, default=str)}\n"
+            f"User question: {question}")
     try:
         result = llm_call(settings, settings.chat_answer_model,
                           [{"role": "user", "content": prompt}],
                           max_tokens=600, temperature=0)
         usage = {"input": result.input_tokens, "output": result.output_tokens,
                  "provider": result.provider}
-        return f"{scaffold}\n\n{result.text.strip()}", usage
+        answer = f"{scaffold}\n\n{_strip_formatting(result.text.strip())}"
+        if facts.get("has_no_match"):
+            from rcars.services.recommender.pipeline import NO_MATCH_GUIDANCE
+            answer = f"{answer}\n\n{NO_MATCH_GUIDANCE}"
+        return answer, usage
     except Exception as e:
         logger.warning("chat_answer_failed_using_template", component="chat", error=str(e)[:300])
         return scaffold, None
