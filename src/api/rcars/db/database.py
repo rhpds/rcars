@@ -995,6 +995,27 @@ class Database:
                 raw = row["embedding"]
                 return [float(x) for x in raw.strip("[]").split(",")]
 
+    def find_catalog_item_by_name(
+        self, name: str, stages: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Case-insensitive exact match on display_name."""
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT ce.content_id FROM content_entities ce "
+                    f"WHERE lower(ce.display_name) = lower(%s) "
+                    f"AND ce.status IN ({stage_placeholders}) AND ce.retired_at IS NULL "
+                    f"LIMIT 1",
+                    (name, *stage_list),
+                )
+                row = cur.fetchone()
+                if row:
+                    cid = row["content_id"]
+                    return self.get_babylon_item(cid) or self.get_content_entity(cid)
+                return None
+
     def find_catalog_item_by_keyword_overlap(
         self, keywords: set[str], stages: list[str] | None = None, min_overlap: int = 3,
     ) -> dict[str, Any] | None:
