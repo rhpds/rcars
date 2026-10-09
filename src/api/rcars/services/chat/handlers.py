@@ -129,9 +129,9 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
                         "top": [c["display_name"] for c in ranked[:3]] if green else [],
                         "durations": [{"content_id": c["content_id"], "display_name": c["display_name"],
                                        "duration_min": c.get("duration_min")} for c in ranked[:5]
-                                      if c.get("duration_min") is not None],
+                                      if c.get("duration_min") is not None] if green else [],
                         "scoped": scoped},
-        anchor_ids=[c["content_id"] for c in ranked[:5]],
+        anchor_ids=[c["content_id"] for c in ranked[:5]] if green else [],
         session_results=cards)
 
 

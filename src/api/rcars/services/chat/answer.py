@@ -64,12 +64,12 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
     scaffold = build_scaffold(intent, facts)
     prompt = (
         "Summarize these results for the user. "
-        + (("Preserve the numbered list format from the assessment — keep items as a "
-            "numbered list with bold names. Add one closing sentence after the list. ")
-           if facts.get("top") else
-           ("No items scored well enough to recommend. Acknowledge this clearly and "
+        + (("No items scored well enough to recommend. Acknowledge this clearly and "
             "suggest the user broaden or rephrase their search. Do NOT list or recommend "
-            "specific items by name. "))
+            "specific items by name. ")
+           if intent == "recommend" and not facts.get("top") else
+           ("Preserve the numbered list format from the assessment — keep items as a "
+            "numbered list with bold names. Add one closing sentence after the list. "))
         + "If the data doesn't answer the question, say so. "
         "Cite items only by the names given here — never invent items, numbers, or reasons.\n\n"
         f"Facts: {json.dumps(facts, default=str)}\n"
