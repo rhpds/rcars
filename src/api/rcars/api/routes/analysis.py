@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth, require_performance_view
 from rcars.api.schemas import (
     JobResponse, PerformanceDashboardResponse, RetirementDashboardResponse,
     WorkflowResponse, WorkflowGetResponse, StartRetirementResponse,
-    CancelWorkflowResponse, ScanResponse, RescanResponse,
+    CancelWorkflowResponse, AgvPrResponse, ScanResponse, RescanResponse,
     FieldSourceResponse, FieldSourceRepo, FieldSourceProvision,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
@@ -269,7 +271,7 @@ async def performance_dashboard(
 
 
 @router.get(
-    "/performance/workflow/{base_name}",
+    "/retirement/workflow/{base_name}",
     tags=["Performance"],
     summary="Get retirement workflow",
     description="Returns the current retirement workflow state for a catalog item. Curator-only.",
@@ -283,7 +285,7 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/performance/workflow/{base_name}/review",
+    "/retirement/workflow/{base_name}/review",
     tags=["Performance"],
     summary="Mark item as reviewed",
     description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
@@ -306,7 +308,7 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
 
 
 @router.put(
-    "/performance/workflow/{base_name}/approve",
+    "/retirement/workflow/{base_name}/approve",
     tags=["Performance"],
     summary="Approve item for retirement",
     description=(
@@ -362,7 +364,7 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
 
 @router.put(
-    "/performance/workflow/{base_name}/notify",
+    "/retirement/workflow/{base_name}/notify",
     tags=["Performance"],
     summary="Mark owner as notified",
     description="Records that the content owner has been notified about the retirement. Curator-only.",
@@ -385,7 +387,7 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/performance/workflow/{base_name}/start",
+    "/retirement/workflow/{base_name}/start",
     tags=["Performance"],
     summary="Start retirement process",
     description=(
@@ -465,7 +467,7 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 
 
 @router.put(
-    "/performance/workflow/{base_name}/link-jira",
+    "/retirement/workflow/{base_name}/link-jira",
     tags=["Performance"],
     summary="Link existing Jira ticket",
     description="Links an existing Jira ticket to the retirement workflow and advances to started status. Requires prior approval.",
@@ -499,7 +501,7 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 
 
 @router.put(
-    "/performance/workflow/{base_name}/notes",
+    "/retirement/workflow/{base_name}/notes",
     tags=["Performance"],
     summary="Update curator notes",
     description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
@@ -517,22 +519,145 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 
 
 @router.delete(
-    "/performance/workflow/{base_name}",
+    "/retirement/workflow/{base_name}",
     tags=["Performance"],
     summary="Cancel retirement workflow",
     description="Cancels and removes the retirement workflow for a catalog item. Admin-only.",
     response_model=CancelWorkflowResponse,
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.agv_access import close_pr
+
     db = request.app.state.db
+    settings = request.app.state.settings
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+
+    # Close any open agv PRs before deleting the workflow record
+    if wf:
+        for pr_field in ("agv_notice_pr_url", "agv_retire_pr_url"):
+            pr_url = wf.get(pr_field)
+            if pr_url:
+                try:
+                    # Extract owner/repo/number from the PR URL
+                    # e.g. https://github.com/rhpds/agnosticv/pull/42
+                    parts = pr_url.rstrip("/").split("/")
+                    pr_number = int(parts[-1])
+                    repo_full = f"{parts[-4]}/{parts[-3]}"
+                    await asyncio.to_thread(close_pr, settings, repo_full, pr_number)
+                except Exception as exc:
+                    logger.warning("agv_pr_close_failed", pr_url=pr_url, error=str(exc))
+
     deleted = db.delete_retirement_workflow(content_id)
     if deleted:
         db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
     return {"status": "ok", "deleted": deleted}
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/agv-notice",
+    tags=["Retirement"],
+    summary="Open agnosticv retirement notice PR",
+    description=(
+        "Creates a branch on the relevant agnosticv repo, prepends the AsciiDoc "
+        "retirement notice to description.adoc, and opens a PR. Idempotent: if a "
+        "notice PR URL is already stored, returns it without creating a duplicate. "
+        "Admin-only."
+    ),
+    response_model=AgvPrResponse,
+)
+async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.agv_access import create_notice_pr
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf or not wf.get("step_started_at"):
+        raise HTTPException(400, "Retirement must be started (Jira ticket created) before opening the notice PR")
+
+    if wf.get("agv_notice_pr_url"):
+        return {
+            "status": "ok",
+            "workflow": wf,
+            "pr_url": wf["agv_notice_pr_url"],
+            "pr_number": 0,
+            "repo": "",
+        }
+
+    jira_key = wf.get("jira_key", "")
+    try:
+        result = await asyncio.to_thread(create_notice_pr, settings, base_name, jira_key, wf)
+    except Exception as exc:
+        logger.error("agv_notice_pr_failed", base_name=base_name, error=str(exc))
+        raise HTTPException(502, f"Failed to create notice PR: {exc}") from exc
+
+    updated = db.upsert_retirement_workflow(content_id, {"agv_notice_pr_url": result["pr_url"]})
+    db.log_action(base_name, "agv_notice_pr_opened", user, f"PR: {result['pr_url']}")
+    return {"status": "ok", "workflow": updated, **result}
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/agv-retire",
+    tags=["Retirement"],
+    summary="Open agnosticv removal PR",
+    description=(
+        "Creates a branch on the relevant agnosticv repo that deletes prod.yaml, "
+        "removing the CI from the prod catalog stage. Opens a PR for human review. "
+        "Only callable once the notice period has elapsed. Admin-only."
+    ),
+    response_model=AgvPrResponse,
+)
+async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.agv_access import create_retire_pr
+    from datetime import date as _date
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf or not wf.get("step_notified_at"):
+        raise HTTPException(400, "Owner must be notified before opening the removal PR")
+
+    target = wf.get("retirement_target_date")
+    if not target:
+        raise HTTPException(400, "Retirement target date is not set")
+    if str(target) > str(_date.today()):
+        raise HTTPException(400, f"Retirement target date has not been reached yet ({target})")
+
+    if wf.get("agv_retire_pr_url"):
+        return {
+            "status": "ok",
+            "workflow": wf,
+            "pr_url": wf["agv_retire_pr_url"],
+            "pr_number": 0,
+            "repo": "",
+        }
+
+    jira_key = wf.get("jira_key", "")
+    if not jira_key:
+        raise HTTPException(400, "A Jira ticket must be linked before opening the removal PR")
+    try:
+        result = await asyncio.to_thread(create_retire_pr, settings, base_name, jira_key)
+    except Exception as exc:
+        logger.error("agv_retire_pr_failed", base_name=base_name, error=str(exc))
+        raise HTTPException(502, f"Failed to create removal PR: {exc}") from exc
+
+    updated = db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
+    db.log_action(base_name, "agv_retire_pr_opened", user, f"PR: {result['pr_url']}")
+    return {"status": "ok", "workflow": updated, **result}
 
 
 @router.post(

@@ -598,6 +598,9 @@ ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cloud_provider TEXT
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cluster_size TEXT;
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS node_size TEXT;
 
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_notice_pr_url TEXT;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_retire_pr_url TEXT;
+
 """
 
 
