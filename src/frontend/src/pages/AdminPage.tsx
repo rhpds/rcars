@@ -99,6 +99,8 @@ interface QuerySessionSummary {
   started_at: string
   query_text: string | null
   chosen_ci_name: string | null
+  user_email: string | null
+  duration_ms: number | null
 }
 
 interface SessionTurn {
@@ -151,6 +153,10 @@ export function AdminQueriesPage() {
   }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  /** Format a session's duration_ms as seconds of active processing time, or '—' if unknown. */
+  const activeQueryTime = (durationMs: number | null) => durationMs == null
+    ? '—'
+    : `${(durationMs / 1000).toFixed(1)}s active`
 
   const tierColor = (tier: string) => {
     if (tier === 'green') return 'var(--score-green)'
@@ -185,8 +191,14 @@ export function AdminQueriesPage() {
                     <span style={{ color: 'var(--text-muted)', fontSize: '12px', flexShrink: 0, whiteSpace: 'nowrap' }}>
                       {isExpanded ? '▾' : '▸'} {shortTime(session.started_at)}
                     </span>
-                    <span style={{ color: 'var(--text-secondary)', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '14px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                       {session.query_text || '(empty query)'}
+                    </span>
+                    <span style={{ color: 'var(--text-muted)', fontSize: '11px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {session.user_email || 'Unknown user'}
+                    </span>
+                    <span title="Total time spent processing queries in this session; excludes idle time" style={{ color: 'var(--text-muted)', fontSize: '11px', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                      {activeQueryTime(session.duration_ms)}
                     </span>
                     {session.chosen_ci_name && (
                       <span style={{ color: 'var(--score-green)', fontSize: '11px', flexShrink: 0 }}>has selection</span>

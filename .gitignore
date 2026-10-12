@@ -16,6 +16,11 @@ venv/
 *.swp
 *.swo
 
+# Local agent instructions and state
+.agents/
+.codex/
+AGENTS.md
+
 # Data (never commit)
 data/
 !src/api/rcars/data/

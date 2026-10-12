@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.recommender.pipeline import run_query
 from rcars.services.recommender.drivers import get_driver
@@ -17,11 +19,13 @@ async def run_recommendation(
     depth: str = "high",
     content_types: list[str] | None = None,
 ) -> dict:
+    """Run an advisor recommendation query end-to-end and log the session with its duration."""
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
 
     log.info("picked_up", action="picked_up", queue="recommend")
     wctx.db.update_job_status(job_id, "running")
+    started_at = time.monotonic()
 
     try:
         async def on_progress(data: dict):
@@ -58,6 +62,7 @@ async def run_recommendation(
             "content_gaps": combined_gaps,
         }
 
+        duration_ms = round((time.monotonic() - started_at) * 1000)
         wctx.db.complete_job(job_id, result_json=results)
 
         wctx.db.log_advisor_session(
@@ -68,6 +73,7 @@ async def run_recommendation(
             event_url=None,
             results=candidates_json,
             overall_assessment=combined_assessment,
+            duration_ms=duration_ms,
         )
 
         log.info("job_complete", action="job_complete",
