@@ -46,3 +46,13 @@ sa_allowlist:
 
 # GitHub repo for BuildConfig (public — no source secret needed)
 github_repo: rhpds/rcars
+
+# GitHub App credentials for agv-retire automated PR creation (RHDPCD-2103)
+# Retrieve App ID and private key from Bitwarden: "rcars-agv-retire"
+# Installation ID: https://github.com/organizations/rhpds/settings/installations/169224840
+# All three agnosticv repos are in the rhpds org so all installation IDs are the same.
+# github_app_id: ""
+# github_app_private_key: ""   # PEM contents, \n-escaped
+# github_app_installation_id: "169224840"
+# github_app_installation_id_zt_rhelbu: "169224840"
+# github_app_installation_id_zt_ansiblebu: "169224840"
