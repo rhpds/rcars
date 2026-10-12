@@ -336,7 +336,7 @@ metadata:
 type: Opaque
 stringData:
   app-id: "{{ github_app_id }}"
-  private-key: "{{ github_app_private_key }}"
+  private-key: "{{ github_app_private_key | replace('\n', '\\n') }}"
   installation-id: "{{ github_app_installation_id }}"
   installation-id-zt-rhelbu: "{{ github_app_installation_id_zt_rhelbu | default(github_app_installation_id) }}"
   installation-id-zt-ansiblebu: "{{ github_app_installation_id_zt_ansiblebu | default(github_app_installation_id) }}"

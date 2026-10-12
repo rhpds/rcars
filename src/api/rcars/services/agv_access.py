@@ -109,7 +109,9 @@ def _gh(token: str, method: str, url: str, body: dict | None = None) -> dict:
 
 
 def _get_default_branch_sha(token: str, owner: str, repo: str) -> str:
-    data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/main")
+    repo_data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}")
+    default_branch = repo_data.get("default_branch", "main")
+    data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{default_branch}")
     return data["object"]["sha"]
 
 

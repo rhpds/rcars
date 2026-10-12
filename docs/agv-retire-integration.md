@@ -91,7 +91,7 @@ State tracking fields are not needed — the WorkflowDrawer surfaces the PR link
 ### New API endpoints
 
 ```
-POST /analysis/retirement/{catalog_base_name}/agv-notice
+POST /analysis/retirement/workflow/{catalog_base_name}/agv-notice
 ```
 
 - Auth: admin only
@@ -100,7 +100,7 @@ POST /analysis/retirement/{catalog_base_name}/agv-notice
 - Idempotent: if a PR already exists for this workflow, returns the existing one
 
 ```
-POST /analysis/retirement/{catalog_base_name}/agv-retire
+POST /analysis/retirement/workflow/{catalog_base_name}/agv-retire
 ```
 
 - Auth: admin only
