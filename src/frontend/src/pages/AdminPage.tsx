@@ -153,6 +153,7 @@ export function AdminQueriesPage() {
   }
 
   const shortTime = (iso: string) => new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  /** Format a session's duration_ms as seconds of active processing time, or '—' if unknown. */
   const activeQueryTime = (durationMs: number | null) => durationMs == null
     ? '—'
     : `${(durationMs / 1000).toFixed(1)}s active`

@@ -129,6 +129,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                        content_types: list[str] | None = None,
                        db: Database, settings: Settings,
                        on_progress, llm_call=call_llm) -> dict:
+    """Route, resolve, and answer a single chat turn, logging the turn with its processing duration."""
     started_at = time.monotonic()
     stages = stages or ["prod"]
     await on_progress({"phase": "routing", "status": "started"})

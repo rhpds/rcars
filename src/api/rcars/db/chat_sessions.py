@@ -35,6 +35,7 @@ def log_chat_turn(
     overall_assessment: str | None, intent: str | None,
     envelope: dict | None, scope: dict | None, duration_ms: int | None = None,
 ) -> int:
+    """Insert a chat turn into advisor_sessions, including its processing duration, and return the new row id."""
     with pool.connection() as conn:
         cur = conn.execute(
             """INSERT INTO advisor_sessions

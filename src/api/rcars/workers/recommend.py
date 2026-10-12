@@ -19,6 +19,7 @@ async def run_recommendation(
     depth: str = "high",
     content_types: list[str] | None = None,
 ) -> dict:
+    """Run an advisor recommendation query end-to-end and log the session with its duration."""
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
 

@@ -2559,6 +2559,7 @@ class Database:
         results: list[dict], overall_assessment: str | None,
         duration_ms: int | None = None,
     ) -> int:
+        """Insert an advisor session turn, including its processing duration, and return the new row id."""
         with self._pool.connection() as conn:
             cur = conn.execute("""
                 INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment, duration_ms)
@@ -2586,6 +2587,7 @@ class Database:
             conn.commit()
 
     def list_advisor_sessions(self, user_email: str | None = None, limit: int = 50) -> list[dict]:
+        """List distinct advisor sessions with per-session turn count and summed duration_ms."""
         inner = """
             SELECT DISTINCT ON (s.session_id)
                    s.session_id, s.created_at AS started_at,

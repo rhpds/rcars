@@ -131,6 +131,7 @@ async def get_recommendations(
 
 
 async def _run_low(body, db, settings, stages, content_types=None, user_email=None):
+    """Run the low-effort (vector search only) recommendation path and log the session with its duration."""
     t0 = time.monotonic()
     try:
         category_states = await asyncio.wait_for(
