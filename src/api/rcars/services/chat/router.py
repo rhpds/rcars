@@ -117,6 +117,9 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
         item = db.find_catalog_item_by_display_name_prefix(f"LB{m.group(1)}%", stages=stages)
         if item:
             return {"item": item}
+    exact = db.find_catalog_item_by_name(ref, stages=stages)
+    if exact:
+        return {"item": exact}
     words = _expand_vocab_aliases({w.lower() for w in re.findall(r"[a-zA-Z]{3,}", ref)} - STOP_WORDS)
     if len(words) >= 2:
         item = db.find_catalog_item_by_keyword_overlap(words, stages=stages, min_overlap=3)
