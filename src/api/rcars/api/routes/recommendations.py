@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 
 from fastapi import APIRouter, Depends, Request, HTTPException
 from pydantic import BaseModel, Field
@@ -124,12 +125,12 @@ async def get_recommendations(
         stages = [s for s in stages if s != "dev"]
 
     if body.effort == "low":
-        return await _run_low(body, db, settings, stages, body.content_types)
+        return await _run_low(body, db, settings, stages, body.content_types, user)
 
     return await _run_medium(body, request, db, settings, stages, user, is_limited, body.content_types)
 
 
-async def _run_low(body, db, settings, stages, content_types=None):
+async def _run_low(body, db, settings, stages, content_types=None, user_email=None):
     t0 = time.monotonic()
     try:
         category_states = await asyncio.wait_for(
@@ -154,6 +155,16 @@ async def _run_low(body, db, settings, stages, content_types=None):
     candidates_json = candidates_json[:body.limit]
 
     elapsed = round(time.monotonic() - t0, 2)
+    db.log_advisor_session(
+        session_id=str(uuid.uuid4()),
+        turn_index=0,
+        user_email=user_email,
+        query_text=body.query,
+        event_url=None,
+        results=candidates_json,
+        overall_assessment=None,
+        duration_ms=round(elapsed * 1000),
+    )
     return {
         "candidates": candidates_json,
         "overall_assessment": None,

@@ -33,19 +33,19 @@ def log_chat_turn(
     pool, *, session_id: str, turn_index: int, user_email: str | None,
     query_text: str | None, results: list[dict] | None,
     overall_assessment: str | None, intent: str | None,
-    envelope: dict | None, scope: dict | None,
+    envelope: dict | None, scope: dict | None, duration_ms: int | None = None,
 ) -> int:
     with pool.connection() as conn:
         cur = conn.execute(
             """INSERT INTO advisor_sessions
                (session_id, turn_index, user_email, query_text, results_json,
-                overall_assessment, intent, envelope_json, scope_json)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                overall_assessment, intent, envelope_json, scope_json, duration_ms)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id""",
             (session_id, turn_index, user_email, query_text,
              Jsonb(results) if results is not None else None,
              overall_assessment, intent,
              Jsonb(envelope) if envelope is not None else None,
-             Jsonb(scope) if scope is not None else None))
+             Jsonb(scope) if scope is not None else None, duration_ms))
         row_id = cur.fetchone()["id"]
         conn.commit()
     return row_id
