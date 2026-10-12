@@ -1,7 +1,7 @@
 # Graph Report - rcars-advisory  (2026-10-12)
 
 ## Corpus Check
-- 276 files · ~489,826 words
+- 265 files · ~476,546 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `0f3888c7`
+- Built from commit: `74f79702`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -390,8 +390,8 @@ Cohesion: 0.10
 Nodes (24): Action Verbs Validation Rules, Content Modes Mapping, Controlled Vocabulary, Difficulty Levels Taxonomy, Ignored Terms List, Platforms Taxonomy, Products Taxonomy, Solutions Taxonomy (+16 more)
 
 ### Community 37 - "load_vocabulary"
-Cohesion: 0.15
-Nodes (9): load_vocabulary(), Load, validate, and cache the controlled vocabulary for this process., Snap one value to its canonical form. Returns (result, matched). On a miss the…, snap_term(), Punctuation and spacing differences resolve without a human., The spec's worked examples, wherever on the ladder they land., search_terms widen query expansion only — the normalizer ignores them., TestLoadPackagedDefault (+1 more)
+Cohesion: 0.13
+Nodes (11): load_vocabulary(), Load, validate, and cache the controlled vocabulary for this process., _noise_variants(), Rung 3 candidates: strip known noise, then retry rungs 1-2 on each., Snap one value to its canonical form. Returns (result, matched). On a miss the…, snap_term(), Punctuation and spacing differences resolve without a human., The spec's worked examples, wherever on the ladder they land. (+3 more)
 
 ### Community 38 - "render_vocabulary_block"
 Cohesion: 0.26
@@ -434,8 +434,8 @@ Cohesion: 0.15
 Nodes (19): fmt(), fmtRoi(), num(), scoreBg(), ScoreBreakdownPopover(), scoreColor(), stageBadgeClass, WorkflowDrawer() (+11 more)
 
 ### Community 48 - "normalize_analysis"
-Cohesion: 0.12
-Nodes (13): _noise_variants(), normalize_analysis(), Any, Post-analysis normalization — deterministic, runs once after parse. Nothing…, Snap aliases to canonical forms and dedup topics, before write. Pure when db is…, Upsert one row per distinct term. Never touches the item's review flags., Rung 3 candidates: strip known noise, then retry rungs 1-2 on each., _record_unknowns() (+5 more)
+Cohesion: 0.15
+Nodes (9): normalize_analysis(), Any, Snap aliases to canonical forms and dedup topics, before write. Pure when db is…, Upsert one row per distinct term. Never touches the item's review flags., _record_unknowns(), Keys absent from an analyzer's output are skipped — one map, two sources., A term in ignored_terms is stored verbatim but never recorded., TestIgnoredTermsSuppression (+1 more)
 
 ### Community 49 - "dev-services.sh"
 Cohesion: 0.20
@@ -474,8 +474,8 @@ Cohesion: 0.37
 Nodes (17): Full OSSPA sync. Synchronous by design — the worker wraps it in one…, run_osspa_sync(), _csv(), _stub_csv(), test_clone_failure_aborts_before_any_db_write(), test_empty_active_set_aborts_without_retiring(), test_empty_active_set_with_confirmation_retires_everything(), test_force_reanalyzes_unchanged_items() (+9 more)
 
 ### Community 58 - "vocabulary/__init__.py"
-Cohesion: 0.13
-Nodes (23): Controlled vocabulary — one list, two consumers (analysis + query expansion)., _as_tuple(), _build_lookups(), _parse_entries(), Any, Vocabulary loading, path resolution, and fail-fast validation. Cached once per…, Build exact (casefold) and squash lookups, validating collisions. Aliases may…, _validate() (+15 more)
+Cohesion: 0.12
+Nodes (25): Controlled vocabulary — one list, two consumers (analysis + query expansion)., _as_tuple(), _build_lookups(), _parse_entries(), Any, Vocabulary loading, path resolution, and fail-fast validation. Cached once per…, Build exact (casefold) and squash lookups, validating collisions. Aliases may…, _validate() (+17 more)
 
 ### Community 59 - "sync_opl_vocabulary.py"
 Cohesion: 0.22
