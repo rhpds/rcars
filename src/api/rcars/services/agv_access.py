@@ -108,11 +108,12 @@ def _gh(token: str, method: str, url: str, body: dict | None = None) -> dict:
         raise RuntimeError(f"GitHub API {method} {url} → {exc.code}: {body_text}") from exc
 
 
-def _get_default_branch_sha(token: str, owner: str, repo: str) -> str:
+def _get_default_branch(token: str, owner: str, repo: str) -> tuple[str, str]:
+    """Return (default_branch_name, sha) for the repo's default branch."""
     repo_data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}")
     default_branch = repo_data.get("default_branch", "main")
     data = _gh(token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{default_branch}")
-    return data["object"]["sha"]
+    return default_branch, data["object"]["sha"]
 
 
 def _get_file(token: str, owner: str, repo: str, path: str, ref: str | None = None) -> tuple[str, str]:
@@ -166,13 +167,13 @@ def _delete_file(
 
 def _create_pr(
     token: str, owner: str, repo: str,
-    branch: str, title: str, body: str,
+    branch: str, base_branch: str, title: str, body: str,
 ) -> dict:
     return _gh(token, "POST", f"{_GITHUB_API}/repos/{owner}/{repo}/pulls", {
         "title": title,
         "body": body,
         "head": branch,
-        "base": "main",
+        "base": base_branch,
     })
 
 
@@ -197,7 +198,7 @@ def create_notice_pr(settings, base_name: str, jira_key: str, workflow: dict) ->
     logger.info("agv_notice_pr_start", base_name=base_name, repo=f"{owner}/{repo_name}", branch=branch)
 
     token = _get_installation_token(settings, owner)
-    main_sha = _get_default_branch_sha(token, owner, repo_name)
+    default_branch, main_sha = _get_default_branch(token, owner, repo_name)
 
     branch_existed = False
     try:
@@ -228,7 +229,7 @@ def create_notice_pr(settings, base_name: str, jira_key: str, workflow: dict) ->
 
     try:
         pr = _create_pr(
-            token, owner, repo_name, branch,
+            token, owner, repo_name, branch, default_branch,
             title=f"retire: {base_name} — retirement notice ({jira_key})",
             body=(
                 f"Retirement notice PR for **{base_name}**.\n\n"
@@ -272,7 +273,7 @@ def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
     logger.info("agv_retire_pr_start", base_name=base_name, repo=f"{owner}/{repo_name}", branch=branch)
 
     token = _get_installation_token(settings, owner)
-    main_sha = _get_default_branch_sha(token, owner, repo_name)
+    default_branch, main_sha = _get_default_branch(token, owner, repo_name)
 
     branch_existed = False
     try:
@@ -306,7 +307,7 @@ def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
 
     try:
         pr = _create_pr(
-            token, owner, repo_name, branch,
+            token, owner, repo_name, branch, default_branch,
             title=f"retire: remove {base_name} from prod ({jira_key})",
             body=(
                 f"Removal PR for **{base_name}**.\n\n"
