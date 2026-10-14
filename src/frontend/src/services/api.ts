@@ -315,7 +315,7 @@ export const api = {
     ),
 
   checkAgvPrStatuses: (baseName: string) =>
-    request<{ status: string; deleted: boolean; pr_statuses: Record<string, { state?: string; merged?: boolean; pr_number?: number; url?: string; error?: string }>; workflow?: RetirementWorkflow }>(
+    request<{ status: string; deleted: boolean; pr_statuses: Record<string, { state?: string; merged?: boolean; pr_number?: number; url?: string; error?: string }>; jira_status?: { status?: string; resolution?: string; error?: string }; workflow?: RetirementWorkflow }>(
       `/analysis/retirement/workflow/${encodeURIComponent(baseName)}/check-prs`,
       { method: 'POST' },
     ),

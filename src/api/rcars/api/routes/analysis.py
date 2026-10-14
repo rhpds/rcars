@@ -741,13 +741,22 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
         except Exception as exc:
             pr_statuses[key] = {"url": url, "error": str(exc)}
 
+    jira_status = None
+    jira_key = wf.get("jira_key")
+    if jira_key:
+        try:
+            from rcars.services.jira import get_issue_status
+            jira_status = get_issue_status(settings, jira_key)
+        except Exception as exc:
+            jira_status = {"error": str(exc)}
+
     revert_status = pr_statuses.get("agv_revert_pr_url", {})
     if revert_status.get("merged"):
         db.delete_retirement_workflow(content_id)
         db.log_action(base_name, "retirement_cancelled", user, "Revert PR merged — workflow removed")
-        return {"status": "ok", "deleted": True, "pr_statuses": pr_statuses}
+        return {"status": "ok", "deleted": True, "pr_statuses": pr_statuses, "jira_status": jira_status}
 
-    return {"status": "ok", "deleted": False, "pr_statuses": pr_statuses, "workflow": wf}
+    return {"status": "ok", "deleted": False, "pr_statuses": pr_statuses, "jira_status": jira_status, "workflow": wf}
 
 
 @router.post(

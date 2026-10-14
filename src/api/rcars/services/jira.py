@@ -254,3 +254,12 @@ def close_issue_wont_do(settings, jira_key: str) -> None:
         "fields": {"resolution": {"name": "Won't Do"}},
     })
     logger.info("jira_closed_wont_do", jira_key=jira_key)
+
+
+def get_issue_status(settings, jira_key: str) -> dict:
+    """Return {status, resolution} for a Jira issue."""
+    resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}?fields=status,resolution", method="GET")
+    fields = (resp or {}).get("fields", {})
+    status = (fields.get("status") or {}).get("name")
+    resolution = (fields.get("resolution") or {}).get("name")
+    return {"status": status, "resolution": resolution}

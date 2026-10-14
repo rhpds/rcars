@@ -195,6 +195,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
+  const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
 
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -322,6 +323,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     try {
       const result = await api.checkAgvPrStatuses(item.catalog_base_name)
       setPrStatuses(result.pr_statuses)
+      if (result.jira_status) setJiraStatus(result.jira_status)
       if (result.deleted) {
         setDrawerWorkflow(null)
         onClose()
@@ -647,11 +649,22 @@ RHDP Content Team`
                     {isStarted ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {wf?.jira_key && (
-                          <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
-                            target="_blank" rel="noreferrer" className="ret-jira-link"
-                            style={wf?.agv_revert_pr_url ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
-                            {wf.jira_key}{wf?.agv_revert_pr_url ? ' (closed)' : ''}
-                          </a>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
+                              target="_blank" rel="noreferrer" className="ret-jira-link"
+                              style={jiraStatus?.status?.toLowerCase() === 'done' ? { textDecoration: 'line-through' } : undefined}>
+                              {wf.jira_key}{jiraStatus ? ` (${jiraStatus.resolution || jiraStatus.status})` : ''}
+                            </a>
+                            {isAdmin && (
+                              <button className="ret-action-btn ret-action-btn--start"
+                                onClick={handleCheckPrStatuses}
+                                disabled={actionLoading}
+                                style={{ padding: '2px 6px', fontSize: '10px', lineHeight: 1 }}
+                                title="Check Jira and PR statuses">
+                                {actionLoading ? '...' : '↻'}
+                              </button>
+                            )}
+                          </div>
                         )}
                         {wf?.retirement_target_date && (
                           <div style={{ fontSize: '12px' }}>
@@ -665,7 +678,7 @@ RHDP Content Team`
                         {wf?.agv_notice_pr_url ? (
                           <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
                             className="ret-jira-link"
-                            style={wf?.agv_revert_pr_url ? { opacity: 0.5 } : undefined}>
+                            style={prStatuses?.agv_notice_pr_url?.merged || prStatuses?.agv_notice_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
                             Notice PR #{wf.agv_notice_pr_url.split('/').pop()}{prStatuses?.agv_notice_pr_url?.merged ? ' (merged)' : prStatuses?.agv_notice_pr_url?.state === 'closed' ? ' (closed)' : ''} →
                           </a>
                         ) : isAdmin && (
