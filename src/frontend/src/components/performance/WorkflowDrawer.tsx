@@ -659,7 +659,7 @@ RHDP Content Team`
                             className="ret-jira-link">
                             Removal PR #{wf.agv_retire_pr_url.split('/').pop()} →
                           </a>
-                        ) : isAdmin && wf?.retirement_target_date && new Date(wf.retirement_target_date) <= new Date() && (
+                        ) : isAdmin && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenRetirePr}
                             disabled={actionLoading}
