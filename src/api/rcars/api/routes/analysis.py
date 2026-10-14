@@ -580,18 +580,27 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
             except Exception as exc:
                 logger.warning("agv_retire_cleanup_failed", pr_url=retire_url, error=str(exc))
 
+    jira_key = wf.get("jira_key") if wf else None
+    if jira_key:
+        try:
+            from rcars.services.jira import close_issue_wont_do
+            close_issue_wont_do(settings, jira_key)
+            logger.info("retirement_jira_closed", jira_key=jira_key, base_name=base_name)
+        except Exception as exc:
+            logger.warning("retirement_jira_close_failed", jira_key=jira_key, error=str(exc))
+
     if revert_pr_urls:
         updated = db.upsert_retirement_workflow(content_id, {
             "agv_revert_pr_url": revert_pr_urls[0],
         })
         db.log_action(base_name, "retirement_cancel_pending", user,
-                       f"Revert PR: {revert_pr_urls[0]}")
+                       f"Revert PR: {revert_pr_urls[0]}, Jira {jira_key or 'none'} closed")
         return {"status": "pending_revert", "deleted": False,
                 "revert_pr_urls": revert_pr_urls, "workflow": updated}
 
     deleted = db.delete_retirement_workflow(content_id)
     if deleted:
-        db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
+        db.log_action(base_name, "retirement_cancelled", user, f"Workflow cancelled, Jira {jira_key or 'none'} closed")
     return {"status": "ok", "deleted": deleted, "revert_pr_urls": revert_pr_urls}
 
 

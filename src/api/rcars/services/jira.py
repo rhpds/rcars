@@ -235,3 +235,22 @@ def create_retirement_ticket(
     logger.info("retirement_ticket_created", issue_key=issue_key)
 
     return issue_key
+
+
+def close_issue_wont_do(settings, jira_key: str) -> None:
+    """Transition a Jira issue to Done with resolution 'Won't Do'."""
+    resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", method="GET")
+    target = None
+    for t in (resp or {}).get("transitions", []):
+        if t["to"]["name"].lower() in ("done", "closed"):
+            target = t
+            break
+    if not target:
+        logger.warning("jira_no_closing_transition", jira_key=jira_key)
+        return
+
+    _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", body={
+        "transition": {"id": target["id"]},
+        "fields": {"resolution": {"name": "Won't Do"}},
+    })
+    logger.info("jira_closed_wont_do", jira_key=jira_key)
