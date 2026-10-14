@@ -648,23 +648,21 @@ RHDP Content Team`
                   >
                     {isStarted ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        {isAdmin && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleCheckPrStatuses}
+                            disabled={actionLoading}
+                            style={{ padding: '3px 10px', fontSize: '11px', alignSelf: 'flex-end' }}
+                            title="Check Jira and PR statuses on GitHub">
+                            {actionLoading ? 'Checking...' : '↻ Refresh statuses'}
+                          </button>
+                        )}
                         {wf?.jira_key && (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
-                              target="_blank" rel="noreferrer" className="ret-jira-link"
-                              style={jiraStatus?.status?.toLowerCase() === 'done' ? { textDecoration: 'line-through' } : undefined}>
-                              {wf.jira_key}{jiraStatus ? ` (${jiraStatus.resolution || jiraStatus.status})` : ''}
-                            </a>
-                            {isAdmin && (
-                              <button className="ret-action-btn ret-action-btn--start"
-                                onClick={handleCheckPrStatuses}
-                                disabled={actionLoading}
-                                style={{ padding: '2px 6px', fontSize: '10px', lineHeight: 1 }}
-                                title="Check Jira and PR statuses">
-                                {actionLoading ? '...' : '↻'}
-                              </button>
-                            )}
-                          </div>
+                          <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
+                            target="_blank" rel="noreferrer" className="ret-jira-link"
+                            style={jiraStatus?.status?.toLowerCase() === 'done' ? { textDecoration: 'line-through' } : undefined}>
+                            {wf.jira_key}{jiraStatus ? ` (${jiraStatus.resolution || jiraStatus.status})` : ''}
+                          </a>
                         )}
                         {wf?.retirement_target_date && (
                           <div style={{ fontSize: '12px' }}>
@@ -704,17 +702,8 @@ RHDP Content Team`
                         )}
                         {wf?.agv_revert_pr_url ? (
                           <div style={{ fontSize: '11px', marginTop: '4px' }}>
-                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px' }}>
                               Cancellation pending — revert PR must be merged
-                              {isAdmin && (
-                                <button className="ret-action-btn ret-action-btn--start"
-                                  onClick={handleCheckPrStatuses}
-                                  disabled={actionLoading}
-                                  style={{ padding: '2px 6px', fontSize: '10px', lineHeight: 1 }}
-                                  title="Check PR statuses on GitHub">
-                                  {actionLoading ? '...' : '↻'}
-                                </button>
-                              )}
                             </div>
                             <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
                               className="ret-jira-link">
