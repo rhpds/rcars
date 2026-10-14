@@ -147,6 +147,7 @@ function StepperStep({
   optional,
   completedAt,
   completedBy,
+  action,
   children,
 }: {
   title: string
@@ -157,6 +158,7 @@ function StepperStep({
   optional?: boolean
   completedAt?: string | null
   completedBy?: string | null
+  action?: React.ReactNode
   children?: React.ReactNode
 }) {
   const cls = complete ? 'ret-step--complete' : active ? 'ret-step--active' : auto ? 'ret-step--auto' : 'ret-step--pending'
@@ -167,6 +169,7 @@ function StepperStep({
         {title}
         {optional && <span className="ret-step__badge ret-step__badge--optional">optional</span>}
         {auto && <span className="ret-step__badge ret-step__badge--auto">auto</span>}
+        {action}
       </div>
       {complete && completedAt && (
         <div className="ret-step__meta">
@@ -645,18 +648,18 @@ RHDP Content Team`
                     pending={!isApproved}
                     completedAt={wf?.step_started_at}
                     completedBy={wf?.step_started_by}
+                    action={isStarted && isAdmin ? (
+                      <button className="ret-action-btn ret-action-btn--start"
+                        onClick={handleCheckPrStatuses}
+                        disabled={actionLoading}
+                        style={{ padding: '2px 6px', fontSize: '11px', lineHeight: 1, marginLeft: '6px' }}
+                        title="Refresh Jira and PR statuses">
+                        {actionLoading ? '...' : '↻'}
+                      </button>
+                    ) : undefined}
                   >
                     {isStarted ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        {isAdmin && (
-                          <button className="ret-action-btn ret-action-btn--start"
-                            onClick={handleCheckPrStatuses}
-                            disabled={actionLoading}
-                            style={{ padding: '3px 10px', fontSize: '11px', alignSelf: 'flex-end' }}
-                            title="Check Jira and PR statuses on GitHub">
-                            {actionLoading ? 'Checking...' : '↻ Refresh statuses'}
-                          </button>
-                        )}
                         {wf?.jira_key && (
                           <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
                             target="_blank" rel="noreferrer" className="ret-jira-link"
