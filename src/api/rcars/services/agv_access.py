@@ -497,13 +497,22 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
 
 
 async def close_pr(settings, repo_full: str, pr_number: int) -> None:
-    """Close an open agnosticv PR."""
+    """Close an open agnosticv PR and delete its branch."""
     owner, repo_name = repo_full.split("/", 1)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
+        pr = await _get_pr_detail(client, token, owner, repo_name, pr_number)
         await _gh(client, token, "PATCH", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls/{pr_number}", {
             "state": "closed",
         })
+        branch = pr.get("head", {}).get("ref")
+        if branch and branch not in ("main", "master"):
+            try:
+                await _gh(client, token, "DELETE", f"{_GITHUB_API}/repos/{owner}/{repo_name}/git/refs/heads/{branch}")
+                logger.info("agv_branch_deleted", repo=repo_full, branch=branch, action="close_pr")
+            except GitHubAPIError as exc:
+                if exc.status_code != 422:
+                    logger.warning("agv_branch_delete_failed", repo=repo_full, branch=branch, error=str(exc), action="close_pr")
     logger.info("agv_pr_closed", repo=repo_full, pr_number=pr_number, action="close_pr")
 
 
