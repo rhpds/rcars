@@ -632,10 +632,19 @@ RHDP Content Team`
                             {wf.jira_key}
                           </a>
                         )}
+                        {wf?.retirement_target_date && (
+                          <div style={{ fontSize: '12px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Target date: </span>
+                            <span style={{ color: new Date(wf.retirement_target_date) <= new Date() ? 'var(--score-red)' : 'var(--text-secondary)' }}>
+                              {new Date(wf.retirement_target_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {new Date(wf.retirement_target_date) <= new Date() && ' (past due)'}
+                            </span>
+                          </div>
+                        )}
                         {wf?.agv_notice_pr_url ? (
                           <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
                             className="ret-jira-link">
-                            Notice PR →
+                            Notice PR #{wf.agv_notice_pr_url.split('/').pop()} →
                           </a>
                         ) : isAdmin && (
                           <button className="ret-action-btn ret-action-btn--start"
@@ -648,7 +657,7 @@ RHDP Content Team`
                         {wf?.agv_retire_pr_url ? (
                           <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
                             className="ret-jira-link">
-                            Removal PR →
+                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()} →
                           </a>
                         ) : isAdmin && wf?.retirement_target_date && new Date(wf.retirement_target_date) <= new Date() && (
                           <button className="ret-action-btn ret-action-btn--start"
@@ -665,7 +674,7 @@ RHDP Content Team`
                             </div>
                             <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
                               className="ret-jira-link">
-                              Revert PR →
+                              Revert PR #{wf.agv_revert_pr_url.split('/').pop()} →
                             </a>
                           </div>
                         ) : isAdmin ? (
