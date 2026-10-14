@@ -194,6 +194,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
+  const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
 
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -311,6 +312,25 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
       setDrawerWorkflow(workflow)
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to open notice PR')
+    }
+    setActionLoading(false)
+  }
+
+  const handleCheckPrStatuses = async () => {
+    setActionLoading(true)
+    setActionError(null)
+    try {
+      const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+      setPrStatuses(result.pr_statuses)
+      if (result.deleted) {
+        setDrawerWorkflow(null)
+        onClose()
+        onChanged()
+      } else if (result.workflow) {
+        setDrawerWorkflow(result.workflow)
+      }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to check PR statuses')
     }
     setActionLoading(false)
   }
@@ -628,8 +648,9 @@ RHDP Content Team`
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {wf?.jira_key && (
                           <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
-                            target="_blank" rel="noreferrer" className="ret-jira-link">
-                            {wf.jira_key}
+                            target="_blank" rel="noreferrer" className="ret-jira-link"
+                            style={wf?.agv_revert_pr_url ? { opacity: 0.5, textDecoration: 'line-through' } : undefined}>
+                            {wf.jira_key}{wf?.agv_revert_pr_url ? ' (closed)' : ''}
                           </a>
                         )}
                         {wf?.retirement_target_date && (
@@ -643,8 +664,9 @@ RHDP Content Team`
                         )}
                         {wf?.agv_notice_pr_url ? (
                           <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
-                            className="ret-jira-link">
-                            Notice PR #{wf.agv_notice_pr_url.split('/').pop()} →
+                            className="ret-jira-link"
+                            style={wf?.agv_revert_pr_url ? { opacity: 0.5 } : undefined}>
+                            Notice PR #{wf.agv_notice_pr_url.split('/').pop()}{prStatuses?.agv_notice_pr_url?.merged ? ' (merged)' : prStatuses?.agv_notice_pr_url?.state === 'closed' ? ' (closed)' : ''} →
                           </a>
                         ) : isAdmin && (
                           <button className="ret-action-btn ret-action-btn--start"
@@ -669,12 +691,21 @@ RHDP Content Team`
                         )}
                         {wf?.agv_revert_pr_url ? (
                           <div style={{ fontSize: '11px', marginTop: '4px' }}>
-                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px' }}>
+                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                               Cancellation pending — revert PR must be merged
+                              {isAdmin && (
+                                <button className="ret-action-btn ret-action-btn--start"
+                                  onClick={handleCheckPrStatuses}
+                                  disabled={actionLoading}
+                                  style={{ padding: '2px 6px', fontSize: '10px', lineHeight: 1 }}
+                                  title="Check PR statuses on GitHub">
+                                  {actionLoading ? '...' : '↻'}
+                                </button>
+                              )}
                             </div>
                             <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
                               className="ret-jira-link">
-                              Revert PR #{wf.agv_revert_pr_url.split('/').pop()} →
+                              Revert PR #{wf.agv_revert_pr_url.split('/').pop()}{prStatuses?.agv_revert_pr_url?.merged ? ' (merged)' : ''} →
                             </a>
                           </div>
                         ) : isAdmin ? (

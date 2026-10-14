@@ -314,6 +314,12 @@ export const api = {
       { method: 'POST' },
     ),
 
+  checkAgvPrStatuses: (baseName: string) =>
+    request<{ status: string; deleted: boolean; pr_statuses: Record<string, { state?: string; merged?: boolean; pr_number?: number; url?: string; error?: string }>; workflow?: RetirementWorkflow }>(
+      `/analysis/retirement/workflow/${encodeURIComponent(baseName)}/check-prs`,
+      { method: 'POST' },
+    ),
+
   ignoreItem: (baseName: string) =>
     request<{ status: string; ignored_until: string }>(`/analysis/performance/ignore/${encodeURIComponent(baseName)}`, { method: 'PUT' }),
 

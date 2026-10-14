@@ -680,14 +680,8 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     wf = db.get_retirement_workflow(content_id)
-    if not wf or not wf.get("step_notified_at"):
-        raise HTTPException(400, "Owner must be notified before opening the removal PR")
-
-    target = wf.get("retirement_target_date")
-    if not target:
-        raise HTTPException(400, "Retirement target date is not set")
-    if str(target) > str(_date.today()):
-        raise HTTPException(400, f"Retirement target date has not been reached yet ({target})")
+    if not wf or not wf.get("step_started_at"):
+        raise HTTPException(400, "Retirement must be started before opening the removal PR")
 
     if wf.get("agv_retire_pr_url"):
         return {
@@ -710,6 +704,50 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     updated = db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
     db.log_action(base_name, "agv_retire_pr_opened", user, f"PR: {result['pr_url']}")
     return {"status": "ok", "workflow": updated, **result}
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/check-prs",
+    tags=["Retirement"],
+    summary="Check agnosticv PR statuses",
+    description="Checks the GitHub status of all agv PRs on this workflow. If the revert PR is merged, deletes the workflow. Admin-only.",
+)
+async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.agv_access import get_pr_state
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf:
+        raise HTTPException(404, "No workflow found")
+
+    def _parse_pr_url(url: str) -> tuple[str, int]:
+        parts = url.rstrip("/").split("/")
+        return f"{parts[-4]}/{parts[-3]}", int(parts[-1])
+
+    pr_statuses: dict[str, dict] = {}
+    for key in ("agv_notice_pr_url", "agv_retire_pr_url", "agv_revert_pr_url"):
+        url = wf.get(key)
+        if not url:
+            continue
+        try:
+            repo_full, pr_number = _parse_pr_url(url)
+            state = await get_pr_state(settings, repo_full, pr_number)
+            pr_statuses[key] = {"url": url, "pr_number": pr_number, **state}
+        except Exception as exc:
+            pr_statuses[key] = {"url": url, "error": str(exc)}
+
+    revert_status = pr_statuses.get("agv_revert_pr_url", {})
+    if revert_status.get("merged"):
+        db.delete_retirement_workflow(content_id)
+        db.log_action(base_name, "retirement_cancelled", user, "Revert PR merged — workflow removed")
+        return {"status": "ok", "deleted": True, "pr_statuses": pr_statuses}
+
+    return {"status": "ok", "deleted": False, "pr_statuses": pr_statuses, "workflow": wf}
 
 
 @router.post(
