@@ -817,3 +817,54 @@ def osspa_sync_cmd(force: bool, confirm_empty_inventory: bool):
     _print(f"  Failed:    {result['failed']}")
     if result["retire_skipped_reason"]:
         _print(f"  WARNING: retirement skipped ({result['retire_skipped_reason']})")
+
+
+@cli.group(name="retirement")
+def retirement_group():
+    """Retirement workflow commands."""
+    pass
+
+
+@retirement_group.command("sweep")
+def retirement_sweep_cmd():
+    """Open removal PRs for items past their retirement target date."""
+    import asyncio as _asyncio
+    from rcars.services.agv_access import create_retire_pr
+
+    settings = Settings()
+    if not settings.github_app_id:
+        _print("ERROR: RCARS_GITHUB_APP_ID not set — GitHub App not configured.")
+        raise SystemExit(1)
+
+    db = Database(settings.database_url)
+    try:
+        ready = db.list_retirement_ready_for_removal()
+        if not ready:
+            _print("No items ready for removal PRs.")
+            return
+
+        _print(f"Found {len(ready)} item(s) ready for removal PRs...")
+
+        async def _sweep():
+            opened = 0
+            for wf in ready:
+                content_id = wf["content_id"]
+                base_name = content_id.removeprefix("babylon:")
+                jira_key = wf.get("jira_key", "")
+                if not jira_key:
+                    _print(f"  SKIP {base_name}: no Jira key")
+                    continue
+                try:
+                    result = await create_retire_pr(settings, base_name, jira_key)
+                    db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
+                    db.log_action(base_name, "agv_retire_pr_opened", "cli", f"PR: {result['pr_url']}")
+                    _print(f"  OK {base_name}: {result['pr_url']}")
+                    opened += 1
+                except Exception as exc:
+                    _print(f"  FAIL {base_name}: {exc}")
+            return opened
+
+        opened = _asyncio.run(_sweep())
+        _print(f"Done. Opened {opened} removal PR(s).")
+    finally:
+        db.close()

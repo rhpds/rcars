@@ -526,36 +526,67 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     response_model=CancelWorkflowResponse,
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
-    from rcars.services.agv_access import close_pr
+    from rcars.services.agv_access import close_pr, get_pr_state, revert_notice_pr
 
     db = request.app.state.db
     settings = request.app.state.settings
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     wf = db.get_retirement_workflow(content_id)
+    revert_pr_urls = []
 
-    # Close any open agv PRs before deleting the workflow record
     if wf:
-        for pr_field in ("agv_notice_pr_url", "agv_retire_pr_url"):
-            pr_url = wf.get(pr_field)
-            if pr_url:
-                try:
-                    # Extract owner/repo/number from the PR URL
-                    # e.g. https://github.com/rhpds/agnosticv/pull/42
-                    parts = pr_url.rstrip("/").split("/")
-                    pr_number = int(parts[-1])
-                    repo_full = f"{parts[-4]}/{parts[-3]}"
-                    await asyncio.to_thread(close_pr, settings, repo_full, pr_number)
-                except Exception as exc:
-                    logger.warning("agv_pr_close_failed", pr_url=pr_url, error=str(exc))
+        def _parse_pr_url(url: str) -> tuple[str, int]:
+            parts = url.rstrip("/").split("/")
+            return f"{parts[-4]}/{parts[-3]}", int(parts[-1])
+
+        # Handle notice PR: close if open, revert if merged
+        notice_url = wf.get("agv_notice_pr_url")
+        notice_merged = False
+        if notice_url:
+            try:
+                repo_full, pr_number = _parse_pr_url(notice_url)
+                state = await get_pr_state(settings, repo_full, pr_number)
+                if state["merged"]:
+                    notice_merged = True
+                elif state["state"] == "open":
+                    await close_pr(settings, repo_full, pr_number)
+            except Exception as exc:
+                logger.warning("agv_notice_cleanup_failed", pr_url=notice_url, error=str(exc))
+
+        if notice_merged:
+            jira_key = wf.get("jira_key", "")
+            result = await revert_notice_pr(settings, base_name, jira_key)
+            if result:
+                revert_pr_urls.append(result["pr_url"])
+                logger.info("agv_notice_reverted", pr_url=result["pr_url"], base_name=base_name)
+
+        # Handle retire PR: close if open (nothing to revert if merged — item is gone)
+        retire_url = wf.get("agv_retire_pr_url")
+        if retire_url:
+            try:
+                repo_full, pr_number = _parse_pr_url(retire_url)
+                state = await get_pr_state(settings, repo_full, pr_number)
+                if state["state"] == "open":
+                    await close_pr(settings, repo_full, pr_number)
+            except Exception as exc:
+                logger.warning("agv_retire_cleanup_failed", pr_url=retire_url, error=str(exc))
+
+    if revert_pr_urls:
+        updated = db.upsert_retirement_workflow(content_id, {
+            "agv_revert_pr_url": revert_pr_urls[0],
+        })
+        db.log_action(base_name, "retirement_cancel_pending", user,
+                       f"Revert PR: {revert_pr_urls[0]}")
+        return {"status": "pending_revert", "deleted": False,
+                "revert_pr_urls": revert_pr_urls, "workflow": updated}
 
     deleted = db.delete_retirement_workflow(content_id)
     if deleted:
         db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
-    return {"status": "ok", "deleted": deleted}
+    return {"status": "ok", "deleted": deleted, "revert_pr_urls": revert_pr_urls}
 
 
 @router.post(
@@ -595,7 +626,7 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
 
     jira_key = wf.get("jira_key", "")
     try:
-        result = await asyncio.to_thread(create_notice_pr, settings, base_name, jira_key, wf)
+        result = await create_notice_pr(settings, base_name, jira_key, wf)
     except Exception as exc:
         logger.error("agv_notice_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create notice PR: {exc}") from exc
@@ -650,7 +681,7 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     if not jira_key:
         raise HTTPException(400, "A Jira ticket must be linked before opening the removal PR")
     try:
-        result = await asyncio.to_thread(create_retire_pr, settings, base_name, jira_key)
+        result = await create_retire_pr(settings, base_name, jira_key)
     except Exception as exc:
         logger.error("agv_retire_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create removal PR: {exc}") from exc
@@ -658,6 +689,25 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     updated = db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
     db.log_action(base_name, "agv_retire_pr_opened", user, f"PR: {result['pr_url']}")
     return {"status": "ok", "workflow": updated, **result}
+
+
+@router.post(
+    "/retirement/sweep",
+    tags=["Retirement"],
+    summary="Open removal PRs for items past their target date",
+    description=(
+        "Scans retirement workflows for items whose target date has passed and "
+        "no removal PR exists. Opens removal PRs on agnosticv for each. "
+        "Also runs as part of the nightly maintenance pipeline. Admin-only."
+    ),
+    response_model=JobResponse,
+)
+async def retirement_sweep(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="retirement_sweep", queue="scan", created_by=user)
+    await arq_redis.enqueue_job("run_retirement_sweep_job", job_id, _queue_name="arq:queue:scan")
+    return {"job_id": job_id}
 
 
 @router.post(

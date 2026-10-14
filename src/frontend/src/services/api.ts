@@ -149,6 +149,7 @@ export const api = {
   runMaintenance: () => request<{ job_id: string }>('/admin/run-maintenance', { method: 'POST' }),
   runBabylon: () => request<{ job_id: string }>('/admin/sync-babylon', { method: 'POST' }),
   syncOsspa: (force = false) => request<{ job_id: string }>('/admin/sync-osspa', { method: 'POST', body: JSON.stringify({ force, confirm_empty_inventory: false }) }),
+  retirementSweep: () => request<{ job_id: string }>('/analysis/retirement/sweep', { method: 'POST' }),
 
   // LLM provider
   getLlmProviderStatus: () => request<{
@@ -422,6 +423,7 @@ export interface RetirementWorkflow {
   jira_project: string
   agv_notice_pr_url: string | null
   agv_retire_pr_url: string | null
+  agv_revert_pr_url: string | null
   created_at: string
   updated_at: string
 }

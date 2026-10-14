@@ -346,6 +346,7 @@ function ScheduledMaintenance() {
   const [running, setRunning] = useState(false)
   const [runningBabylon, setRunningBabylon] = useState(false)
   const [runningOsspa, setRunningOsspa] = useState(false)
+  const [runningRetirement, setRunningRetirement] = useState(false)
   const addLog = useCallback((msg: string) => setLog(prev => [...prev, msg]), [])
 
   const loadSchedule = useCallback(() => {
@@ -410,6 +411,23 @@ function ScheduledMaintenance() {
     }
   }
 
+  const handleRunRetirement = async () => {
+    setLog([])
+    setLogOpen(true)
+    setRunningRetirement(true)
+    addLog('Starting retirement sweep (open removal PRs for past-due items, check pending reverts)...')
+    try {
+      const result = await api.retirementSweep()
+      addLog(`job_id=${result.job_id}`)
+      await pollJob(result.job_id)
+    } catch (e) {
+      addLog(`Error: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setRunningRetirement(false)
+      loadSchedule()
+    }
+  }
+
   const handleRun = async () => {
     setLog([])
     setLogOpen(true)
@@ -458,7 +476,8 @@ function ScheduledMaintenance() {
           <li><strong>Upsert &amp; Retire</strong> — adds new architectures, updates changed ones, retires removed ones</li>
           <li><strong>LLM Analysis</strong> — analyzes new or changed architectures to extract topics, audience, and summary</li>
         </ol>
-        <p style={{ margin: 0 }}><strong>Full pipeline</strong> — runs the Babylon pipeline first, then the Architecture pipeline, in sequence.</p>
+        <p style={{ margin: '0 0 4px' }}><strong>Retirement sweep</strong> — opens removal PRs for items past their retirement target date; checks pending revert PRs. Runs as part of the full pipeline or standalone.</p>
+        <p style={{ margin: 0 }}><strong>Full pipeline</strong> — runs the Babylon pipeline first, then the Architecture pipeline, then the retirement sweep, in sequence.</p>
       </div>
       {schedule && (
         <>
@@ -478,13 +497,16 @@ function ScheduledMaintenance() {
         </>
       )}
       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <Button variant="secondary" size="sm" onClick={handleRunBabylon} isDisabled={running || runningBabylon || runningOsspa}>
+        <Button variant="secondary" size="sm" onClick={handleRunBabylon} isDisabled={running || runningBabylon || runningOsspa || runningRetirement}>
           {runningBabylon ? 'Running...' : 'Run Babylon Pipeline'}
         </Button>
-        <Button variant="secondary" size="sm" onClick={handleRunOsspa} isDisabled={running || runningBabylon || runningOsspa}>
+        <Button variant="secondary" size="sm" onClick={handleRunOsspa} isDisabled={running || runningBabylon || runningOsspa || runningRetirement}>
           {runningOsspa ? 'Running...' : 'Run Architecture Pipeline'}
         </Button>
-        <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running || runningBabylon || runningOsspa}>
+        <Button variant="secondary" size="sm" onClick={handleRunRetirement} isDisabled={running || runningBabylon || runningOsspa || runningRetirement}>
+          {runningRetirement ? 'Running...' : 'Run Retirement Sweep'}
+        </Button>
+        <Button variant="secondary" size="sm" onClick={handleRun} isDisabled={running || runningBabylon || runningOsspa || runningRetirement}>
           {running ? 'Running...' : 'Run Full Pipeline'}
         </Button>
       </div>

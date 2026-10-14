@@ -315,6 +315,18 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     setActionLoading(false)
   }
 
+  const handleOpenRetirePr = async () => {
+    setActionLoading(true)
+    setActionError(null)
+    try {
+      const { workflow } = await api.openAgvRetirePr(item.catalog_base_name)
+      setDrawerWorkflow(workflow)
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to open removal PR')
+    }
+    setActionLoading(false)
+  }
+
   const generateEmailTemplate = () => {
     const owners = item.owners || []
     const ownerNames = owners.map(o => o.name || o.email).join(', ') || 'Content Owner'
@@ -633,7 +645,30 @@ RHDP Content Team`
                             {actionLoading ? 'Opening PR...' : 'Open Notice PR'}
                           </button>
                         )}
-                        {isAdmin ? (
+                        {wf?.agv_retire_pr_url ? (
+                          <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
+                            className="ret-jira-link">
+                            Removal PR →
+                          </a>
+                        ) : isAdmin && wf?.retirement_target_date && new Date(wf.retirement_target_date) <= new Date() && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleOpenRetirePr}
+                            disabled={actionLoading}
+                            style={{ fontSize: '11px' }}>
+                            {actionLoading ? 'Opening PR...' : 'Open Removal PR'}
+                          </button>
+                        )}
+                        {wf?.agv_revert_pr_url ? (
+                          <div style={{ fontSize: '11px', marginTop: '4px' }}>
+                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px' }}>
+                              Cancellation pending — revert PR must be merged
+                            </div>
+                            <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
+                              className="ret-jira-link">
+                              Revert PR →
+                            </a>
+                          </div>
+                        ) : isAdmin ? (
                           <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
                             disabled={actionLoading}
                             style={{ fontSize: '11px', marginTop: '4px' }}>
@@ -673,7 +708,7 @@ RHDP Content Team`
 
                             {/* Create new Jira */}
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              Creates a Jira ticket with retirement details, metrics snapshot, and adoc template.
+                              Creates a Jira ticket with retirement details and metrics snapshot.
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>

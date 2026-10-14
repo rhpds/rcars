@@ -806,8 +806,92 @@ async def run_osspa_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = Tr
     return result
 
 
+async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
+    """Open removal PRs for retirement workflows past their target date.
+
+    Callable standalone (CLI/API) or as a nightly pipeline step.
+    """
+    from rcars.services.agv_access import create_retire_pr, get_pr_state
+
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+    db = wctx.db
+
+    ready = db.list_retirement_ready_for_removal()
+    if not ready:
+        log.info("retirement_sweep_none", action="retirement_sweep", message="No items ready for removal PRs")
+        return {"status": "ok", "processed": 0, "prs_opened": 0}
+
+    log.info("retirement_sweep_start", action="retirement_sweep", count=len(ready))
+    opened = 0
+    errors = []
+
+    for wf in ready:
+        content_id = wf["content_id"]
+        base_name = content_id.removeprefix("babylon:")
+        jira_key = wf.get("jira_key", "")
+        if not jira_key:
+            log.warning("retirement_sweep_skip_no_jira", action="retirement_sweep",
+                        base_name=base_name, reason="no jira_key")
+            continue
+        try:
+            result = await create_retire_pr(wctx.settings, base_name, jira_key)
+            db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
+            db.log_action(base_name, "agv_retire_pr_opened", "pipeline",
+                          f"PR: {result['pr_url']}")
+            opened += 1
+            log.info("retirement_sweep_pr_opened", action="retirement_sweep",
+                     base_name=base_name, pr_url=result["pr_url"])
+        except Exception as exc:
+            errors.append(f"{base_name}: {exc}")
+            log.error("retirement_sweep_pr_failed", action="retirement_sweep",
+                      base_name=base_name, error=str(exc))
+
+    reverts_completed = 0
+    pending = db.list_retirement_pending_revert()
+    for wf in pending:
+        revert_url = wf.get("agv_revert_pr_url")
+        if not revert_url:
+            continue
+        try:
+            parts = revert_url.rstrip("/").split("/")
+            pr_number = int(parts[-1])
+            repo_full = f"{parts[-4]}/{parts[-3]}"
+            state = await get_pr_state(wctx.settings, repo_full, pr_number)
+            if state["merged"]:
+                content_id = wf["content_id"]
+                base_name = content_id.removeprefix("babylon:")
+                db.delete_retirement_workflow(content_id)
+                db.log_action(base_name, "retirement_cancelled", "pipeline",
+                              "Revert PR merged — workflow removed")
+                reverts_completed += 1
+                log.info("retirement_revert_completed", action="retirement_sweep",
+                         base_name=base_name, revert_url=revert_url)
+        except Exception as exc:
+            log.warning("retirement_revert_check_failed", action="retirement_sweep",
+                        revert_url=revert_url, error=str(exc))
+
+    return {"status": "ok", "processed": len(ready), "prs_opened": opened,
+            "reverts_completed": reverts_completed, "errors": errors}
+
+
+async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
+    """Standalone retirement sweep — API and CLI entry point."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+    log.info("retirement_sweep_job_started", action="retirement_sweep_job_started")
+    wctx.db.update_job_status(job_id, "running")
+    try:
+        result = await run_retirement_sweep(ctx, job_id)
+    except Exception as exc:
+        wctx.db.fail_job(job_id, error=str(exc))
+        raise
+    wctx.db.complete_job(job_id, result_json=result)
+    return result
+
+
 async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
-    """Nightly maintenance orchestrator: Babylon sub-pipeline, then OSSPA."""
+    """Nightly maintenance orchestrator: Babylon, OSSPA, retirement sweep."""
     wctx: WorkerContext = ctx["worker_ctx"]
     if not job_id:
         job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
@@ -844,7 +928,23 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:osspa", status="failed", message=msg)
 
-    result = {**babylon_result, "osspa": osspa_result, "warnings": warnings}
+    retirement_result: dict = {"status": "skipped"}
+    try:
+        if wctx.settings.github_app_id:
+            retirement_result = await run_retirement_sweep(ctx, job_id)
+        else:
+            log.info("retirement_sweep_skipped", action="pipeline_step_skipped",
+                     step="retirement", reason="github_app not configured")
+    except Exception as exc:
+        msg = f"Retirement sweep failed: {exc}"
+        warnings.append(msg)
+        retirement_result = {"status": "error", "error": str(exc)}
+        log.error("pipeline_retirement_failed", action="pipeline_step_failed",
+                  step="retirement", error=str(exc), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:retirement", status="failed", message=msg)
+
+    result = {**babylon_result, "osspa": osspa_result, "retirement": retirement_result, "warnings": warnings}
 
     if warnings:
         await publish_progress(wctx.relay, job_id, wctx.db,

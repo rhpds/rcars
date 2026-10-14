@@ -57,9 +57,6 @@ def test_basic_description():
     assert "$5,000" in desc
     assert "$8,500" in desc
     assert "2026-06-15" in desc
-    assert "{code}" in desc
-    assert "[IMPORTANT]" in desc
-    assert ".RETIREMENT NOTICE" in desc
 
 
 def test_no_replacement():
@@ -69,7 +66,6 @@ def test_no_replacement():
     desc = build_retirement_description(workflow, metrics)
 
     assert "*Replacement CI:* N/A" in desc
-    assert "[DATE TBD]" in desc
 
 
 def test_no_notes():
@@ -92,7 +88,6 @@ def test_wiki_markup_format():
     assert "*CI Name:*" in desc  # wiki bold
     assert "**CI Name:**" not in desc  # not markdown bold
     assert "||Metric||Value||" in desc  # wiki table header
-    assert "----" in desc  # wiki horizontal rule
 
 
 @patch("rcars.services.jira._jira_request")

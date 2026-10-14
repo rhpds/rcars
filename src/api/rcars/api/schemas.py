@@ -231,6 +231,8 @@ class StartRetirementResponse(BaseModel):
 class CancelWorkflowResponse(BaseModel):
     status: str = Field(examples=["ok"])
     deleted: bool
+    revert_pr_urls: list[str] = Field(default_factory=list)
+    workflow: dict | None = None
 
 
 class AgvPrResponse(BaseModel):

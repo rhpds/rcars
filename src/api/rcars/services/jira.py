@@ -174,13 +174,6 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
             return f"${val}"
         return str(val)
 
-    adoc_template = build_retirement_adoc_notice({
-        **workflow,
-        "replacement_source": replacement_source,
-        "replacement_ci_full": replacement_ci_full,
-        "retirement_target_date": None,  # Jira description always shows [DATE TBD]
-    })
-
     description = (
         f"*CI Name:* {display_name}\n\n"
         f"*RHDP URL:* {catalog_base}/{base_name}.prod\n\n"
@@ -197,12 +190,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         f"|Unique Users|{unique_users}|\n"
         f"|Pipeline Touched|{fmt_dollar(touched)}|\n"
         f"|Closed Amount|{fmt_dollar(closed)}|\n"
-        f"|Total Cost|{fmt_dollar(cost)}|\n\n"
-        f"----\n\n"
-        f"*Suggested adoc template* _(replace_ {{[DATE TBD]}} _with the actual retirement date before pasting into the CI)_*:*\n\n"
-        f"{{code}}\n"
-        f"{adoc_template}\n"
-        f"{{code}}"
+        f"|Total Cost|{fmt_dollar(cost)}|"
     )
 
     return description

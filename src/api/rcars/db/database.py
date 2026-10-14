@@ -600,6 +600,7 @@ ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS node_size TEXT;
 
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_notice_pr_url TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_retire_pr_url TEXT;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_revert_pr_url TEXT;
 
 """
 
@@ -3522,6 +3523,34 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(sql, params)
+                return cur.fetchall()
+
+    def list_retirement_ready_for_removal(self) -> list[dict]:
+        """Return workflows where the target date has passed and no removal PR exists."""
+        sql = (
+            "SELECT * FROM retirement_workflow "
+            "WHERE step_started_at IS NOT NULL "
+            "AND retirement_target_date <= CURRENT_DATE "
+            "AND agv_retire_pr_url IS NULL "
+            "AND agv_revert_pr_url IS NULL "
+            "AND step_retired_at IS NULL "
+            "ORDER BY retirement_target_date ASC"
+        )
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
+                return cur.fetchall()
+
+    def list_retirement_pending_revert(self) -> list[dict]:
+        """Return workflows with a revert PR that may need cleanup."""
+        sql = (
+            "SELECT * FROM retirement_workflow "
+            "WHERE agv_revert_pr_url IS NOT NULL "
+            "ORDER BY updated_at ASC"
+        )
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql)
                 return cur.fetchall()
 
     def auto_close_retired_workflows(self, retired_content_ids: set[str]) -> int:
