@@ -319,7 +319,7 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
             new_content = adoc_notice + "\n\n" + existing_content
             await _update_file(
                 client, token, owner, repo_name, desc_path, new_content, file_sha, branch,
-                f"retire: add retirement notice for {base_name} ({jira_key})",
+                f"retire: add retirement notice for {agv_path} ({jira_key})",
             )
 
         pr = await _find_open_pr(client, token, owner, repo_name, branch)
@@ -330,9 +330,9 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
         try:
             pr = await _create_pr(
                 client, token, owner, repo_name, branch, default_branch,
-                title=f"retire: {base_name} — retirement notice ({jira_key})",
+                title=f"retire: {agv_path} — retirement notice ({jira_key})",
                 body=(
-                    f"Retirement notice PR for **{base_name}**.\n\n"
+                    f"Retirement notice PR for **{agv_path}**.\n\n"
                     f"Jira: [{jira_key}](https://redhat.atlassian.net/browse/{jira_key})\n\n"
                     "Adds the AsciiDoc retirement notice block to `description.adoc`.\n\n"
                     "---\n"
@@ -383,7 +383,7 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
         try:
             await _delete_directory_tree(
                 client, token, owner, repo_name, agv_path, branch,
-                f"retire: remove {base_name} from catalog ({jira_key})",
+                f"retire: remove {agv_path} from catalog ({jira_key})",
             )
         except GitHubAPIError as exc:
             if exc.status_code != 404:
@@ -397,9 +397,9 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
         try:
             pr = await _create_pr(
                 client, token, owner, repo_name, branch, default_branch,
-                title=f"retire: remove {base_name} ({jira_key})",
+                title=f"retire: remove {agv_path} ({jira_key})",
                 body=(
-                    f"Removal PR for **{base_name}**.\n\n"
+                    f"Removal PR for **{agv_path}**.\n\n"
                     f"Jira: [{jira_key}](https://redhat.atlassian.net/browse/{jira_key})\n\n"
                     "Deletes the CI folder, removing the item from the catalog. "
                     "Once merged, the item will disappear from Babylon on the next catalog sync "
@@ -467,15 +467,15 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
 
         await _update_file(
             client, token, owner, repo_name, desc_path, cleaned, file_sha, branch,
-            f"retire: remove retirement notice for {base_name} ({jira_key})",
+            f"retire: remove retirement notice for {agv_path} ({jira_key})",
         )
 
         try:
             pr = await _create_pr(
                 client, token, owner, repo_name, branch, default_branch,
-                title=f"retire: remove retirement notice for {base_name} ({jira_key})",
+                title=f"retire: remove retirement notice for {agv_path} ({jira_key})",
                 body=(
-                    f"Removes the retirement notice from **{base_name}** `description.adoc`.\n\n"
+                    f"Removes the retirement notice from **{agv_path}** `description.adoc`.\n\n"
                     f"Jira: [{jira_key}](https://redhat.atlassian.net/browse/{jira_key})\n\n"
                     "The retirement for this item was cancelled. This PR removes the notice "
                     "that was previously merged.\n\n"
