@@ -687,20 +687,7 @@ RHDP Content Team`
                             {actionLoading ? 'Opening PR...' : 'Open Notice PR'}
                           </button>
                         )}
-                        {wf?.agv_retire_pr_url ? (
-                          <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
-                            className="ret-jira-link">
-                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()} →
-                          </a>
-                        ) : isAdmin && (
-                          <button className="ret-action-btn ret-action-btn--start"
-                            onClick={handleOpenRetirePr}
-                            disabled={actionLoading}
-                            style={{ fontSize: '11px' }}>
-                            {actionLoading ? 'Opening PR...' : 'Open Removal PR'}
-                          </button>
-                        )}
-                        {wf?.agv_revert_pr_url ? (
+                        {wf?.agv_revert_pr_url && (
                           <div style={{ fontSize: '11px', marginTop: '4px' }}>
                             <div style={{ color: 'var(--score-amber)', marginBottom: '4px' }}>
                               Cancellation pending — revert PR must be merged
@@ -710,7 +697,21 @@ RHDP Content Team`
                               Revert PR #{wf.agv_revert_pr_url.split('/').pop()}{prStatuses?.agv_revert_pr_url?.merged ? ' (merged)' : ''} →
                             </a>
                           </div>
-                        ) : isAdmin ? (
+                        )}
+                        {wf?.agv_retire_pr_url ? (
+                          <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
+                            className="ret-jira-link">
+                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()} →
+                          </a>
+                        ) : isAdmin && !wf?.agv_revert_pr_url && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleOpenRetirePr}
+                            disabled={actionLoading}
+                            style={{ fontSize: '11px' }}>
+                            {actionLoading ? 'Opening PR...' : 'Open Removal PR'}
+                          </button>
+                        )}
+                        {!wf?.agv_revert_pr_url && isAdmin ? (
                           <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
                             disabled={actionLoading}
                             style={{ fontSize: '11px', marginTop: '4px' }}>
