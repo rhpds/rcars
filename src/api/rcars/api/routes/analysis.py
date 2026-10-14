@@ -53,6 +53,25 @@ def _extract_base_name_from_content_id(content_id: str) -> str:
     return name
 
 
+def _resolve_replacement_source(db, replacement_ci: str) -> tuple[str | None, str | None]:
+    """Look up source and full CI name for a replacement item.
+
+    Returns (replacement_source, replacement_ci_full).
+    """
+    repl = db.get_content_entity(replacement_ci)
+    if repl:
+        return repl["source"], None
+    bi = db.get_babylon_item_by_ci_name(replacement_ci)
+    if not bi:
+        for sfx in (".prod", ".event", ".dev"):
+            bi = db.get_babylon_item_by_ci_name(f"{replacement_ci}{sfx}")
+            if bi:
+                break
+    if bi:
+        return "babylon", bi["ci_name"]
+    return None, None
+
+
 class ApproveRequest(BaseModel):
     reason: str = Field(min_length=1)
     replacement_ci: str | None = None
@@ -425,23 +444,10 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     if entity and entity.get("display_name"):
         metrics["display_name"] = entity["display_name"]
 
-    replacement_source = None
-    replacement_ci_full = None
+    replacement_source, replacement_ci_full = None, None
     repl_ci = wf.get("replacement_ci")
     if repl_ci:
-        repl = db.get_content_entity(repl_ci)
-        if repl:
-            replacement_source = repl["source"]
-        else:
-            bi = db.get_babylon_item_by_ci_name(repl_ci)
-            if not bi:
-                for sfx in (".prod", ".event", ".dev"):
-                    bi = db.get_babylon_item_by_ci_name(f"{repl_ci}{sfx}")
-                    if bi:
-                        break
-            if bi:
-                replacement_source = "babylon"
-                replacement_ci_full = bi["ci_name"]
+        replacement_source, replacement_ci_full = _resolve_replacement_source(db, repl_ci)
 
     wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days, "replacement_source": replacement_source, "replacement_ci_full": replacement_ci_full}
 
@@ -623,6 +629,12 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
             "pr_number": 0,
             "repo": "",
         }
+
+    repl_ci = wf.get("replacement_ci")
+    if repl_ci:
+        repl_source, repl_full = _resolve_replacement_source(db, repl_ci)
+        if repl_source:
+            wf = {**wf, "replacement_source": repl_source, "replacement_ci_full": repl_full}
 
     jira_key = wf.get("jira_key", "")
     try:

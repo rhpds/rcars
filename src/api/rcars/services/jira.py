@@ -129,8 +129,11 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     replacement_name = workflow.get("replacement_name")
     target_days = workflow.get("target_days", 30)
 
-    # AgV component/item from CI base name (e.g. enterprise.event-driven-ansible → enterprise/event-driven-ansible)
+    # AgV component/item from CI base name — reverse Babylon's _ → - normalization on the namespace
     agv_ref = base_name.replace(".", "/", 1) if "." in base_name else base_name
+    parts = agv_ref.split("/", 1)
+    if len(parts) == 2 and "-" in parts[0]:
+        agv_ref = parts[0].replace("-", "_") + "/" + parts[1]
 
     catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
 
