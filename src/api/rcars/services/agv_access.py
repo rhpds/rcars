@@ -54,6 +54,30 @@ class GitHubAPIError(Exception):
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
+async def _verify_agv_path(
+    client: httpx.AsyncClient, token: str, owner: str, repo: str, agv_path: str,
+) -> str:
+    """Resolve the actual agnosticv path (Babylon normalizes _ to - in CRD names)."""
+    candidates = [agv_path]
+    parts = agv_path.split("/", 1)
+    if len(parts) == 2 and "-" in parts[0]:
+        candidates.append(parts[0].replace("-", "_") + "/" + parts[1])
+    alt = agv_path.replace("-", "_")
+    if alt not in candidates:
+        candidates.append(alt)
+    for candidate in candidates:
+        try:
+            await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{candidate}")
+            return candidate
+        except GitHubAPIError as exc:
+            if exc.status_code != 404:
+                raise
+    raise GitHubAPIError(
+        "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
+        404, f"CI directory not found at {agv_path} (also tried {', '.join(candidates[1:])})",
+    )
+
+
 def _resolve_repo(base_name: str) -> tuple[str, str, str]:
     """Return (owner, repo_name, agv_path) for a CI base name."""
     agv_path = base_name.replace(".", "/", 1) if "." in base_name else base_name
@@ -258,13 +282,14 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
     owner, repo_name, agv_path = _resolve_repo(base_name)
     branch = _branch_name(base_name, jira_key)
     adoc_notice = build_retirement_adoc_notice(workflow)
-    desc_path = f"{agv_path}/description.adoc"
 
     logger.info("agv_notice_pr_start", base_name=base_name, repo=f"{owner}/{repo_name}", branch=branch, action="create_notice_pr")
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         default_branch, main_sha = await _get_default_branch(client, token, owner, repo_name)
+        agv_path = await _verify_agv_path(client, token, owner, repo_name, agv_path)
+        desc_path = f"{agv_path}/description.adoc"
 
         branch_existed = False
         try:
@@ -278,10 +303,18 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
                 logger.info("agv_notice_pr_reused", pr_url=pr["html_url"], action="create_notice_pr")
                 return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
-        existing_content, file_sha = await _get_file(
-            client, token, owner, repo_name, desc_path,
-            ref=branch if branch_existed else None,
-        )
+        try:
+            existing_content, file_sha = await _get_file(
+                client, token, owner, repo_name, desc_path,
+                ref=branch if branch_existed else None,
+            )
+        except GitHubAPIError as exc:
+            if exc.status_code == 404:
+                raise RuntimeError(
+                    f"No description.adoc found at {desc_path} in {owner}/{repo_name}. "
+                    "Retirement notice cannot be added automatically for CIs without a description.adoc."
+                ) from exc
+            raise
         if adoc_notice not in existing_content:
             new_content = adoc_notice + "\n\n" + existing_content
             await _update_file(
@@ -333,6 +366,7 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         default_branch, main_sha = await _get_default_branch(client, token, owner, repo_name)
+        agv_path = await _verify_agv_path(client, token, owner, repo_name, agv_path)
 
         branch_existed = False
         try:
@@ -395,13 +429,14 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
     """
     owner, repo_name, agv_path = _resolve_repo(base_name)
     branch = _branch_name(base_name, jira_key) + "-revert-notice"
-    desc_path = f"{agv_path}/description.adoc"
 
     logger.info("agv_revert_notice_start", base_name=base_name, repo=f"{owner}/{repo_name}", action="revert_notice_pr")
 
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         default_branch, main_sha = await _get_default_branch(client, token, owner, repo_name)
+        agv_path = await _verify_agv_path(client, token, owner, repo_name, agv_path)
+        desc_path = f"{agv_path}/description.adoc"
 
         branch_existed = False
         try:

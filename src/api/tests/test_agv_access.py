@@ -143,6 +143,7 @@ def _setup_client_for_pr(client, existing_content="= Old content"):
         _resp(200, {"token": "inst-token"}),                     # installation token
         _resp(200, {"default_branch": "master"}),                # repo metadata
         _resp(200, {"object": {"sha": "main-sha-123"}}),         # ref/heads/master
+        _resp(200, []),                                           # verify agv path
         _resp(200, {}),                                           # create branch
         _resp(200, _file_content(existing_content)),             # get file
         _resp(200, {}),                                           # update/delete file
@@ -185,16 +186,17 @@ async def test_create_notice_pr_idempotent_on_422(mock_jwt, mock_client_cls):
 
     async def side_effect(*args, **kwargs):
         call_count["n"] += 1
-        if call_count["n"] <= 3:
-            return _resp(200, {"token": "t", "default_branch": "master",
-                               "object": {"sha": "sha1"}}.get("token") and
-                         {"token": "t"} if call_count["n"] == 1 else
-                         {"default_branch": "master"} if call_count["n"] == 2 else
-                         {"object": {"sha": "sha1"}})
-        if call_count["n"] == 4:  # create branch → 422
-            r = _resp(422, {"message": "Reference already exists"})
+        if call_count["n"] == 1:
+            return _resp(200, {"token": "t"})
+        if call_count["n"] == 2:
+            return _resp(200, {"default_branch": "master"})
+        if call_count["n"] == 3:
+            return _resp(200, {"object": {"sha": "sha1"}})
+        if call_count["n"] == 4:  # verify agv path
+            return _resp(200, [])
+        if call_count["n"] == 5:  # create branch → 422
             raise GitHubAPIError("POST", "", 422, "exists")
-        if call_count["n"] == 5:  # find open PR → existing
+        if call_count["n"] == 6:  # find open PR → existing
             return _resp(200, [_PR])
         return _resp(200, {})
 
@@ -221,24 +223,26 @@ async def test_create_retire_pr_happy_path(mock_jwt, mock_client_cls):
         if call_count["n"] == 3:
             return _resp(200, {"object": {"sha": "main-sha"}})
         if call_count["n"] == 4:
+            return _resp(200, [])  # verify agv path
+        if call_count["n"] == 5:
             return _resp(200, {})  # create branch
         # directory tree deletion calls (ref, commit, contents, tree, commit, patch)
-        if call_count["n"] == 5:
-            return _resp(200, {"object": {"sha": "head-sha"}})
         if call_count["n"] == 6:
-            return _resp(200, {"tree": {"sha": "tree-sha"}})
+            return _resp(200, {"object": {"sha": "head-sha"}})
         if call_count["n"] == 7:
+            return _resp(200, {"tree": {"sha": "tree-sha"}})
+        if call_count["n"] == 8:
             return _resp(200, [{"type": "file", "path": "sandboxes-gpte/lab/prod.yaml"},
                                {"type": "file", "path": "sandboxes-gpte/lab/common.yaml"}])
-        if call_count["n"] == 8:
-            return _resp(200, {"sha": "new-tree"})
         if call_count["n"] == 9:
-            return _resp(200, {"sha": "new-commit"})
+            return _resp(200, {"sha": "new-tree"})
         if call_count["n"] == 10:
-            return _resp(200, {})  # update ref
+            return _resp(200, {"sha": "new-commit"})
         if call_count["n"] == 11:
-            return _resp(200, [])  # find open PR
+            return _resp(200, {})  # update ref
         if call_count["n"] == 12:
+            return _resp(200, [])  # find open PR
+        if call_count["n"] == 13:
             return _resp(200, _PR)  # create PR
         return _resp(200, {})
 
@@ -257,6 +261,7 @@ def _setup_client_for_revert(client, existing_content):
         _resp(200, {"token": "inst-token"}),                     # installation token
         _resp(200, {"default_branch": "master"}),                # repo metadata
         _resp(200, {"object": {"sha": "main-sha-123"}}),         # ref/heads/master
+        _resp(200, []),                                           # verify agv path
         _resp(200, {}),                                           # create branch
         _resp(200, _file_content(existing_content)),             # get file
         _resp(200, {}),                                           # update file
@@ -317,6 +322,8 @@ async def test_revert_notice_pr_none_on_404(mock_jwt, mock_client_cls):
         if call_count["n"] == 3:
             return _resp(200, {"object": {"sha": "sha1"}})
         if call_count["n"] == 4:
+            return _resp(200, [])  # verify agv path
+        if call_count["n"] == 5:
             return _resp(200, {})  # create branch
         # get_file → 404
         raise GitHubAPIError("GET", "", 404, "not found")
