@@ -688,15 +688,15 @@ RHDP Content Team`
                           </button>
                         )}
                         {wf?.agv_revert_pr_url && (
-                          <div style={{ fontSize: '11px', marginTop: '4px' }}>
-                            <div style={{ color: 'var(--score-amber)', marginBottom: '4px' }}>
+                          <>
+                            <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
                               Cancellation pending — revert PR must be merged
                             </div>
                             <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
                               className="ret-jira-link">
                               Revert PR #{wf.agv_revert_pr_url.split('/').pop()}{prStatuses?.agv_revert_pr_url?.merged ? ' (merged)' : ''} →
                             </a>
-                          </div>
+                          </>
                         )}
                         {wf?.agv_retire_pr_url ? (
                           <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
@@ -711,16 +711,18 @@ RHDP Content Team`
                             {actionLoading ? 'Opening PR...' : 'Open Removal PR'}
                           </button>
                         )}
-                        {!wf?.agv_revert_pr_url && isAdmin ? (
-                          <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                            disabled={actionLoading}
-                            style={{ fontSize: '11px', marginTop: '4px' }}>
-                            {actionLoading ? 'Stopping...' : 'Stop Retirement'}
-                          </button>
-                        ) : (
-                          <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                            Admin access required to stop retirement
-                          </div>
+                        {!wf?.agv_revert_pr_url && (
+                          isAdmin ? (
+                            <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
+                              disabled={actionLoading}
+                              style={{ fontSize: '11px', marginTop: '4px' }}>
+                              {actionLoading ? 'Stopping...' : 'Stop Retirement'}
+                            </button>
+                          ) : (
+                            <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                              Admin access required to stop retirement
+                            </div>
+                          )
                         )}
                       </div>
                     ) : isApproved ? (
