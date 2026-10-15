@@ -46,6 +46,8 @@ All foreign keys throughout the schema reference `content_entities.content_id`. 
 
 Items that disappear from Babylon CRDs get `content_entities.retired_at = NOW()` instead of being deleted. All active-item queries filter on `retired_at IS NULL`. Items that reappear in a future scan are automatically un-retired (set `retired_at = NULL`).
 
+This catalog marker is separate from workflow completion. A merged removal PR can set `retirement_workflow.step_retired_at` before the next catalog sync sets `content_entities.retired_at`. See [Retirement System — Catalog Soft-Delete](retirement-system.md#catalog-soft-delete).
+
 ## Analysis and Embeddings
 
 ### Content analysis
@@ -93,7 +95,9 @@ The **`retirement_workflow`** table tracks the lifecycle of content being retire
 reviewed → approved → notified → started → retired
 ```
 
-Each step has `step_<name>_at` / `step_<name>_by` timestamps and actor fields. Additional fields track the approval reason, a snapshot of the item's state at approval time, Jira ticket linkage, and curator notes.
+Review, approval, notification, and start steps have timestamp/actor pairs. Retirement completion has `step_retired_at` only. Additional fields track the decision reason, frozen channel-keyed metrics, Jira linkage, target date, replacement, and notes. `agv_notice_pr_url`, `agv_retire_pr_url`, and `agv_revert_pr_url` store external PR references; live merge states are fetched rather than stored as additional status columns.
+
+The API resolves a base name to a stage-specific content entity, and the retirement report deduplicates stage variants for display. Cancellation awaiting a revert uses the stored revert URL and a `pending_revert` action response, not a new workflow status. See [Retirement System](retirement-system.md) for the full lifecycle and [Swagger UI](api-reference.md#interactive-api-documentation) for API contracts.
 
 ## Supporting Tables
 
@@ -329,6 +333,9 @@ CREATE TABLE IF NOT EXISTS retirement_workflow (
     curator_notes       TEXT,
     jira_key            TEXT,
     jira_project        TEXT NOT NULL DEFAULT 'RHDPCD',
+    agv_notice_pr_url   TEXT,
+    agv_retire_pr_url   TEXT,
+    agv_revert_pr_url   TEXT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -243,6 +243,14 @@ class AgvPrResponse(BaseModel):
     repo: str
 
 
+class RetirementPrStatusResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    deleted: bool = Field(description="True when a merged cancellation revert removed the workflow")
+    pr_statuses: dict[str, dict] = Field(description="Live PR states, keyed by workflow PR field; failed lookups include error")
+    jira_status: dict | None = None
+    workflow: dict | None = Field(default=None, description="Current workflow, absent or null after deletion")
+
+
 class RetirementDashboardResponse(BaseModel):
     items: list[dict] = Field(description="Items in retirement workflow or already retired")
     total: int

@@ -255,20 +255,16 @@ async def _delete_directory_tree(
     commit_data = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/git/commits/{head_sha}")
     base_tree_sha = commit_data["tree"]["sha"]
 
-    entries = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{dir_path}?ref={branch}")
-
     delete_entries = []
-    for entry in entries:
-        if entry["type"] == "file":
-            delete_entries.append({"path": entry["path"], "mode": "100644", "type": "blob", "sha": None})
-        elif entry["type"] == "dir":
-            sub_entries = await _gh(
-                client, token, "GET",
-                f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{entry['path']}?ref={branch}",
-            )
-            for sub in sub_entries:
-                if sub["type"] == "file":
-                    delete_entries.append({"path": sub["path"], "mode": "100644", "type": "blob", "sha": None})
+    pending = [dir_path]
+    while pending:
+        path = pending.pop()
+        entries = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{path}?ref={branch}")
+        for entry in entries:
+            if entry["type"] == "file":
+                delete_entries.append({"path": entry["path"], "mode": "100644", "type": "blob", "sha": None})
+            elif entry["type"] == "dir":
+                pending.append(entry["path"])
 
     if not delete_entries:
         logger.warning("agv_delete_dir_empty", dir_path=dir_path, action="delete_directory")
@@ -508,14 +504,15 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
             raise
 
         cleaned = _remove_notice_block(content)
-        if cleaned is None:
+        if cleaned is None and not branch_existed:
             logger.info("agv_revert_notice_not_found", base_name=base_name, action="revert_notice_pr")
             return None
 
-        await _update_file(
-            client, token, owner, repo_name, desc_path, cleaned, file_sha, branch,
-            f"retire: remove retirement notice for {agv_path} ({jira_key})",
-        )
+        if cleaned is not None:
+            await _update_file(
+                client, token, owner, repo_name, desc_path, cleaned, file_sha, branch,
+                f"retire: remove retirement notice for {agv_path} ({jira_key})",
+            )
 
         try:
             pr = await _create_pr(

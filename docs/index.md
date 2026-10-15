@@ -15,6 +15,7 @@ RCARS helps Red Hat field teams find the right demos and labs for any event, aud
 | [Web UI Guide](user/web-guide.md) | Field teams, event staff | How to use the advisor and curator interfaces |
 | [CLI Admin Guide](admin/cli-guide.md) | Ops / admins | Command reference for all RCARS CLI commands |
 | [System Design](architecture/system-design.md) | Engineers | End-to-end technical deep-dive |
+| [Retirement System](architecture/retirement-system.md) | Curators, engineers, admins | Workflow, Jira and AgV integration, automated sweeps, and catalog preservation |
 | [Deployment Guide](admin/deployment.md) | Ops / admins | OpenShift deployment, bootstrap, operational workflows |
 | [Operations](admin/operations.md) | Engineers, admins | Workers, maintenance pipeline, and monitoring |
 | [Token Usage Tracking](admin/token-usage.md) | Engineers, admins | How LLM token consumption is captured, stored, and reported |

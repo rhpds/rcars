@@ -10,7 +10,7 @@ from rcars.api.middleware.auth import require_admin, require_curator, require_au
 from rcars.api.schemas import (
     JobResponse, PerformanceDashboardResponse, RetirementDashboardResponse,
     WorkflowResponse, WorkflowGetResponse, StartRetirementResponse,
-    CancelWorkflowResponse, AgvPrResponse, ScanResponse, RescanResponse,
+    CancelWorkflowResponse, AgvPrResponse, RetirementPrStatusResponse, ScanResponse, RescanResponse,
     FieldSourceResponse, FieldSourceRepo, FieldSourceProvision,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
@@ -78,7 +78,7 @@ class ApproveRequest(BaseModel):
     replacement_name: str | None = None
 
 class StartRequest(BaseModel):
-    target_days: int = 30
+    target_days: int = Field(default=30, description="Days until the target date; zero requests immediate retirement")
     jira_project: str = "RHDPCD"
 
 class NotesRequest(BaseModel):
@@ -291,7 +291,7 @@ async def performance_dashboard(
 
 @router.get(
     "/retirement/workflow/{base_name}",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Get retirement workflow",
     description="Returns the current retirement workflow state for a catalog item. Curator-only.",
     response_model=WorkflowGetResponse,
@@ -305,7 +305,7 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 
 @router.put(
     "/retirement/workflow/{base_name}/review",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Mark item as reviewed",
     description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
     response_model=WorkflowResponse,
@@ -328,10 +328,10 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
 
 @router.put(
     "/retirement/workflow/{base_name}/approve",
-    tags=["Performance"],
-    summary="Approve item for retirement",
+    tags=["Retirement"],
+    summary="Recommend item for retirement",
     description=(
-        "Approves a catalog item for retirement with a reason and optional replacement. "
+        "Records a retirement recommendation with a reason and optional replacement; does not authorize removal. "
         "Captures a snapshot of current metrics at approval time. Curator-only."
     ),
     response_model=WorkflowResponse,
@@ -384,9 +384,9 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
 @router.put(
     "/retirement/workflow/{base_name}/notify",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Mark owner as notified",
-    description="Records that the content owner has been notified about the retirement. Curator-only.",
+    description="Records manual owner notification; does not send email or chat. Admin-only.",
     response_model=WorkflowResponse,
 )
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_admin)):
@@ -407,11 +407,11 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
 
 @router.put(
     "/retirement/workflow/{base_name}/start",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Start retirement process",
     description=(
         "Starts the retirement process: creates a Jira ticket and sets a target retirement date. "
-        "Requires prior approval. Curator-only."
+        "Requires a prior recommendation. Does not open a notice PR automatically. Admin-only."
     ),
     response_model=StartRetirementResponse,
     responses={400: {"description": "Item must be approved before starting retirement"}},
@@ -474,9 +474,9 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 
 @router.put(
     "/retirement/workflow/{base_name}/link-jira",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Link existing Jira ticket",
-    description="Links an existing Jira ticket to the retirement workflow and advances to started status. Requires prior approval.",
+    description="Links an existing Jira ticket and advances to started status. Requires a prior recommendation. Does not compute a target date. Admin-only.",
     response_model=WorkflowResponse,
     responses={400: {"description": "Item must be approved before linking Jira"}},
 )
@@ -508,7 +508,7 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 
 @router.put(
     "/retirement/workflow/{base_name}/notes",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Update curator notes",
     description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
     response_model=WorkflowResponse,
@@ -526,10 +526,16 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 
 @router.delete(
     "/retirement/workflow/{base_name}",
-    tags=["Performance"],
+    tags=["Retirement"],
     summary="Cancel retirement workflow",
-    description="Cancels and removes the retirement workflow for a catalog item. Admin-only.",
+    description=(
+        "Closes open removal/notice PRs and opens a notice revert if needed. GitHub cleanup failures return 502 "
+        "and retain the workflow for retry. A pending revert returns pending_revert with deleted=false; "
+        "reconciliation deletes the workflow after merge. Jira closure is best-effort. "
+        "Does not restore an already removed CI. Admin-only."
+    ),
     response_model=CancelWorkflowResponse,
+    responses={502: {"description": "GitHub cleanup failed; workflow retained for retry"}},
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.agv_access import close_pr, get_pr_state, revert_notice_pr
@@ -548,6 +554,19 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
             parts = url.rstrip("/").split("/")
             return f"{parts[-4]}/{parts[-3]}", int(parts[-1])
 
+        # Stop a destructive proposal before creating a revert that the sweep
+        # could merge-reconcile and use to remove this workflow.
+        retire_url = wf.get("agv_retire_pr_url")
+        if retire_url:
+            try:
+                repo_full, pr_number = _parse_pr_url(retire_url)
+                state = await get_pr_state(settings, repo_full, pr_number)
+                if state["state"] == "open":
+                    await close_pr(settings, repo_full, pr_number)
+            except Exception as exc:
+                logger.warning("agv_retire_cleanup_failed", pr_url=retire_url, error=str(exc))
+                raise HTTPException(502, "Removal PR cleanup failed; workflow retained for retry") from exc
+
         # Handle notice PR: close if open, revert if merged
         notice_url = wf.get("agv_notice_pr_url")
         notice_merged = False
@@ -561,46 +580,46 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
                     await close_pr(settings, repo_full, pr_number)
             except Exception as exc:
                 logger.warning("agv_notice_cleanup_failed", pr_url=notice_url, error=str(exc))
+                raise HTTPException(502, "Notice PR cleanup failed; workflow retained for retry") from exc
 
         if notice_merged:
             jira_key = wf.get("jira_key", "")
-            result = await revert_notice_pr(settings, base_name, jira_key)
+            try:
+                result = await revert_notice_pr(settings, base_name, jira_key)
+            except Exception as exc:
+                logger.warning("agv_notice_revert_failed", base_name=base_name, error=str(exc))
+                raise HTTPException(502, "Notice revert failed; workflow retained for retry") from exc
             if result:
                 revert_pr_urls.append(result["pr_url"])
+                db.upsert_retirement_workflow(content_id, {"agv_revert_pr_url": result["pr_url"]})
                 logger.info("agv_notice_reverted", pr_url=result["pr_url"], base_name=base_name)
 
-        # Handle retire PR: close if open (nothing to revert if merged — item is gone)
-        retire_url = wf.get("agv_retire_pr_url")
-        if retire_url:
-            try:
-                repo_full, pr_number = _parse_pr_url(retire_url)
-                state = await get_pr_state(settings, repo_full, pr_number)
-                if state["state"] == "open":
-                    await close_pr(settings, repo_full, pr_number)
-            except Exception as exc:
-                logger.warning("agv_retire_cleanup_failed", pr_url=retire_url, error=str(exc))
-
     jira_key = wf.get("jira_key") if wf else None
+    jira_outcome = "not linked"
     if jira_key:
         try:
             from rcars.services.jira import close_issue_wont_do
-            close_issue_wont_do(settings, jira_key)
-            logger.info("retirement_jira_closed", jira_key=jira_key, base_name=base_name)
+            closed = close_issue_wont_do(settings, jira_key)
+            jira_outcome = "closed" if closed else "skipped"
+            logger.info("retirement_jira_close_result", jira_key=jira_key, base_name=base_name, outcome=jira_outcome)
         except Exception as exc:
+            jira_outcome = "failed"
             logger.warning("retirement_jira_close_failed", jira_key=jira_key, error=str(exc))
 
     if revert_pr_urls:
-        updated = db.upsert_retirement_workflow(content_id, {
-            "agv_revert_pr_url": revert_pr_urls[0],
-        })
+        # Reconciliation may have deleted this row while Jira cleanup ran.
+        # Never upsert here: that would recreate a completed cancellation.
+        updated = db.get_retirement_workflow(content_id)
+        if updated is None:
+            return {"status": "ok", "deleted": True, "revert_pr_urls": revert_pr_urls}
         db.log_action(base_name, "retirement_cancel_pending", user,
-                       f"Revert PR: {revert_pr_urls[0]}, Jira {jira_key or 'none'} closed")
+                       f"Revert PR: {revert_pr_urls[0]}, Jira: {jira_outcome} ({jira_key or 'none'})")
         return {"status": "pending_revert", "deleted": False,
                 "revert_pr_urls": revert_pr_urls, "workflow": updated}
 
     deleted = db.delete_retirement_workflow(content_id)
     if deleted:
-        db.log_action(base_name, "retirement_cancelled", user, f"Workflow cancelled, Jira {jira_key or 'none'} closed")
+        db.log_action(base_name, "retirement_cancelled", user, f"Workflow cancelled, Jira: {jira_outcome} ({jira_key or 'none'})")
     return {"status": "ok", "deleted": deleted, "revert_pr_urls": revert_pr_urls}
 
 
@@ -710,6 +729,7 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     tags=["Retirement"],
     summary="Check agnosticv PR statuses",
     description="Checks all agv PRs, completes retirement when the removal PR is merged, or deletes the workflow when the revert PR is merged. Admin-only.",
+    response_model=RetirementPrStatusResponse,
 )
 async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.agv_access import get_pr_state
@@ -767,10 +787,12 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
 @router.post(
     "/retirement/sweep",
     tags=["Retirement"],
-    summary="Open removal PRs for items past their target date",
+    summary="Queue retirement PR creation and merge reconciliation",
     description=(
         "Scans retirement workflows for items whose target date has passed and "
         "no removal PR exists. Opens removal PRs on agnosticv for each. "
+        "Reconciles merged removal PRs and cancellation reverts even when no removals are due. "
+        "Returns a job_id; the scan worker performs the work and reports per-item errors. "
         "Also runs as part of the nightly maintenance pipeline. Admin-only."
     ),
     response_model=JobResponse,

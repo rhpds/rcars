@@ -9,6 +9,9 @@ docs_dir: docs
 site_dir: site
 exclude_docs: |
   superpowers/
+  admin/security-audit*.md
+  admin/data-model-migration.md
+  architecture/security-audit*.md
 
 theme:
   name: material
@@ -39,6 +42,7 @@ nav:
       - Advisor Chat: architecture/advisor-chat.md
       - Content Overlap: architecture/content-overlap.md
       - Performance Analysis: architecture/performance-analysis.md
+      - Retirement System: architecture/retirement-system.md
       - Field Source Content: architecture/field-source-content.md
       - Infrastructure Catalog: architecture/infrastructure-catalog.md
       - Portfolio Architectures: architecture/portfolio-architectures.md

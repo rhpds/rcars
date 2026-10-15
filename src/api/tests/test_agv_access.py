@@ -8,6 +8,7 @@ import pytest
 from rcars.services.agv_access import (
     GitHubAPIError,
     _branch_name,
+    _delete_directory_tree,
     _remove_notice_block,
     _resolve_repo,
     close_pr,
@@ -297,6 +298,52 @@ async def test_create_retire_pr_happy_path(mock_jwt, mock_client_cls):
     result = await create_retire_pr(_settings(), "sandboxes-gpte.lab", "RHDPCD-55")
     assert result["pr_url"] == _PR["html_url"]
     assert result["repo"] == "rhpds/agnosticv"
+
+
+async def test_delete_directory_includes_deeply_nested_files():
+    client = _mock_client()
+    listings = {
+        "ci": [{"type": "file", "path": "ci/prod.yaml"}, {"type": "dir", "path": "ci/files"}],
+        "ci/files": [{"type": "dir", "path": "ci/files/nested"}],
+        "ci/files/nested": [{"type": "file", "path": "ci/files/nested/script.sh"}],
+    }
+    payloads = []
+    async def request(method, url, **kwargs):
+        if "/contents/" in url:
+            return _resp(200, listings[url.split("/contents/")[1].split("?")[0]])
+        if "/git/ref/" in url:
+            return _resp(200, {"object": {"sha": "head"}})
+        if method == "GET":
+            return _resp(200, {"tree": {"sha": "base"}})
+        if url.endswith("/git/trees"):
+            payloads.append(kwargs["json"])
+        return _resp(200, {"sha": "new"})
+    client.request.side_effect = request
+
+    await _delete_directory_tree(client, "token", "example", "catalog", "ci", "branch", "remove")
+
+    assert {e["path"] for e in payloads[0]["tree"]} == {"ci/prod.yaml", "ci/files/nested/script.sh"}
+    assert all(e["sha"] is None for e in payloads[0]["tree"])
+
+
+@patch("rcars.services.agv_access.httpx.AsyncClient")
+@patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
+async def test_revert_retry_creates_pr_after_file_was_already_cleaned(mock_jwt, mock_client_cls):
+    client = _mock_client()
+    responses = iter([
+        _resp(200, {"token": "token"}), _resp(200, {"default_branch": "main"}),
+        _resp(200, {"object": {"sha": "head"}}),
+        _resp(200, [{"name": "example", "type": "dir"}]),
+        _resp(200, [{"name": "item", "type": "dir"}]),
+        _resp(422, {"message": "Reference already exists"}), _resp(200, []),
+        _resp(200, _file_content("= Original description")), _resp(200, _PR),
+    ])
+    client.request.side_effect = lambda *a, **k: next(responses)
+    mock_client_cls.return_value = client
+
+    result = await revert_notice_pr(_settings(), "example.item", "EXAMPLE-1")
+
+    assert result == {"pr_url": _PR["html_url"], "pr_number": 42, "repo": "rhpds/agnosticv"}
 
 
 def _setup_client_for_revert(client, existing_content):

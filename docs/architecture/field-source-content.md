@@ -39,9 +39,7 @@ Data is stored in the `field_source_provisions` table:
 
 ## API
 
-`GET /api/v1/analysis/field-source` — returns all field source provisions, grouped by repository and ref. Accepts an optional `catalog_item` query parameter (`ocp` or `rhel`) to filter.
-
-The response groups provisions by `(git_repo, git_ref, catalog_item)` and includes per-group counts, first/last seen dates, and the individual provision list for expanded row detail.
+The report groups provisions by repository, ref, and catalog item, with counts, first/last seen dates, and individual provisions for expanded detail. See [Swagger UI](api-reference.md#interactive-api-documentation) for the Field Source Content operation's filters, response schema, and access requirements.
 
 ## Frontend
 

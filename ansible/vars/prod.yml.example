@@ -120,18 +120,19 @@ rcars_reporting_mcp_token: CHANGEME
 # ── Jira ───────────────────────────────────────────────────────────────────────
 # Jira credentials for creating retirement tickets via the bot account.
 
-rcars_jira_api_email: rhdp-jira-bot@redhat.com
+rcars_jira_api_email: jira-service-account@example.com
 rcars_jira_api_token: CHANGEME
 
 # ── GitHub App (agv-retire integration, RHDPCD-2103) ──────────────────────────
 # Credentials for automated retirement PR creation on agnosticv repos.
-# Retrieve App ID and private key from Bitwarden: "rcars-agv-retire"
-# Installation ID: https://github.com/organizations/rhpds/settings/installations/169224840
-# All three agnosticv repos are in the rhpds org so all installation IDs are the same.
+# Retrieve App credentials from the approved secret store; do not commit real values.
+# All supported catalog repositories share one organization installation.
+# Grant that installation access to all three repositories.
 # Omit or leave empty to disable automated retirement PRs.
 
 # github_app_id: ""
 # github_app_private_key: ""   # PEM contents, \n-escaped
-# github_app_installation_id: "169224840"
-# github_app_installation_id_zt_rhelbu: "169224840"
-# github_app_installation_id_zt_ansiblebu: "169224840"
+# github_app_installation_id: "CHANGEME"
+# Legacy per-organization overrides are not needed by current repository routing.
+# github_app_installation_id_zt_rhelbu: ""
+# github_app_installation_id_zt_ansiblebu: ""

@@ -49,17 +49,21 @@ RCARS compares lab embeddings against each other to find catalog items that teac
 
 RCARS imports provision counts, sales pipeline data, closed revenue, and infrastructure cost from the RHDP reporting database (the same source as the SuperSet management dashboard). It uses this data to score each production item for performance on a percentile basis — items in the top tier for usage, pipeline, and revenue relative to their peers score highest.
 
-The performance dashboard has two views: **Prod Performance** (scored table for items with production deployments) and **Without Prod** (age-based list of dev/event-only items that haven't been promoted). Low-performing items can be flagged for retirement through an integrated workflow.
+The performance dashboard has two views: **Prod Performance** (scored table for items with production deployments) and **Without Prod** (age-based list of dev/event-only items that haven't been promoted). These metrics help people identify candidates; scores do not approve retirement automatically.
+
+### Retirement
+
+The [Retirement System](architecture/retirement-system.md) records curator recommendations and supporting metrics, then lets admins manage owner notification, Jira linkage, and AgnosticV notice/removal PRs. A nightly sweep opens due removal PRs and reconciles merged removal or cancellation-revert PRs. Humans still review and merge every catalog change. The Retirement report brings recommended, in-progress, and retired items together, while the shared workflow drawer is also available from Performance and Non-Prod Items.
 
 ### Catalog Preservation (Soft-Delete)
 
-When catalog items disappear from the Babylon platform — whether they've been retired by content owners, removed during cleanup, or reorganized — RCARS preserves them instead of deleting them. Removed items are marked with a `retired_at` timestamp rather than purged. This means all associated data survives: Showroom analysis, vector embeddings, workload mappings, reporting metrics, and curator notes.
+When catalog items disappear from the Babylon platform — whether they've been retired by content owners, removed during cleanup, or reorganized — RCARS preserves them instead of deleting them. Removed items are marked with a `retired_at` timestamp rather than purged. Showroom analysis, vector embeddings, workload mappings, and curator notes survive. Derived reporting metrics may be refreshed or cleaned up; the retirement approval snapshot preserves the metrics used for the decision.
 
 This makes RCARS the institutional memory for the RHDP catalog. Curators can find retired items, see when they were removed, review their historical performance data, and recover the AgnosticV config path if they need to bring an item back. If an item reappears in Babylon (re-published after a fix, or restored from a different namespace), RCARS automatically un-retires it and all its data is immediately active again.
 
 ### Nightly Maintenance
 
-A nightly pipeline runs at 04:00 UTC and chains seven steps: catalog refresh, stale content detection, re-analysis of changed items, workload role scanning, base config scanning, reporting data sync, and content similarity computation. Each step runs independently — a failure in one does not block the others.
+A nightly pipeline runs at 04:00 UTC. It runs Babylon catalog/content/reporting maintenance, portfolio-architecture sync, and then the retirement sweep when GitHub App integration is configured. The sub-pipelines are isolated so a failure in one does not prevent the next from being attempted. See [Operations](admin/operations.md) for scheduling and monitoring.
 
 ## Who Uses It
 

@@ -247,7 +247,7 @@ For semantic search (e.g. "what deploys OpenShift AI?"), use the Advisor chat in
 
 ## Content Analysis
 
-The Analysis section is a top-level navigation group in the sidebar, visible to curators and users who can view performance data. It contains two sub-pages for analyzing catalog content at scale.
+The Analysis section is a top-level navigation group in the sidebar, visible to curators and users who can view performance data. It includes content overlap, performance, non-production usage, retirement, and field-source reporting, with role-specific access.
 
 ### Content Overlap (`/analysis/overlap`)
 
@@ -280,7 +280,7 @@ The computation compares every lab against every other lab within the selected s
 
 Published Virtual CIs are excluded because they have no Showroom content of their own — they are wrappers that point to a base CI. The comparison happens between the base CIs that own the actual lab content.
 
-**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--stage prod] [--threshold 0.75]`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`). The overlap report is available at `GET /api/v1/admin/overlap`, and per-item similarity at `GET /api/v1/catalog/{ci_name}/similar`.
+**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--stage prod] [--threshold 0.75]`). For programmatic recomputation, overlap reports, and per-item similarity, see [Swagger UI](../architecture/api-reference.md#interactive-api-documentation) for current contracts and access requirements.
 
 **When to recompute:** After a full scan or re-analysis, since the underlying fingerprints may have changed. The "Last computed" timestamp shows when the data was last refreshed.
 
@@ -365,29 +365,7 @@ Items more than a year old without a prod deployment are strong candidates for e
 
 #### Retirement Workflow Drawer
 
-Clicking "Retirement Workflow" in an expanded row opens a slide-out drawer with the item's full metrics and a five-step workflow.
-
-**Usage Data Grid** — pinned at the top, showing score, provisions, unique users, completions, touched, closed, total cost, cost per provision, success/failure rates, first/last provision dates, and environment badges. This section stays visible while scrolling through the workflow below.
-
-**Workflow Steps:**
-
-1. **Review** — initial review step that records who reviewed the item and when.
-
-2. **Approve for Retirement** — enter a reason (required) and optionally select a replacement CI from a searchable catalog dropdown. The dropdown searches across all RCARS catalog items and filters out the current item. Use "Not in RCARS? Enter manually" to enter an external replacement. Clicking "Approve Retirement" freezes the current metrics for later comparison.
-
-3. **Owner Notified** (optional) — shows detected maintainers from AgnosticV metadata. "Generate Email Template" creates a copyable notification message with item details and metrics. Copy it to Slack or email. Click the dismiss (x) to close the template. "Mark as Notified" records the notification.
-
-4. **Start Retirement** (admin only) — creates a Jira ticket with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. Curators see "Admin approval required" instead of the start button. After starting, a "Stop Retirement" button appears to cancel the process.
-
-5. **Retired** (automatic) — auto-completes when the item disappears from Babylon.
-
-**Additional sections in the drawer:**
-
-- **Metrics at Approval vs Current** — comparison table showing how metrics changed since approval, with delta indicators
-- **Curator Notes** — free-form text that auto-saves when you click away
-- **Cancel Workflow** — resets all workflow state (available before start; after start, use "Stop Retirement")
-
-Items with an active workflow show an inline badge in the table row: amber "In Process" or blue "Retirement Started".
+Curators and admins can open the shared workflow drawer from an expanded Performance row. It shows current usage metrics, the recommendation snapshot, notes, and lifecycle controls. The same drawer is available from Non-Prod Items and the [Retirement Report](#retirement-report). A low score does not start retirement automatically.
 
 #### Score Breakdown Popover
 
@@ -416,6 +394,25 @@ Each item receives a score from 0 to 100. **Higher scores indicate better perfor
 | Moderate | 35–54 | Moderate activity — steady but not standout |
 | Low | < 35 | Low/zero activity — may be niche, new, or candidates for review |
 
+### Retirement Report
+
+The Retirement page (`/analysis/retirement`) is available to curators and admins. It lists **Recommended**, **In Progress**, and **Retired** items, including items removed from Babylon outside an RCARS workflow. Search by display name, filter by status or namespace, select a 6-month or 1-year metric window, and expand a row to open its workflow.
+
+The shared drawer has four visible lifecycle steps:
+
+1. **Recommend for Retirement** — enter a required reason and optional replacement. Search the catalog or enter an external replacement manually. Submitting the recommendation also records review and freezes the current metrics for comparison.
+2. **Owner Notified** — generate a copyable message and send it through the appropriate channel; RCARS does not send it for you. An admin records notification. This marker is optional for starting retirement, but required notice policy still needs human review.
+3. **Retirement In Progress** — an admin starts retirement by creating a Jira ticket with a target period, or links an existing ticket. Linking does not set a target date. After starting, **Open Notice PR** creates the proposed notice change. The automatic sweep can open the removal PR when the target date is reached; an admin can also use **Open Removal PR** early.
+4. **Retired** — completes when a merged removal PR is detected, or catalog refresh observes that no active stage variants remain. Catalog visibility may lag workflow completion until the next Babylon sync.
+
+**PR review is always manual.** Check the proposed directory deletion and notice period before merging. RCARS never merges the notice, removal, or cancellation-revert PR for you.
+
+For admins, opening the drawer attempts a live Jira/PR status check. Use the refresh button beside **Retirement In Progress** to check again. Merged or closed notice/removal links are crossed out and labeled. A closed-but-unmerged removal PR does not complete retirement. A completed RCARS workflow does not automatically close its Jira ticket.
+
+The drawer also shows **Metrics at Approval vs Current** and auto-saving **Curator Notes**. **Cancel Workflow** or **Stop Retirement** is admin-only and attempts to close open PRs and cancel the Jira ticket. If the notice was already merged, cancellation creates a revert PR and stays pending until a person merges it. Cancellation does not restore an already-deleted CI; verify external cleanup if any warning or failure occurs.
+
+For the full architecture, permissions, API, configuration, and recovery behavior, see [Retirement System](../architecture/retirement-system.md).
+
 ## The System Pages
 
 The System section is visible to admins only (not curators). It has seven pages accessible via the sidebar: **Status**, **Sync & Analysis**, **Recent Jobs**, **Token Usage**, **Query History**, **API Keys**, and **Access Control**.
@@ -443,6 +440,7 @@ A **Refresh** button at the top reloads all status cards.
 - **Catalog Sync** — triggers catalog refresh from Babylon CRDs. Retired items that reappear are automatically un-retired.
 - **Content Analysis** — two buttons: "Analyze" (scan unanalyzed items) and "Check Stale" (detect changed Showrooms). Shows a live scrolling log with real-time progress.
 - **Full Re-Analysis** — "Re-Analyze All" button that marks every item stale and enqueues a complete rescan. Warning: consumes significant tokens.
+- **Run Retirement Sweep** — opens due removal PRs and reconciles merged removal/cancellation-revert PRs on the scan worker. Inspect the result for per-item errors even when the job completes. Review overdue workflows before enabling this integration.
 - **Recent Jobs** — collapsible section showing the last 50 background jobs (scan, analysis, refresh). Auto-refreshes every 10 seconds when expanded. Shows job type, CI name, status (color-coded), timestamps, and duration.
 
 All background operations run in arq workers. You can navigate away and come back — the current state of any running operation is preserved and the live log resumes from where it is.

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from rcars.api.app import create_app
 from rcars.config import Settings
 from rcars.db.database import Database
-from rcars.services import agv_access
+from rcars.services import agv_access, jira
 from rcars.workers.ops import run_retirement_sweep
 
 BASE_NAME = "test-retirement.pr-status"
@@ -53,6 +53,95 @@ def client(db):
     ))
     app.state.db = db
     return TestClient(app)
+
+
+@pytest.mark.parametrize("failure", ["notice_lookup", "notice_close", "removal_lookup", "removal_close", "revert"])
+def test_cancel_preserves_tracking_on_github_failure(client, db, monkeypatch, failure):
+    notice_url = "https://github.com/rhpds/agnosticv/pull/41"
+    db.upsert_retirement_workflow(CONTENT_ID, {"agv_notice_pr_url": notice_url, "jira_key": "EXAMPLE-1"})
+    async def state(settings, repo, number):
+        if failure == ("notice_lookup" if number == 41 else "removal_lookup"):
+            raise RuntimeError("GitHub unavailable")
+        return {"state": "closed" if failure == "revert" else "open", "merged": failure == "revert"}
+    async def close(settings, repo, number):
+        if failure == ("notice_close" if number == 41 else "removal_close"):
+            raise RuntimeError("GitHub unavailable")
+    monkeypatch.setattr(agv_access, "get_pr_state", state)
+    monkeypatch.setattr(agv_access, "close_pr", close)
+    monkeypatch.setattr(agv_access, "revert_notice_pr", AsyncMock(side_effect=RuntimeError("GitHub unavailable")))
+    def unexpected_jira_close(*args):
+        pytest.fail("Jira must not be closed before GitHub cleanup succeeds")
+    monkeypatch.setattr(jira, "close_issue_wont_do", unexpected_jira_close)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert response.status_code == 502
+    persisted = db.get_retirement_workflow(CONTENT_ID)
+    assert persisted["agv_notice_pr_url"] == notice_url
+    assert persisted["agv_retire_pr_url"] == REMOVAL_URL
+
+
+def test_cancel_stops_removal_before_creating_revert(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"agv_notice_pr_url": "https://github.com/rhpds/agnosticv/pull/41"})
+    events = []
+    async def state(settings, repo, number):
+        return {"state": "closed" if number == 41 else "open", "merged": number == 41}
+    async def close(*args):
+        events.append("close removal")
+    async def revert(*args):
+        events.append("create revert")
+        return {"pr_url": REVERT_URL}
+    monkeypatch.setattr(agv_access, "get_pr_state", state)
+    monkeypatch.setattr(agv_access, "close_pr", close)
+    monkeypatch.setattr(agv_access, "revert_notice_pr", revert)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert response.status_code == 200
+    assert events == ["close removal", "create revert"]
+    assert db.get_retirement_workflow(CONTENT_ID)["agv_revert_pr_url"] == REVERT_URL
+
+
+def test_cancel_does_not_recreate_workflow_reconciled_during_jira_cleanup(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "agv_notice_pr_url": "https://github.com/rhpds/agnosticv/pull/41", "jira_key": "EXAMPLE-1",
+    })
+    async def state(settings, repo, number):
+        return {"state": "closed", "merged": number == 41}
+    def close_jira(*args):
+        assert db.get_retirement_workflow(CONTENT_ID)["agv_revert_pr_url"] == REVERT_URL
+        # The sweep reconciles the revert merge while the external Jira call runs.
+        db.delete_retirement_workflow(CONTENT_ID)
+        return True
+    monkeypatch.setattr(agv_access, "get_pr_state", state)
+    monkeypatch.setattr(agv_access, "revert_notice_pr", AsyncMock(return_value={"pr_url": REVERT_URL}))
+    monkeypatch.setattr(jira, "close_issue_wont_do", close_jira)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert db.get_retirement_workflow(CONTENT_ID) is None
+    assert response.status_code == 200
+    assert response.json()["deleted"] is True
+
+
+@pytest.mark.parametrize("outcome", [True, False, RuntimeError("Jira unavailable"), None])
+def test_cancel_audit_reports_jira_outcome(client, db, monkeypatch, outcome):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1" if outcome is not None else None})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
+    def close(*args):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+    monkeypatch.setattr(jira, "close_issue_wont_do", close)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert response.status_code == 200
+    assert db.get_retirement_workflow(CONTENT_ID) is None
+    with db.pool.connection() as conn:
+        details = conn.execute("SELECT details FROM analysis_log WHERE ci_name = %s AND action = 'retirement_cancelled' ORDER BY id DESC LIMIT 1", (BASE_NAME,)).fetchone()["details"]
+    expected = "failed" if isinstance(outcome, Exception) else "closed" if outcome else "skipped" if outcome is False else "not linked"
+    assert f"Jira: {expected}" in details
 
 
 def test_refresh_completes_merged_removal_before_target_date(client, db, monkeypatch):

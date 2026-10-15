@@ -263,130 +263,17 @@ The total asset count stays constant across all windows — all current catalog 
 
 ## Soft-Delete — Preserving Retired Items
 
-When catalog items disappear from the Babylon CRDs during a catalog refresh, RCARS does **not** delete them. Instead, the item's `retired_at` column is set to the current timestamp and `retirement_reason` is recorded. All associated data — Showroom analysis, vector embeddings, workload mappings, reporting metrics, enrichment tags, and curator notes — is preserved.
+Catalog preservation and the distinction between workflow completion and catalog visibility are documented in [Retirement System — Catalog Soft-Delete](retirement-system.md#catalog-soft-delete). A merged removal PR can complete a workflow before Babylon sync removes the item from active catalog views.
 
-### How It Works
-
-During every catalog refresh (nightly pipeline Step 1, or manual trigger), RCARS:
-
-1. **Upserts all items** from the current CRD scan. Any item being upserted automatically has its `retired_at` cleared — this is the un-retire path.
-2. **Marks missing items** as retired. After all upserts, items in `content_entities` that were NOT in the current scan and don't already have `retired_at` set get `retired_at = NOW()` with reason "Disappeared from Babylon CRDs".
-3. **Logs un-retirements.** Items that were previously retired but reappear in the scan are logged with their ci_names for audit visibility.
-
-### Query Filtering
-
-All active-item queries include a `WHERE retired_at IS NULL` condition. This applies to:
-
-- **Browse** — catalog listing hides retired items by default
-- **Advisor** — `search_embeddings()` excludes retired items from vector search results
-- **Scan pipeline** — `get_items_needing_analysis()` won't queue retired items for analysis
-- **Admin stats** — `get_status_summary()` and `get_db_currency()` count only active items (with a separate retired count)
-- **Facets** — `get_catalog_facets()` excludes retired items from filter dropdowns
-- **Infrastructure search** — `search_by_infrastructure()` only returns active items
-- **Content overlap** — `compute_content_similarity()` excludes retired items from pairwise comparison
-- **Performance dashboard** — `has_prod` checks and stage lookups filter to active items
-
-The single-item detail view (`get_catalog_item`) intentionally does **not** filter by retirement status — a retired item's full detail page is always accessible via direct URL.
-
-### Browse Integration
-
-The Browse page hides retired items by default. Curators see a **Show Retired** toggle in the curator filter panel. When enabled, retired items appear in the list with an amber "RETIRED" badge showing the retirement date, and the row renders at reduced opacity (60%) to visually distinguish them from active items.
-
-### Interaction with Reporting Data
-
-Fully-retired items (all stage variants soft-deleted) are excluded from the reporting sync and the performance dashboard:
-
-- **Sync exclusion** — `run_reporting_sync()` calls `get_fully_retired_base_names()` and removes those names from the MCP import before computing percentile rankings. This prevents retired items from diluting the scoring pool — a mediocre active item shouldn't look good just because there are retired items with zero activity below it.
-- **Dashboard exclusion** — `list_performance_data()` requires at least one active `content_entities` entry (`retired_at IS NULL`) for the base name. A fully-retired item won't appear in either the Prod or Without Prod tab.
-- **Orphan cleanup** — since retired items are excluded from the sync, they're not in the synced-names set, and the orphan cleanup removes their `performance_scores` rows. This is intentional: reporting data is always re-derivable from the MCP server, unlike analysis and embeddings which are unique computed data.
-- **Partial retirement** — if only the `.prod` variant is retired but `.dev` is still active, the item IS included in the sync and scores normally. It appears in the "Without Prod" tab, correctly reflecting that it's now a dev-only item.
+For performance analysis, fully retired base names are excluded from normal reporting imports. Derived performance rows may be cleaned up, while the workflow's approval snapshot preserves the evidence used for the retirement decision. If another stage remains active, the item can still appear in performance or non-production views. A reporting refresh is not an immutable archive of past metrics.
 
 ---
 
 ## Retirement Workflow
 
-The retirement workflow allows curators to drive the retirement process for low-performing items through a five-step workflow directly in RCARS. The workflow is tracked in the `retirement_workflow` table and culminates in a Jira ticket. Access to the workflow is controlled by curator/admin roles.
+Performance is a decision input, not an automated retirement approval. Curators can recommend an item from its metrics; admins handle notification, Jira, and catalog-change PR actions. The shared drawer is also used by the Non-Prod Items and Retirement pages.
 
-### Workflow Steps
-
-1. **Review** (curator) — Initial review step that records who reviewed the item and when. Tracked via `step_reviewed_at/by`.
-
-2. **Approve for Retirement** (curator) — The curator enters a reason for retirement and optionally selects a replacement CI via a searchable catalog dropdown. Clicking "Approve Retirement" freezes the item's current metrics into an `approval_snapshot` JSONB field for later comparison. The snapshot uses the **channel-specific format**: `{channel_name: {score, score_breakdown, provisions, touched, closed, ...}}`. The search supports multi-word queries (e.g., "ansible event" matches items containing both words).
-
-3. **Owner Notified** (curator, optional) — RCARS displays the item's detected maintainers from the Babylon CRD `owners_json.maintainer` field. A "Generate Email Template" button creates a copyable notification message pre-filled with the item name, reason, and key metrics. The curator copies this into Slack or email manually. This step can be skipped.
-
-4. **Start Retirement** (admin only) — Creates a Jira ticket in the selected project (default RHDPCD, auto-uppercased) with retirement details, metrics snapshot, and an AsciiDoc retirement notice template. The Jira description uses wiki markup and includes the target retirement period in days (e.g., "30 days"), the AgnosticV component/item reference, and a catalog search link. Only admins can execute this step — curators see a message indicating admin approval is required.
-
-5. **Retired** (automatic) — Auto-completes when the item disappears from the Babylon CRDs during the nightly catalog refresh. The `retire_removed_items()` function checks for workflow records matching newly-retired base names and sets `step_retired_at`.
-
-### Approval Snapshot Format
-
-The `approval_snapshot` JSONB field stores channel-keyed performance metrics at approval time:
-
-```json
-{
-  "sales": {
-    "score": 18,
-    "score_breakdown": {...},
-    "provisions": 53,
-    "pipeline_touched": 604000,
-    "closed_amount": 0,
-    "total_cost": 5800,
-    "unique_users": 12,
-    "completions": 15,
-    "page_views": 0
-  }
-}
-```
-
-This allows comparing performance across different channels when the marketing channel is implemented.
-
-### Access Control
-
-- **Curators** can approve items, notify owners, generate email templates, and view all workflow state
-- **Admins** can do everything curators can, plus execute "Start Retirement" (Jira creation)
-- The "Stop Retirement" button appears in the started step for admins to cancel an in-progress retirement
-
-### Jira Integration
-
-Jira tickets are created via direct REST API v2 calls from the Python backend (`src/api/rcars/services/jira.py`). No MCP tools or LLM involvement — pure HTTP with Basic auth.
-
-The ticket includes:
-- **CI Name** — display name from the catalog
-- **RHDP URL** — catalog search link on `catalog.demo.redhat.com`
-- **AgV** — component/item reference (e.g., `enterprise/event-driven-ansible`). Since Babylon CRDs merge configs from multiple AgnosticV repos, RCARS cannot determine the source repo — only the component/item path is shown.
-- **Retirement Notice** — target days (e.g., "30 days")
-- **Replacement CI** — catalog search URL if a replacement was selected
-- **Metrics snapshot** — frozen values from approval time
-- **Suggested adoc template** — AsciiDoc retirement notice block with `[DATE TBD]` placeholder, in a `{code}` block for easy copy
-
-After ticket creation, a clone link is created to the retirement template issue (configurable via `RCARS_JIRA_RETIREMENT_TEMPLATE`).
-
-### Data Model
-
-The `retirement_workflow` table tracks one row per catalog base name:
-
-| Column | Type | Purpose |
-|---|---|---|
-| `content_id` | TEXT PK | Links to `content_entities` |
-| `status` | TEXT | Derived: `approved`, `notified`, `started`, `retired` |
-| `step_approved_at/by` | TIMESTAMPTZ, TEXT | When and who approved |
-| `approval_reason` | TEXT | Required reason for retirement |
-| `approval_snapshot` | JSONB | Frozen metrics at approval time (channel-keyed) |
-| `step_notified_at/by` | TIMESTAMPTZ, TEXT | Optional owner notification |
-| `step_started_at/by` | TIMESTAMPTZ, TEXT | When Jira was created |
-| `retirement_target_date` | DATE | Target retirement date |
-| `step_reviewed_at/by` | TIMESTAMPTZ, TEXT | When and who reviewed |
-| `step_retired_at` | TIMESTAMPTZ | Auto-set when item disappears |
-| `replacement_ci` | TEXT | Base name of replacement item |
-| `replacement_name` | TEXT | Display name of replacement |
-| `curator_notes` | TEXT | Free-form notes (auto-saves on blur) |
-| `jira_key` | TEXT | Created Jira ticket key |
-| `jira_project` | TEXT | Jira project (default RHDPCD) |
-
-### Audit Trail
-
-All workflow actions are logged in the `analysis_log` table: `retirement_approved`, `retirement_notified`, `retirement_started` (with Jira key), `retirement_auto_closed`, `retirement_cancelled`.
+The complete lifecycle, role matrix, snapshots, Jira/AgV integration, sweeps, cancellation, reporting, and API contract now live in [Retirement System](retirement-system.md). This page remains the reference for performance imports, scoring, time windows, and muting. Muting suppresses performance review noise; it does not retire an item or cancel a workflow.
 
 ---
 
@@ -463,23 +350,4 @@ rcars reporting-db show NAME  # Show metrics for a specific catalog base name
 
 ## API
 
-### Dashboard
-- `GET /analysis/performance` — performance dashboard with filtering, sorting, search, owner data, channel selection. Response includes `score_breakdown` (per-factor points, levels, reasons, summary), `ignored_until`, and `channel_scores` for each item.
-
-### Mute/Ignore
-- `PUT /analysis/performance/ignore/{base_name}` — mute item for 30 days (curator)
-- `DELETE /analysis/performance/ignore/{base_name}` — unmute item (curator)
-
-### Workflow
-- `GET /analysis/performance/workflow/{base_name}` — get workflow state
-- `PUT /analysis/performance/workflow/{base_name}/review` — record initial review (curator)
-- `PUT /analysis/performance/workflow/{base_name}/approve` — approve with reason + optional replacement (curator)
-- `PUT /analysis/performance/workflow/{base_name}/notify` — mark owner notified (curator)
-- `PUT /analysis/performance/workflow/{base_name}/start` — create Jira ticket, start clock (admin only)
-- `PUT /analysis/performance/workflow/{base_name}/link-jira` — link an existing Jira ticket to the workflow
-- `PUT /analysis/performance/workflow/{base_name}/notes` — update curator notes
-- `DELETE /analysis/performance/workflow/{base_name}` — cancel/reset workflow
-
-### Admin
-- `POST /admin/sync-reporting` — trigger a reporting sync job
-- `GET /admin/reporting-status` — sync status and score distribution
+See [Swagger UI](api-reference.md#interactive-api-documentation) for **Performance** operations and **Administration** reporting-sync operations, including filters, schemas, and access requirements. Retirement has its own **Retirement** group; its lifecycle is described in [Retirement System](retirement-system.md).

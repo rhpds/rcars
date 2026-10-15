@@ -221,7 +221,11 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
             const result = await api.checkAgvPrStatuses(item.catalog_base_name)
             setPrStatuses(result.pr_statuses)
             if (result.jira_status) setJiraStatus(result.jira_status)
-            if (result.workflow) {
+            if (result.deleted) {
+              setDrawerWorkflow(null)
+              onClose()
+              onChanged()
+            } else if (result.workflow) {
               setDrawerWorkflow(result.workflow)
               if (result.workflow.status !== workflow.status) onChanged()
             }

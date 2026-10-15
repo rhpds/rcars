@@ -73,9 +73,9 @@ Example: if `agd-v2.modernize-ocp-virt` has dev (ref=main), event (ref=v1.0.0), 
 
 ## Scheduled Maintenance Pipeline
 
-The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily and chains seven steps sequentially:
+The scan worker runs a nightly maintenance pipeline via arq's built-in cron support. By default it fires at **04:00 UTC** daily. The Babylon sub-pipeline performs these steps:
 
-1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data. Items that no longer exist in Babylon are **soft-deleted** (marked with `retired_at` timestamp) rather than purged — all analysis, embeddings, and reporting data is preserved. Items that reappear in a future refresh are automatically un-retired.
+1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data. Missing items are **soft-deleted** rather than purged; analysis and embeddings are preserved, while derived reporting metrics can be refreshed or cleaned up. Items that reappear are automatically un-retired. See [Retirement System — Catalog Soft-Delete](../architecture/retirement-system.md#catalog-soft-delete).
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
 4. **Workload Role Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses an LLM to determine what product each role installs. Updates the `infrastructure` table with descriptions, products, capabilities, and vector embeddings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
@@ -83,7 +83,7 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 6. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
 7. **Compute Similarity** — recomputes pairwise content overlap scores from current embeddings.
 
-Each step runs to completion before the next begins. If a step fails, the error is logged and the pipeline continues to the next step — a catalog refresh failure won't block stale checking or workload scanning.
+The full orchestrator then runs the portfolio-architecture sub-pipeline and, when GitHub App integration is configured, the retirement sweep. The sweep opens due removal PRs and reconciles merged removal/cancellation-revert PRs; it still checks merges when no new removal PRs are due. The sub-pipelines have separate error handling so failure in one does not prevent the next from being attempted.
 
 **Step 3 is an enqueue, not a blocking wait.** The pipeline creates individual `run_analysis` jobs on the `arq:queue:scan` queue and then marks itself complete. The analysis jobs are picked up by the scan worker through its normal job processing — they are identical to analysis jobs created by clicking "Analyze" in the admin UI. This means the pipeline finishes in minutes (catalog refresh + stale check + workload scan), while the actual re-analysis of stale content may take much longer depending on how many items changed. You can monitor analysis progress on the Workers page or via the "Analyze" log window on the Catalog page.
 
@@ -130,6 +130,14 @@ curl -X POST https://rcars-dev.apps.<domain>/api/v1/admin/run-maintenance \
 ### Multi-Worker Safety
 
 arq's `unique=True` flag ensures the cron job runs only once even if multiple scan-worker replicas are deployed. Manual triggers via the API are not deduplicated — avoid clicking "Run Maintenance Now" while a scheduled run is in progress.
+
+### Retirement Operations
+
+Admins can run **Run Retirement Sweep** on Sync & Analysis, or enqueue the same job through the **Retirement** group in [Swagger UI](../architecture/api-reference.md#interactive-api-documentation). The scan worker reports PRs opened, retirements completed, reverts resolved, and per-item errors through job progress/results. A completed job can contain errors; inspect its result before considering the sweep successful for every item.
+
+Configure GitHub App credentials on both the API and scan worker. Before enabling the nightly step, inspect existing started workflows and overdue targets: the first run can open PRs for old workflows. RCARS never merges a PR. For one item, an admin can refresh the drawer or call `check-prs` without running a sweep.
+
+The direct CLI command `rcars retirement sweep` opens due removal PRs but currently does not reconcile merges. Use the API/nightly sweep or drawer refresh for that. See [Retirement System](../architecture/retirement-system.md) for permissions, eligibility, cancellation, failure modes, and the configuration reference. Use restricted job logs for investigation; do not paste live ticket/PR references, user identities, credentials, or deployment addresses into public docs.
 
 ## Monitoring
 

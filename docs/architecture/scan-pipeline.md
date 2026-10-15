@@ -240,8 +240,4 @@ rcars status [--failures]  # Show catalog and analysis status
 
 ## API
 
-- `POST /analysis/scan` — start scan of unanalyzed items
-- `POST /analysis/check-stale` — run stale content detection
-- `POST /analysis/rescan-all` — mark all stale and full rescan
-- `POST /analysis/{ci_name}` — analyze a single item
-- `POST /catalog/refresh` — trigger catalog refresh
+See [Swagger UI](api-reference.md#interactive-api-documentation) under **Content Analysis** and **Catalog** for scan, stale-check, rescan, single-item analysis, and catalog-refresh contracts. Long-running operations return a job ID for progress tracking.

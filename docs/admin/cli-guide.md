@@ -287,6 +287,18 @@ rcars reporting-db show sandboxes-gpte.sandbox-ocp
 
 ---
 
+### `rcars retirement sweep`
+
+Opens removal PRs for started workflows whose target date has been reached, with a linked Jira ticket and no existing removal/revert PR or retirement marker. Requires the configured database and GitHub App credentials. It runs directly in the CLI process and prints item-level results; it does not enqueue a worker job or merge any PR.
+
+```bash
+rcars retirement sweep
+```
+
+This CLI path currently creates due PRs only. It does **not** perform the merged-removal/revert reconciliation included in the API/nightly worker sweep. Use **Run Retirement Sweep** in Sync & Analysis, or refresh an individual workflow as an admin, to reconcile merges. Review overdue workflows before the first run and avoid concurrent sweeps. See [Retirement System](../architecture/retirement-system.md).
+
+---
+
 ### `rcars serve`
 
 Starts the RCARS web server. In production this is managed by the OpenShift deployment.

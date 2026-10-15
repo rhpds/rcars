@@ -18,24 +18,13 @@ RCARS uses [FastAPI](https://fastapi.tiangolo.com/), which auto-generates intera
 | **ReDoc** | `/api/v1/redoc` | Clean, read-only API reference organized by tag |
 | **OpenAPI JSON** | `/api/v1/openapi.json` | Machine-readable OpenAPI 3.1 spec for code generation |
 
-These docs are always in sync with the deployed code — they're generated from the route definitions, type hints, and Pydantic models at runtime.
+Open these paths on your RCARS deployment, not on this documentation site. Swagger UI is the endpoint reference: use its groups to find operations, access requirements, parameters, request and response schemas, and errors. Architecture and user guides explain behavior without maintaining duplicate endpoint inventories.
 
-## Endpoint Groups
-
-| Tag | Prefix | Auth | Description |
-|-----|--------|------|-------------|
-| **Health** | `/api/v1/health` | None | Liveness and readiness probes |
-| **Auth** | `/api/v1/auth` | User | Current user identity and roles |
-| **Advisor** | `/api/v1/advisor` | User | Chat queries (multi-intent), sessions, and selections |
-| **Catalog** | `/api/v1/catalog` | User+ | Browsing, search, curation, infrastructure catalog |
-| **Content Analysis** | `/api/v1/analysis` | Curator+ | Scans, stale checks, single-item analysis |
-| **Performance** | `/api/v1/analysis/performance` | User+ (public) / Curator+ (if restricted) | Performance scoring, retirement workflow (review → approve → notify → start) |
-| **Recommendations** | `/api/v1/advisor/recommendations` | User | Direct recommendation queries (legacy non-chat path) |
-| **Administration** | `/api/v1/admin` | Admin | Jobs, workers, maintenance, token usage, overlap |
+The reference is generated from the deployed route definitions and models, so it describes that deployment's version rather than an unreleased branch. Retirement workflow operations are in the **Retirement** group; see [Retirement System](retirement-system.md) for lifecycle and safety guidance.
 
 ## Authentication
 
-The API supports two authentication mechanisms:
+See [External API Access](../user/api-access.md) for obtaining an API key, authenticating in Swagger, and making programmatic requests.
 
 ### OAuth Proxy (Web UI)
 
@@ -53,7 +42,7 @@ The token is validated against the Kubernetes TokenReview API and checked agains
 
 ### Development Mode
 
-When `RCARS_DEV_USER` is set, all requests are authenticated as that user with full admin access. This is for local development only.
+When `RCARS_DEV_USER` is set, requests are authenticated as that user; configured role assignments still determine privileges. This bypass is for local development only.
 
 ## Common Patterns
 
