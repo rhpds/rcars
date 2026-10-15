@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import structlog
 
@@ -128,6 +129,8 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                        content_types: list[str] | None = None,
                        db: Database, settings: Settings,
                        on_progress, llm_call=call_llm) -> dict:
+    """Route, resolve, and answer a single chat turn, logging the turn with its processing duration."""
+    started_at = time.monotonic()
     stages = stages or ["prod"]
     await on_progress({"phase": "routing", "status": "started"})
     context = chat_sessions.get_session_context(
@@ -203,15 +206,19 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                                 scope_echo=_scope_echo(output, res, message),
                                 answer=answer, blocks=hres.blocks,
                                 suggested_followups=followup_chips(
-                                    output.intent, turn_index, anchor))
+                                    output.intent, turn_index, anchor)
+                                    if hres.scaffold_facts.get("green_count", 1) > 0
+                                    else [])
             session_results = hres.session_results
             assessment = hres.scaffold_facts.get("assessment")
 
+    duration_ms = round((time.monotonic() - started_at) * 1000)
     chat_sessions.log_chat_turn(
         db.pool, session_id=session_id, turn_index=turn_index, user_email=user_email,
         query_text=message, results=session_results or None,
         overall_assessment=assessment or envelope.answer[:500],
-        intent=intent_for_log, envelope=envelope.model_dump(), scope=scope_dump)
+        intent=intent_for_log, envelope=envelope.model_dump(), scope=scope_dump,
+        duration_ms=duration_ms)
     logger.info("chat_turn", component="chat", session_id=session_id, turn=turn_index,
                 intent=intent_for_log, confidence=output.confidence,
                 scope_type=output.scope.type if output.scope else None,

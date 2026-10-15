@@ -464,6 +464,7 @@ CREATE TABLE IF NOT EXISTS advisor_sessions (
     chosen_content_id TEXT,
     chosen_at TIMESTAMPTZ,
     opted_out BOOLEAN NOT NULL DEFAULT FALSE,
+    duration_ms INTEGER,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -487,6 +488,7 @@ CREATE INDEX IF NOT EXISTS idx_advisor_sessions_created ON advisor_sessions(crea
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS intent TEXT;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS envelope_json JSONB;
 ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS scope_json JSONB;
+ALTER TABLE advisor_sessions ADD COLUMN IF NOT EXISTS duration_ms INTEGER;
 
 -- Chat turn index uniqueness — RHDPCD-599
 CREATE UNIQUE INDEX IF NOT EXISTS idx_advisor_sessions_session_turn
@@ -998,6 +1000,27 @@ class Database:
                     return None
                 raw = row["embedding"]
                 return [float(x) for x in raw.strip("[]").split(",")]
+
+    def find_catalog_item_by_name(
+        self, name: str, stages: list[str] | None = None,
+    ) -> dict[str, Any] | None:
+        """Case-insensitive exact match on display_name."""
+        stage_list = stages or ["prod"]
+        stage_placeholders = ",".join(["%s"] * len(stage_list))
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT ce.content_id FROM content_entities ce "
+                    f"WHERE lower(ce.display_name) = lower(%s) "
+                    f"AND ce.status IN ({stage_placeholders}) AND ce.retired_at IS NULL "
+                    f"LIMIT 1",
+                    (name, *stage_list),
+                )
+                row = cur.fetchone()
+                if row:
+                    cid = row["content_id"]
+                    return self.get_babylon_item(cid) or self.get_content_entity(cid)
+                return None
 
     def find_catalog_item_by_keyword_overlap(
         self, keywords: set[str], stages: list[str] | None = None, min_overlap: int = 3,
@@ -2538,13 +2561,15 @@ class Database:
         self, session_id: str, turn_index: int, user_email: str | None,
         query_text: str | None, event_url: str | None,
         results: list[dict], overall_assessment: str | None,
+        duration_ms: int | None = None,
     ) -> int:
+        """Insert an advisor session turn, including its processing duration, and return the new row id."""
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment)
-                VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id
+                INSERT INTO advisor_sessions (session_id, turn_index, user_email, query_text, event_url, results_json, overall_assessment, duration_ms)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
             """, (session_id, turn_index, user_email, query_text, event_url,
-                  Jsonb(results) if results is not None else None, overall_assessment))
+                  Jsonb(results) if results is not None else None, overall_assessment, duration_ms))
             row_id = cur.fetchone()["id"]
             conn.commit()
         return row_id
@@ -2566,21 +2591,28 @@ class Database:
             conn.commit()
 
     def list_advisor_sessions(self, user_email: str | None = None, limit: int = 50) -> list[dict]:
+        """List distinct advisor sessions with per-session turn count and summed duration_ms."""
         inner = """
-            SELECT DISTINCT ON (session_id)
-                   session_id, created_at AS started_at,
-                   query_text, chosen_ci_name,
-                   COUNT(*) OVER (PARTITION BY session_id) AS turns
-            FROM advisor_sessions
+            SELECT DISTINCT ON (s.session_id)
+                   s.session_id, s.created_at AS started_at,
+                   s.query_text, s.chosen_ci_name, s.user_email,
+                   CASE
+                       WHEN COUNT(*) FILTER (WHERE s.duration_ms IS NULL)
+                            OVER (PARTITION BY s.session_id) = 0
+                       THEN SUM(s.duration_ms) OVER (PARTITION BY s.session_id)
+                       ELSE NULL
+                   END AS duration_ms,
+                   COUNT(*) OVER (PARTITION BY s.session_id) AS turns
+            FROM advisor_sessions s
         """
         conditions = []
         params: list = []
         if user_email:
-            conditions.append("user_email = %s")
+            conditions.append("s.user_email = %s")
             params.append(user_email)
         if conditions:
             inner += " WHERE " + " AND ".join(conditions)
-        inner += " ORDER BY session_id, turn_index"
+        inner += " ORDER BY s.session_id, s.turn_index"
         sql = f"SELECT * FROM ({inner}) s ORDER BY started_at DESC LIMIT %s"
         params.append(limit)
         with self._pool.connection() as conn:

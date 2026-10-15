@@ -315,6 +315,8 @@ class QueryHistorySession(BaseModel):
     started_at: datetime
     query_text: str | None = None
     chosen_ci_name: str | None = None
+    user_email: str | None = None
+    duration_ms: int | None = None
 
 
 class QueryHistoryResponse(BaseModel):

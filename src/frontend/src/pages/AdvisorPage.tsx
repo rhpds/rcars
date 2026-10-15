@@ -299,8 +299,8 @@ export function AdvisorPage() {
               <p style={{ fontSize: '17px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
                 Welcome to the RHDP Content Advisor &amp; Recommendation System (RCARS)!
               </p>
-              <p style={{ fontSize: '13px', color: 'var(--rcars-amber-vivid)', marginBottom: '14px', fontStyle: 'italic' }}>
-                This is a beta release and we are regularly adding features.
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '14px', fontStyle: 'italic' }}>
+                We show all results, but you may not have access to every item. Access is controlled in the RHDP catalog.
               </p>
 
               <p className="hint" style={{ marginBottom: '6px', fontWeight: 600, color: 'var(--text-primary)' }}>
@@ -334,9 +334,12 @@ export function AdvisorPage() {
               </p>
 
               <p className="hint" style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '13px' }}>
-                Be specific about audience, topic, format, and time. Follow-up questions refine results.
+                Follow-up questions refine results. Use the turn selector in the top right to revisit previous results.
               </p>
-              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '12px' }}>
+              <p style={{ color: 'var(--rcars-amber-vivid)', fontSize: '13px', marginTop: '12px', fontStyle: 'italic' }}>
+                This is under active development and we are regularly adding features.
+              </p>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginTop: '4px' }}>
                 Questions or feedback? Join <a href="https://redhat.enterprise.slack.com/archives/C0BNJ74JA3V" target="_blank" rel="noopener noreferrer">#forum-demo-rcars</a> on Slack.
               </p>
             </div>

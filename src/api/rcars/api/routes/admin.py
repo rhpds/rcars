@@ -180,6 +180,8 @@ async def query_history(
                 "started_at": s["started_at"],
                 "query_text": s.get("query_text"),
                 "chosen_ci_name": s.get("chosen_ci_name"),
+                "user_email": s.get("user_email"),
+                "duration_ms": s.get("duration_ms"),
             }
             for s in sessions
         ],

@@ -138,7 +138,13 @@ export const api = {
   }>('/admin/scan-progress'),
   getJobStatus: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),
-  getQueryHistory: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/queries?limit=${limit}`),
+  getQueryHistory: (limit = 50) => request<{
+    items: Array<{
+      session_id: string; started_at: string; query_text: string | null;
+      chosen_ci_name: string | null; user_email: string | null; duration_ms: number | null;
+    }>;
+    total: number;
+  }>(`/admin/queries?limit=${limit}`),
   getQuerySessionDetail: (sessionId: string) => request<{ session_id: string; turns: unknown[] }>(`/admin/queries/${sessionId}`),
 
   // Scheduled maintenance
