@@ -398,6 +398,8 @@ Each item receives a score from 0 to 100. **Higher scores indicate better perfor
 
 The Retirement page (`/analysis/retirement`) is available to curators and admins. It lists **Recommended**, **In Progress**, and **Retired** items, including items removed from Babylon outside an RCARS workflow. Search by display name, filter by status or namespace, select a 6-month or 1-year metric window, and expand a row to open its workflow.
 
+Cancellation requires Jira closure and GitHub cleanup, including merging a notice-revert PR when necessary. Failures keep the workflow visible for retry; they do not silently abandon the issue or PRs. Successful retirement closes the linked Jira as **Done**. Catalog retirement and external cleanup are tracked separately, so the drawer can show a retired item with Jira closure still pending. Use refresh or wait for the nightly sweep to retry.
+
 The shared drawer has four visible lifecycle steps:
 
 1. **Recommend for Retirement** — enter a required reason and optional replacement. Search the catalog or enter an external replacement manually. Submitting the recommendation also records review and freezes the current metrics for comparison.
@@ -407,7 +409,7 @@ The shared drawer has four visible lifecycle steps:
 
 **PR review is always manual.** Check the proposed directory deletion and notice period before merging. RCARS never merges the notice, removal, or cancellation-revert PR for you.
 
-For admins, opening the drawer attempts a live Jira/PR status check. Use the refresh button beside **Retirement In Progress** to check again. Merged or closed notice/removal links are crossed out and labeled. A closed-but-unmerged removal PR does not complete retirement. A completed RCARS workflow does not automatically close its Jira ticket.
+For admins, opening the drawer attempts a live Jira/PR status check. Use the refresh button beside **Retirement In Progress** to check again. Merged or closed notice/removal links are crossed out and labeled. A closed-but-unmerged removal PR does not complete retirement. A merged removal triggers Jira closure; closure failures remain visible and retryable rather than being treated as complete cleanup.
 
 The drawer also shows **Metrics at Approval vs Current** and auto-saving **Curator Notes**. **Cancel Workflow** or **Stop Retirement** is admin-only and attempts to close open PRs and cancel the Jira ticket. If the notice was already merged, cancellation creates a revert PR and stays pending until a person merges it. Cancellation does not restore an already-deleted CI; verify external cleanup if any warning or failure occurs.
 

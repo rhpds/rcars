@@ -321,7 +321,7 @@ export const api = {
     ),
 
   checkAgvPrStatuses: (baseName: string) =>
-    request<{ status: string; deleted: boolean; pr_statuses: Record<string, { state?: string; merged?: boolean; pr_number?: number; url?: string; error?: string }>; jira_status?: { status?: string; resolution?: string; error?: string }; workflow?: RetirementWorkflow }>(
+    request<{ status: string; deleted: boolean; pr_statuses: Record<string, { state?: string; merged?: boolean; pr_number?: number; url?: string; error?: string }>; jira_status?: { status?: string; resolution?: string; error?: string }; workflow?: RetirementWorkflow; cleanup_error?: string | null }>(
       `/analysis/retirement/workflow/${encodeURIComponent(baseName)}/check-prs`,
       { method: 'POST' },
     ),
@@ -436,6 +436,9 @@ export interface RetirementWorkflow {
   agv_notice_pr_url: string | null
   agv_retire_pr_url: string | null
   agv_revert_pr_url: string | null
+  cancellation_requested_at?: string | null
+  jira_closed_at?: string | null
+  cleanup_error?: string | null
   created_at: string
   updated_at: string
 }

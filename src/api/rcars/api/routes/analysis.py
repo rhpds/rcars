@@ -531,14 +531,14 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     description=(
         "Closes open removal/notice PRs and opens a notice revert if needed. GitHub cleanup failures return 502 "
         "and retain the workflow for retry. A pending revert returns pending_revert with deleted=false; "
-        "reconciliation deletes the workflow after merge. Jira closure is best-effort. "
+        "reconciliation deletes the workflow only after GitHub cleanup and required Jira closure succeed. "
         "Does not restore an already removed CI. Admin-only."
     ),
     response_model=CancelWorkflowResponse,
-    responses={502: {"description": "GitHub cleanup failed; workflow retained for retry"}},
+    responses={502: {"description": "Required Jira/GitHub cleanup failed; workflow retained for retry"}},
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
-    from rcars.services.agv_access import close_pr, get_pr_state, revert_notice_pr
+    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError
 
     db = request.app.state.db
     settings = request.app.state.settings
@@ -546,81 +546,10 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
     if not content_id:
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
-    wf = db.get_retirement_workflow(content_id)
-    revert_pr_urls = []
-
-    if wf:
-        def _parse_pr_url(url: str) -> tuple[str, int]:
-            parts = url.rstrip("/").split("/")
-            return f"{parts[-4]}/{parts[-3]}", int(parts[-1])
-
-        # Stop a destructive proposal before creating a revert that the sweep
-        # could merge-reconcile and use to remove this workflow.
-        retire_url = wf.get("agv_retire_pr_url")
-        if retire_url:
-            try:
-                repo_full, pr_number = _parse_pr_url(retire_url)
-                state = await get_pr_state(settings, repo_full, pr_number)
-                if state["state"] == "open":
-                    await close_pr(settings, repo_full, pr_number)
-            except Exception as exc:
-                logger.warning("agv_retire_cleanup_failed", pr_url=retire_url, error=str(exc))
-                raise HTTPException(502, "Removal PR cleanup failed; workflow retained for retry") from exc
-
-        # Handle notice PR: close if open, revert if merged
-        notice_url = wf.get("agv_notice_pr_url")
-        notice_merged = False
-        if notice_url:
-            try:
-                repo_full, pr_number = _parse_pr_url(notice_url)
-                state = await get_pr_state(settings, repo_full, pr_number)
-                if state["merged"]:
-                    notice_merged = True
-                elif state["state"] == "open":
-                    await close_pr(settings, repo_full, pr_number)
-            except Exception as exc:
-                logger.warning("agv_notice_cleanup_failed", pr_url=notice_url, error=str(exc))
-                raise HTTPException(502, "Notice PR cleanup failed; workflow retained for retry") from exc
-
-        if notice_merged:
-            jira_key = wf.get("jira_key", "")
-            try:
-                result = await revert_notice_pr(settings, base_name, jira_key)
-            except Exception as exc:
-                logger.warning("agv_notice_revert_failed", base_name=base_name, error=str(exc))
-                raise HTTPException(502, "Notice revert failed; workflow retained for retry") from exc
-            if result:
-                revert_pr_urls.append(result["pr_url"])
-                db.upsert_retirement_workflow(content_id, {"agv_revert_pr_url": result["pr_url"]})
-                logger.info("agv_notice_reverted", pr_url=result["pr_url"], base_name=base_name)
-
-    jira_key = wf.get("jira_key") if wf else None
-    jira_outcome = "not linked"
-    if jira_key:
-        try:
-            from rcars.services.jira import close_issue_wont_do
-            closed = close_issue_wont_do(settings, jira_key)
-            jira_outcome = "closed" if closed else "skipped"
-            logger.info("retirement_jira_close_result", jira_key=jira_key, base_name=base_name, outcome=jira_outcome)
-        except Exception as exc:
-            jira_outcome = "failed"
-            logger.warning("retirement_jira_close_failed", jira_key=jira_key, error=str(exc))
-
-    if revert_pr_urls:
-        # Reconciliation may have deleted this row while Jira cleanup ran.
-        # Never upsert here: that would recreate a completed cancellation.
-        updated = db.get_retirement_workflow(content_id)
-        if updated is None:
-            return {"status": "ok", "deleted": True, "revert_pr_urls": revert_pr_urls}
-        db.log_action(base_name, "retirement_cancel_pending", user,
-                       f"Revert PR: {revert_pr_urls[0]}, Jira: {jira_outcome} ({jira_key or 'none'})")
-        return {"status": "pending_revert", "deleted": False,
-                "revert_pr_urls": revert_pr_urls, "workflow": updated}
-
-    deleted = db.delete_retirement_workflow(content_id)
-    if deleted:
-        db.log_action(base_name, "retirement_cancelled", user, f"Workflow cancelled, Jira: {jira_outcome} ({jira_key or 'none'})")
-    return {"status": "ok", "deleted": deleted, "revert_pr_urls": revert_pr_urls}
+    try:
+        return await cancel_retirement(db, settings, content_id, user)
+    except CleanupError as exc:
+        raise HTTPException(502, str(exc)) from exc
 
 
 @router.post(
@@ -636,6 +565,18 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
     response_model=AgvPrResponse,
 )
 async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Retirement cleanup or PR creation is already running")
+        return await _open_agv_notice_pr_locked(base_name, request, user)
+
+
+async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str):
     from rcars.services.agv_access import create_notice_pr
 
     db = request.app.state.db
@@ -648,6 +589,8 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
     wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_started_at"):
         raise HTTPException(400, "Retirement must be started (Jira ticket created) before opening the notice PR")
+    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+        raise HTTPException(409, "Cancellation cleanup is pending")
 
     if wf.get("agv_notice_pr_url"):
         return {
@@ -688,6 +631,18 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
     response_model=AgvPrResponse,
 )
 async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Retirement cleanup or PR creation is already running")
+        return await _open_agv_retire_pr_locked(base_name, request, user)
+
+
+async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str):
     from rcars.services.agv_access import create_retire_pr
 
     db = request.app.state.db
@@ -700,6 +655,8 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_started_at"):
         raise HTTPException(400, "Retirement must be started before opening the removal PR")
+    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+        raise HTTPException(409, "Cancellation cleanup is pending")
 
     if wf.get("agv_retire_pr_url"):
         return {
@@ -728,7 +685,7 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     "/retirement/workflow/{base_name}/check-prs",
     tags=["Retirement"],
     summary="Check agnosticv PR statuses",
-    description="Checks all agv PRs, completes retirement when the removal PR is merged, or deletes the workflow when the revert PR is merged. Admin-only.",
+    description="Checks PRs and reconciles required cleanup. Retirement closes Jira as Done; cancellation closes Jira as Won't Do and retains tracking until GitHub cleanup and any revert merge complete. Cleanup errors are returned with the retained workflow for retry. Admin-only.",
     response_model=RetirementPrStatusResponse,
 )
 async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
@@ -765,23 +722,24 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
     if jira_key:
         try:
             from rcars.services.jira import get_issue_status
-            jira_status = get_issue_status(settings, jira_key)
+            jira_status = await asyncio.to_thread(get_issue_status, settings, jira_key)
         except Exception as exc:
             jira_status = {"error": str(exc)}
 
-    revert_status = pr_statuses.get("agv_revert_pr_url", {})
-    if revert_status.get("merged"):
-        db.delete_retirement_workflow(content_id)
-        db.log_action(base_name, "retirement_cancelled", user, "Revert PR merged — workflow removed")
-        return {"status": "ok", "deleted": True, "pr_statuses": pr_statuses, "jira_status": jira_status}
-
-    retire_status = pr_statuses.get("agv_retire_pr_url", {})
-    if retire_status.get("merged") and not wf.get("step_retired_at"):
-        if db.auto_close_retired_workflows({content_id}):
-            db.log_action(base_name, "retirement_completed", user, "Removal PR merged — workflow retired")
-        wf = db.get_retirement_workflow(content_id)
-
-    return {"status": "ok", "deleted": False, "pr_statuses": pr_statuses, "jira_status": jira_status, "workflow": wf}
+    from rcars.services.retirement_cleanup import cancel_retirement, complete_retirement, CleanupError
+    cleanup_error = None
+    deleted = False
+    try:
+        if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+            result = await cancel_retirement(db, settings, content_id, user)
+            deleted = result["deleted"]
+        elif pr_statuses.get("agv_retire_pr_url", {}).get("merged") or wf.get("step_retired_at"):
+            await complete_retirement(db, settings, content_id, user)
+    except CleanupError as exc:
+        cleanup_error = str(exc)
+    wf = db.get_retirement_workflow(content_id)
+    return {"status": "ok", "deleted": deleted, "pr_statuses": pr_statuses, "jira_status": jira_status,
+            "workflow": wf, "cleanup_error": cleanup_error}
 
 
 @router.post(

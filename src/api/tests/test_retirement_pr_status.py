@@ -1,6 +1,7 @@
 """Retirement PR reconciliation against real workflow persistence."""
 
 import os
+import asyncio
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -46,7 +47,8 @@ def db():
 
 
 @pytest.fixture
-def client(db):
+def client(db, monkeypatch):
+    monkeypatch.setattr(jira, "get_issue_status", lambda *args: {"status": "Open", "resolution": None})
     app = create_app(Settings(
         database_url=TEST_DB_URL, dev_user="admin@example.com",
         admin_emails_str="admin@example.com",
@@ -124,7 +126,7 @@ def test_cancel_does_not_recreate_workflow_reconciled_during_jira_cleanup(client
     assert response.json()["deleted"] is True
 
 
-@pytest.mark.parametrize("outcome", [True, False, RuntimeError("Jira unavailable"), None])
+@pytest.mark.parametrize("outcome", [True, None])
 def test_cancel_audit_reports_jira_outcome(client, db, monkeypatch, outcome):
     db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1" if outcome is not None else None})
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
@@ -142,6 +144,167 @@ def test_cancel_audit_reports_jira_outcome(client, db, monkeypatch, outcome):
         details = conn.execute("SELECT details FROM analysis_log WHERE ci_name = %s AND action = 'retirement_cancelled' ORDER BY id DESC LIMIT 1", (BASE_NAME,)).fetchone()["details"]
     expected = "failed" if isinstance(outcome, Exception) else "closed" if outcome else "skipped" if outcome is False else "not linked"
     assert f"Jira: {expected}" in details
+
+
+@pytest.mark.parametrize("outcome", [False, RuntimeError("Jira unavailable")])
+def test_required_cancel_retains_workflow_on_jira_failure(client, db, monkeypatch, outcome):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
+    def close(*args):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+    monkeypatch.setattr(jira, "close_issue_wont_do", close)
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+    assert response.status_code == 502
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["cancellation_requested_at"] is not None
+    assert wf["cleanup_error"]
+    assert wf["jira_closed_at"] is None
+
+
+def test_required_cancel_jira_runs_off_event_loop(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
+    seen = []
+    def close(*args):
+        try:
+            asyncio.get_running_loop()
+            seen.append("blocked loop")
+        except RuntimeError:
+            seen.append("worker thread")
+        return True
+    monkeypatch.setattr(jira, "close_issue_wont_do", close)
+    assert client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}").status_code == 200
+    assert seen == ["worker thread"]
+
+
+@pytest.mark.asyncio
+async def test_required_success_retries_jira_after_retirement_without_pr(db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1", "step_retired_at": "NOW()", "agv_retire_pr_url": None})
+    outcomes = [False, True]
+    events = []
+    def close(*args):
+        events.append("Done")
+        return outcomes.pop(0)
+    monkeypatch.setattr(jira, "close_issue_done", close)
+    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    first = await run_retirement_sweep(ctx)
+    assert first["errors"]
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    retired_at = wf["step_retired_at"]
+    assert wf["cleanup_error"] and wf["jira_closed_at"] is None
+    await run_retirement_sweep(ctx)
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["jira_closed_at"] and wf["cleanup_error"] is None
+    assert wf["step_retired_at"] == retired_at
+    await run_retirement_sweep(ctx)
+    assert events == ["Done", "Done"]
+
+
+@pytest.mark.parametrize("entry", ["refresh", "sweep"])
+def test_required_merged_revert_cannot_bypass_jira_failure(client, db, monkeypatch, entry):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1", "agv_revert_pr_url": REVERT_URL})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
+    monkeypatch.setattr(jira, "close_issue_wont_do", lambda *args: False)
+    if entry == "refresh":
+        response = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/check-prs")
+        assert response.json()["deleted"] is False
+        assert response.json()["cleanup_error"]
+    else:
+        result = asyncio.run(run_retirement_sweep({"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}))
+        assert result["reverts_completed"] == 0
+        assert result["errors"]
+    assert db.get_retirement_workflow(CONTENT_ID) is not None
+
+
+def test_required_failed_cancel_is_excluded_from_removal_and_retried_by_sweep(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1", "agv_retire_pr_url": None,
+        "retirement_target_date": date.today() - timedelta(days=1),
+    })
+    monkeypatch.setattr(jira, "close_issue_wont_do", lambda *args: False)
+    assert client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}").status_code == 502
+    assert not db.list_retirement_ready_for_removal()
+    assert db.auto_close_retired_workflows({CONTENT_ID}) == 0
+    async def no_removal(*args):
+        pytest.fail("Cancelled workflows must not produce new removal PRs")
+    monkeypatch.setattr(agv_access, "create_retire_pr", no_removal)
+    monkeypatch.setattr(jira, "close_issue_wont_do", lambda *args: True)
+    result = asyncio.run(run_retirement_sweep({"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}))
+    assert not result["errors"]
+    assert db.get_retirement_workflow(CONTENT_ID) is None
+
+
+def test_required_success_refresh_reports_and_retries_jira_error(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
+    monkeypatch.setattr(jira, "close_issue_done", lambda *args: False)
+    first = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/check-prs").json()
+    assert first["cleanup_error"]
+    assert first["workflow"]["step_retired_at"]
+    assert first["workflow"]["jira_closed_at"] is None
+    monkeypatch.setattr(jira, "close_issue_done", lambda *args: True)
+    second = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/check-prs").json()
+    assert second["cleanup_error"] is None
+    assert second["workflow"]["jira_closed_at"]
+    assert second["workflow"]["step_retired_at"] == first["workflow"]["step_retired_at"]
+
+
+def test_required_cleanup_migration_backfills_legacy_reverts_idempotently(db):
+    db.upsert_retirement_workflow(CONTENT_ID, {"agv_revert_pr_url": REVERT_URL})
+    db.create_schema()
+    requested_at = db.get_retirement_workflow(CONTENT_ID)["cancellation_requested_at"]
+    assert requested_at is not None
+    db.create_schema()
+    assert db.get_retirement_workflow(CONTENT_ID)["cancellation_requested_at"] == requested_at
+    db.delete_retirement_workflow(CONTENT_ID)
+    assert db.update_retirement_cleanup(CONTENT_ID, {"cleanup_error": "failed"}) is None
+    assert db.get_retirement_workflow(CONTENT_ID) is None
+
+
+def test_required_closed_unmerged_revert_is_not_cancellation_success(client, db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"agv_revert_pr_url": REVERT_URL})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
+    result = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/check-prs").json()
+    assert result["deleted"] is False
+    assert "manual recovery" in result["cleanup_error"]
+    assert db.get_retirement_workflow(CONTENT_ID) is not None
+
+
+@pytest.mark.parametrize("action,helper", [("agv-notice", "create_notice_pr"), ("agv-retire", "create_retire_pr")])
+def test_manual_pr_creation_respects_cleanup_lock(client, db, monkeypatch, action, helper):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1", "agv_retire_pr_url": None})
+    monkeypatch.setattr(agv_access, helper, AsyncMock(return_value={"pr_url": REMOVAL_URL, "pr_number": 42, "repo": "rhpds/agnosticv"}))
+    with db.advisory_lock(workflow_lock_id(CONTENT_ID)) as acquired:
+        assert acquired
+        response = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/{action}")
+    assert response.status_code == 409
+    assert db.get_retirement_workflow(CONTENT_ID)["agv_notice_pr_url"] is None
+    assert db.get_retirement_workflow(CONTENT_ID)["agv_retire_pr_url"] is None
+
+
+@pytest.mark.parametrize("action,helper", [("agv-notice", "create_notice_pr"), ("agv-retire", "create_retire_pr")])
+def test_cancel_cannot_delete_tracking_during_manual_pr_creation(client, db, monkeypatch, action, helper):
+    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1", "agv_retire_pr_url": None})
+    monkeypatch.setattr(jira, "close_issue_wont_do", lambda *args: True)
+    outcomes = []
+    async def create(settings, *args):
+        try:
+            await cancel_retirement(db, settings, CONTENT_ID, "admin")
+            outcomes.append("deleted")
+        except CleanupError:
+            outcomes.append("retained")
+        return {"pr_url": REMOVAL_URL, "pr_number": 42, "repo": "rhpds/agnosticv"}
+    monkeypatch.setattr(agv_access, helper, create)
+    response = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/{action}")
+    assert response.status_code == 200
+    assert outcomes == ["retained"]
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["jira_key"] == "EXAMPLE-1"
+    assert wf["cancellation_requested_at"]
 
 
 def test_refresh_completes_merged_removal_before_target_date(client, db, monkeypatch):

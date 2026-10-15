@@ -248,6 +248,7 @@ class RetirementPrStatusResponse(BaseModel):
     deleted: bool = Field(description="True when a merged cancellation revert removed the workflow")
     pr_statuses: dict[str, dict] = Field(description="Live PR states, keyed by workflow PR field; failed lookups include error")
     jira_status: dict | None = None
+    cleanup_error: str | None = Field(default=None, description="Required cleanup failed; tracking retained for retry")
     workflow: dict | None = Field(default=None, description="Current workflow, absent or null after deletion")
 
 

@@ -35,6 +35,7 @@ There is no separate retirement deployment. The API handles individual workflow 
 |---|---|
 | `api/routes/analysis.py` | Workflow actions, role enforcement, retirement report, PR-status checks, sweep enqueueing |
 | `services/retirement.py` | Workflow status derivation from completed steps |
+| `services/retirement_cleanup.py` | Shared required Jira/GitHub cleanup, retries, and per-workflow coordination |
 | `services/jira.py` | Ticket creation, notice templates, status lookup, cancellation transition |
 | `services/agv_access.py` | Repository/path resolution, GitHub App authentication, branch/file/PR operations |
 | `workers/ops.py` | Due-removal creation and merged-PR reconciliation |
@@ -101,7 +102,7 @@ Creating a ticket sets `retirement_target_date` from the requested `target_days`
 
 The Jira service uses direct REST calls with configured credentials. Its wiki-markup ticket description includes the decision, metrics, replacement information, catalog reference, and notice-period length. The notice PR uses a separate AsciiDoc notice helper; Jira does not embed that notice. Resolved Babylon replacements can be linked; other replacements are included as text.
 
-Starting retirement does **not** automatically open the notice PR. An admin uses **Open Notice PR** after starting the workflow. Completing retirement in RCARS also does **not** automatically close the Jira ticket; its status is checked and displayed separately.
+Starting retirement does **not** automatically open the notice PR. An admin uses **Open Notice PR** after starting the workflow. Once retirement is detected, status refresh and the nightly/API sweep close the linked Jira in a terminal state with resolution **Done**, or confirm that it is already closed. Jira work runs outside the API event loop. A failed closure remains tracked and is retried even after catalog retirement; the drawer displays pending cleanup and the last error.
 
 ## AgV Access Layer
 
@@ -150,7 +151,7 @@ The scan worker opens a removal PR when a workflow:
 
 - Has a started marker and a linked Jira key.
 - Has a non-null target date on or before the database's current date.
-- Has no stored removal PR, pending revert PR, or retired marker.
+- Has no stored removal PR, cancellation request, pending revert PR, or retired marker.
 
 The eligibility query does not require a merged notice PR. Human review is still responsible for notice policy. Per-item failures are logged so other items can proceed.
 
@@ -160,7 +161,7 @@ The API/nightly sweep also checks outstanding removal and cancellation-revert PR
 
 Admins can obtain the same live statuses through `check-prs`. The drawer attempts this check on open and provides a manual refresh action. Notice and removal links show merged/closed status with strikethrough. There is no required GitHub webhook and no continuous browser polling loop.
 
-When a cancellation-revert PR has merged, reconciliation removes the workflow. In `check-prs`, this cancellation result takes precedence over removal completion.
+When a cancellation-revert PR has merged, reconciliation removes the workflow only after required Jira closure and the remaining GitHub cleanup succeed. Cancellation takes precedence over removal completion. Failed cleanup is retained, surfaced in the drawer/job errors, and retried; it is not treated as a successful cancellation.
 
 ### Execution Paths
 
@@ -180,16 +181,18 @@ Cancellation is an admin action:
 
 1. Attempt to close an open removal PR. A merged removal is not undone by this action.
 2. Check the notice PR: attempt to close it if open, or create a notice-removal PR if it was merged.
-3. Attempt to transition the linked Jira issue to a terminal state with resolution **Won't Do**.
-4. If a revert PR was created, keep the workflow and return `status: pending_revert`; otherwise delete the workflow.
+3. Close the linked Jira issue in a terminal state with resolution **Won't Do**, or confirm that it is already closed. Missing closing transitions and external failures block cancellation completion.
+4. Keep the workflow while a notice revert awaits merge or any cleanup remains incomplete. Delete it only after both Jira and GitHub cleanup succeed. Workflows without a linked Jira need only GitHub cleanup.
 
-`pending_revert` is an action response, not another stored workflow status. The stored revert URL identifies cancellation awaiting a merge. The drawer keeps this state visible, and the API/nightly sweep deletes the workflow after the revert merges.
+`pending_revert` is an action response, not another stored workflow status. A durable cancellation-request marker is set before external work, even when no revert PR is needed. It prevents new automatic removal PRs and lets refresh/nightly sweeps resume failed cleanup. The stored revert URL tracks a required notice-revert merge. A closed-but-unmerged revert requires manual recovery and does not finish cancellation.
 
 Deleting a workflow also removes that row's snapshot and workflow notes. The separate action log remains; cancellation is not a versioned archive of the deleted workflow.
 
-GitHub and Jira cleanup is not atomic. RCARS closes an open removal PR before creating a notice revert. A GitHub lookup, close, or revert-creation failure returns an error and retains the workflow for retry; earlier external changes are not rolled back. Jira closure remains best-effort: the audit trail records whether it closed, was skipped, or failed. Check GitHub and Jira before declaring cancellation complete. A closed-but-unmerged revert does not finish cancellation.
+GitHub and Jira cleanup is not atomic. RCARS closes an open removal PR before creating a notice revert. Any required cleanup failure returns an error and retains the workflow and links for retry; earlier successful external changes are not rolled back. Already-closed Jira issues retain their existing resolution. Per-workflow locks coordinate API cleanup with sweep actions, and update-only tracking prevents a late response from recreating a deleted workflow.
 
 Restoring an already-removed CI requires a separate repository change and catalog publication. Cancellation does not restore deleted configuration or automatically reopen Jira.
+
+If successful repository listings confirm that the CI directory or notice is already absent, notice cleanup is complete without creating a revert. Lookup and authentication failures are not treated as proof of absence; tracking remains until they can be resolved.
 
 ## Catalog Soft-Delete
 
@@ -221,11 +224,12 @@ Workflows are keyed by `content_id`, referencing `content_entities`. APIs accept
 | `replacement_ci`, `replacement_name` | Suggested successor |
 | `jira_key`, `jira_project`, `retirement_target_date` | Ticket linkage and automatic-sweep timing |
 | `agv_notice_pr_url`, `agv_retire_pr_url`, `agv_revert_pr_url` | External PR references, not cached merge-state columns |
+| `cancellation_requested_at`, `jira_closed_at`, `cleanup_error` | Durable cancellation intent, confirmed Jira closure, and retryable cleanup failure |
 | `curator_notes`, `created_at`, `updated_at` | Notes and record history timestamps |
 
 Actions such as `retirement_reviewed`, `retirement_approved`, `retirement_notified`, `retirement_started`, `retirement_jira_linked`, `agv_notice_pr_opened`, `agv_retire_pr_opened`, `retirement_cancel_pending`, `retirement_cancelled`, and `retirement_completed` are recorded in `analysis_log`. Worker/catalog lifecycle events also appear in structured logs. These can contain user identities and external references; treat them as operational data, not documentation examples.
 
-The schema source of truth is `SCHEMA_SQL` in `db/database.py`. Deploy-time `rcars init-db` adds the PR-link columns idempotently; no destructive reset is required. See [Data Design](data-design.md).
+The schema source of truth is `SCHEMA_SQL` in `db/database.py`. Deploy-time `rcars init-db` adds the PR-link and cleanup-tracking columns idempotently and marks existing revert-linked workflows as cancellations; no destructive reset is required. Existing retired workflows with linked Jira issues and no closure marker will be checked on subsequent sweeps, so review those issues before enabling the new behavior. See [Data Design](data-design.md).
 
 ## Programmatic Access
 

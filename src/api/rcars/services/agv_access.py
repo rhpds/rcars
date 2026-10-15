@@ -52,6 +52,10 @@ class GitHubAPIError(Exception):
         super().__init__(f"GitHub API {method} {url} → {status_code}: {body}")
 
 
+class AgVPathAbsent(GitHubAPIError):
+    """A successful repository listing confirmed the requested directory is absent."""
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
@@ -93,7 +97,7 @@ async def _verify_agv_path(
             ns_dir = entry["name"]
             break
     if not ns_dir:
-        raise GitHubAPIError(
+        raise AgVPathAbsent(
             "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
             404, f"Namespace directory not found for {ns_guess}",
         )
@@ -112,7 +116,7 @@ async def _verify_agv_path(
             logger.debug("agv_path_resolved", input=agv_path, resolved=resolved)
             return resolved
 
-    raise GitHubAPIError(
+    raise AgVPathAbsent(
         "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
         404, f"CI directory not found in {ns_dir}/ matching {ci_guess}",
     )
@@ -478,7 +482,11 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         default_branch, main_sha = await _get_default_branch(client, token, owner, repo_name)
-        agv_path = await _verify_agv_path(client, token, owner, repo_name, agv_path)
+        try:
+            agv_path = await _verify_agv_path(client, token, owner, repo_name, agv_path)
+        except AgVPathAbsent:
+            logger.info("agv_revert_ci_already_absent", base_name=base_name, action="revert_notice_pr")
+            return None
         desc_path = f"{agv_path}/description.adoc"
 
         branch_existed = False
@@ -499,8 +507,11 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
             )
         except GitHubAPIError as exc:
             if exc.status_code == 404:
-                logger.warning("agv_revert_notice_no_file", base_name=base_name, action="revert_notice_pr")
-                return None
+                ref = branch if branch_existed else default_branch
+                entries = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo_name}/contents/{agv_path}?ref={ref}")
+                if not any(entry.get("name") == "description.adoc" for entry in entries):
+                    logger.info("agv_revert_notice_no_file", base_name=base_name, action="revert_notice_pr")
+                    return None
             raise
 
         cleaned = _remove_notice_block(content)

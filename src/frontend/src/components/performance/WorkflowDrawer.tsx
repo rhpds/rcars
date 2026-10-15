@@ -219,6 +219,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
         if (workflow && (workflow.agv_notice_pr_url || workflow.agv_retire_pr_url || workflow.agv_revert_pr_url || workflow.jira_key)) {
           try {
             const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+            if (result.cleanup_error) setActionError(result.cleanup_error)
             setPrStatuses(result.pr_statuses)
             if (result.jira_status) setJiraStatus(result.jira_status)
             if (result.deleted) {
@@ -283,8 +284,8 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const handleCancel = async () => {
     const hasJira = drawerWorkflow?.jira_key
     const msg = hasJira
-      ? `This will cancel the retirement workflow and unlink ${drawerWorkflow.jira_key}. The Jira ticket will remain open. Continue?`
-      : 'This will cancel the retirement workflow and remove all progress. Continue?'
+      ? `This will cancel retirement and close ${drawerWorkflow.jira_key} with resolution “Won’t Do” (or confirm it is already closed). Tracking is retained until Jira closure and GitHub cleanup complete. A merged notice requires a revert PR to be merged. Continue?`
+      : 'This will cancel retirement. Tracking is retained until GitHub cleanup completes, including any required notice-revert merge. Continue?'
     if (!confirm(msg)) return
     setActionLoading('cancel')
     setActionError(null)
@@ -307,6 +308,11 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Cancel failed')
+      try {
+        const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
+        setDrawerWorkflow(workflow)
+        onChanged()
+      } catch { /* The original cleanup error remains visible. */ }
     }
     setActionLoading(false)
   }
@@ -352,6 +358,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     setActionError(null)
     try {
       const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+      if (result.cleanup_error) setActionError(result.cleanup_error)
       setPrStatuses(result.pr_statuses)
       if (result.jira_status) setJiraStatus(result.jira_status)
       if (result.deleted) {
@@ -416,6 +423,7 @@ RHDP Content Team`
   const isNotified = !!wf?.step_notified_at
   const isStarted = !!wf?.step_started_at
   const isRetired = !!wf?.step_retired_at
+  const cleanupError = actionError || wf?.cleanup_error
 
   const approveIsNext = !isApproved
   const notifyIsNext = isApproved && !isNotified && !isStarted
@@ -434,6 +442,17 @@ RHDP Content Team`
             <p className="ca-color-muted" style={{ padding: 'var(--sp-md)' }}>Loading workflow...</p>
           ) : (
             <>
+              {wf?.cancellation_requested_at && (
+                <div role="status" style={{ padding: 'var(--sp-md)', color: 'var(--score-amber)' }}>
+                  Cancellation pending — tracking is retained until Jira closure and GitHub cleanup complete.
+                  {isAdmin && <button className="ret-action-btn" onClick={handleCancel} disabled={!!actionLoading}>Retry Cleanup</button>}
+                </div>
+              )}
+              {isRetired && wf?.jira_key && !wf.jira_closed_at && !wf.cancellation_requested_at && (
+                <div role="status" style={{ padding: 'var(--sp-md)', color: 'var(--score-amber)' }}>
+                  Catalog retirement complete — Jira closure is pending. Refresh or the nightly sweep will retry.
+                </div>
+              )}
               {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
               <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
               <div className="ret-data-grid">
@@ -710,7 +729,7 @@ RHDP Content Team`
                             style={prStatuses?.agv_notice_pr_url?.merged || prStatuses?.agv_notice_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
                             Notice PR #{wf.agv_notice_pr_url.split('/').pop()}{prStatuses?.agv_notice_pr_url?.merged ? ' (merged)' : prStatuses?.agv_notice_pr_url?.state === 'closed' ? ' (closed)' : ''} →
                           </a>
-                        ) : isAdmin && (
+                        ) : isAdmin && !wf?.cancellation_requested_at && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenNoticePr}
                             disabled={!!actionLoading}
@@ -735,7 +754,7 @@ RHDP Content Team`
                             style={prStatuses?.agv_retire_pr_url?.merged || prStatuses?.agv_retire_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
                             Removal PR #{wf.agv_retire_pr_url.split('/').pop()}{prStatuses?.agv_retire_pr_url?.merged ? ' (merged)' : prStatuses?.agv_retire_pr_url?.state === 'closed' ? ' (closed)' : ''} →
                           </a>
-                        ) : isAdmin && !wf?.agv_revert_pr_url && (
+                        ) : isAdmin && !wf?.agv_revert_pr_url && !wf?.cancellation_requested_at && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenRetirePr}
                             disabled={!!actionLoading}
@@ -834,13 +853,13 @@ RHDP Content Team`
               </div>
 
               {/* ── Action Error ── */}
-              {actionError && (
+              {cleanupError && (
                 <div style={{
                   background: 'var(--error-bg)', border: '1px solid var(--error-border)',
                   borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '12px',
                   color: 'var(--error-title)', marginTop: '8px',
                 }}>
-                  {actionError}
+                  {cleanupError}
                 </div>
               )}
 

@@ -603,6 +603,11 @@ ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS node_size TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_notice_pr_url TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_retire_pr_url TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_revert_pr_url TEXT;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMPTZ;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS jira_closed_at TIMESTAMPTZ;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS cleanup_error TEXT;
+UPDATE retirement_workflow SET cancellation_requested_at = updated_at
+WHERE agv_revert_pr_url IS NOT NULL AND cancellation_requested_at IS NULL;
 
 """
 
@@ -3491,6 +3496,21 @@ class Database:
             conn.commit()
         return deleted
 
+    def update_retirement_cleanup(self, content_id: str, fields: dict) -> dict | None:
+        """Update cleanup tracking without recreating a concurrently deleted workflow."""
+        allowed = {"cancellation_requested_at", "jira_closed_at", "cleanup_error", "agv_revert_pr_url"}
+        if not fields or not set(fields) <= allowed:
+            raise ValueError("Invalid retirement cleanup fields")
+        assignments = ", ".join(f"{column} = %s" for column in fields)
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                f"UPDATE retirement_workflow SET {assignments}, updated_at = NOW() "
+                "WHERE content_id = %s RETURNING *",
+                [*fields.values(), content_id],
+            ).fetchone()
+            conn.commit()
+        return row
+
     def list_retirement_items(self, search: str | None = None) -> list[dict]:
         """Items with an approved retirement workflow or soft-retired."""
         params: dict = {}
@@ -3565,6 +3585,7 @@ class Database:
             "AND retirement_target_date <= CURRENT_DATE "
             "AND agv_retire_pr_url IS NULL "
             "AND agv_revert_pr_url IS NULL "
+            "AND cancellation_requested_at IS NULL "
             "AND step_retired_at IS NULL "
             "ORDER BY retirement_target_date ASC"
         )
@@ -3593,7 +3614,7 @@ class Database:
             f"UPDATE retirement_workflow "
             f"SET step_retired_at = NOW(), status = 'retired', updated_at = NOW() "
             f"WHERE content_id IN ({placeholders}) "
-            f"AND step_retired_at IS NULL"
+            f"AND step_retired_at IS NULL AND cancellation_requested_at IS NULL AND agv_revert_pr_url IS NULL"
         )
         with self._pool.connection() as conn:
             with conn.cursor() as cur:

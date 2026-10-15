@@ -400,6 +400,34 @@ async def test_revert_notice_pr_none_when_no_block(mock_jwt, mock_client_cls):
     assert result is None
 
 
+@pytest.mark.parametrize("listing", [[], [{"name": "sandboxes-gpte", "type": "dir"}]])
+@patch("rcars.services.agv_access.httpx.AsyncClient")
+@patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
+async def test_revert_absent_ci_confirmed_by_successful_listing(mock_jwt, mock_client_cls, listing):
+    client = _mock_client()
+    responses = iter([
+        _resp(200, {"token": "t"}), _resp(200, {"default_branch": "main"}),
+        _resp(200, {"object": {"sha": "head"}}), _resp(200, listing), _resp(200, []),
+    ])
+    client.request.side_effect = lambda *a, **k: next(responses)
+    mock_client_cls.return_value = client
+    assert await revert_notice_pr(_settings(), "sandboxes-gpte.lab", "EXAMPLE-1") is None
+
+
+@patch("rcars.services.agv_access.httpx.AsyncClient")
+@patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
+async def test_revert_root_lookup_failure_is_not_confirmed_absence(mock_jwt, mock_client_cls):
+    client = _mock_client()
+    responses = iter([
+        _resp(200, {"token": "t"}), _resp(200, {"default_branch": "main"}),
+        _resp(200, {"object": {"sha": "head"}}), _resp(404, {"message": "Not Found"}),
+    ])
+    client.request.side_effect = lambda *a, **k: next(responses)
+    mock_client_cls.return_value = client
+    with pytest.raises(GitHubAPIError):
+        await revert_notice_pr(_settings(), "sandboxes-gpte.lab", "EXAMPLE-1")
+
+
 @patch("rcars.services.agv_access.httpx.AsyncClient")
 @patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
 async def test_revert_notice_pr_none_on_404(mock_jwt, mock_client_cls):
@@ -420,6 +448,8 @@ async def test_revert_notice_pr_none_on_404(mock_jwt, mock_client_cls):
             return _resp(200, [{"name": "lab", "type": "dir"}])
         if call_count["n"] == 6:
             return _resp(200, {})  # create branch
+        if call_count["n"] == 8:
+            return _resp(200, [])  # successfully confirm description is absent
         # get_file → 404
         raise GitHubAPIError("GET", "", 404, "not found")
 
@@ -428,6 +458,24 @@ async def test_revert_notice_pr_none_on_404(mock_jwt, mock_client_cls):
 
     result = await revert_notice_pr(_settings(), "sandboxes-gpte.lab", "RHDPCD-1")
     assert result is None
+
+
+@patch("rcars.services.agv_access.httpx.AsyncClient")
+@patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
+async def test_revert_file_404_requires_confirmed_absence(mock_jwt, mock_client_cls):
+    client = _mock_client()
+    responses = iter([
+        _resp(200, {"token": "t"}), _resp(200, {"default_branch": "main"}),
+        _resp(200, {"object": {"sha": "head"}}),
+        _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}]),
+        _resp(200, [{"name": "lab", "type": "dir"}]), _resp(200, {}),
+        _resp(404, {"message": "Not Found"}),
+        _resp(200, [{"name": "description.adoc", "type": "file"}]),
+    ])
+    client.request.side_effect = lambda *a, **k: next(responses)
+    mock_client_cls.return_value = client
+    with pytest.raises(GitHubAPIError):
+        await revert_notice_pr(_settings(), "sandboxes-gpte.lab", "EXAMPLE-1")
 
 
 @patch("rcars.services.agv_access.httpx.AsyncClient")

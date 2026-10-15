@@ -237,12 +237,22 @@ def create_retirement_ticket(
     return issue_key
 
 
-def close_issue_wont_do(settings, jira_key: str) -> bool:
-    """Return whether a closing transition with resolution 'Won't Do' was applied."""
+def _issue_is_closed(issue: dict) -> bool:
+    fields = (issue or {}).get("fields", {})
+    status = fields.get("status") or {}
+    terminal = (status.get("statusCategory") or {}).get("key") == "done" or status.get("name", "").lower() in ("done", "closed")
+    return terminal and bool(fields.get("resolution"))
+
+
+def _close_issue(settings, jira_key: str, resolution: str) -> bool:
+    """Confirm closure, preserving an already-closed issue's resolution."""
+    issue_path = f"/rest/api/2/issue/{jira_key}?fields=status,resolution"
+    if _issue_is_closed(_jira_request(settings, issue_path, method="GET")):
+        return True
     resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", method="GET")
     target = None
     for t in (resp or {}).get("transitions", []):
-        if t["to"]["name"].lower() in ("done", "closed"):
+        if (t["to"].get("statusCategory") or {}).get("key") == "done" or t["to"]["name"].lower() in ("done", "closed"):
             target = t
             break
     if not target:
@@ -251,10 +261,24 @@ def close_issue_wont_do(settings, jira_key: str) -> bool:
 
     _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", body={
         "transition": {"id": target["id"]},
-        "fields": {"resolution": {"name": "Won't Do"}},
+        "fields": {"resolution": {"name": resolution}},
     })
-    logger.info("jira_closed_wont_do", jira_key=jira_key)
+    confirmed = _jira_request(settings, issue_path, method="GET")
+    actual_resolution = ((confirmed or {}).get("fields", {}).get("resolution") or {}).get("name")
+    if not _issue_is_closed(confirmed) or actual_resolution != resolution:
+        raise RuntimeError(f"Jira closure not confirmed for {jira_key}")
+    logger.info("jira_closed", jira_key=jira_key, resolution=resolution)
     return True
+
+
+def close_issue_wont_do(settings, jira_key: str) -> bool:
+    """Confirm cancellation closure; False means no closing transition exists."""
+    return _close_issue(settings, jira_key, "Won't Do")
+
+
+def close_issue_done(settings, jira_key: str) -> bool:
+    """Confirm successful-retirement closure with the Done resolution."""
+    return _close_issue(settings, jira_key, "Done")
 
 
 def get_issue_status(settings, jira_key: str) -> dict:
