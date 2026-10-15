@@ -300,7 +300,7 @@ export const api = {
     }),
 
   cancelRetirementWorkflow: (baseName: string) =>
-    request<{ status: string; deleted: boolean }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
+    request<{ status: string; deleted: boolean; workflow?: RetirementWorkflow; revert_pr_urls?: string[] }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 
   openAgvNoticePr: (baseName: string) =>
     request<{ status: string; workflow: RetirementWorkflow; pr_url: string; pr_number: number; repo: string }>(

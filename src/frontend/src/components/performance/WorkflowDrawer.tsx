@@ -216,6 +216,14 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
         setJiraProject(workflow?.jira_project || 'RHDPCD')
         setLinkJiraKey('')
         setNotesSaved(false)
+        if (workflow && (workflow.agv_notice_pr_url || workflow.agv_retire_pr_url || workflow.agv_revert_pr_url || workflow.jira_key)) {
+          try {
+            const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+            setPrStatuses(result.pr_statuses)
+            if (result.jira_status) setJiraStatus(result.jira_status)
+            if (result.workflow) setDrawerWorkflow(result.workflow)
+          } catch { /* non-critical */ }
+        }
       } catch { setDrawerWorkflow(null) }
       setDrawerLoading(false)
     }
@@ -274,9 +282,21 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     setActionLoading(true)
     setActionError(null)
     try {
-      await api.cancelRetirementWorkflow(item.catalog_base_name)
-      setDrawerWorkflow(null)
-      onClose()
+      const result = await api.cancelRetirementWorkflow(item.catalog_base_name)
+      if (result.status === 'pending_revert' && result.workflow) {
+        setDrawerWorkflow(result.workflow)
+        setPrStatuses(null)
+        setJiraStatus(null)
+        try {
+          const check = await api.checkAgvPrStatuses(item.catalog_base_name)
+          setPrStatuses(check.pr_statuses)
+          if (check.jira_status) setJiraStatus(check.jira_status)
+          if (check.workflow) setDrawerWorkflow(check.workflow)
+        } catch { /* non-critical */ }
+      } else {
+        setDrawerWorkflow(null)
+        onClose()
+      }
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Cancel failed')
