@@ -2,6 +2,7 @@
 
 import os
 import asyncio
+from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -55,6 +56,21 @@ def client(db, monkeypatch):
     ))
     app.state.db = db
     return TestClient(app)
+
+
+def _sweep_context(db, **credentials):
+    """Keep credential-dependent sweeps deterministic and external calls mocked."""
+    configured = {
+        "github_app_id": "12345",
+        "github_app_private_key": "synthetic-key",
+        "github_app_installation_id": "99999",
+        "jira_api_email": "admin@example.com",
+        "jira_api_token": "synthetic-token",
+    }
+    configured.update(credentials)
+    return {"worker_ctx": SimpleNamespace(db=db, settings=Settings(
+        database_url=TEST_DB_URL, **configured,
+    ))}
 
 
 @pytest.mark.parametrize("failure", ["notice_lookup", "notice_close", "removal_lookup", "removal_close", "revert"])
@@ -188,7 +204,7 @@ async def test_required_success_retries_jira_after_retirement_without_pr(db, mon
         events.append("Done")
         return outcomes.pop(0)
     monkeypatch.setattr(jira, "close_issue_done", close)
-    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    ctx = _sweep_context(db)
     first = await run_retirement_sweep(ctx)
     assert first["errors"]
     wf = db.get_retirement_workflow(CONTENT_ID)
@@ -212,7 +228,7 @@ def test_required_merged_revert_cannot_bypass_jira_failure(client, db, monkeypat
         assert response.json()["deleted"] is False
         assert response.json()["cleanup_error"]
     else:
-        result = asyncio.run(run_retirement_sweep({"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}))
+        result = asyncio.run(run_retirement_sweep(_sweep_context(db)))
         assert result["reverts_completed"] == 0
         assert result["errors"]
     assert db.get_retirement_workflow(CONTENT_ID) is not None
@@ -231,7 +247,7 @@ def test_required_failed_cancel_is_excluded_from_removal_and_retried_by_sweep(cl
         pytest.fail("Cancelled workflows must not produce new removal PRs")
     monkeypatch.setattr(agv_access, "create_retire_pr", no_removal)
     monkeypatch.setattr(jira, "close_issue_wont_do", lambda *args: True)
-    result = asyncio.run(run_retirement_sweep({"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}))
+    result = asyncio.run(run_retirement_sweep(_sweep_context(db)))
     assert not result["errors"]
     assert db.get_retirement_workflow(CONTENT_ID) is None
 
@@ -394,7 +410,7 @@ async def test_sweep_reconciles_merged_removal_without_new_prs_due(db, monkeypat
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(
         return_value={"state": "closed", "merged": True},
     ))
-    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    ctx = _sweep_context(db)
 
     result = await run_retirement_sweep(ctx)
 
@@ -416,7 +432,7 @@ async def test_sweep_reconciles_merged_removal_without_new_prs_due(db, monkeypat
 async def test_sweep_does_not_retire_unmerged_or_unknown_pr(db, monkeypatch, state):
     lookup = AsyncMock(side_effect=state) if isinstance(state, Exception) else AsyncMock(return_value=state)
     monkeypatch.setattr(agv_access, "get_pr_state", lookup)
-    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    ctx = _sweep_context(db)
 
     result = await run_retirement_sweep(ctx)
 
@@ -435,7 +451,7 @@ async def test_sweep_does_not_retire_from_merged_notice_alone(db, monkeypatch):
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(
         return_value={"state": "closed", "merged": True},
     ))
-    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    ctx = _sweep_context(db)
 
     result = await run_retirement_sweep(ctx)
 
@@ -449,9 +465,264 @@ async def test_sweep_reconciles_merged_revert_without_new_prs_due(db, monkeypatc
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(
         return_value={"state": "closed", "merged": True},
     ))
-    ctx = {"worker_ctx": SimpleNamespace(db=db, settings=Settings(database_url=TEST_DB_URL))}
+    ctx = _sweep_context(db)
 
     result = await run_retirement_sweep(ctx)
 
     assert result["reverts_completed"] == 1
     assert db.get_retirement_workflow(CONTENT_ID) is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_github_only_opens_due_removal(db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1", "agv_retire_pr_url": None,
+        "retirement_target_date": date.today() - timedelta(days=1),
+    })
+    monkeypatch.setattr(agv_access, "create_retire_pr", AsyncMock(return_value={"pr_url": REMOVAL_URL}))
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "open", "merged": False}))
+
+    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+
+    assert result["prs_opened"] == 1
+    assert result["errors"] == []
+    assert db.get_retirement_workflow(CONTENT_ID)["agv_retire_pr_url"] == REMOVAL_URL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["github_app_id", "github_app_private_key", "github_app_installation_id"])
+async def test_sweep_partial_github_defers_removal_with_targeted_error(db, monkeypatch, missing):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1", "agv_retire_pr_url": None,
+        "retirement_target_date": date.today() - timedelta(days=1),
+    })
+    async def unexpected(*args):
+        pytest.fail("Missing GitHub credentials must defer without calling GitHub")
+    monkeypatch.setattr(agv_access, "create_retire_pr", unexpected)
+
+    result = await run_retirement_sweep(_sweep_context(db, **{missing: ""}))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert result["prs_opened"] == 0
+    assert any("GitHub" in error and "configured" in error for error in result["errors"])
+    assert "GitHub" in wf["cleanup_error"]
+    assert wf["agv_retire_pr_url"] is None
+    assert wf["step_retired_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_jira_only_defers_unknown_removal_state(db, monkeypatch):
+    async def unexpected(*args):
+        pytest.fail("Missing GitHub credentials must not trigger PR status lookups")
+    monkeypatch.setattr(agv_access, "get_pr_state", unexpected)
+
+    result = await run_retirement_sweep(_sweep_context(
+        db, github_app_id="", github_app_private_key="", github_app_installation_id="",
+    ))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert result["retirements_completed"] == 0
+    assert any("GitHub" in error for error in result["errors"])
+    assert "GitHub" in wf["cleanup_error"]
+    assert wf["step_retired_at"] is None
+    assert wf["agv_retire_pr_url"] == REMOVAL_URL
+
+
+@pytest.mark.asyncio
+async def test_sweep_restored_github_clears_configuration_error_for_open_removal(db, monkeypatch):
+    await run_retirement_sweep(_sweep_context(db, github_app_private_key=""))
+    assert "GitHub" in db.get_retirement_workflow(CONTENT_ID)["cleanup_error"]
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "open", "merged": False}))
+
+    result = await run_retirement_sweep(_sweep_context(db))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert result["errors"] == []
+    assert wf["cleanup_error"] is None
+    assert wf["step_retired_at"] is None
+    assert wf["agv_retire_pr_url"] == REMOVAL_URL
+
+
+@pytest.mark.asyncio
+async def test_sweep_successful_lookup_keeps_unrelated_cleanup_errors(db, monkeypatch):
+    db.update_retirement_cleanup(CONTENT_ID, {"cleanup_error": "Jira retirement closure failed; retry required"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "open", "merged": False}))
+
+    await run_retirement_sweep(_sweep_context(db))
+
+    assert db.get_retirement_workflow(CONTENT_ID)["cleanup_error"] == "Jira retirement closure failed; retry required"
+
+
+@pytest.mark.asyncio
+async def test_sweep_lock_loser_does_not_overwrite_concurrent_completion(db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
+    @contextmanager
+    def contended_lock(lock_id):
+        # The lock owner finishes just before this sweep observes contention.
+        db.auto_close_retired_workflows({CONTENT_ID})
+        db.update_retirement_cleanup(CONTENT_ID, {
+            "jira_closed_at": datetime.now(timezone.utc), "cleanup_error": None,
+        })
+        yield False
+    monkeypatch.setattr(db, "advisory_lock", contended_lock)
+
+    await run_retirement_sweep(_sweep_context(db))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["status"] == "retired"
+    assert wf["jira_closed_at"] is not None
+    assert wf["cleanup_error"] is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", ["jira_api_email", "jira_api_token"])
+async def test_sweep_partial_jira_records_retirement_and_retries_cleanup(db, monkeypatch, missing):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
+    def unexpected(*args):
+        pytest.fail("Missing Jira credentials must defer without calling Jira")
+    monkeypatch.setattr(jira, "close_issue_done", unexpected)
+    ctx = _sweep_context(db, **{missing: ""})
+
+    result = await run_retirement_sweep(ctx)
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    retired_at = wf["step_retired_at"]
+    assert retired_at is not None
+    assert wf["jira_closed_at"] is None
+    assert "Jira" in wf["cleanup_error"] and "configured" in wf["cleanup_error"]
+    assert any("Jira" in error and "configured" in error for error in result["errors"])
+
+    monkeypatch.setattr(jira, "close_issue_done", lambda *args: True)
+    ctx["worker_ctx"].settings = _sweep_context(db)["worker_ctx"].settings
+    retried = await run_retirement_sweep(ctx)
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert retried["errors"] == []
+    assert retried["jira_closed"] == 1
+    assert wf["jira_closed_at"] is not None
+    assert wf["cleanup_error"] is None
+    assert wf["step_retired_at"] == retired_at
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed", [False, True])
+async def test_sweep_github_only_completes_when_no_jira_work_remains(db, monkeypatch, closed):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1" if closed else None,
+    })
+    if closed:
+        db.update_retirement_cleanup(CONTENT_ID, {"jira_closed_at": datetime.now(timezone.utc)})
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
+    def unexpected(*args):
+        pytest.fail("No Jira closure should be attempted")
+    monkeypatch.setattr(jira, "close_issue_done", unexpected)
+
+    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+
+    assert result["errors"] == []
+    assert result["retirements_completed"] == 1
+    assert db.get_retirement_workflow(CONTENT_ID)["status"] == "retired"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closed", [False, True])
+async def test_sweep_github_only_cancels_when_no_jira_work_remains(db, monkeypatch, closed):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1" if closed else None})
+    fields = {"cancellation_requested_at": datetime.now(timezone.utc)}
+    if closed:
+        fields["jira_closed_at"] = datetime.now(timezone.utc)
+    db.update_retirement_cleanup(CONTENT_ID, fields)
+    monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": False}))
+    def unexpected(*args):
+        pytest.fail("No Jira closure should be attempted")
+    monkeypatch.setattr(jira, "close_issue_wont_do", unexpected)
+
+    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+
+    assert result["errors"] == []
+    assert result["reverts_completed"] == 1
+    assert db.get_retirement_workflow(CONTENT_ID) is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_github_only_cancellation_preserves_revert_until_jira_available(db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1", "agv_notice_pr_url": "https://github.com/rhpds/agnosticv/pull/41",
+    })
+    db.update_retirement_cleanup(CONTENT_ID, {"cancellation_requested_at": datetime.now(timezone.utc)})
+    events = []
+    async def state(settings, repo, number):
+        return {"state": "open" if number == 42 else "closed", "merged": number != 42}
+    async def close(settings, repo, number):
+        events.append((repo, number))
+    monkeypatch.setattr(agv_access, "get_pr_state", state)
+    monkeypatch.setattr(agv_access, "close_pr", close)
+    monkeypatch.setattr(agv_access, "revert_notice_pr", AsyncMock(return_value={"pr_url": REVERT_URL}))
+    def unexpected(*args):
+        pytest.fail("Missing Jira credentials must not trigger Jira closure")
+    monkeypatch.setattr(jira, "close_issue_wont_do", unexpected)
+
+    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert events == [("rhpds/agnosticv", 42)]
+    assert wf["agv_revert_pr_url"] == REVERT_URL
+    assert wf["jira_closed_at"] is None
+    assert "Jira" in wf["cleanup_error"] and "configured" in wf["cleanup_error"]
+    assert result["reverts_completed"] == 0
+    assert any("Jira" in error for error in result["errors"])
+
+
+@pytest.mark.asyncio
+async def test_sweep_jira_only_preserves_cancellation_with_github_work(db, monkeypatch):
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
+    db.update_retirement_cleanup(CONTENT_ID, {"cancellation_requested_at": datetime.now(timezone.utc)})
+    async def unexpected_github(*args):
+        pytest.fail("Missing GitHub credentials must not trigger cancellation PR cleanup")
+    def unexpected_jira(*args):
+        pytest.fail("Jira must not close before the required GitHub cleanup")
+    monkeypatch.setattr(agv_access, "get_pr_state", unexpected_github)
+    monkeypatch.setattr(jira, "close_issue_wont_do", unexpected_jira)
+
+    result = await run_retirement_sweep(_sweep_context(
+        db, github_app_id="", github_app_private_key="", github_app_installation_id="",
+    ))
+
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert result["reverts_completed"] == 0
+    assert any("GitHub" in error for error in result["errors"])
+    assert "GitHub" in wf["cleanup_error"]
+    assert wf["jira_closed_at"] is None
+    assert wf["agv_retire_pr_url"] == REMOVAL_URL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["nightly", "queued"])
+async def test_sweep_jira_only_entry_retries_recorded_retirement_without_github(db, monkeypatch, entry):
+    from rcars.workers import ops
+
+    db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1", "step_retired_at": "NOW()"})
+    ctx = _sweep_context(db, github_app_id="", github_app_private_key="", github_app_installation_id="")
+    ctx["worker_ctx"].relay = SimpleNamespace(publish=AsyncMock())
+    async def unexpected(*args):
+        pytest.fail("Recorded retirements need no GitHub lookup")
+    monkeypatch.setattr(agv_access, "get_pr_state", unexpected)
+    monkeypatch.setattr(jira, "close_issue_done", lambda *args: True)
+    monkeypatch.setattr(ops, "run_babylon_pipeline", AsyncMock(return_value={}))
+    monkeypatch.setattr(ops, "run_osspa_pipeline", AsyncMock(return_value={}))
+    job_id = db.create_job(job_type="retirement_sweep", queue="scan", created_by="test")
+    try:
+        if entry == "nightly":
+            result = (await ops.run_nightly_pipeline(ctx, job_id))["retirement"]
+        else:
+            result = await ops.run_retirement_sweep_job(ctx, job_id)
+
+        assert result["errors"] == []
+        assert result["jira_closed"] == 1
+        assert db.get_retirement_workflow(CONTENT_ID)["jira_closed_at"] is not None
+    finally:
+        with db.pool.connection() as conn:
+            conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            conn.commit()

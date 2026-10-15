@@ -167,13 +167,15 @@ When a cancellation-revert PR has merged, reconciliation removes the workflow on
 
 | Entry point | Behavior |
 |---|---|
-| Nightly maintenance | Runs the retirement sweep after the Babylon and portfolio-architecture sub-pipelines when a GitHub App ID is configured |
+| Nightly maintenance | Runs the retirement sweep after the Babylon and portfolio-architecture sub-pipelines when a GitHub App ID or Jira API token is configured |
 | **Run Retirement Sweep** on Sync & Analysis | Enqueues the full sweep on `arq:queue:scan` |
 | Retirement sweep API action | Returns a job ID; the scan worker creates due PRs and reconciles merges |
 | `rcars retirement sweep` | Direct CLI path that opens due removal PRs; currently does not perform merged-removal/revert reconciliation |
 | Drawer refresh / `check-prs` | Synchronous status check for one workflow, with workflow completion or cancellation cleanup |
 
 Queued sweep jobs publish progress through Redis/SSE and persist a result containing `processed`, `prs_opened`, `retirements_completed`, `reverts_completed`, and per-item `errors`. `processed` counts workflows selected for new removal creation, not every PR checked. A completed job can still contain item-level errors; inspect the result and logs.
+
+Each sweep operation checks the credentials it needs. Removal PR creation and PR lookups require the GitHub App ID, private key, and installation ID. Jira closure requires the Jira API email and token, but only when an issue is linked and no closure marker has been recorded. GitHub-only configurations can still open removal PRs and finish workflows with no remaining Jira work; Jira-only configurations can close issues for already-recorded retirements without a GitHub lookup. Missing credentials retain the workflow with a targeted pending-cleanup error rather than calling the unavailable integration. Cancellation still completes its required GitHub work before Jira closure.
 
 ## Cancellation and Recovery
 

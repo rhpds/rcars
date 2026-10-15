@@ -398,7 +398,7 @@ Each item receives a score from 0 to 100. **Higher scores indicate better perfor
 
 The Retirement page (`/analysis/retirement`) is available to curators and admins. It lists **Recommended**, **In Progress**, and **Retired** items, including items removed from Babylon outside an RCARS workflow. Search by display name, filter by status or namespace, select a 6-month or 1-year metric window, and expand a row to open its workflow.
 
-Cancellation requires Jira closure and GitHub cleanup, including merging a notice-revert PR when necessary. Failures keep the workflow visible for retry; they do not silently abandon the issue or PRs. Successful retirement closes the linked Jira as **Done**. Catalog retirement and external cleanup are tracked separately, so the drawer can show a retired item with Jira closure still pending. Use refresh or wait for the nightly sweep to retry.
+Cancellation requires GitHub cleanup, including merging a notice-revert PR when necessary, plus Jira closure when an issue is linked. Workflows without a linked Jira issue need only GitHub cleanup. Failures keep the workflow visible for retry; they do not silently abandon the issue or PRs. Successful retirement closes the linked Jira as **Done**. Catalog retirement and external cleanup are tracked separately, so the drawer can show a retired item with Jira closure still pending. Use refresh or wait for the nightly sweep to retry.
 
 The shared drawer has four visible lifecycle steps:
 

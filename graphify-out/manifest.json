@@ -246,9 +246,9 @@
     "semantic_hash": "6fc3b429c3c3e83175a634a08a737a39"
   },
   "src/api/rcars/workers/ops.py": {
-    "mtime": 1792072650.037767,
-    "seen": 1792072829.864766,
-    "ast_hash": "0c0321c60e4d0352863da330642488e4",
+    "mtime": 1792077405.6947396,
+    "seen": 1792077423.912247,
+    "ast_hash": "a6be68a054dcf82242a8a0f3aa1f59f1",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/recommend.py": {
@@ -966,9 +966,9 @@
     "semantic_hash": "fd601bade2cb8f5bc7b7bd53a98cf59c"
   },
   "docs/user/web-guide.md": {
-    "mtime": 1792072799.6559975,
-    "seen": 1792072829.864925,
-    "ast_hash": "e4321a3bc798fb781c77c1ec31fc38d9",
+    "mtime": 1792077065.4476733,
+    "seen": 1792077193.8626618,
+    "ast_hash": "570c78c3ed831ff7cad8e7d9ef4d0fb4",
     "semantic_hash": ""
   },
   "mkdocs.yml": {
@@ -1758,9 +1758,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_pr_status.py": {
-    "mtime": 1792073206.6762085,
-    "seen": 1792073278.461945,
-    "ast_hash": "31a1f675fe5ae9ea86f1687abb1fcba8",
+    "mtime": 1792077378.9201076,
+    "seen": 1792077423.912286,
+    "ast_hash": "f2b17a23deba7d9e8dc0fda238aec093",
     "semantic_hash": ""
   },
   "ansible/templates/manifests-app.yaml.j2": {
@@ -1776,9 +1776,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/retirement-system.md": {
-    "mtime": 1792073267.8936062,
-    "seen": 1792073278.462027,
-    "ast_hash": "cc6d118c3281b69dea93f5f71d3ab11d",
+    "mtime": 1792077065.4477777,
+    "seen": 1792077193.8626251,
+    "ast_hash": "efc2f19cc3fd5ca54030d5fc72c885da",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/agv-retire-integration.md": {
@@ -1812,9 +1812,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement_cleanup.py": {
-    "mtime": 1792072650.037538,
-    "seen": 1792072829.864758,
-    "ast_hash": "d3a48e1cc97787c0358748852aed6979",
+    "mtime": 1792077065.4474192,
+    "seen": 1792077193.8625221,
+    "ast_hash": "f1fefeb5626dc66322eacea71d4b1142",
     "semantic_hash": ""
   },
   "src/api/tests/test_required_jira_cleanup.py": {

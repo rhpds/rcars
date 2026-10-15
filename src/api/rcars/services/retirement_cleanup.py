@@ -41,9 +41,11 @@ async def _close_open_pr(settings, url: str) -> dict:
     return state
 
 
-async def _close_jira(db, settings, wf: dict, *, cancelled: bool) -> None:
+async def _close_jira(db, settings, wf: dict, *, cancelled: bool, jira_available: bool = True) -> None:
     if not wf.get("jira_key") or wf.get("jira_closed_at"):
         return
+    if not jira_available:
+        raise CleanupError("Jira cleanup pending: integration not configured")
     close = jira.close_issue_wont_do if cancelled else jira.close_issue_done
     if not await asyncio.to_thread(close, settings, wf["jira_key"]):
         raise CleanupError("Jira has no available closing transition; cleanup retained for retry")
@@ -52,7 +54,10 @@ async def _close_jira(db, settings, wf: dict, *, cancelled: bool) -> None:
                   f"Jira: closed ({wf['jira_key']}); outcome: {'cancelled' if cancelled else 'retired'}")
 
 
-async def cancel_retirement(db, settings, content_id: str, actor: str) -> dict:
+async def cancel_retirement(
+    db, settings, content_id: str, actor: str, *,
+    github_available: bool = True, jira_available: bool = True,
+) -> dict:
     """Retain intent until PR cleanup AND Jira closure are complete."""
     wf = db.get_retirement_workflow(content_id)
     if not wf:
@@ -66,6 +71,10 @@ async def cancel_retirement(db, settings, content_id: str, actor: str) -> dict:
         if not wf:
             return {"status": "ok", "deleted": True, "revert_pr_urls": []}
         try:
+            if not github_available and any(wf.get(key) for key in (
+                "agv_retire_pr_url", "agv_notice_pr_url", "agv_revert_pr_url",
+            )):
+                raise CleanupError("GitHub cleanup pending: integration not configured")
             # Always stop the destructive proposal before exposing a cancellation revert.
             if wf.get("agv_retire_pr_url"):
                 await _close_open_pr(settings, wf["agv_retire_pr_url"])
@@ -77,7 +86,7 @@ async def cancel_retirement(db, settings, content_id: str, actor: str) -> dict:
                     if result:
                         revert_url = result["pr_url"]
                         db.update_retirement_cleanup(content_id, {"agv_revert_pr_url": revert_url})
-            await _close_jira(db, settings, wf, cancelled=True)
+            await _close_jira(db, settings, wf, cancelled=True, jira_available=jira_available)
             if db.get_retirement_workflow(content_id) is None:
                 return {"status": "ok", "deleted": True, "revert_pr_urls": [revert_url] if revert_url else []}
             pending = False
@@ -101,7 +110,9 @@ async def cancel_retirement(db, settings, content_id: str, actor: str) -> dict:
             raise CleanupError(message) from exc
 
 
-async def complete_retirement(db, settings, content_id: str, actor: str) -> bool:
+async def complete_retirement(
+    db, settings, content_id: str, actor: str, *, jira_available: bool = True,
+) -> bool:
     """Record physical retirement and close Jira, including retries of retired rows."""
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
@@ -111,12 +122,13 @@ async def complete_retirement(db, settings, content_id: str, actor: str) -> bool
             return False
         completed = bool(db.auto_close_retired_workflows({content_id}))
         try:
-            await _close_jira(db, settings, wf, cancelled=False)
+            await _close_jira(db, settings, wf, cancelled=False, jira_available=jira_available)
             db.update_retirement_cleanup(content_id, {"cleanup_error": None})
         except Exception as exc:
-            db.update_retirement_cleanup(content_id, {"cleanup_error": "Jira retirement closure failed; retry required"})
+            message = str(exc) if isinstance(exc, CleanupError) else "Jira retirement closure failed; retry required"
+            db.update_retirement_cleanup(content_id, {"cleanup_error": message})
             logger.warning("retirement_jira_completion_failed", content_id=content_id, error=str(exc))
-            raise CleanupError("Jira retirement closure failed; retry required") from exc
+            raise CleanupError(message) from exc
         if completed:
             db.log_action(_base_name(content_id), "retirement_completed", actor, "Retirement and Jira cleanup complete")
         return completed
