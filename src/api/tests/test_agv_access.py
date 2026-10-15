@@ -60,6 +60,20 @@ def test_resolve_repo_default():
     assert path == "sandboxes-gpte/my-lab"
 
 
+def test_resolve_repo_strips_stage_suffix():
+    _, _, path = _resolve_repo("agd-v2.mcp-with-openshift-sandbox.dev")
+    assert path == "agd-v2/mcp-with-openshift-sandbox"
+    _, _, path = _resolve_repo("openshift-cnv.ocp-virt-advanced-ops.prod")
+    assert path == "openshift-cnv/ocp-virt-advanced-ops"
+    _, _, path = _resolve_repo("summit-2026.lb1393-trilio.event")
+    assert path == "summit-2026/lb1393-trilio"
+
+
+def test_resolve_repo_no_stage_suffix_unchanged():
+    _, _, path = _resolve_repo("sandboxes-gpte.my-lab")
+    assert path == "sandboxes-gpte/my-lab"
+
+
 def test_resolve_repo_zt_ansiblebu():
     owner, repo, path = _resolve_repo("zt-ansiblebu.some-demo")
     assert owner == "zt-ansiblebu"
@@ -143,7 +157,8 @@ def _setup_client_for_pr(client, existing_content="= Old content"):
         _resp(200, {"token": "inst-token"}),                     # installation token
         _resp(200, {"default_branch": "master"}),                # repo metadata
         _resp(200, {"object": {"sha": "main-sha-123"}}),         # ref/heads/master
-        _resp(200, []),                                           # verify agv path
+        _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}]), # list repo root
+        _resp(200, [{"name": "my-lab", "type": "dir"}]),         # list namespace dir
         _resp(200, {}),                                           # create branch
         _resp(200, _file_content(existing_content)),             # get file
         _resp(200, {}),                                           # update/delete file
@@ -192,11 +207,13 @@ async def test_create_notice_pr_idempotent_on_422(mock_jwt, mock_client_cls):
             return _resp(200, {"default_branch": "master"})
         if call_count["n"] == 3:
             return _resp(200, {"object": {"sha": "sha1"}})
-        if call_count["n"] == 4:  # verify agv path
-            return _resp(200, [])
-        if call_count["n"] == 5:  # create branch → 422
+        if call_count["n"] == 4:  # list repo root
+            return _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}])
+        if call_count["n"] == 5:  # list namespace dir
+            return _resp(200, [{"name": "lab", "type": "dir"}])
+        if call_count["n"] == 6:  # create branch → 422
             raise GitHubAPIError("POST", "", 422, "exists")
-        if call_count["n"] == 6:  # find open PR → existing
+        if call_count["n"] == 7:  # find open PR → existing
             return _resp(200, [_PR])
         return _resp(200, {})
 
@@ -222,27 +239,29 @@ async def test_create_retire_pr_happy_path(mock_jwt, mock_client_cls):
             return _resp(200, {"default_branch": "master"})
         if call_count["n"] == 3:
             return _resp(200, {"object": {"sha": "main-sha"}})
-        if call_count["n"] == 4:
-            return _resp(200, [])  # verify agv path
-        if call_count["n"] == 5:
+        if call_count["n"] == 4:  # list repo root
+            return _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}])
+        if call_count["n"] == 5:  # list namespace dir
+            return _resp(200, [{"name": "lab", "type": "dir"}])
+        if call_count["n"] == 6:
             return _resp(200, {})  # create branch
         # directory tree deletion calls (ref, commit, contents, tree, commit, patch)
-        if call_count["n"] == 6:
-            return _resp(200, {"object": {"sha": "head-sha"}})
         if call_count["n"] == 7:
-            return _resp(200, {"tree": {"sha": "tree-sha"}})
+            return _resp(200, {"object": {"sha": "head-sha"}})
         if call_count["n"] == 8:
+            return _resp(200, {"tree": {"sha": "tree-sha"}})
+        if call_count["n"] == 9:
             return _resp(200, [{"type": "file", "path": "sandboxes-gpte/lab/prod.yaml"},
                                {"type": "file", "path": "sandboxes-gpte/lab/common.yaml"}])
-        if call_count["n"] == 9:
-            return _resp(200, {"sha": "new-tree"})
         if call_count["n"] == 10:
-            return _resp(200, {"sha": "new-commit"})
+            return _resp(200, {"sha": "new-tree"})
         if call_count["n"] == 11:
-            return _resp(200, {})  # update ref
+            return _resp(200, {"sha": "new-commit"})
         if call_count["n"] == 12:
-            return _resp(200, [])  # find open PR
+            return _resp(200, {})  # update ref
         if call_count["n"] == 13:
+            return _resp(200, [])  # find open PR
+        if call_count["n"] == 14:
             return _resp(200, _PR)  # create PR
         return _resp(200, {})
 
@@ -261,7 +280,8 @@ def _setup_client_for_revert(client, existing_content):
         _resp(200, {"token": "inst-token"}),                     # installation token
         _resp(200, {"default_branch": "master"}),                # repo metadata
         _resp(200, {"object": {"sha": "main-sha-123"}}),         # ref/heads/master
-        _resp(200, []),                                           # verify agv path
+        _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}]), # list repo root
+        _resp(200, [{"name": "lab", "type": "dir"}]),            # list namespace dir
         _resp(200, {}),                                           # create branch
         _resp(200, _file_content(existing_content)),             # get file
         _resp(200, {}),                                           # update file
@@ -321,9 +341,11 @@ async def test_revert_notice_pr_none_on_404(mock_jwt, mock_client_cls):
             return _resp(200, {"default_branch": "master"})
         if call_count["n"] == 3:
             return _resp(200, {"object": {"sha": "sha1"}})
-        if call_count["n"] == 4:
-            return _resp(200, [])  # verify agv path
-        if call_count["n"] == 5:
+        if call_count["n"] == 4:  # list repo root
+            return _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}])
+        if call_count["n"] == 5:  # list namespace dir
+            return _resp(200, [{"name": "lab", "type": "dir"}])
+        if call_count["n"] == 6:
             return _resp(200, {})  # create branch
         # get_file → 404
         raise GitHubAPIError("GET", "", 404, "not found")

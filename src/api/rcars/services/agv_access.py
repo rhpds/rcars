@@ -54,33 +54,79 @@ class GitHubAPIError(Exception):
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
+def _normalize_for_match(name: str) -> str:
+    """Lowercase and collapse hyphens/underscores for case- and separator-insensitive matching."""
+    return name.lower().replace("-", "_")
+
+
 async def _verify_agv_path(
     client: httpx.AsyncClient, token: str, owner: str, repo: str, agv_path: str,
 ) -> str:
-    """Resolve the actual agnosticv path (Babylon normalizes _ to - in CRD names)."""
-    candidates = [agv_path]
+    """Resolve the actual agnosticv path by listing the namespace directory.
+
+    Babylon normalizes directory names to lowercase hyphens, but the repo
+    can have underscores, hyphens, or uppercase. List the namespace dir
+    and match case-/separator-insensitively.
+    """
     parts = agv_path.split("/", 1)
-    if len(parts) == 2 and "-" in parts[0]:
-        candidates.append(parts[0].replace("-", "_") + "/" + parts[1])
-    alt = agv_path.replace("-", "_")
-    if alt not in candidates:
-        candidates.append(alt)
-    for candidate in candidates:
-        try:
-            await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{candidate}")
-            return candidate
-        except GitHubAPIError as exc:
-            if exc.status_code != 404:
-                raise
+    if len(parts) != 2:
+        raise GitHubAPIError(
+            "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
+            404, f"CI path has no namespace: {agv_path}",
+        )
+    ns_guess, ci_guess = parts
+    ns_norm = _normalize_for_match(ns_guess)
+    ci_norm = _normalize_for_match(ci_guess)
+
+    # Resolve the namespace directory
+    try:
+        top_entries = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/")
+    except GitHubAPIError:
+        raise GitHubAPIError(
+            "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
+            404, f"Cannot list repo root for {owner}/{repo}",
+        )
+    ns_dir = None
+    for entry in top_entries:
+        if entry.get("type") == "dir" and _normalize_for_match(entry["name"]) == ns_norm:
+            ns_dir = entry["name"]
+            break
+    if not ns_dir:
+        raise GitHubAPIError(
+            "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
+            404, f"Namespace directory not found for {ns_guess}",
+        )
+
+    # Resolve the CI directory within the namespace
+    try:
+        ns_entries = await _gh(client, token, "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{ns_dir}")
+    except GitHubAPIError:
+        raise GitHubAPIError(
+            "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
+            404, f"Cannot list namespace directory {ns_dir}",
+        )
+    for entry in ns_entries:
+        if entry.get("type") == "dir" and _normalize_for_match(entry["name"]) == ci_norm:
+            resolved = f"{ns_dir}/{entry['name']}"
+            logger.debug("agv_path_resolved", input=agv_path, resolved=resolved)
+            return resolved
+
     raise GitHubAPIError(
         "GET", f"{_GITHUB_API}/repos/{owner}/{repo}/contents/{agv_path}",
-        404, f"CI directory not found at {agv_path} (also tried {', '.join(candidates[1:])})",
+        404, f"CI directory not found in {ns_dir}/ matching {ci_guess}",
     )
+
+
+_STAGE_SUFFIXES = (".prod", ".dev", ".event", ".test")
 
 
 def _resolve_repo(base_name: str) -> tuple[str, str, str]:
     """Return (owner, repo_name, agv_path) for a CI base name."""
     agv_path = base_name.replace(".", "/", 1) if "." in base_name else base_name
+    for suffix in _STAGE_SUFFIXES:
+        if agv_path.endswith(suffix):
+            agv_path = agv_path[:-len(suffix)]
+            break
     namespace = agv_path.split("/")[0] if "/" in agv_path else ""
     full_repo = _NAMESPACE_REPO.get(namespace, _DEFAULT_REPO)
     owner, repo_name = full_repo.split("/", 1)
