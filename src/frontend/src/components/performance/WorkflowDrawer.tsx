@@ -192,7 +192,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const [notesText, setNotesText] = useState('')
   const [targetDays, setTargetDays] = useState(30)
   const [jiraProject, setJiraProject] = useState('RHDPCD')
-  const [actionLoading, setActionLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | false>(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [notesSaved, setNotesSaved] = useState(false)
@@ -232,7 +232,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
 
   const handleApprove = async () => {
     if (!approvalReason.trim()) return
-    setActionLoading(true)
+    setActionLoading('approve')
     setActionError(null)
     try {
       const { workflow } = await api.approveRetirementItem(
@@ -248,7 +248,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleNotify = async () => {
-    setActionLoading(true)
+    setActionLoading('notify')
     setActionError(null)
     try {
       const { workflow } = await api.notifyRetirementOwner(item.catalog_base_name)
@@ -261,7 +261,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleStart = async () => {
-    setActionLoading(true)
+    setActionLoading('start')
     setActionError(null)
     try {
       const { workflow } = await api.startRetirement(item.catalog_base_name, targetDays, jiraProject)
@@ -279,7 +279,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
       ? `This will cancel the retirement workflow and unlink ${drawerWorkflow.jira_key}. The Jira ticket will remain open. Continue?`
       : 'This will cancel the retirement workflow and remove all progress. Continue?'
     if (!confirm(msg)) return
-    setActionLoading(true)
+    setActionLoading('cancel')
     setActionError(null)
     try {
       const result = await api.cancelRetirementWorkflow(item.catalog_base_name)
@@ -315,7 +315,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
 
   const handleLinkJira = async () => {
     if (!linkJiraKey.trim()) return
-    setActionLoading(true)
+    setActionLoading('linkJira')
     setActionError(null)
     try {
       const { workflow } = await api.linkRetirementJira(item.catalog_base_name, linkJiraKey.trim())
@@ -329,7 +329,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleOpenNoticePr = async () => {
-    setActionLoading(true)
+    setActionLoading('noticePr')
     setActionError(null)
     try {
       const { workflow } = await api.openAgvNoticePr(item.catalog_base_name)
@@ -341,7 +341,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleCheckPrStatuses = async () => {
-    setActionLoading(true)
+    setActionLoading('checkPr')
     setActionError(null)
     try {
       const result = await api.checkAgvPrStatuses(item.catalog_base_name)
@@ -361,7 +361,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleOpenRetirePr = async () => {
-    setActionLoading(true)
+    setActionLoading('retirePr')
     setActionError(null)
     try {
       const { workflow } = await api.openAgvRetirePr(item.catalog_base_name)
@@ -568,8 +568,8 @@ RHDP Content Team`
                           />
                         </div>
                         <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
-                          disabled={actionLoading || !approvalReason.trim()}>
-                          {actionLoading ? 'Submitting...' : 'Recommend Retirement'}
+                          disabled={!!actionLoading || !approvalReason.trim()}>
+                          {actionLoading === 'approve' ? 'Submitting...' : 'Recommend Retirement'}
                         </button>
                       </div>
                     )}
@@ -614,8 +614,8 @@ RHDP Content Team`
                                 Generate Email Template
                               </button>
                               <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
-                                disabled={actionLoading} style={{ fontSize: '11px' }}>
-                                {actionLoading ? 'Saving...' : 'Mark as Notified'}
+                                disabled={!!actionLoading} style={{ fontSize: '11px' }}>
+                                {actionLoading === 'notify' ? 'Saving...' : 'Mark as Notified'}
                               </button>
                             </div>
                           ) : (
@@ -671,10 +671,10 @@ RHDP Content Team`
                     action={isStarted && isAdmin ? (
                       <button className="ret-action-btn ret-action-btn--start"
                         onClick={handleCheckPrStatuses}
-                        disabled={actionLoading}
+                        disabled={!!actionLoading}
                         style={{ padding: '2px 6px', fontSize: '11px', lineHeight: 1, marginLeft: '6px' }}
                         title="Refresh Jira and PR statuses">
-                        {actionLoading ? '...' : '↻'}
+                        {actionLoading === 'checkPr' ? '...' : '↻'}
                       </button>
                     ) : undefined}
                   >
@@ -705,9 +705,9 @@ RHDP Content Team`
                         ) : isAdmin && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenNoticePr}
-                            disabled={actionLoading}
+                            disabled={!!actionLoading}
                             style={{ fontSize: '11px' }}>
-                            {actionLoading ? 'Opening PR...' : 'Open Notice PR'}
+                            {actionLoading === 'noticePr' ? 'Opening PR...' : 'Open Notice PR'}
                           </button>
                         )}
                         {wf?.agv_revert_pr_url && (
@@ -729,17 +729,17 @@ RHDP Content Team`
                         ) : isAdmin && !wf?.agv_revert_pr_url && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenRetirePr}
-                            disabled={actionLoading}
+                            disabled={!!actionLoading}
                             style={{ fontSize: '11px' }}>
-                            {actionLoading ? 'Opening PR...' : 'Open Removal PR'}
+                            {actionLoading === 'retirePr' ? 'Opening PR...' : 'Open Removal PR'}
                           </button>
                         )}
                         {!wf?.agv_revert_pr_url && (
                           isAdmin ? (
                             <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                              disabled={actionLoading}
+                              disabled={!!actionLoading}
                               style={{ fontSize: '11px', marginTop: '4px' }}>
-                              {actionLoading ? 'Stopping...' : 'Stop Retirement'}
+                              {actionLoading === 'cancel' ? 'Stopping...' : 'Stop Retirement'}
                             </button>
                           ) : (
                             <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
@@ -762,9 +762,9 @@ RHDP Content Team`
                                 placeholder="RHDPCD-123"
                                 style={{ width: '120px', fontSize: '12px' }} />
                               <button className="ret-action-btn ret-action-btn--start" onClick={handleLinkJira}
-                                disabled={actionLoading || !linkJiraKey.trim()}
+                                disabled={!!actionLoading || !linkJiraKey.trim()}
                                 style={{ padding: '3px 10px', fontSize: '11px' }}>
-                                {actionLoading ? 'Linking...' : 'Link Jira'}
+                                {actionLoading === 'linkJira' ? 'Linking...' : 'Link Jira'}
                               </button>
                             </div>
 
@@ -789,8 +789,8 @@ RHDP Content Team`
                                 style={{ width: '80px', fontSize: '12px' }} />
                             </div>
                             <button className="ret-action-btn ret-action-btn--start" onClick={handleStart}
-                              disabled={actionLoading}>
-                              {actionLoading ? 'Creating Jira...' : 'Start Retirement'}
+                              disabled={!!actionLoading}>
+                              {actionLoading === 'start' ? 'Creating Jira...' : 'Start Retirement'}
                             </button>
                           </>
                         ) : (
@@ -935,8 +935,8 @@ RHDP Content Team`
               {wf && isApproved && !isStarted && isAdmin && (
                 <div style={{ paddingTop: '8px' }}>
                   <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                    disabled={actionLoading}>
-                    {actionLoading ? 'Canceling...' : 'Cancel Workflow'}
+                    disabled={!!actionLoading}>
+                    {actionLoading === 'cancel' ? 'Canceling...' : 'Cancel Workflow'}
                   </button>
                 </div>
               )}
