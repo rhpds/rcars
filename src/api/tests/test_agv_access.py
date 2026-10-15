@@ -51,6 +51,50 @@ def _file_content(text: str) -> dict:
 _PR = {"html_url": "https://github.com/rhpds/agnosticv/pull/42", "number": 42}
 
 
+@pytest.mark.asyncio
+async def test_pr_state_retains_remote_event_timestamps():
+    from rcars.services import agv_access
+    timestamps = {"created_at": "2026-10-15T16:00:00Z", "closed_at": "2026-10-15T17:00:00Z", "merged_at": "2026-10-15T17:00:00Z"}
+    with patch.object(agv_access, "_get_installation_token", AsyncMock(return_value="synthetic")), patch.object(agv_access, "_get_pr_detail", AsyncMock(return_value={"state": "closed", "merged": True, **timestamps})):
+        result = await agv_access.get_pr_state(_settings(), "rhpds/agnosticv", 42)
+    assert all(result.get(key) == value for key, value in timestamps.items())
+
+
+@pytest.mark.asyncio
+async def test_close_pr_returns_confirmed_terminal_metadata():
+    from rcars.services import agv_access
+    terminal = {"state": "closed", "merged": False, "closed_at": "2026-10-15T17:00:00Z"}
+    with patch.object(agv_access, "_get_installation_token", AsyncMock(return_value="synthetic")), patch.object(agv_access, "_get_pr_detail", AsyncMock(return_value={"state": "open"})), patch.object(agv_access, "_gh", AsyncMock(return_value=terminal)):
+        result = await agv_access.close_pr(_settings(), "rhpds/agnosticv", 42)
+    assert result == terminal
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["notice", "removal"])
+@pytest.mark.parametrize("reuse", [False, True])
+async def test_created_and_reused_pr_results_keep_creation_time(kind, reuse):
+    from rcars.services import agv_access
+    timestamp = "2026-10-15T17:00:00Z"
+    pr = {**_PR, "created_at": timestamp}
+    branch = AsyncMock(side_effect=GitHubAPIError("POST", "synthetic", 422, "exists")) if reuse else AsyncMock()
+    with (
+        patch.object(agv_access, "_get_installation_token", AsyncMock(return_value="synthetic")),
+        patch.object(agv_access, "_get_default_branch", AsyncMock(return_value=("main", "sha"))),
+        patch.object(agv_access, "_verify_agv_path", AsyncMock(return_value="example/item")),
+        patch.object(agv_access, "_create_branch", branch),
+        patch.object(agv_access, "_find_open_pr", AsyncMock(return_value=pr if reuse else None)),
+        patch.object(agv_access, "_get_file", AsyncMock(return_value=("Description", "sha"))),
+        patch.object(agv_access, "_update_file", AsyncMock()),
+        patch.object(agv_access, "_delete_directory_tree", AsyncMock()),
+        patch.object(agv_access, "_create_pr", AsyncMock(return_value=pr)),
+    ):
+        if kind == "notice":
+            result = await agv_access.create_notice_pr(_settings(), "example.item", "EXAMPLE-1", {})
+        else:
+            result = await agv_access.create_retire_pr(_settings(), "example.item", "EXAMPLE-1")
+    assert result["created_at"] == timestamp and result["pr_url"] == _PR["html_url"]
+
+
 # ── pure function tests ─────────────────────────────────────────────────────
 
 

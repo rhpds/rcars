@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/analysis.py": {
-    "mtime": 1792073225.4839244,
-    "seen": 1792073278.461872,
-    "ast_hash": "d194c37c168537b28df8d230a4a893df",
+    "mtime": 1792080478.577917,
+    "seen": 1792080778.5494442,
+    "ast_hash": "94a83da41be3f56fe924f6eeda69d511",
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/auth.py": {
@@ -102,9 +102,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/schemas.py": {
-    "mtime": 1792072597.4144745,
-    "seen": 1792072829.8647301,
-    "ast_hash": "072881fbba17d3533e54c9e54dfecd9d",
+    "mtime": 1792080425.2084246,
+    "seen": 1792080778.549448,
+    "ast_hash": "5ae44e825d70d1b7b178684ebef6e1e3",
     "semantic_hash": ""
   },
   "src/api/rcars/api/streaming.py": {
@@ -114,9 +114,9 @@
     "semantic_hash": "fbc5ddfc3f30d8b4ea594942f4f3285f"
   },
   "src/api/rcars/cli.py": {
-    "mtime": 1791973841.2334917,
-    "seen": 1792065592.376558,
-    "ast_hash": "7124d2a312ef75e72ecf55f3da06e316",
+    "mtime": 1792080478.5786645,
+    "seen": 1792080778.54945,
+    "ast_hash": "ede4004c20718df44b0c38c629405834",
     "semantic_hash": ""
   },
   "src/api/rcars/config.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1792072569.933839,
-    "seen": 1792072829.864734,
-    "ast_hash": "0778e64c42d5b7198b849e9dd265e84a",
+    "mtime": 1792080686.500159,
+    "seen": 1792080778.549453,
+    "ast_hash": "a215b207e02559138dc87df007496e0b",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -168,9 +168,9 @@
     "semantic_hash": "451d29513111931ba77e1baa8b28fa54"
   },
   "src/api/rcars/services/jira.py": {
-    "mtime": 1792072808.200724,
-    "seen": 1792072829.864746,
-    "ast_hash": "26b1b4f93602695e317cad355f764700",
+    "mtime": 1792080153.174884,
+    "seen": 1792080778.549464,
+    "ast_hash": "d5e397e689778bae8ad1b9b3c29aca4a",
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/__init__.py": {
@@ -246,9 +246,9 @@
     "semantic_hash": "6fc3b429c3c3e83175a634a08a737a39"
   },
   "src/api/rcars/workers/ops.py": {
-    "mtime": 1792077405.6947396,
-    "seen": 1792077423.912247,
-    "ast_hash": "a6be68a054dcf82242a8a0f3aa1f59f1",
+    "mtime": 1792080478.5784864,
+    "seen": 1792080778.549484,
+    "ast_hash": "4bd99b4bfb7c1afb043a7548d6360522",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/recommend.py": {
@@ -966,9 +966,9 @@
     "semantic_hash": "fd601bade2cb8f5bc7b7bd53a98cf59c"
   },
   "docs/user/web-guide.md": {
-    "mtime": 1792077065.4476733,
-    "seen": 1792077193.8626618,
-    "ast_hash": "570c78c3ed831ff7cad8e7d9ef4d0fb4",
+    "mtime": 1792080686.5006034,
+    "seen": 1792080778.549626,
+    "ast_hash": "8039096c8c6d5bc210767828fc5d6dd4",
     "semantic_hash": ""
   },
   "mkdocs.yml": {
@@ -1746,21 +1746,21 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/agv_access.py": {
-    "mtime": 1792073244.0133462,
-    "seen": 1792073278.4618828,
-    "ast_hash": "c91b296cfb789d03788da96261855e6b",
+    "mtime": 1792080686.5003233,
+    "seen": 1792080778.549456,
+    "ast_hash": "17761195092a5c06bf035aea4ccf9ece",
     "semantic_hash": ""
   },
   "src/api/tests/test_agv_access.py": {
-    "mtime": 1792073235.8570986,
-    "seen": 1792073278.4619148,
-    "ast_hash": "711aa58465a878a6f1d2a22c56c8d472",
+    "mtime": 1792080731.619011,
+    "seen": 1792080778.5494888,
+    "ast_hash": "5edce81d6451467a0fe88b1877f48b2b",
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_pr_status.py": {
-    "mtime": 1792077378.9201076,
-    "seen": 1792077423.912286,
-    "ast_hash": "f2b17a23deba7d9e8dc0fda238aec093",
+    "mtime": 1792080478.5787716,
+    "seen": 1792080778.5495198,
+    "ast_hash": "c531ea2e194b1acb06ec1b13d3ea149d",
     "semantic_hash": ""
   },
   "ansible/templates/manifests-app.yaml.j2": {
@@ -1776,9 +1776,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/retirement-system.md": {
-    "mtime": 1792077065.4477777,
-    "seen": 1792077193.8626251,
-    "ast_hash": "efc2f19cc3fd5ca54030d5fc72c885da",
+    "mtime": 1792080686.5004666,
+    "seen": 1792080778.549584,
+    "ast_hash": "a74ce5bb2b99b57d4c9921c2405f89ff",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/agv-retire-integration.md": {
@@ -1812,15 +1812,27 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement_cleanup.py": {
-    "mtime": 1792077065.4474192,
-    "seen": 1792077193.8625221,
-    "ast_hash": "f1fefeb5626dc66322eacea71d4b1142",
+    "mtime": 1792080425.208122,
+    "seen": 1792080778.549474,
+    "ast_hash": "735be2126fe36394484f5f7155625ae0",
     "semantic_hash": ""
   },
   "src/api/tests/test_required_jira_cleanup.py": {
     "mtime": 1792072799.6561306,
     "seen": 1792072829.8648078,
     "ast_hash": "5bd27231d4d41c7e518ef234f4efb758",
+    "semantic_hash": ""
+  },
+  "src/api/rcars/services/retirement_jira_events.py": {
+    "mtime": 1792080478.5781126,
+    "seen": 1792080778.549475,
+    "ast_hash": "e5ca5fc7ba85480f2c5cea4ed82c96d6",
+    "semantic_hash": ""
+  },
+  "src/api/tests/test_retirement_jira_events.py": {
+    "mtime": 1792080664.1341085,
+    "seen": 1792080778.549518,
+    "ast_hash": "873becd88a7482faaae9e5b6283207fa",
     "semantic_hash": ""
   }
 }

@@ -400,6 +400,8 @@ The Retirement page (`/analysis/retirement`) is available to curators and admins
 
 Cancellation requires GitHub cleanup, including merging a notice-revert PR when necessary, plus Jira closure when an issue is linked. Workflows without a linked Jira issue need only GitHub cleanup. Failures keep the workflow visible for retry; they do not silently abandon the issue or PRs. Successful retirement closes the linked Jira as **Done**. Catalog retirement and external cleanup are tracked separately, so the drawer can show a retired item with Jira closure still pending. Use refresh or wait for the nightly sweep to retry.
 
+The linked Jira also receives comments when notice/removal PRs open, merge, or close without merging, and when the workflow completes or is cancelled. Comments include the relevant PR links. Refresh and sweeps detect PR changes; repeated checks do not normally create duplicate comments. Comment-delivery failures remain queued for retry, even after cancellation removes the workflow. They do not recreate PRs or replace required cleanup errors. Existing historical events are not backfilled.
+
 The shared drawer has four visible lifecycle steps:
 
 1. **Recommend for Retirement** — enter a required reason and optional replacement. Search the catalog or enter an external replacement manually. Submitting the recommendation also records review and freezes the current metrics for comparison.

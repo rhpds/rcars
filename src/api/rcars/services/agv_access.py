@@ -318,11 +318,21 @@ def _remove_notice_block(content: str) -> str | None:
 # ── public API ───────────────────────────────────────────────────────────────
 
 
+def _pr_result(pr: dict, owner: str, repo_name: str) -> dict:
+    return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}",
+            **({"created_at": pr["created_at"]} if pr.get("created_at") else {})}
+
+
+def _pr_state_data(pr: dict) -> dict:
+    return {"state": pr.get("state"), "merged": pr.get("merged", False),
+            **{key: pr[key] for key in ("created_at", "closed_at", "merged_at") if pr.get(key)}}
+
+
 async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: dict) -> dict:
     """Create the retirement notice PR on agnosticv.
 
     Prepends the AsciiDoc retirement notice block to description.adoc.
-    Returns {pr_url, pr_number, repo}. Idempotent.
+    Returns {pr_url, pr_number, repo, created_at (when supplied by GitHub)}. Idempotent.
     """
     from rcars.services.jira import build_retirement_adoc_notice
 
@@ -348,7 +358,7 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
             pr = await _find_open_pr(client, token, owner, repo_name, branch)
             if pr:
                 logger.info("agv_notice_pr_reused", pr_url=pr["html_url"], action="create_notice_pr")
-                return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+                return _pr_result(pr, owner, repo_name)
 
         try:
             existing_content, file_sha = await _get_file(
@@ -372,7 +382,7 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
         pr = await _find_open_pr(client, token, owner, repo_name, branch)
         if pr:
             logger.info("agv_notice_pr_reused", pr_url=pr["html_url"], action="create_notice_pr")
-            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+            return _pr_result(pr, owner, repo_name)
 
         try:
             pr = await _create_pr(
@@ -393,10 +403,10 @@ async def create_notice_pr(settings, base_name: str, jira_key: str, workflow: di
             if not pr:
                 raise
             logger.info("agv_notice_pr_reused_on_conflict", pr_url=pr["html_url"], action="create_notice_pr")
-            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+            return _pr_result(pr, owner, repo_name)
 
     logger.info("agv_notice_pr_created", pr_url=pr["html_url"], pr_number=pr["number"], action="create_notice_pr")
-    return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+    return _pr_result(pr, owner, repo_name)
 
 
 async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
@@ -425,7 +435,7 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
             pr = await _find_open_pr(client, token, owner, repo_name, branch)
             if pr:
                 logger.info("agv_retire_pr_reused", pr_url=pr["html_url"], action="create_retire_pr")
-                return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+                return _pr_result(pr, owner, repo_name)
 
         try:
             await _delete_directory_tree(
@@ -439,7 +449,7 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
         pr = await _find_open_pr(client, token, owner, repo_name, branch)
         if pr:
             logger.info("agv_retire_pr_reused", pr_url=pr["html_url"], action="create_retire_pr")
-            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+            return _pr_result(pr, owner, repo_name)
 
         try:
             pr = await _create_pr(
@@ -462,10 +472,10 @@ async def create_retire_pr(settings, base_name: str, jira_key: str) -> dict:
             if not pr:
                 raise
             logger.info("agv_retire_pr_reused_on_conflict", pr_url=pr["html_url"], action="create_retire_pr")
-            return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+            return _pr_result(pr, owner, repo_name)
 
     logger.info("agv_retire_pr_created", pr_url=pr["html_url"], pr_number=pr["number"], action="create_retire_pr")
-    return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
+    return _pr_result(pr, owner, repo_name)
 
 
 async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | None:
@@ -551,13 +561,13 @@ async def revert_notice_pr(settings, base_name: str, jira_key: str) -> dict | No
     return {"pr_url": pr["html_url"], "pr_number": pr["number"], "repo": f"{owner}/{repo_name}"}
 
 
-async def close_pr(settings, repo_full: str, pr_number: int) -> None:
-    """Close an open agnosticv PR and delete its branch."""
+async def close_pr(settings, repo_full: str, pr_number: int) -> dict:
+    """Close an open PR, delete its branch, and return confirmed terminal metadata."""
     owner, repo_name = repo_full.split("/", 1)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         pr = await _get_pr_detail(client, token, owner, repo_name, pr_number)
-        await _gh(client, token, "PATCH", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls/{pr_number}", {
+        closed = await _gh(client, token, "PATCH", f"{_GITHUB_API}/repos/{owner}/{repo_name}/pulls/{pr_number}", {
             "state": "closed",
         })
         branch = pr.get("head", {}).get("ref")
@@ -569,15 +579,16 @@ async def close_pr(settings, repo_full: str, pr_number: int) -> None:
                 if exc.status_code != 422:
                     logger.warning("agv_branch_delete_failed", repo=repo_full, branch=branch, error=str(exc), action="close_pr")
     logger.info("agv_pr_closed", repo=repo_full, pr_number=pr_number, action="close_pr")
+    return _pr_state_data(closed)
 
 
 async def get_pr_state(settings, repo_full: str, pr_number: int) -> dict:
-    """Return {state, merged} for a PR. Used to decide close vs revert on cancel."""
+    """Return state/merged and available GitHub creation/closure/merge timestamps."""
     owner, repo_name = repo_full.split("/", 1)
     async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
         token = await _get_installation_token(client, settings, owner)
         pr = await _get_pr_detail(client, token, owner, repo_name, pr_number)
-    return {"state": pr.get("state"), "merged": pr.get("merged", False)}
+    return _pr_state_data(pr)
 
 
 async def get_last_updated(settings, owner: str, repo: str, path: str, limit: int = 1) -> list[dict]:

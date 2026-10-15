@@ -37,7 +37,9 @@ async def _close_open_pr(settings, url: str) -> dict:
     state = await _pr_state(settings, url)
     if state["state"] == "open":
         parts = url.rstrip("/").split("/")
-        await agv_access.close_pr(settings, f"{parts[-4]}/{parts[-3]}", int(parts[-1]))
+        closed = await agv_access.close_pr(settings, f"{parts[-4]}/{parts[-3]}", int(parts[-1]))
+        if closed:
+            return closed
     return state
 
 
@@ -49,7 +51,7 @@ async def _close_jira(db, settings, wf: dict, *, cancelled: bool, jira_available
     close = jira.close_issue_wont_do if cancelled else jira.close_issue_done
     if not await asyncio.to_thread(close, settings, wf["jira_key"]):
         raise CleanupError("Jira has no available closing transition; cleanup retained for retry")
-    db.update_retirement_cleanup(wf["content_id"], {"jira_closed_at": datetime.now(timezone.utc)})
+    db.record_retirement_jira_closure(wf["content_id"], cancelled=cancelled)
     db.log_action(_base_name(wf["content_id"]), "retirement_jira_closed", "cleanup",
                   f"Jira: closed ({wf['jira_key']}); outcome: {'cancelled' if cancelled else 'retired'}")
 
@@ -77,10 +79,12 @@ async def cancel_retirement(
                 raise CleanupError("GitHub cleanup pending: integration not configured")
             # Always stop the destructive proposal before exposing a cancellation revert.
             if wf.get("agv_retire_pr_url"):
-                await _close_open_pr(settings, wf["agv_retire_pr_url"])
+                removal = await _close_open_pr(settings, wf["agv_retire_pr_url"])
+                db.record_retirement_pr_state(content_id, "agv_retire_pr_url", removal)
             revert_url = wf.get("agv_revert_pr_url")
             if wf.get("agv_notice_pr_url"):
                 notice = await _close_open_pr(settings, wf["agv_notice_pr_url"])
+                db.record_retirement_pr_state(content_id, "agv_notice_pr_url", notice)
                 if notice["merged"] and not revert_url:
                     result = await agv_access.revert_notice_pr(settings, _base_name(content_id), wf.get("jira_key") or "")
                     if result:
@@ -98,7 +102,7 @@ async def cancel_retirement(
             updated = db.update_retirement_cleanup(content_id, {"cleanup_error": None})
             if pending and updated:
                 return {"status": "pending_revert", "deleted": False, "revert_pr_urls": [revert_url], "workflow": updated}
-            deleted = db.delete_retirement_workflow(content_id)
+            deleted = db.finalize_retirement_cancellation(content_id)
             if deleted:
                 db.log_action(_base_name(content_id), "retirement_cancelled", actor,
                               f"GitHub cleanup complete; Jira: {'closed' if wf.get('jira_key') else 'not linked'}")

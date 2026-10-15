@@ -539,6 +539,7 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.retirement_cleanup import cancel_retirement, CleanupError
+    from rcars.services.retirement_jira_events import deliver_pending_events
 
     db = request.app.state.db
     settings = request.app.state.settings
@@ -547,9 +548,12 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     try:
-        return await cancel_retirement(db, settings, content_id, user)
+        result = await cancel_retirement(db, settings, content_id, user)
     except CleanupError as exc:
+        await deliver_pending_events(db, settings, content_id=content_id)
         raise HTTPException(502, str(exc)) from exc
+    result["jira_comment_errors"] = await deliver_pending_events(db, settings, content_id=content_id)
+    return result
 
 
 @router.post(
@@ -566,6 +570,7 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
 )
 async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.retirement_cleanup import workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
@@ -573,7 +578,9 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
             raise HTTPException(409, "Retirement cleanup or PR creation is already running")
-        return await _open_agv_notice_pr_locked(base_name, request, user)
+        result = await _open_agv_notice_pr_locked(base_name, request, user)
+    result["jira_comment_errors"] = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
+    return result
 
 
 async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str):
@@ -614,7 +621,7 @@ async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str
         logger.error("agv_notice_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create notice PR: {exc}") from exc
 
-    updated = db.upsert_retirement_workflow(content_id, {"agv_notice_pr_url": result["pr_url"]})
+    updated = db.record_retirement_pr(content_id, "agv_notice_pr_url", result)
     db.log_action(base_name, "agv_notice_pr_opened", user, f"PR: {result['pr_url']}")
     return {"status": "ok", "workflow": updated, **result}
 
@@ -632,6 +639,7 @@ async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str
 )
 async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.retirement_cleanup import workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
@@ -639,7 +647,9 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
             raise HTTPException(409, "Retirement cleanup or PR creation is already running")
-        return await _open_agv_retire_pr_locked(base_name, request, user)
+        result = await _open_agv_retire_pr_locked(base_name, request, user)
+    result["jira_comment_errors"] = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
+    return result
 
 
 async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str):
@@ -676,7 +686,7 @@ async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str
         logger.error("agv_retire_pr_failed", base_name=base_name, error=str(exc))
         raise HTTPException(502, f"Failed to create removal PR: {exc}") from exc
 
-    updated = db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
+    updated = db.record_retirement_pr(content_id, "agv_retire_pr_url", result)
     db.log_action(base_name, "agv_retire_pr_opened", user, f"PR: {result['pr_url']}")
     return {"status": "ok", "workflow": updated, **result}
 
@@ -690,6 +700,7 @@ async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str
 )
 async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.agv_access import get_pr_state
+    from rcars.services.retirement_jira_events import deliver_pending_events, PR_KINDS
 
     db = request.app.state.db
     settings = request.app.state.settings
@@ -714,6 +725,8 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
             repo_full, pr_number = _parse_pr_url(url)
             state = await get_pr_state(settings, repo_full, pr_number)
             pr_statuses[key] = {"url": url, "pr_number": pr_number, **state}
+            if key in PR_KINDS:
+                db.record_retirement_pr_state(content_id, key, {"url": url, **state})
         except Exception as exc:
             pr_statuses[key] = {"url": url, "error": str(exc)}
 
@@ -738,8 +751,9 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
     except CleanupError as exc:
         cleanup_error = str(exc)
     wf = db.get_retirement_workflow(content_id)
+    comment_errors = await deliver_pending_events(db, settings, content_id=content_id)
     return {"status": "ok", "deleted": deleted, "pr_statuses": pr_statuses, "jira_status": jira_status,
-            "workflow": wf, "cleanup_error": cleanup_error}
+            "workflow": wf, "cleanup_error": cleanup_error, "jira_comment_errors": comment_errors}
 
 
 @router.post(

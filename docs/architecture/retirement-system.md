@@ -177,6 +177,18 @@ Queued sweep jobs publish progress through Redis/SSE and persist a result contai
 
 Each sweep operation checks the credentials it needs. Removal PR creation and PR lookups require the GitHub App ID, private key, and installation ID. Jira closure requires the Jira API email and token, but only when an issue is linked and no closure marker has been recorded. GitHub-only configurations can still open removal PRs and finish workflows with no remaining Jira work; Jira-only configurations can close issues for already-recorded retirements without a GitHub lookup. Missing credentials retain the workflow with a targeted pending-cleanup error rather than calling the unavailable integration. Cancellation still completes its required GitHub work before Jira closure.
 
+### Jira Lifecycle Comments
+
+RCARS posts comments to the linked Jira issue when a notice or removal PR opens, when either PR is observed merged or closed without merging, and when the workflow completes or is cancelled. Comments identify the item and link the relevant PRs. Manual API actions, automatic sweeps, and CLI removal creation use the same event recording. PR transitions are detected by refresh/sweeps, not a new webhook; a transient close/reopen between checks may not be observed.
+
+Comments use a durable delivery queue separate from required cleanup tracking. Recording a newly opened PR and its comment event is one database transaction; final completion is recorded with Jira closure, and final cancellation with workflow deletion. Pending events survive deletion of the workflow and can be retried by sweeps even when no removal PRs are due. A comment delivery failure does not undo a PR, recreate a workflow, or weaken the required Jira closure policy. API actions return separate `jira_comment_errors`; sweep results/logs also report delivery errors.
+
+Delivery checks Jira comment properties for a stable event identifier before posting, including after an ambiguous HTTP failure. Local stream locks prevent concurrent senders from posting out of order. A failed event delays later comments for that workflow, not other workflows. These checks suppress repeated refresh/retry comments, but are not a distributed exactly-once guarantee.
+
+The Jira integration needs **Browse Projects** and **Add Comments** permissions in addition to its existing transition permissions. Synchronous Jira HTTP remains off the API event loop. If issue permissions prohibit commenting after closure, comments remain pending until that permission problem is corrected; retirement cleanup is not reversed.
+
+There is no historical comment backfill. Additive schema setup records a per-workflow tracking cutoff; existing workflows receive that cutoff at upgrade. GitHub events older than it are ignored, while a pre-existing open PR that merges after it is reported. Discovery without a reliable remote event timestamp does not invent a new event. Existing fully completed workflows are not retrospectively announced. Cancellation-revert PR lifecycle comments are not included; the final cancellation comment can link the revert.
+
 ## Cancellation and Recovery
 
 Cancellation is an admin action:

@@ -813,6 +813,7 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
     """
     from rcars.services.agv_access import create_retire_pr, get_pr_state
     from rcars.services.retirement_cleanup import CleanupError, cancel_retirement, complete_retirement, workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events, observe_pr_events
 
     wctx: WorkerContext = ctx["worker_ctx"]
     log = logger.bind(job_id=job_id)
@@ -853,7 +854,7 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
                     db.update_retirement_cleanup(content_id, {"cleanup_error": message})
                     raise CleanupError(message)
                 result = await create_retire_pr(wctx.settings, base_name, jira_key)
-                db.upsert_retirement_workflow(content_id, {"agv_retire_pr_url": result["pr_url"]})
+                db.record_retirement_pr(content_id, "agv_retire_pr_url", result)
                 db.update_retirement_cleanup(content_id, {"cleanup_error": None})
                 db.log_action(base_name, "agv_retire_pr_opened", "pipeline", f"PR: {result['pr_url']}")
                 opened += 1
@@ -861,6 +862,18 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
             errors.append(f"{base_name}: {exc}")
             log.error("retirement_sweep_pr_failed", action="retirement_sweep",
                       base_name=base_name, error=str(exc))
+
+    # Notice transitions matter to Jira even though they do not complete retirement.
+    observed = {}
+    if github_available:
+        for wf in db.list_retirement_workflows():
+            if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url") or not wf.get("jira_key"):
+                continue
+            states = await observe_pr_events(db, wctx.settings, wf)
+            for url, state in states.items():
+                observed[(wf["content_id"], url)] = state
+                if state.get("error"):
+                    errors.append(f"{url}: {state['error']}")
 
     reverts_completed = 0
     pending = [wf for wf in db.list_retirement_workflows() if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url")]
@@ -905,7 +918,12 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
                             db.update_retirement_cleanup(wf["content_id"], {"cleanup_error": message})
                             raise CleanupError(message)
                         parts = retire_url.rstrip("/").split("/")
-                        state = await get_pr_state(wctx.settings, f"{parts[-4]}/{parts[-3]}", int(parts[-1]))
+                        state = observed.get((wf["content_id"], retire_url))
+                        if state is None:
+                            state = await get_pr_state(wctx.settings, f"{parts[-4]}/{parts[-3]}", int(parts[-1]))
+                            db.record_retirement_pr_state(wf["content_id"], "agv_retire_pr_url", {"url": retire_url, **state})
+                        if state.get("error"):
+                            continue
                         retired = state["merged"]
                         if current.get("cleanup_error") == message:
                             db.update_retirement_cleanup(wf["content_id"], {"cleanup_error": None})
@@ -921,9 +939,12 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
             log.warning("retirement_removal_check_failed", action="retirement_sweep",
                         retire_url=retire_url, error=str(exc))
 
+    comment_errors = await deliver_pending_events(db, wctx.settings)
+    errors.extend(comment_errors)
     return {"status": "ok", "processed": len(ready), "prs_opened": opened,
              "retirements_completed": retirements_completed,
-            "reverts_completed": reverts_completed, "jira_closed": jira_closed, "errors": errors}
+            "reverts_completed": reverts_completed, "jira_closed": jira_closed, "errors": errors,
+            "jira_comment_errors": comment_errors}
 
 
 async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:

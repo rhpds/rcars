@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import ssl
 import urllib.error
 import urllib.request
@@ -79,6 +80,51 @@ def _base_name_from_content_id(content_id: str) -> str:
         if name.endswith(suffix):
             return name[:-len(suffix)]
     return name
+
+
+def ensure_issue_event_comment(settings, jira_key: str, event_key: str, message: str) -> str:
+    """Recover an existing event comment before posting, including ambiguous retries."""
+    if not settings.jira_api_email or not settings.jira_api_token:
+        raise RuntimeError("Jira comment delivery pending: integration not configured")
+    property_key = "rcars.retirement.event"
+    start = 0
+    while True:
+        page = _jira_request(settings, f"/rest/api/3/issue/{jira_key}/comment?expand=properties&startAt={start}&maxResults=100", method="GET")
+        if not isinstance(page, dict) or not isinstance(page.get("comments"), list):
+            raise RuntimeError("Invalid Jira comments page")
+        comments, total = page["comments"], page.get("total")
+        if type(total) is not int or total < start + len(comments) or page.get("startAt") != start:
+            raise RuntimeError("Invalid Jira comments pagination")
+        for comment in comments:
+            if not isinstance(comment, dict) or not isinstance(comment.get("properties", []), list):
+                raise RuntimeError("Invalid Jira comment properties")
+            if any(isinstance(prop, dict) and prop.get("key") == property_key and prop.get("value") == event_key for prop in comment.get("properties", [])):
+                if not comment.get("id"):
+                    raise RuntimeError("Jira event comment has no ID")
+                return str(comment["id"])
+        start += len(comments)
+        if start >= total:
+            break
+        if not comments:
+            raise RuntimeError("Jira comments pagination made no progress")
+    paragraphs = []
+    for line in message.splitlines():
+        content = []
+        for text in re.split(r"(https?://\S+)", line):
+            if not text:
+                continue
+            node = {"type": "text", "text": text}
+            if text.startswith(("https://", "http://")):
+                node["marks"] = [{"type": "link", "attrs": {"href": text}}]
+            content.append(node)
+        paragraphs.append({"type": "paragraph", "content": content})
+    result = _jira_request(settings, f"/rest/api/3/issue/{jira_key}/comment", body={
+        "body": {"type": "doc", "version": 1, "content": paragraphs},
+        "properties": [{"key": property_key, "value": event_key}],
+    })
+    if not isinstance(result, dict) or not result.get("id"):
+        raise RuntimeError("Jira comment response has no ID; reconcile before retry")
+    return str(result["id"])
 
 
 def build_retirement_adoc_notice(workflow: dict) -> str:

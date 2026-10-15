@@ -27,7 +27,9 @@ TEST_DB_URL = os.environ.get(
 
 
 @pytest.fixture
-def db():
+def db(monkeypatch):
+    # All integration side effects in these persistence tests remain synthetic.
+    monkeypatch.setattr(jira, "ensure_issue_event_comment", lambda *args: "synthetic-comment")
     if "test" not in urlparse(TEST_DB_URL).path:
         raise RuntimeError("Retirement tests require a test database")
     database = Database(TEST_DB_URL)
@@ -41,6 +43,7 @@ def db():
     })
     yield database
     with database.pool.connection() as conn:
+        conn.execute("DELETE FROM retirement_jira_events WHERE content_id = %s", (CONTENT_ID,))
         conn.execute("DELETE FROM content_entities WHERE content_id = %s", (CONTENT_ID,))
         conn.execute("DELETE FROM analysis_log WHERE ci_name = %s", (BASE_NAME,))
         conn.commit()

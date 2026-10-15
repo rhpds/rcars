@@ -606,6 +606,27 @@ ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_revert_pr_url TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS cancellation_requested_at TIMESTAMPTZ;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS jira_closed_at TIMESTAMPTZ;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS cleanup_error TEXT;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS jira_event_tracking_started_at
+    TIMESTAMPTZ NOT NULL DEFAULT date_trunc('second', NOW());
+
+-- Deliberately independent of workflow/content FKs: pending comments survive cancellation.
+CREATE TABLE IF NOT EXISTS retirement_jira_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_key TEXT NOT NULL UNIQUE,
+    content_id TEXT NOT NULL,
+    workflow_created_at TIMESTAMPTZ NOT NULL,
+    jira_key TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    event_at TIMESTAMPTZ NOT NULL,
+    pr_url TEXT,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    delivered_at TIMESTAMPTZ,
+    comment_id TEXT,
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_retirement_jira_pending ON retirement_jira_events (id)
+    WHERE delivered_at IS NULL;
 UPDATE retirement_workflow SET cancellation_requested_at = updated_at
 WHERE agv_revert_pr_url IS NOT NULL AND cancellation_requested_at IS NULL;
 
@@ -710,6 +731,7 @@ class Database:
             )
 
         tables = [
+            "retirement_jira_events",
             "retirement_workflow",
             "nonprod_usage",
             "overlap_candidates",
@@ -3484,6 +3506,96 @@ class Database:
                 row = cur.fetchone()
             conn.commit()
         return row
+
+    @staticmethod
+    def _insert_retirement_jira_event(conn, wf: dict, event_type: str, event_at, pr_url: str | None = None) -> None:
+        from rcars.services.retirement_jira_events import build_jira_event
+        event = build_jira_event(wf, event_type, event_at, pr_url)
+        if event:
+            conn.execute(
+                "INSERT INTO retirement_jira_events "
+                "(event_key, content_id, workflow_created_at, jira_key, event_type, event_at, pr_url, message) "
+                "VALUES (%(event_key)s, %(content_id)s, %(workflow_created_at)s, %(jira_key)s, %(event_type)s, "
+                "%(event_at)s, %(pr_url)s, %(message)s) ON CONFLICT (event_key) DO NOTHING", event,
+            )
+
+    def record_retirement_pr(self, content_id: str, pr_field: str, pr: dict) -> dict | None:
+        from rcars.services.retirement_jira_events import PR_KINDS
+        if pr_field not in PR_KINDS:
+            raise ValueError("Invalid retirement PR field")
+        with self._pool.connection() as conn:
+            wf = conn.execute("SELECT * FROM retirement_workflow WHERE content_id = %s FOR UPDATE", (content_id,)).fetchone()
+            if not wf:
+                return None
+            if wf.get(pr_field) and wf[pr_field] != pr["pr_url"]:
+                raise ValueError("Retirement PR is already recorded")
+            wf = conn.execute(
+                f"UPDATE retirement_workflow SET {pr_field} = %s, updated_at = NOW() WHERE content_id = %s RETURNING *",
+                (pr["pr_url"], content_id),
+            ).fetchone()
+            self._insert_retirement_jira_event(conn, wf, f"{PR_KINDS[pr_field]}_pr_opened", pr.get("created_at"), pr["pr_url"])
+            conn.commit()
+            return wf
+
+    def record_retirement_pr_state(self, content_id: str, pr_field: str, state: dict) -> None:
+        from rcars.services.retirement_jira_events import PR_KINDS
+        if pr_field not in PR_KINDS:
+            raise ValueError("Invalid retirement PR field")
+        if not state.get("merged") and state.get("state") != "closed":
+            return
+        with self._pool.connection() as conn:
+            wf = conn.execute("SELECT * FROM retirement_workflow WHERE content_id = %s FOR UPDATE", (content_id,)).fetchone()
+            if wf and wf.get(pr_field) and (not state.get("url") or state["url"] == wf[pr_field]):
+                outcome = "merged" if state.get("merged") else "closed"
+                at = state.get("merged_at") if outcome == "merged" else state.get("closed_at")
+                self._insert_retirement_jira_event(conn, wf, f"{PR_KINDS[pr_field]}_pr_{outcome}", at, wf[pr_field])
+            conn.commit()
+
+    def record_retirement_jira_closure(self, content_id: str, *, cancelled: bool) -> dict | None:
+        with self._pool.connection() as conn:
+            wf = conn.execute(
+                "UPDATE retirement_workflow SET jira_closed_at = COALESCE(jira_closed_at, NOW()), updated_at = NOW() "
+                "WHERE content_id = %s RETURNING *", (content_id,),
+            ).fetchone()
+            if wf and not cancelled and wf.get("step_retired_at") and not wf.get("cancellation_requested_at") and not wf.get("agv_revert_pr_url"):
+                self._insert_retirement_jira_event(conn, wf, "workflow_completed", wf["jira_closed_at"])
+            conn.commit()
+            return wf
+
+    def finalize_retirement_cancellation(self, content_id: str) -> bool:
+        with self._pool.connection() as conn:
+            wf = conn.execute(
+                "SELECT *, CURRENT_TIMESTAMP AS event_recorded_at FROM retirement_workflow WHERE content_id = %s FOR UPDATE",
+                (content_id,),
+            ).fetchone()
+            if not wf:
+                return False
+            self._insert_retirement_jira_event(conn, wf, "workflow_cancelled", wf["event_recorded_at"])
+            conn.execute("DELETE FROM retirement_workflow WHERE content_id = %s", (content_id,))
+            conn.commit()
+            return True
+
+    def list_pending_retirement_jira_events(self, *, content_id: str | None = None) -> list[dict]:
+        with self._pool.connection() as conn:
+            return conn.execute(
+                "SELECT * FROM retirement_jira_events WHERE delivered_at IS NULL "
+                + ("AND content_id = %s " if content_id is not None else "") + "ORDER BY id",
+                (content_id,) if content_id is not None else (),
+            ).fetchall()
+
+    def update_retirement_jira_event(self, event_key: str, *, comment_id: str | None = None, error: str | None = None) -> None:
+        with self._pool.connection() as conn:
+            if comment_id is not None:
+                conn.execute(
+                    "UPDATE retirement_jira_events SET delivered_at = NOW(), comment_id = %s, last_error = NULL "
+                    "WHERE event_key = %s AND delivered_at IS NULL", (comment_id, event_key),
+                )
+            else:
+                conn.execute(
+                    "UPDATE retirement_jira_events SET last_error = %s WHERE event_key = %s AND delivered_at IS NULL",
+                    (error, event_key),
+                )
+            conn.commit()
 
     def delete_retirement_workflow(self, content_id: str) -> bool:
         with self._pool.connection() as conn:
