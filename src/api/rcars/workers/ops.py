@@ -807,7 +807,7 @@ async def run_osspa_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = Tr
 
 
 async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
-    """Open removal PRs for retirement workflows past their target date.
+    """Open due removal PRs and reconcile merged removal/revert PRs.
 
     Callable standalone (CLI/API) or as a nightly pipeline step.
     """
@@ -820,7 +820,6 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
     ready = db.list_retirement_ready_for_removal()
     if not ready:
         log.info("retirement_sweep_none", action="retirement_sweep", message="No items ready for removal PRs")
-        return {"status": "ok", "processed": 0, "prs_opened": 0}
 
     log.info("retirement_sweep_start", action="retirement_sweep", count=len(ready))
     opened = 0
@@ -871,7 +870,32 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
             log.warning("retirement_revert_check_failed", action="retirement_sweep",
                         revert_url=revert_url, error=str(exc))
 
+    retirements_completed = 0
+    for wf in db.list_retirement_workflows():
+        retire_url = wf.get("agv_retire_pr_url")
+        if not retire_url or wf.get("step_retired_at"):
+            continue
+        try:
+            parts = retire_url.rstrip("/").split("/")
+            pr_number = int(parts[-1])
+            repo_full = f"{parts[-4]}/{parts[-3]}"
+            state = await get_pr_state(wctx.settings, repo_full, pr_number)
+            if state["merged"]:
+                content_id = wf["content_id"]
+                base_name = content_id.removeprefix("babylon:")
+                if db.auto_close_retired_workflows({content_id}):
+                    db.log_action(base_name, "retirement_completed", "pipeline",
+                                  "Removal PR merged — workflow retired")
+                    retirements_completed += 1
+                    log.info("retirement_removal_completed", action="retirement_sweep",
+                             base_name=base_name, retire_url=retire_url)
+        except Exception as exc:
+            errors.append(f"{retire_url}: {exc}")
+            log.warning("retirement_removal_check_failed", action="retirement_sweep",
+                        retire_url=retire_url, error=str(exc))
+
     return {"status": "ok", "processed": len(ready), "prs_opened": opened,
+            "retirements_completed": retirements_completed,
             "reverts_completed": reverts_completed, "errors": errors}
 
 
@@ -894,8 +918,9 @@ async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
         raise
     opened = result.get("prs_opened", 0)
     reverts = result.get("reverts_completed", 0)
+    retired = result.get("retirements_completed", 0)
     errors = result.get("errors", [])
-    msg = f"Sweep complete: {opened} PR(s) opened, {reverts} revert(s) resolved"
+    msg = f"Sweep complete: {opened} PR(s) opened, {retired} retirement(s) completed, {reverts} revert(s) resolved"
     if errors:
         msg += f", {len(errors)} error(s)"
     await publish_progress(wctx.relay, job_id, wctx.db,

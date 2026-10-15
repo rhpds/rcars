@@ -662,15 +662,14 @@ async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depen
     tags=["Retirement"],
     summary="Open agnosticv removal PR",
     description=(
-        "Creates a branch on the relevant agnosticv repo that deletes prod.yaml, "
-        "removing the CI from the prod catalog stage. Opens a PR for human review. "
-        "Only callable once the notice period has elapsed. Admin-only."
+        "Creates a branch on the relevant agnosticv repo that deletes the CI folder. "
+        "Opens a PR for human review. Admins may open it before the target date "
+        "once retirement is started and a Jira ticket is linked. Admin-only."
     ),
     response_model=AgvPrResponse,
 )
 async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.agv_access import create_retire_pr
-    from datetime import date as _date
 
     db = request.app.state.db
     settings = request.app.state.settings
@@ -710,7 +709,7 @@ async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depen
     "/retirement/workflow/{base_name}/check-prs",
     tags=["Retirement"],
     summary="Check agnosticv PR statuses",
-    description="Checks the GitHub status of all agv PRs on this workflow. If the revert PR is merged, deletes the workflow. Admin-only.",
+    description="Checks all agv PRs, completes retirement when the removal PR is merged, or deletes the workflow when the revert PR is merged. Admin-only.",
 )
 async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
     from rcars.services.agv_access import get_pr_state
@@ -755,6 +754,12 @@ async def check_pr_statuses(base_name: str, request: Request, user: str = Depend
         db.delete_retirement_workflow(content_id)
         db.log_action(base_name, "retirement_cancelled", user, "Revert PR merged — workflow removed")
         return {"status": "ok", "deleted": True, "pr_statuses": pr_statuses, "jira_status": jira_status}
+
+    retire_status = pr_statuses.get("agv_retire_pr_url", {})
+    if retire_status.get("merged") and not wf.get("step_retired_at"):
+        if db.auto_close_retired_workflows({content_id}):
+            db.log_action(base_name, "retirement_completed", user, "Removal PR merged — workflow retired")
+        wf = db.get_retirement_workflow(content_id)
 
     return {"status": "ok", "deleted": False, "pr_statuses": pr_statuses, "jira_status": jira_status, "workflow": wf}
 

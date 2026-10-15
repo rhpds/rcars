@@ -51,7 +51,9 @@ When the notice period expires and an admin marks the item ready for removal, RC
 2. Stores the removal PR URL (`agv_retire_pr_url`) in the workflow record.
 3. Surfaces the PR link in the WorkflowDrawer.
 
-Once a human merges the removal PR, the item disappears from the Babylon catalog on the next sync. RCARS's existing soft-delete mechanism (`retired_at = NOW()`) picks this up automatically — no webhook or polling required.
+Once a human merges the removal PR, opening or refreshing the WorkflowDrawer checks its GitHub status and completes the workflow (`step_retired_at`), even before the target date. The nightly retirement sweep also reconciles merged removal PRs and pending cancellation reverts, including when no new removal PRs are due. Repeated checks preserve the original workflow retirement timestamp. An open PR, a closed-unmerged PR, or a failed status lookup does not complete retirement.
+
+Catalog visibility remains separate: the item disappears from the Babylon catalog on the next sync, and RCARS's existing soft-delete mechanism (`content_entities.retired_at`) picks this up. PR status reconciliation does not directly soft-delete catalog items. PR merges remain manual.
 
 ---
 
@@ -69,7 +71,7 @@ The exact approach is still to be decided before implementation.
 
 ### Credential strategy
 
-v1 scope: **rhpds/agnosticv**, **zt-rhelbu/agnosticv**, **zt-ansiblebu/agnosticv**. Partner RHDP agnosticV is out of scope — RCARS is currently unaware of partner RHDP and will remain so until there is a clearer path forward. This can be revisited in a later iteration.
+v1 scope: **rhpds/agnosticv**, **rhpds/zt-rhelbu-agnosticv**, **rhpds/zt-ansiblebu-agnosticv**. All three repositories belong to the `rhpds` organization and use the same GitHub App installation (`RCARS_GITHUB_APP_INSTALLATION_ID`); the installation must have access to all three repositories. Partner RHDP agnosticV is out of scope — RCARS is currently unaware of partner RHDP and will remain so until there is a clearer path forward. This can be revisited in a later iteration.
 
 Two credential options:
 
@@ -83,10 +85,10 @@ Credential approach is also to be decided before implementation.
 
 ```sql
 agv_notice_pr_url   TEXT    -- PR URL for the retirement notice adoc
-agv_retire_pr_url   TEXT    -- PR URL for the removal (informational only)
+agv_retire_pr_url   TEXT    -- PR URL for the removal
 ```
 
-State tracking fields are not needed — the WorkflowDrawer surfaces the PR link only, and RCARS's soft-delete handles the retired state transition automatically when the item disappears from Babylon.
+No additional PR-state columns are needed: the WorkflowDrawer fetches live GitHub status and displays merged/closed links with strikethrough. Workflow completion uses the existing `step_retired_at` field; catalog soft-delete still follows Babylon sync.
 
 ### New API endpoints
 
@@ -105,14 +107,14 @@ POST /analysis/retirement/workflow/{catalog_base_name}/agv-retire
 
 - Auth: admin only
 - Triggers removal PR
-- Only callable once `step_notified_at` is set and the notice period has elapsed
+- Requires a started workflow and a linked Jira ticket. Admins may open a removal PR early; only the automatic nightly sweep waits for the target date.
 
 **Related:** Existing retirement endpoints are currently under `/analysis/performance/` — the wrong location. As part of this work, migrate them to `/analysis/retirement/` to consolidate all retirement routes in one place.
 
 ### WorkflowDrawer UI changes
 
 - Surface the PR link next to the relevant step once created.
-- No state badge or merge polling needed — when the removal PR merges, the item disappears from the active list via soft-delete and lives on in the retirement report.
+- Check PR statuses on drawer open or manual refresh. Show merged/closed links with strikethrough and complete the workflow when the removal PR merges. Catalog removal still follows Babylon sync.
 
 ---
 
@@ -133,7 +135,7 @@ POST /analysis/retirement/workflow/{catalog_base_name}/agv-retire
 
 ## Open Questions / Risks
 
-1. **AgV namespace routing — decided:** v1 scope is **rhpds/agnosticv**, **zt-rhelbu**, **zt-ansiblebu**. The AgV access layer uses a routing table: `zt-ansiblebu.*` → `zt-ansiblebu/agnosticv`, `zt-rhelbu.*` → `zt-rhelbu/agnosticv`, everything else → `rhpds/agnosticv`.
+1. **AgV namespace routing — decided:** `zt-ansiblebu.*` → `rhpds/zt-ansiblebu-agnosticv`, `zt-rhelbu.*` → `rhpds/zt-rhelbu-agnosticv`, everything else → `rhpds/agnosticv`. Namespace directory paths stay unchanged inside each repository.
 
 2. **Notice period**: The window is already configurable per workflow (`target_days`, default 30). As part of this work, extend support to `0` days — implying immediate retirement. Useful for items that never went to prod and don't need a notice window.
 

@@ -74,17 +74,15 @@ def test_resolve_repo_no_stage_suffix_unchanged():
     assert path == "sandboxes-gpte/my-lab"
 
 
-def test_resolve_repo_zt_ansiblebu():
-    owner, repo, path = _resolve_repo("zt-ansiblebu.some-demo")
-    assert owner == "zt-ansiblebu"
-    assert repo == "agnosticv"
-    assert path == "zt-ansiblebu/some-demo"
-
-
-def test_resolve_repo_zt_rhelbu():
-    owner, repo, path = _resolve_repo("zt-rhelbu.another-lab")
-    assert owner == "zt-rhelbu"
-    assert repo == "agnosticv"
+@pytest.mark.parametrize("namespace,repo_name", [
+    ("zt-ansiblebu", "zt-ansiblebu-agnosticv"),
+    ("zt-rhelbu", "zt-rhelbu-agnosticv"),
+])
+@pytest.mark.parametrize("stage", ["", ".prod", ".dev", ".event", ".test"])
+def test_resolve_repo_zt_items_use_rhpds(namespace, repo_name, stage):
+    assert _resolve_repo(f"{namespace}.some-demo{stage}") == (
+        "rhpds", repo_name, f"{namespace}/some-demo",
+    )
 
 
 def test_resolve_repo_no_dot():
@@ -150,20 +148,20 @@ def _mock_client():
     return client
 
 
-def _setup_client_for_pr(client, existing_content="= Old content"):
+def _setup_client_for_pr(client, existing_content="= Old content", *, namespace="sandboxes-gpte", ci_name="my-lab", pr=None):
     """Wire up a mock client for the happy path of creating a PR."""
     call_count = {"n": 0}
     responses = [
         _resp(200, {"token": "inst-token"}),                     # installation token
         _resp(200, {"default_branch": "master"}),                # repo metadata
         _resp(200, {"object": {"sha": "main-sha-123"}}),         # ref/heads/master
-        _resp(200, [{"name": "sandboxes-gpte", "type": "dir"}]), # list repo root
-        _resp(200, [{"name": "my-lab", "type": "dir"}]),         # list namespace dir
+        _resp(200, [{"name": namespace, "type": "dir"}]),       # list repo root
+        _resp(200, [{"name": ci_name, "type": "dir"}]),         # list namespace dir
         _resp(200, {}),                                           # create branch
         _resp(200, _file_content(existing_content)),             # get file
         _resp(200, {}),                                           # update/delete file
         _resp(200, []),                                           # find open PR (none)
-        _resp(200, _PR),                                          # create PR
+        _resp(200, pr or _PR),                                    # create PR
     ]
 
     async def side_effect(*args, **kwargs):
@@ -191,6 +189,34 @@ async def test_create_notice_pr_happy_path(mock_jwt, mock_client_cls):
     assert result["pr_url"] == _PR["html_url"]
     assert result["pr_number"] == 42
     assert result["repo"] == "rhpds/agnosticv"
+
+
+@pytest.mark.parametrize("namespace,repo_name", [
+    ("zt-ansiblebu", "zt-ansiblebu-agnosticv"),
+    ("zt-rhelbu", "zt-rhelbu-agnosticv"),
+])
+@patch("rcars.services.agv_access.httpx.AsyncClient")
+@patch("rcars.services.agv_access.jwt.encode", return_value="fake-jwt")
+async def test_zt_notice_uses_rhpds_repo_and_installation(mock_jwt, mock_client_cls, namespace, repo_name):
+    client = _mock_client()
+    pr_url = f"https://github.com/rhpds/{repo_name}/pull/42"
+    _setup_client_for_pr(
+        client, namespace=namespace, ci_name="some-demo",
+        pr={"html_url": pr_url, "number": 42},
+    )
+    mock_client_cls.return_value = client
+    settings = _settings(
+        github_app_installation_id_zt_rhelbu="unused-rhel-installation",
+        github_app_installation_id_zt_ansiblebu="unused-ansible-installation",
+    )
+
+    result = await create_notice_pr(settings, f"{namespace}.some-demo.prod", "RHDPCD-99", {})
+
+    assert result == {"pr_url": pr_url, "pr_number": 42, "repo": f"rhpds/{repo_name}"}
+    urls = [call.args[1] for call in client.request.call_args_list]
+    assert urls[0] == "https://api.github.com/app/installations/99999/access_tokens"
+    assert all(url.startswith(f"https://api.github.com/repos/rhpds/{repo_name}") for url in urls[1:])
+    assert any(f"/contents/{namespace}/some-demo/description.adoc" in url for url in urls)
 
 
 @patch("rcars.services.agv_access.httpx.AsyncClient")

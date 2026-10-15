@@ -1,7 +1,8 @@
 """AgV access layer — GitHub operations for agnosticv repos.
 
 Uses GitHub App credentials (RCARS_GITHUB_APP_*) to authenticate.
-Supports rhpds/agnosticv, zt-rhelbu/agnosticv, and zt-ansiblebu/agnosticv.
+Supports rhpds/agnosticv, rhpds/zt-rhelbu-agnosticv, and
+rhpds/zt-ansiblebu-agnosticv, using the rhpds GitHub App installation.
 
 All public functions are async. Curator/admin use only — agnosticv repos
 contain credentials and must never be exposed through user-facing chat.
@@ -22,8 +23,8 @@ import structlog
 logger = structlog.get_logger(component="agv_access")
 
 _NAMESPACE_REPO: dict[str, str] = {
-    "zt-ansiblebu": "zt-ansiblebu/agnosticv",
-    "zt-rhelbu": "zt-rhelbu/agnosticv",
+    "zt-ansiblebu": "rhpds/zt-ansiblebu-agnosticv",
+    "zt-rhelbu": "rhpds/zt-rhelbu-agnosticv",
 }
 _DEFAULT_REPO = "rhpds/agnosticv"
 _GITHUB_API = "https://api.github.com"

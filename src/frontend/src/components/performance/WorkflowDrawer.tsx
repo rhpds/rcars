@@ -221,7 +221,10 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
             const result = await api.checkAgvPrStatuses(item.catalog_base_name)
             setPrStatuses(result.pr_statuses)
             if (result.jira_status) setJiraStatus(result.jira_status)
-            if (result.workflow) setDrawerWorkflow(result.workflow)
+            if (result.workflow) {
+              setDrawerWorkflow(result.workflow)
+              if (result.workflow.status !== workflow.status) onChanged()
+            }
           } catch { /* non-critical */ }
         }
       } catch { setDrawerWorkflow(null) }
@@ -353,6 +356,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
         onChanged()
       } else if (result.workflow) {
         setDrawerWorkflow(result.workflow)
+        onChanged()
       }
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to check PR statuses')
@@ -723,8 +727,9 @@ RHDP Content Team`
                         )}
                         {wf?.agv_retire_pr_url ? (
                           <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
-                            className="ret-jira-link">
-                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()} →
+                            className="ret-jira-link"
+                            style={prStatuses?.agv_retire_pr_url?.merged || prStatuses?.agv_retire_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
+                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()}{prStatuses?.agv_retire_pr_url?.merged ? ' (merged)' : prStatuses?.agv_retire_pr_url?.state === 'closed' ? ' (closed)' : ''} →
                           </a>
                         ) : isAdmin && !wf?.agv_revert_pr_url && (
                           <button className="ret-action-btn ret-action-btn--start"
@@ -817,7 +822,7 @@ RHDP Content Team`
                   >
                     {!isRetired && (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Auto-completes when item disappears from Babylon
+                        Auto-completes when the removal PR is merged or the item disappears from Babylon
                       </div>
                     )}
                   </StepperStep>
