@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import ssl
 import urllib.error
 import urllib.request
@@ -81,6 +82,87 @@ def _base_name_from_content_id(content_id: str) -> str:
     return name
 
 
+def ensure_issue_event_comment(settings, jira_key: str, event_key: str, message: str) -> str:
+    """Recover an existing event comment before posting, including ambiguous retries."""
+    if not settings.jira_api_email or not settings.jira_api_token:
+        raise RuntimeError("Jira comment delivery pending: integration not configured")
+    property_key = "rcars.retirement.event"
+    start = 0
+    while True:
+        page = _jira_request(settings, f"/rest/api/3/issue/{jira_key}/comment?expand=properties&startAt={start}&maxResults=100", method="GET")
+        if not isinstance(page, dict) or not isinstance(page.get("comments"), list):
+            raise RuntimeError("Invalid Jira comments page")
+        comments, total = page["comments"], page.get("total")
+        if type(total) is not int or total < start + len(comments) or page.get("startAt") != start:
+            raise RuntimeError("Invalid Jira comments pagination")
+        for comment in comments:
+            if not isinstance(comment, dict) or not isinstance(comment.get("properties", []), list):
+                raise RuntimeError("Invalid Jira comment properties")
+            if any(isinstance(prop, dict) and prop.get("key") == property_key and prop.get("value") == event_key for prop in comment.get("properties", [])):
+                if not comment.get("id"):
+                    raise RuntimeError("Jira event comment has no ID")
+                return str(comment["id"])
+        start += len(comments)
+        if start >= total:
+            break
+        if not comments:
+            raise RuntimeError("Jira comments pagination made no progress")
+    paragraphs = []
+    for line in message.splitlines():
+        content = []
+        for text in re.split(r"(https?://\S+)", line):
+            if not text:
+                continue
+            node = {"type": "text", "text": text}
+            if text.startswith(("https://", "http://")):
+                node["marks"] = [{"type": "link", "attrs": {"href": text}}]
+            content.append(node)
+        paragraphs.append({"type": "paragraph", "content": content})
+    result = _jira_request(settings, f"/rest/api/3/issue/{jira_key}/comment", body={
+        "body": {"type": "doc", "version": 1, "content": paragraphs},
+        "properties": [{"key": property_key, "value": event_key}],
+    })
+    if not isinstance(result, dict) or not result.get("id"):
+        raise RuntimeError("Jira comment response has no ID; reconcile before retry")
+    return str(result["id"])
+
+
+def build_retirement_adoc_notice(workflow: dict) -> str:
+    """Return the AsciiDoc retirement notice block for inclusion in description.adoc.
+
+    Uses the actual retirement target date if available, otherwise [DATE TBD].
+    """
+    replacement_ci = workflow.get("replacement_ci")
+    replacement_name = workflow.get("replacement_name")
+    replacement_source = workflow.get("replacement_source")
+    replacement_ci_full = workflow.get("replacement_ci_full")
+    catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
+
+    target_date = workflow.get("retirement_target_date")
+    date_str = str(target_date) if target_date else "[DATE TBD]"
+
+    adoc_replacement_line = ""
+    if replacement_ci and replacement_source == "babylon":
+        repl_ci_url = replacement_ci_full or (replacement_ci if replacement_ci.endswith(".prod") else f"{replacement_ci}.prod")
+        adoc_replacement_line = (
+            f" Please use this as an alternative: "
+            f"link:{catalog_base}/{repl_ci_url}[{replacement_name or replacement_ci}, window=\"_blank\"]"
+        )
+    elif replacement_ci:
+        adoc_replacement_line = f" Please use this as an alternative: {replacement_name or replacement_ci}"
+
+    return (
+        "[IMPORTANT]\n"
+        ".RETIREMENT NOTICE\n"
+        "****\n"
+        f"This item will be retired on *{date_str}*.{adoc_replacement_line}\n"
+        "\n"
+        "For any questions regarding this retirement, please contact "
+        "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
+        "****"
+    )
+
+
 def build_retirement_description(workflow: dict, metrics: dict) -> str:
     """Build the Jira ticket description in Jira wiki markup."""
     base_name = (_base_name_from_content_id(workflow.get("content_id", ""))
@@ -93,8 +175,11 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
     replacement_name = workflow.get("replacement_name")
     target_days = workflow.get("target_days", 30)
 
-    # AgV component/item from CI base name (e.g. enterprise.event-driven-ansible → enterprise/event-driven-ansible)
+    # AgV component/item from CI base name — reverse Babylon's _ → - normalization on the namespace
     agv_ref = base_name.replace(".", "/", 1) if "." in base_name else base_name
+    parts = agv_ref.split("/", 1)
+    if len(parts) == 2 and "-" in parts[0]:
+        agv_ref = parts[0].replace("-", "_") + "/" + parts[1]
 
     catalog_base = "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod"
 
@@ -138,30 +223,6 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
             return f"${val}"
         return str(val)
 
-    # AsciiDoc retirement notice template
-    adoc_replacement_line = ""
-    if replacement_ci:
-        repl_name = replacement_name or replacement_ci
-        if replacement_source == "babylon":
-            adoc_replacement_line = (
-                f' Please use this as an alternative: '
-                f'link:{catalog_base}/{repl_ci_url}'
-                f'[{repl_name}, window="_blank"]'
-            )
-        else:
-            adoc_replacement_line = f' Please use this as an alternative: {repl_name}'
-
-    adoc_template = (
-        "[IMPORTANT]\n"
-        ".RETIREMENT NOTICE\n"
-        "****\n"
-        f"This item will be retired on *[DATE TBD]*.{adoc_replacement_line}\n"
-        "\n"
-        "For any questions regarding this retirement, please contact "
-        "Nate Stephany at mailto:nstephan@redhat.com[nstephan@redhat.com].\n"
-        "****"
-    )
-
     description = (
         f"*CI Name:* {display_name}\n\n"
         f"*RHDP URL:* {catalog_base}/{base_name}.prod\n\n"
@@ -178,12 +239,7 @@ def build_retirement_description(workflow: dict, metrics: dict) -> str:
         f"|Unique Users|{unique_users}|\n"
         f"|Pipeline Touched|{fmt_dollar(touched)}|\n"
         f"|Closed Amount|{fmt_dollar(closed)}|\n"
-        f"|Total Cost|{fmt_dollar(cost)}|\n\n"
-        f"----\n\n"
-        f"*Suggested adoc template* _(replace_ {{[DATE TBD]}} _with the actual retirement date before pasting into the CI)_*:*\n\n"
-        f"{{code}}\n"
-        f"{adoc_template}\n"
-        f"{{code}}"
+        f"|Total Cost|{fmt_dollar(cost)}|"
     )
 
     return description
@@ -225,3 +281,56 @@ def create_retirement_ticket(
     logger.info("retirement_ticket_created", issue_key=issue_key)
 
     return issue_key
+
+
+def _issue_is_closed(issue: dict) -> bool:
+    fields = (issue or {}).get("fields", {})
+    status = fields.get("status") or {}
+    terminal = (status.get("statusCategory") or {}).get("key") == "done" or status.get("name", "").lower() in ("done", "closed")
+    return terminal and bool(fields.get("resolution"))
+
+
+def _close_issue(settings, jira_key: str, resolution: str) -> bool:
+    """Confirm closure, preserving an already-closed issue's resolution."""
+    issue_path = f"/rest/api/2/issue/{jira_key}?fields=status,resolution"
+    if _issue_is_closed(_jira_request(settings, issue_path, method="GET")):
+        return True
+    resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", method="GET")
+    target = None
+    for t in (resp or {}).get("transitions", []):
+        if (t["to"].get("statusCategory") or {}).get("key") == "done" or t["to"]["name"].lower() in ("done", "closed"):
+            target = t
+            break
+    if not target:
+        logger.warning("jira_no_closing_transition", jira_key=jira_key)
+        return False
+
+    _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", body={
+        "transition": {"id": target["id"]},
+        "fields": {"resolution": {"name": resolution}},
+    })
+    confirmed = _jira_request(settings, issue_path, method="GET")
+    actual_resolution = ((confirmed or {}).get("fields", {}).get("resolution") or {}).get("name")
+    if not _issue_is_closed(confirmed) or actual_resolution != resolution:
+        raise RuntimeError(f"Jira closure not confirmed for {jira_key}")
+    logger.info("jira_closed", jira_key=jira_key, resolution=resolution)
+    return True
+
+
+def close_issue_wont_do(settings, jira_key: str) -> bool:
+    """Confirm cancellation closure; False means no closing transition exists."""
+    return _close_issue(settings, jira_key, "Won't Do")
+
+
+def close_issue_done(settings, jira_key: str) -> bool:
+    """Confirm successful-retirement closure with the Done resolution."""
+    return _close_issue(settings, jira_key, "Done")
+
+
+def get_issue_status(settings, jira_key: str) -> dict:
+    """Return {status, resolution} for a Jira issue."""
+    resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}?fields=status,resolution", method="GET")
+    fields = (resp or {}).get("fields", {})
+    status = (fields.get("status") or {}).get("name")
+    resolution = (fields.get("resolution") or {}).get("name")
+    return {"status": status, "resolution": resolution}

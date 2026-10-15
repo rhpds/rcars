@@ -14,7 +14,7 @@ RCARS is a three-tier application (React SPA, FastAPI API, arq workers) that pul
 | Component | Image | Queue | Purpose |
 |---|---|---|---|
 | `rcars-api` | `rcars-api:latest` | — | FastAPI JSON API, serves `/api/v1/*` |
-| `rcars-scan-worker` | `rcars-api:latest` | `arq:queue:scan` | Analysis, catalog refresh, stale checks |
+| `rcars-scan-worker` | `rcars-api:latest` | `arq:queue:scan` | Analysis, catalog refresh, stale checks, retirement sweeps |
 | `rcars-recommend-worker` | `rcars-api:latest` | `arq:queue:recommend` | Advisor recommendation queries + chat turns |
 | `rcars-frontend` | `rcars-frontend:latest` | — | React SPA (nginx), proxies `/api/*` to API |
 
@@ -50,7 +50,8 @@ graph TB
     
     subgraph "External Systems"
         K8S[Babylon K8s API<br/>CatalogItem + AgnosticV CRDs]
-        GH[GitHub<br/>Showroom repos]
+        GH[GitHub<br/>Showroom repos and catalog PRs]
+        Jira[Jira<br/>retirement tickets]
         GL[GitLab<br/>OSSPA portfolio architectures]
         LLM[LiteMaaS / Vertex AI<br/>Claude Sonnet + Haiku]
         RPT[Reporting MCP Server<br/>provisions + sales + cost]
@@ -62,6 +63,8 @@ graph TB
     API -->|enqueue jobs| RD
     API -->|read/write| PG
     API -->|SSE relay| RD
+    API -->|retirement PR actions| GH
+    API -->|retirement tickets and status| Jira
     SW -->|process jobs| RD
     SW -->|read/write| PG
     SW -->|clone repos| GH
@@ -69,6 +72,7 @@ graph TB
     SW -->|LLM calls| LLM
     SW -->|read CRDs| K8S
     SW -->|query| RPT
+    SW -->|retirement sweep| GH
     RW -->|process jobs| RD
     RW -->|read| PG
     RW -->|LLM calls| LLM
@@ -180,15 +184,15 @@ For full details on scanning, embedding search, and the UI, see [Infrastructure 
 
 RCARS uses PostgreSQL with the **pgvector** extension as its sole data store. Schema is managed via `SCHEMA_SQL` in `database.py` — `CREATE TABLE IF NOT EXISTS` for fresh installs, `ALTER TABLE ADD COLUMN IF NOT EXISTS` for additions. No Alembic. For the full table list and column-level details, see the [Data Design](data-design.md).
 
-Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings) is preserved. Reporting metrics (`performance_scores`) are removed during orphan cleanup since they are re-derivable from the MCP server. Active-item queries filter on `retired_at IS NULL`. See [Performance Analysis — Soft-Delete](performance-analysis.md#soft-delete--preserving-retired-items) for details.
+Catalog items use a **soft-delete** pattern: when items disappear from the Babylon CRDs, they receive a `retired_at` timestamp instead of being deleted. All dependent data (analysis, embeddings, workload mappings) is preserved. Reporting metrics (`performance_scores`) can be removed during orphan cleanup since they are re-derivable from the MCP server. Active-item queries normally filter on `retired_at IS NULL`. See [Retirement System — Catalog Soft-Delete](retirement-system.md#catalog-soft-delete) for details and the distinction between catalog visibility and workflow completion.
 
-The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 768 numbers produced by `nomic-embed-text-v1.5`, served by a dedicated vLLM embedding server. These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
+The pgvector extension is central to how RCARS works. During the [scan pipeline](scan-pipeline.md#step-6-generate-embeddings), every analyzed Showroom lab gets a **vector embedding** — a list of 768 numbers produced by `nomic-embed-text-v1.5`, served by a dedicated vLLM embedding server. These numbers represent the *meaning* of the lab content in a high-dimensional space where semantically similar content clusters together. The key property: texts that mean similar things produce similar vectors, even if they use completely different words.
 
 For example, "hands-on OpenShift workshop for platform engineers" and "practical lab teaching Kubernetes cluster management to infrastructure teams" would produce similar vectors because they describe the same kind of thing. A keyword search would not connect them.
 
 These embeddings power two core features:
 
-- **[Recommendations](recommendation-engine.md#phase-1--vector-search)** — a user's query is embedded with the same model, then pgvector's cosine similarity search (`<=>` operator) finds the labs whose embeddings are closest to the query. This replaces keyword matching with semantic understanding.
+- **[Recommendations](recommendation-engine.md#phase-1-vector-search)** — a user's query is embedded with the same model, then pgvector's cosine similarity search (`<=>` operator) finds the labs whose embeddings are closest to the query. This replaces keyword matching with semantic understanding.
 - **[Content overlap detection](content-overlap.md#how-cosine-similarity-works)** — lab embeddings are compared against each other to find catalog items that teach the same material under different names.
 
 **Cosine similarity** measures the angle between two vectors. A score of 1.0 means identical meaning; 0.0 means unrelated. pgvector returns cosine *distance* (1 minus similarity), so lower is better. An IVFFlat index makes this search fast even across thousands of embeddings.
@@ -212,6 +216,7 @@ Workers are split into two separate deployments:
 - Stale content detection (`git ls-remote` checks)
 - Infrastructure scanning (agDv2 workload roles and base configs)
 - Reporting sync (MCP server data import)
+- Retirement sweeps (due-removal PR creation and merged removal/revert reconciliation)
 - Nightly pipeline (chains all of the above sequentially)
 
 **`rcars-recommend-worker`** — listens on `arq:queue:recommend`. Handles advisor recommendation queries and multi-intent chat turns (via the `run_chat_turn` task). These are user-facing and must respond in 30–60 seconds. See [Advisor Chat](advisor-chat.md) for the chat architecture.
@@ -242,7 +247,7 @@ Some tasks override the default timeout: stale check (3600s), workload scan (360
 
 ### Nightly Pipeline
 
-The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron. The pipeline is split into two independent sub-pipelines that run sequentially:
+The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron. The Babylon and OSSPA sub-pipelines run sequentially, followed by the retirement sweep:
 
 **Babylon sub-pipeline:**
 
@@ -257,7 +262,11 @@ The scan worker runs a nightly maintenance pipeline at 04:00 UTC via arq cron. T
 
 7. **OSSPA sync** — fetch PAList.csv, clone portfolio-architecture-examples, analyze changed items, retire removed items
 
-Both sub-pipelines can also be triggered independently from the SyncPage UI or via the CLI (`rcars osspa sync` for OSSPA).
+**Retirement sweep:**
+
+8. **Retirement reconciliation** — when GitHub App integration is configured, open due removal PRs and reconcile merged removal/cancellation-revert PRs. This uses the shared [AgV access layer](retirement-system.md#agv-access-layer). Humans still review and merge every catalog-change PR.
+
+The sub-pipelines and retirement sweep can also be triggered independently from the Sync & Analysis page. The direct `rcars retirement sweep` CLI command opens due removal PRs but does not perform the worker's merge reconciliation; see [Retirement System](retirement-system.md#execution-paths).
 
 ### LLM Provider Routing
 
@@ -281,7 +290,7 @@ The frontend is a React SPA built with Vite and TypeScript, using PatternFly 6 c
 - **Advisor** — Two-pane layout: chat transcript on the left, evidence blocks on the right. Supports multi-intent queries (recommendations, performance metrics, content overlap, item details, infrastructure search) with typed envelope responses, follow-up chips, and session continuity.
 - **Browse** — Filterable catalog view with collapsible filter panel. Supports both Babylon labs (Cloud Provider, Workloads, AgnosticD Config filters) and OSSPA architecture items (Solutions, Verticals, Audience filters). A Content Format filter switches between content types. Server-side filtering, numbered pagination. Expandable detail panels show summary, topics, products, duration (labs) or use cases and key components (architectures), and similar content. Curator-only filter panel for unanalyzed/failures/stale items.
 - **Workloads & Automation** — Searchable catalog of infrastructure entries (workload roles and base configs) with type, category, and collection filters. Shows which catalog items use each entry. Accessible to all authenticated users.
-- **Content Analysis** — Overlap (pairwise similarity within a stage) and Performance (scored dashboard with Prod/Without Prod tabs, retirement workflow for low performers).
+- **Content Analysis** — Overlap (pairwise similarity within a stage), Performance (scored dashboard with Prod/Without Prod tabs), and Retirement (curator/admin lifecycle report). The shared workflow drawer is accessible from Performance, Non-Prod Items, and Retirement. See [Retirement System](retirement-system.md).
 - **Admin** — Status (stat cards, scheduled maintenance, LLM provider, reporting sync), Sync & Analysis (catalog sync, content analysis, jobs).
 
 ### Authentication and Roles

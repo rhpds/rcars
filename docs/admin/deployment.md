@@ -256,6 +256,14 @@ Then redeploy the API:
 ansible-playbook ansible/deploy.yml -e env=dev --tags api
 ```
 
+### Configure retirement integration
+
+Retirement uses the existing API and scan-worker deployments. Supply GitHub App settings to **both**: interactive actions execute on the API, while queued/nightly sweeps execute on the scan worker. Configure Jira credentials for ticket actions on the API.
+
+Keep App IDs, installation IDs, PEM keys, Jira credentials, and service addresses in the approved secret store and gitignored environment vars. Public examples must contain placeholders only. Ensure the shared GitHub App installation can access every supported catalog repository, with Contents and Pull requests read/write permissions.
+
+Schema setup adds the workflow PR-reference columns idempotently. Before configuring the App ID for a live environment, review started workflows and overdue target dates: the first enabled sweep can open removal PRs for them. A successful API PR action is not evidence that worker credentials are present. See [Retirement System — Configuration and Operations](../architecture/retirement-system.md#configuration-and-operations).
+
 ### Promote to production
 
 Production merges must go through a pull request:

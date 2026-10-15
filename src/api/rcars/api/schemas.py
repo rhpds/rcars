@@ -231,6 +231,28 @@ class StartRetirementResponse(BaseModel):
 class CancelWorkflowResponse(BaseModel):
     status: str = Field(examples=["ok"])
     deleted: bool
+    revert_pr_urls: list[str] = Field(default_factory=list)
+    workflow: dict | None = None
+    jira_comment_errors: list[str] = Field(default_factory=list, description="Deferred Jira comment delivery; required cleanup status is separate")
+
+
+class AgvPrResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    workflow: dict | None = None
+    pr_url: str
+    pr_number: int
+    repo: str
+    jira_comment_errors: list[str] = Field(default_factory=list, description="Deferred Jira comment delivery; the PR remains recorded")
+
+
+class RetirementPrStatusResponse(BaseModel):
+    status: str = Field(examples=["ok"])
+    deleted: bool = Field(description="True when a merged cancellation revert removed the workflow")
+    pr_statuses: dict[str, dict] = Field(description="Live PR states, keyed by workflow PR field; failed lookups include error")
+    jira_status: dict | None = None
+    cleanup_error: str | None = Field(default=None, description="Required cleanup failed; tracking retained for retry")
+    workflow: dict | None = Field(default=None, description="Current workflow, absent or null after deletion")
+    jira_comment_errors: list[str] = Field(default_factory=list, description="Jira comments retained for delivery retry")
 
 
 class RetirementDashboardResponse(BaseModel):

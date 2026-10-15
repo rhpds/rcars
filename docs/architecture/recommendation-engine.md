@@ -51,7 +51,7 @@ flowchart TD
 
 ## Phase 1 — Vector Search
 
-Vector search is how RCARS finds relevant content without requiring exact keyword matches. It works by converting the user's query into the same kind of vector embedding that was generated for each lab during the [scan pipeline](scan-pipeline.md#step-6--generate-embeddings), then finding the labs whose vectors are closest.
+Vector search is how RCARS finds relevant content without requiring exact keyword matches. It works by converting the user's query into the same kind of vector embedding that was generated for each lab during the [scan pipeline](scan-pipeline.md#step-6-generate-embeddings), then finding the labs whose vectors are closest.
 
 ### How It Works
 
@@ -279,7 +279,4 @@ This is intentional: the alternative (widening the distance cutoff until somethi
 
 ## API
 
-- `POST /advisor/query` — submit a recommendation query, returns `{job_id}`
-- `GET /advisor/query/{job_id}/stream` — SSE stream of progressive results
-- `GET /advisor/sessions` — list user's recent sessions
-- `POST /advisor/sessions/{session_id}/select` — mark a recommendation as "best fit"
+See [Swagger UI](api-reference.md#interactive-api-documentation) for advisor queries, progress streaming, session history, and selections. New integrations should use the chat operation; the direct recommendation-query operation is deprecated.

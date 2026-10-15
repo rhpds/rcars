@@ -324,6 +324,23 @@ type: Opaque
 stringData:
   token: "{{ rcars_jira_api_token }}"
 {% endif %}
+{% if github_app_id is defined and github_app_id != '' %}
+---
+# GitHub App credentials (for agv-retire automated PR creation)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-github-app
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  app-id: "{{ github_app_id }}"
+  private-key: "{{ github_app_private_key | replace('\n', '\\n') }}"
+  installation-id: "{{ github_app_installation_id }}"
+  installation-id-zt-rhelbu: "{{ github_app_installation_id_zt_rhelbu | default(github_app_installation_id) }}"
+  installation-id-zt-ansiblebu: "{{ github_app_installation_id_zt_ansiblebu | default(github_app_installation_id) }}"
+{% endif %}
 {% if rcars_proxy_verification_secret is defined and rcars_proxy_verification_secret != '' %}
 ---
 # Proxy verification shared secret (frontend nginx + API)

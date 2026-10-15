@@ -806,8 +806,180 @@ async def run_osspa_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = Tr
     return result
 
 
+async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
+    """Open due removal PRs and reconcile merged removal/revert PRs.
+
+    Callable standalone (CLI/API) or as a nightly pipeline step.
+    """
+    from rcars.services.agv_access import create_retire_pr, get_pr_state
+    from rcars.services.retirement_cleanup import CleanupError, cancel_retirement, complete_retirement, workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events, observe_pr_events
+
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+    db = wctx.db
+    # All callers (nightly and queued/API) share the same capability checks.
+    github_available = bool(
+        wctx.settings.github_app_id
+        and wctx.settings.github_app_private_key
+        and wctx.settings.github_app_installation_id
+    )
+    jira_available = bool(wctx.settings.jira_api_email and wctx.settings.jira_api_token)
+
+    ready = db.list_retirement_ready_for_removal()
+    if not ready:
+        log.info("retirement_sweep_none", action="retirement_sweep", message="No items ready for removal PRs")
+
+    log.info("retirement_sweep_start", action="retirement_sweep", count=len(ready))
+    opened = 0
+    errors = []
+
+    for wf in ready:
+        content_id = wf["content_id"]
+        base_name = content_id.removeprefix("babylon:")
+        jira_key = wf.get("jira_key", "")
+        if not jira_key:
+            log.warning("retirement_sweep_skip_no_jira", action="retirement_sweep",
+                        base_name=base_name, reason="no jira_key")
+            continue
+        try:
+            with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+                if not acquired:
+                    continue
+                current = db.get_retirement_workflow(content_id)
+                if not current or current.get("cancellation_requested_at") or current.get("agv_revert_pr_url") or current.get("agv_retire_pr_url") or current.get("step_retired_at"):
+                    continue
+                if not github_available:
+                    message = "GitHub cleanup pending: integration not configured"
+                    db.update_retirement_cleanup(content_id, {"cleanup_error": message})
+                    raise CleanupError(message)
+                result = await create_retire_pr(wctx.settings, base_name, jira_key)
+                db.record_retirement_pr(content_id, "agv_retire_pr_url", result)
+                db.update_retirement_cleanup(content_id, {"cleanup_error": None})
+                db.log_action(base_name, "agv_retire_pr_opened", "pipeline", f"PR: {result['pr_url']}")
+                opened += 1
+        except Exception as exc:
+            errors.append(f"{base_name}: {exc}")
+            log.error("retirement_sweep_pr_failed", action="retirement_sweep",
+                      base_name=base_name, error=str(exc))
+
+    # Notice transitions matter to Jira even though they do not complete retirement.
+    observed = {}
+    if github_available:
+        for wf in db.list_retirement_workflows():
+            if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url") or not wf.get("jira_key"):
+                continue
+            states = await observe_pr_events(db, wctx.settings, wf)
+            for url, state in states.items():
+                observed[(wf["content_id"], url)] = state
+                if state.get("error"):
+                    errors.append(f"{url}: {state['error']}")
+
+    reverts_completed = 0
+    pending = [wf for wf in db.list_retirement_workflows() if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url")]
+    for wf in pending:
+        revert_url = wf.get("agv_revert_pr_url")
+        try:
+            result = await cancel_retirement(
+                db, wctx.settings, wf["content_id"], "pipeline",
+                github_available=github_available, jira_available=jira_available,
+            )
+            if result["deleted"]:
+                reverts_completed += 1
+        except Exception as exc:
+            errors.append(f"{wf['content_id']}: {exc}")
+            log.warning("retirement_revert_check_failed", action="retirement_sweep",
+                        revert_url=revert_url, error=str(exc))
+
+    retirements_completed = 0
+    jira_closed = 0
+    for wf in db.list_retirement_workflows():
+        retire_url = wf.get("agv_retire_pr_url")
+        if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+            continue
+        try:
+            retired = bool(wf.get("step_retired_at"))
+            if retired and (wf.get("jira_closed_at") or not wf.get("jira_key")):
+                continue
+            if not retired and retire_url:
+                with db.advisory_lock(workflow_lock_id(wf["content_id"])) as acquired:
+                    if not acquired:
+                        continue
+                    current = db.get_retirement_workflow(wf["content_id"])
+                    if not current or current.get("cancellation_requested_at") or current.get("agv_revert_pr_url"):
+                        continue
+                    retired = bool(current.get("step_retired_at"))
+                    if not retired:
+                        retire_url = current.get("agv_retire_pr_url")
+                        if not retire_url:
+                            continue
+                        message = "GitHub cleanup pending: integration not configured"
+                        if not github_available:
+                            db.update_retirement_cleanup(wf["content_id"], {"cleanup_error": message})
+                            raise CleanupError(message)
+                        parts = retire_url.rstrip("/").split("/")
+                        state = observed.get((wf["content_id"], retire_url))
+                        if state is None:
+                            state = await get_pr_state(wctx.settings, f"{parts[-4]}/{parts[-3]}", int(parts[-1]))
+                            db.record_retirement_pr_state(wf["content_id"], "agv_retire_pr_url", {"url": retire_url, **state})
+                        if state.get("error"):
+                            continue
+                        retired = state["merged"]
+                        if current.get("cleanup_error") == message:
+                            db.update_retirement_cleanup(wf["content_id"], {"cleanup_error": None})
+            if retired:
+                if await complete_retirement(
+                    db, wctx.settings, wf["content_id"], "pipeline", jira_available=jira_available,
+                ):
+                    retirements_completed += 1
+                if wf.get("jira_key") and not wf.get("jira_closed_at"):
+                    jira_closed += 1
+        except Exception as exc:
+            errors.append(f"{retire_url}: {exc}")
+            log.warning("retirement_removal_check_failed", action="retirement_sweep",
+                        retire_url=retire_url, error=str(exc))
+
+    comment_errors = await deliver_pending_events(db, wctx.settings)
+    errors.extend(comment_errors)
+    return {"status": "ok", "processed": len(ready), "prs_opened": opened,
+             "retirements_completed": retirements_completed,
+            "reverts_completed": reverts_completed, "jira_closed": jira_closed, "errors": errors,
+            "jira_comment_errors": comment_errors}
+
+
+async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
+    """Standalone retirement sweep — API and CLI entry point."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    log = logger.bind(job_id=job_id)
+    log.info("retirement_sweep_job_started", action="retirement_sweep_job_started")
+    wctx.db.update_job_status(job_id, "running")
+    await publish_progress(wctx.relay, job_id, wctx.db,
+                           phase="retirement_sweep", status="running",
+                           message="Running retirement sweep...")
+    try:
+        result = await run_retirement_sweep(ctx, job_id)
+    except Exception as exc:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="retirement_sweep", status="failed",
+                               message=f"Retirement sweep failed: {exc}")
+        wctx.db.fail_job(job_id, error=str(exc))
+        raise
+    opened = result.get("prs_opened", 0)
+    reverts = result.get("reverts_completed", 0)
+    retired = result.get("retirements_completed", 0)
+    errors = result.get("errors", [])
+    msg = f"Sweep complete: {opened} PR(s) opened, {retired} retirement(s) completed, {reverts} revert(s) resolved"
+    if errors:
+        msg += f", {len(errors)} error(s)"
+    await publish_progress(wctx.relay, job_id, wctx.db,
+                           phase="retirement_sweep", status="complete",
+                           message=msg)
+    wctx.db.complete_job(job_id, result_json=result)
+    return result
+
+
 async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
-    """Nightly maintenance orchestrator: Babylon sub-pipeline, then OSSPA."""
+    """Nightly maintenance orchestrator: Babylon, OSSPA, retirement sweep."""
     wctx: WorkerContext = ctx["worker_ctx"]
     if not job_id:
         job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
@@ -844,7 +1016,24 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:osspa", status="failed", message=msg)
 
-    result = {**babylon_result, "osspa": osspa_result, "warnings": warnings}
+    retirement_result: dict = {"status": "skipped"}
+    try:
+        if wctx.settings.github_app_id or wctx.settings.jira_api_token:
+            retirement_result = await run_retirement_sweep(ctx, job_id)
+            warnings.extend(retirement_result.get("errors") or [])
+        else:
+            log.info("retirement_sweep_skipped", action="pipeline_step_skipped",
+                     step="retirement", reason="GitHub App and Jira integrations not configured")
+    except Exception as exc:
+        msg = f"Retirement sweep failed: {exc}"
+        warnings.append(msg)
+        retirement_result = {"status": "error", "error": str(exc)}
+        log.error("pipeline_retirement_failed", action="pipeline_step_failed",
+                  step="retirement", error=str(exc), traceback=traceback.format_exc())
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="pipeline:retirement", status="failed", message=msg)
+
+    result = {**babylon_result, "osspa": osspa_result, "retirement": retirement_result, "warnings": warnings}
 
     if warnings:
         await publish_progress(wctx.relay, job_id, wctx.db,

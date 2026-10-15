@@ -3,35 +3,136 @@
 # Copy to prod.yml and fill in secrets:
 #   cp prod.yml.example prod.yml
 
+# ── Deployment identity ────────────────────────────────────────────────────────
+# Which environment and namespace to deploy into.
+# git_ref controls which tag the BuildConfig pulls from — update this before
+# each production deploy (e.g. v1.4.6).
+
 env: prod
 target_namespace: rcars-prod
-git_ref: v1.4.6
+git_ref: v0.0.0
+github_repo: rhpds/rcars
 
-# Cluster domain — get with: oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
+# ── Cluster ────────────────────────────────────────────────────────────────────
+# OpenShift cluster details. cluster_domain drives all generated hostnames.
+# Get cluster_domain with:
+#   oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'
+
 cluster_domain: apps.your-cluster.example.com
 
-# Kubeconfig for the target cluster.
-# After running --tags mgmt-rbac with your personal kubeconfig, switch to:
-#   kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
-kubeconfig: ~/secrets/rcars-mgmt.kubeconfig
+# Kubeconfig for the target cluster — use the management SA, not a personal account.
+# Bootstrap the SA once with: ansible-playbook deploy.yml --tags mgmt-rbac -e kubeconfig=~/.kube/config
+kubeconfig: ~/secrets/rcars-mgmt-prod.kubeconfig
+
+# Read-only kubeconfig for the Babylon cluster (catalog item source).
+# Contents are loaded into a K8s Secret — path to the file on your local machine.
+babylon_kubeconfig_path: ~/secrets/babylon-readonly.kubeconfig
+
+# ── Routes / hostnames ─────────────────────────────────────────────────────────
+# frontend_host: the main web UI, fronted by the OAuth proxy.
+# api_host: the direct external API route (bypasses OAuth proxy — auth via API keys).
+#   Omit api_host entirely to skip creating the direct API route.
 
 frontend_host: "rcars.{{ cluster_domain }}"
+api_host: "rcars-api.{{ cluster_domain }}"
+
+# ── Database ───────────────────────────────────────────────────────────────────
+# PostgreSQL credentials. Generate password with: openssl rand -hex 16
 
 pg_password: CHANGEME
 
-babylon_kubeconfig_path: ~/.kube/babylon-readonly
+# ── Redis ──────────────────────────────────────────────────────────────────────
+# Redis credentials. Generate password with: openssl rand -base64 24 | tr -d '/+=' | head -c 32
 
-vertex_enabled: true
-vertex_credentials_path: ~/devel/secrets/gcp-vertex-key.json
+redis_password: CHANGEME
+
+# ── Web UI auth (OAuth proxy) ──────────────────────────────────────────────────
+# These secrets are for the OpenShift OAuth proxy that fronts the web UI.
+# They are unrelated to the API key auth added in RHDPCD-109.
+#
+# oauth_client_secret: authenticates the proxy with OpenShift's OAuth server
+#   when exchanging auth codes for tokens. Tied to the OAuthClient CRD for the web UI.
+# oauth_cookie_secret: encrypts the proxy's session cookie. If rotated, all
+#   active browser sessions are invalidated.
+#
+# Generate both with: openssl rand -hex 16
 
 oauth_client_secret: CHANGEME
 oauth_cookie_secret: CHANGEME
 
-curator_emails:
-  - your-email@redhat.com
+# ── External API auth (RHDPCD-109) ────────────────────────────────────────────
+# Settings for external API access via API keys.
+#
+# rcars_proxy_verification_secret: shared secret injected by the frontend nginx
+#   into the X-Proxy-Secret header on every proxied API request. The API uses this
+#   to verify that X-Forwarded-Email headers are legitimate and not spoofed.
+#   REQUIRED on all deployed environments. Generate: openssl rand -hex 32
+#
+# rcars_oauth_server_url: the OpenShift OAuth server URL, used by the
+#   POST /api/v1/auth/token endpoint to exchange CLI auth codes for API keys.
+#   Typically https://oauth-openshift.<cluster_domain>.
+#
+# rcars_oauth_client_id: the OAuthClient name registered for CLI login.
+#   Defaults to "rcars-api" — only set this if you used a different name.
+#
+# rcars_oauth_client_secret: shared secret between the OAuthClient CRD and the
+#   RCARS API for the authorization_code token exchange. Must match the secret
+#   field on the OAuthClient. Generate: openssl rand -hex 16
+
+rcars_proxy_verification_secret: CHANGEME
+rcars_oauth_server_url: "https://oauth-openshift.{{ cluster_domain }}"
+rcars_oauth_client_secret: CHANGEME
+# rcars_oauth_client_id: rcars-api
+
+# ── Role assignments ───────────────────────────────────────────────────────────
+# Email lists for curator and admin roles. Roles are resolved at request time —
+# changing these lists takes effect on the next deploy (no restart required).
+
+curator_emails: []
 
 admin_emails:
   - your-email@redhat.com
 
-# GitHub repo for BuildConfig (public — no source secret needed)
-github_repo: rhpds/rcars
+# ── ServiceAccount allowlist ───────────────────────────────────────────────────
+# In-cluster ServiceAccounts allowed to call the API via K8s SA bearer tokens.
+# Format: system:serviceaccount:<namespace>:<sa-name>
+
+sa_allowlist:
+  - "system:serviceaccount:your-namespace:default"
+
+# ── LLM providers ─────────────────────────────────────────────────────────────
+# LiteMaaS is preferred when enabled — falls back to Vertex AI if the model
+# isn't available on LiteMaaS, or Vertex fails.
+
+litemaas_enabled: true
+litemaas_url: https://maas-rhdp.apps.maas.redhatworkshops.io/v1
+litemaas_api_key: CHANGEME
+
+vertex_enabled: true
+vertex_credentials_path: ~/secrets/gcp-vertex-key.json
+
+# ── Reporting MCP ──────────────────────────────────────────────────────────────
+# MCP server for RHDP provisioning and cost data (used by performance analysis).
+
+rcars_reporting_mcp_url: https://reporting-mcp.apps.your-cluster.example.com/mcp/
+rcars_reporting_mcp_token: CHANGEME
+
+# ── Jira ───────────────────────────────────────────────────────────────────────
+# Jira credentials for creating retirement tickets via the bot account.
+
+rcars_jira_api_email: jira-service-account@example.com
+rcars_jira_api_token: CHANGEME
+
+# ── GitHub App (agv-retire integration, RHDPCD-2103) ──────────────────────────
+# Credentials for automated retirement PR creation on agnosticv repos.
+# Retrieve App credentials from the approved secret store; do not commit real values.
+# All supported catalog repositories share one organization installation.
+# Grant that installation access to all three repositories.
+# Omit or leave empty to disable automated retirement PRs.
+
+# github_app_id: ""
+# github_app_private_key: ""   # PEM contents, \n-escaped
+# github_app_installation_id: "CHANGEME"
+# Legacy per-organization overrides are not needed by current repository routing.
+# github_app_installation_id_zt_rhelbu: ""
+# github_app_installation_id_zt_ansiblebu: ""

@@ -40,6 +40,7 @@ from arq import cron, func
 from rcars.workers.ops import (
     run_catalog_refresh, run_stale_check, run_nightly_pipeline, run_workload_scan,
     run_reporting_sync_job, run_field_source_sync_job, run_osspa_sync_job,
+    run_retirement_sweep_job,
     run_babylon_pipeline, run_osspa_pipeline,
 )
 
@@ -147,6 +148,7 @@ class WorkerSettings:
         func(run_osspa_sync_job, timeout=3600),
         func(run_babylon_pipeline, timeout=7200),
         func(run_osspa_pipeline, timeout=3600),
+        func(run_retirement_sweep_job, timeout=600),
     ]
     cron_jobs = ([
         cron(run_nightly_pipeline, hour=_pipeline_hour, minute=_pipeline_minute,

@@ -147,6 +147,7 @@ function StepperStep({
   optional,
   completedAt,
   completedBy,
+  action,
   children,
 }: {
   title: string
@@ -157,6 +158,7 @@ function StepperStep({
   optional?: boolean
   completedAt?: string | null
   completedBy?: string | null
+  action?: React.ReactNode
   children?: React.ReactNode
 }) {
   const cls = complete ? 'ret-step--complete' : active ? 'ret-step--active' : auto ? 'ret-step--auto' : 'ret-step--pending'
@@ -167,6 +169,7 @@ function StepperStep({
         {title}
         {optional && <span className="ret-step__badge ret-step__badge--optional">optional</span>}
         {auto && <span className="ret-step__badge ret-step__badge--auto">auto</span>}
+        {action}
       </div>
       {complete && completedAt && (
         <div className="ret-step__meta">
@@ -189,11 +192,13 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const [notesText, setNotesText] = useState('')
   const [targetDays, setTargetDays] = useState(30)
   const [jiraProject, setJiraProject] = useState('RHDPCD')
-  const [actionLoading, setActionLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState<string | false>(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
+  const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
+  const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
 
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -211,6 +216,22 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
         setJiraProject(workflow?.jira_project || 'RHDPCD')
         setLinkJiraKey('')
         setNotesSaved(false)
+        if (workflow && (workflow.agv_notice_pr_url || workflow.agv_retire_pr_url || workflow.agv_revert_pr_url || workflow.jira_key)) {
+          try {
+            const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+            if (result.cleanup_error) setActionError(result.cleanup_error)
+            setPrStatuses(result.pr_statuses)
+            if (result.jira_status) setJiraStatus(result.jira_status)
+            if (result.deleted) {
+              setDrawerWorkflow(null)
+              onClose()
+              onChanged()
+            } else if (result.workflow) {
+              setDrawerWorkflow(result.workflow)
+              if (result.workflow.status !== workflow.status) onChanged()
+            }
+          } catch { /* non-critical */ }
+        }
       } catch { setDrawerWorkflow(null) }
       setDrawerLoading(false)
     }
@@ -219,7 +240,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
 
   const handleApprove = async () => {
     if (!approvalReason.trim()) return
-    setActionLoading(true)
+    setActionLoading('approve')
     setActionError(null)
     try {
       const { workflow } = await api.approveRetirementItem(
@@ -235,7 +256,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleNotify = async () => {
-    setActionLoading(true)
+    setActionLoading('notify')
     setActionError(null)
     try {
       const { workflow } = await api.notifyRetirementOwner(item.catalog_base_name)
@@ -248,7 +269,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   }
 
   const handleStart = async () => {
-    setActionLoading(true)
+    setActionLoading('start')
     setActionError(null)
     try {
       const { workflow } = await api.startRetirement(item.catalog_base_name, targetDays, jiraProject)
@@ -263,18 +284,35 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const handleCancel = async () => {
     const hasJira = drawerWorkflow?.jira_key
     const msg = hasJira
-      ? `This will cancel the retirement workflow and unlink ${drawerWorkflow.jira_key}. The Jira ticket will remain open. Continue?`
-      : 'This will cancel the retirement workflow and remove all progress. Continue?'
+      ? `This will cancel retirement and close ${drawerWorkflow.jira_key} with resolution “Won’t Do” (or confirm it is already closed). Tracking is retained until Jira closure and GitHub cleanup complete. A merged notice requires a revert PR to be merged. Continue?`
+      : 'This will cancel retirement. Tracking is retained until GitHub cleanup completes, including any required notice-revert merge. Continue?'
     if (!confirm(msg)) return
-    setActionLoading(true)
+    setActionLoading('cancel')
     setActionError(null)
     try {
-      await api.cancelRetirementWorkflow(item.catalog_base_name)
-      setDrawerWorkflow(null)
-      onClose()
+      const result = await api.cancelRetirementWorkflow(item.catalog_base_name)
+      if (result.status === 'pending_revert' && result.workflow) {
+        setDrawerWorkflow(result.workflow)
+        setPrStatuses(null)
+        setJiraStatus(null)
+        try {
+          const check = await api.checkAgvPrStatuses(item.catalog_base_name)
+          setPrStatuses(check.pr_statuses)
+          if (check.jira_status) setJiraStatus(check.jira_status)
+          if (check.workflow) setDrawerWorkflow(check.workflow)
+        } catch { /* non-critical */ }
+      } else {
+        setDrawerWorkflow(null)
+        onClose()
+      }
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Cancel failed')
+      try {
+        const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
+        setDrawerWorkflow(workflow)
+        onChanged()
+      } catch { /* The original cleanup error remains visible. */ }
     }
     setActionLoading(false)
   }
@@ -290,7 +328,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
 
   const handleLinkJira = async () => {
     if (!linkJiraKey.trim()) return
-    setActionLoading(true)
+    setActionLoading('linkJira')
     setActionError(null)
     try {
       const { workflow } = await api.linkRetirementJira(item.catalog_base_name, linkJiraKey.trim())
@@ -299,6 +337,52 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to link Jira ticket')
+    }
+    setActionLoading(false)
+  }
+
+  const handleOpenNoticePr = async () => {
+    setActionLoading('noticePr')
+    setActionError(null)
+    try {
+      const { workflow } = await api.openAgvNoticePr(item.catalog_base_name)
+      setDrawerWorkflow(workflow)
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to open notice PR')
+    }
+    setActionLoading(false)
+  }
+
+  const handleCheckPrStatuses = async () => {
+    setActionLoading('checkPr')
+    setActionError(null)
+    try {
+      const result = await api.checkAgvPrStatuses(item.catalog_base_name)
+      if (result.cleanup_error) setActionError(result.cleanup_error)
+      setPrStatuses(result.pr_statuses)
+      if (result.jira_status) setJiraStatus(result.jira_status)
+      if (result.deleted) {
+        setDrawerWorkflow(null)
+        onClose()
+        onChanged()
+      } else if (result.workflow) {
+        setDrawerWorkflow(result.workflow)
+        onChanged()
+      }
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to check PR statuses')
+    }
+    setActionLoading(false)
+  }
+
+  const handleOpenRetirePr = async () => {
+    setActionLoading('retirePr')
+    setActionError(null)
+    try {
+      const { workflow } = await api.openAgvRetirePr(item.catalog_base_name)
+      setDrawerWorkflow(workflow)
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to open removal PR')
     }
     setActionLoading(false)
   }
@@ -339,6 +423,7 @@ RHDP Content Team`
   const isNotified = !!wf?.step_notified_at
   const isStarted = !!wf?.step_started_at
   const isRetired = !!wf?.step_retired_at
+  const cleanupError = actionError || wf?.cleanup_error
 
   const approveIsNext = !isApproved
   const notifyIsNext = isApproved && !isNotified && !isStarted
@@ -357,6 +442,17 @@ RHDP Content Team`
             <p className="ca-color-muted" style={{ padding: 'var(--sp-md)' }}>Loading workflow...</p>
           ) : (
             <>
+              {wf?.cancellation_requested_at && (
+                <div role="status" style={{ padding: 'var(--sp-md)', color: 'var(--score-amber)' }}>
+                  Cancellation pending — tracking is retained until Jira closure and GitHub cleanup complete.
+                  {isAdmin && <button className="ret-action-btn" onClick={handleCancel} disabled={!!actionLoading}>Retry Cleanup</button>}
+                </div>
+              )}
+              {isRetired && wf?.jira_key && !wf.jira_closed_at && !wf.cancellation_requested_at && (
+                <div role="status" style={{ padding: 'var(--sp-md)', color: 'var(--score-amber)' }}>
+                  Catalog retirement complete — Jira closure is pending. Refresh or the nightly sweep will retry.
+                </div>
+              )}
               {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
               <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
               <div className="ret-data-grid">
@@ -499,8 +595,8 @@ RHDP Content Team`
                           />
                         </div>
                         <button className="ret-action-btn ret-action-btn--primary" onClick={handleApprove}
-                          disabled={actionLoading || !approvalReason.trim()}>
-                          {actionLoading ? 'Submitting...' : 'Recommend Retirement'}
+                          disabled={!!actionLoading || !approvalReason.trim()}>
+                          {actionLoading === 'approve' ? 'Submitting...' : 'Recommend Retirement'}
                         </button>
                       </div>
                     )}
@@ -545,8 +641,8 @@ RHDP Content Team`
                                 Generate Email Template
                               </button>
                               <button className="ret-action-btn ret-action-btn--primary" onClick={handleNotify}
-                                disabled={actionLoading} style={{ fontSize: '11px' }}>
-                                {actionLoading ? 'Saving...' : 'Mark as Notified'}
+                                disabled={!!actionLoading} style={{ fontSize: '11px' }}>
+                                {actionLoading === 'notify' ? 'Saving...' : 'Mark as Notified'}
                               </button>
                             </div>
                           ) : (
@@ -599,25 +695,85 @@ RHDP Content Team`
                     pending={!isApproved}
                     completedAt={wf?.step_started_at}
                     completedBy={wf?.step_started_by}
+                    action={isStarted && isAdmin ? (
+                      <button className="ret-action-btn ret-action-btn--start"
+                        onClick={handleCheckPrStatuses}
+                        disabled={!!actionLoading}
+                        style={{ padding: '2px 6px', fontSize: '11px', lineHeight: 1, marginLeft: '6px' }}
+                        title="Refresh Jira and PR statuses">
+                        {actionLoading === 'checkPr' ? '...' : '↻'}
+                      </button>
+                    ) : undefined}
                   >
                     {isStarted ? (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                         {wf?.jira_key && (
                           <a href={`https://redhat.atlassian.net/browse/${wf.jira_key}`}
-                            target="_blank" rel="noreferrer" className="ret-jira-link">
-                            {wf.jira_key}
+                            target="_blank" rel="noreferrer" className="ret-jira-link"
+                            style={jiraStatus?.status?.toLowerCase() === 'done' ? { textDecoration: 'line-through' } : undefined}>
+                            {wf.jira_key}{jiraStatus ? ` (${jiraStatus.resolution || jiraStatus.status})` : ''}
                           </a>
                         )}
-                        {isAdmin ? (
-                          <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                            disabled={actionLoading}
-                            style={{ fontSize: '11px', marginTop: '4px' }}>
-                            {actionLoading ? 'Stopping...' : 'Stop Retirement'}
-                          </button>
-                        ) : (
-                          <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
-                            Admin access required to stop retirement
+                        {wf?.retirement_target_date && (
+                          <div style={{ fontSize: '12px' }}>
+                            <span style={{ color: 'var(--text-muted)', fontSize: '10px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Target date: </span>
+                            <span style={{ color: new Date(wf.retirement_target_date) <= new Date() ? 'var(--score-red)' : 'var(--text-secondary)' }}>
+                              {new Date(wf.retirement_target_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                              {new Date(wf.retirement_target_date) <= new Date() && ' (past due)'}
+                            </span>
                           </div>
+                        )}
+                        {wf?.agv_notice_pr_url ? (
+                          <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
+                            className="ret-jira-link"
+                            style={prStatuses?.agv_notice_pr_url?.merged || prStatuses?.agv_notice_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
+                            Notice PR #{wf.agv_notice_pr_url.split('/').pop()}{prStatuses?.agv_notice_pr_url?.merged ? ' (merged)' : prStatuses?.agv_notice_pr_url?.state === 'closed' ? ' (closed)' : ''} →
+                          </a>
+                        ) : isAdmin && !wf?.cancellation_requested_at && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleOpenNoticePr}
+                            disabled={!!actionLoading}
+                            style={{ fontSize: '11px' }}>
+                            {actionLoading === 'noticePr' ? 'Opening PR...' : 'Open Notice PR'}
+                          </button>
+                        )}
+                        {wf?.agv_revert_pr_url && (
+                          <>
+                            <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                              Cancellation pending — revert PR must be merged
+                            </div>
+                            <a href={wf.agv_revert_pr_url} target="_blank" rel="noreferrer"
+                              className="ret-jira-link">
+                              Revert PR #{wf.agv_revert_pr_url.split('/').pop()}{prStatuses?.agv_revert_pr_url?.merged ? ' (merged)' : ''} →
+                            </a>
+                          </>
+                        )}
+                        {wf?.agv_retire_pr_url ? (
+                          <a href={wf.agv_retire_pr_url} target="_blank" rel="noreferrer"
+                            className="ret-jira-link"
+                            style={prStatuses?.agv_retire_pr_url?.merged || prStatuses?.agv_retire_pr_url?.state === 'closed' ? { textDecoration: 'line-through' } : undefined}>
+                            Removal PR #{wf.agv_retire_pr_url.split('/').pop()}{prStatuses?.agv_retire_pr_url?.merged ? ' (merged)' : prStatuses?.agv_retire_pr_url?.state === 'closed' ? ' (closed)' : ''} →
+                          </a>
+                        ) : isAdmin && !wf?.agv_revert_pr_url && !wf?.cancellation_requested_at && (
+                          <button className="ret-action-btn ret-action-btn--start"
+                            onClick={handleOpenRetirePr}
+                            disabled={!!actionLoading}
+                            style={{ fontSize: '11px' }}>
+                            {actionLoading === 'retirePr' ? 'Opening PR...' : 'Open Removal PR'}
+                          </button>
+                        )}
+                        {!wf?.agv_revert_pr_url && (
+                          isAdmin ? (
+                            <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
+                              disabled={!!actionLoading}
+                              style={{ fontSize: '11px', marginTop: '4px' }}>
+                              {actionLoading === 'cancel' ? 'Stopping...' : 'Stop Retirement'}
+                            </button>
+                          ) : (
+                            <div style={{ fontSize: '11px', color: 'var(--score-amber)' }}>
+                              Admin access required to stop retirement
+                            </div>
+                          )
                         )}
                       </div>
                     ) : isApproved ? (
@@ -634,9 +790,9 @@ RHDP Content Team`
                                 placeholder="RHDPCD-123"
                                 style={{ width: '120px', fontSize: '12px' }} />
                               <button className="ret-action-btn ret-action-btn--start" onClick={handleLinkJira}
-                                disabled={actionLoading || !linkJiraKey.trim()}
+                                disabled={!!actionLoading || !linkJiraKey.trim()}
                                 style={{ padding: '3px 10px', fontSize: '11px' }}>
-                                {actionLoading ? 'Linking...' : 'Link Jira'}
+                                {actionLoading === 'linkJira' ? 'Linking...' : 'Link Jira'}
                               </button>
                             </div>
 
@@ -648,7 +804,7 @@ RHDP Content Team`
 
                             {/* Create new Jira */}
                             <div style={{ fontSize: '11px', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-                              Creates a Jira ticket with retirement details, metrics snapshot, and adoc template.
+                              Creates a Jira ticket with retirement details and metrics snapshot.
                             </div>
                             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                               <label style={{ fontSize: '12px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Target days:</label>
@@ -661,8 +817,8 @@ RHDP Content Team`
                                 style={{ width: '80px', fontSize: '12px' }} />
                             </div>
                             <button className="ret-action-btn ret-action-btn--start" onClick={handleStart}
-                              disabled={actionLoading}>
-                              {actionLoading ? 'Creating Jira...' : 'Start Retirement'}
+                              disabled={!!actionLoading}>
+                              {actionLoading === 'start' ? 'Creating Jira...' : 'Start Retirement'}
                             </button>
                           </>
                         ) : (
@@ -689,7 +845,7 @@ RHDP Content Team`
                   >
                     {!isRetired && (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        Auto-completes when item disappears from Babylon
+                        Auto-completes when the removal PR is merged or the item disappears from Babylon
                       </div>
                     )}
                   </StepperStep>
@@ -697,13 +853,13 @@ RHDP Content Team`
               </div>
 
               {/* ── Action Error ── */}
-              {actionError && (
+              {cleanupError && (
                 <div style={{
                   background: 'var(--error-bg)', border: '1px solid var(--error-border)',
                   borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: '12px',
                   color: 'var(--error-title)', marginTop: '8px',
                 }}>
-                  {actionError}
+                  {cleanupError}
                 </div>
               )}
 
@@ -807,8 +963,8 @@ RHDP Content Team`
               {wf && isApproved && !isStarted && isAdmin && (
                 <div style={{ paddingTop: '8px' }}>
                   <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                    disabled={actionLoading}>
-                    {actionLoading ? 'Canceling...' : 'Cancel Workflow'}
+                    disabled={!!actionLoading}>
+                    {actionLoading === 'cancel' ? 'Canceling...' : 'Cancel Workflow'}
                   </button>
                 </div>
               )}

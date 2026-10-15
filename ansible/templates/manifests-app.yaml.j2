@@ -159,6 +159,33 @@ spec:
                   name: {{ app_name }}-jira
                   key: token
 {% endif %}
+{% if github_app_id is defined and github_app_id != '' %}
+            - name: RCARS_GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: app-id
+            - name: RCARS_GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: private-key
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID_ZT_RHELBU
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id-zt-rhelbu
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID_ZT_ANSIBLEBU
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id-zt-ansiblebu
+{% endif %}
             - name: RCARS_DEV_USER
               value: ""
             - name: RCARS_EMBEDDING_URL
@@ -335,6 +362,33 @@ spec:
                 secretKeyRef:
                   name: {{ app_name }}-reporting-mcp
                   key: token
+{% endif %}
+{% if github_app_id is defined and github_app_id != '' %}
+            - name: RCARS_GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: app-id
+            - name: RCARS_GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: private-key
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID_ZT_RHELBU
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id-zt-rhelbu
+            - name: RCARS_GITHUB_APP_INSTALLATION_ID_ZT_ANSIBLEBU
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-github-app
+                  key: installation-id-zt-ansiblebu
 {% endif %}
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"

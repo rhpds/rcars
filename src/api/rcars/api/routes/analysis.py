@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from rcars.api.middleware.auth import require_admin, require_curator, require_auth, require_performance_view
 from rcars.api.schemas import (
     JobResponse, PerformanceDashboardResponse, RetirementDashboardResponse,
     WorkflowResponse, WorkflowGetResponse, StartRetirementResponse,
-    CancelWorkflowResponse, ScanResponse, RescanResponse,
+    CancelWorkflowResponse, AgvPrResponse, RetirementPrStatusResponse, ScanResponse, RescanResponse,
     FieldSourceResponse, FieldSourceRepo, FieldSourceProvision,
 )
 from rcars.api.streaming import JobProgressRelay, create_sse_response
@@ -51,13 +53,32 @@ def _extract_base_name_from_content_id(content_id: str) -> str:
     return name
 
 
+def _resolve_replacement_source(db, replacement_ci: str) -> tuple[str | None, str | None]:
+    """Look up source and full CI name for a replacement item.
+
+    Returns (replacement_source, replacement_ci_full).
+    """
+    repl = db.get_content_entity(replacement_ci)
+    if repl:
+        return repl["source"], None
+    bi = db.get_babylon_item_by_ci_name(replacement_ci)
+    if not bi:
+        for sfx in (".prod", ".event", ".dev"):
+            bi = db.get_babylon_item_by_ci_name(f"{replacement_ci}{sfx}")
+            if bi:
+                break
+    if bi:
+        return "babylon", bi["ci_name"]
+    return None, None
+
+
 class ApproveRequest(BaseModel):
     reason: str = Field(min_length=1)
     replacement_ci: str | None = None
     replacement_name: str | None = None
 
 class StartRequest(BaseModel):
-    target_days: int = 30
+    target_days: int = Field(default=30, description="Days until the target date; zero requests immediate retirement")
     jira_project: str = "RHDPCD"
 
 class NotesRequest(BaseModel):
@@ -269,8 +290,8 @@ async def performance_dashboard(
 
 
 @router.get(
-    "/performance/workflow/{base_name}",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}",
+    tags=["Retirement"],
     summary="Get retirement workflow",
     description="Returns the current retirement workflow state for a catalog item. Curator-only.",
     response_model=WorkflowGetResponse,
@@ -283,8 +304,8 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/performance/workflow/{base_name}/review",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}/review",
+    tags=["Retirement"],
     summary="Mark item as reviewed",
     description="Marks a catalog item as reviewed in the retirement workflow. Curator-only.",
     response_model=WorkflowResponse,
@@ -306,11 +327,11 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
 
 
 @router.put(
-    "/performance/workflow/{base_name}/approve",
-    tags=["Performance"],
-    summary="Approve item for retirement",
+    "/retirement/workflow/{base_name}/approve",
+    tags=["Retirement"],
+    summary="Recommend item for retirement",
     description=(
-        "Approves a catalog item for retirement with a reason and optional replacement. "
+        "Records a retirement recommendation with a reason and optional replacement; does not authorize removal. "
         "Captures a snapshot of current metrics at approval time. Curator-only."
     ),
     response_model=WorkflowResponse,
@@ -362,10 +383,10 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
 
 @router.put(
-    "/performance/workflow/{base_name}/notify",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}/notify",
+    tags=["Retirement"],
     summary="Mark owner as notified",
-    description="Records that the content owner has been notified about the retirement. Curator-only.",
+    description="Records manual owner notification; does not send email or chat. Admin-only.",
     response_model=WorkflowResponse,
 )
 async def notify_owner(base_name: str, request: Request, user: str = Depends(require_admin)):
@@ -385,12 +406,12 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
 
 
 @router.put(
-    "/performance/workflow/{base_name}/start",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}/start",
+    tags=["Retirement"],
     summary="Start retirement process",
     description=(
         "Starts the retirement process: creates a Jira ticket and sets a target retirement date. "
-        "Requires prior approval. Curator-only."
+        "Requires a prior recommendation. Does not open a notice PR automatically. Admin-only."
     ),
     response_model=StartRetirementResponse,
     responses={400: {"description": "Item must be approved before starting retirement"}},
@@ -423,23 +444,10 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     if entity and entity.get("display_name"):
         metrics["display_name"] = entity["display_name"]
 
-    replacement_source = None
-    replacement_ci_full = None
+    replacement_source, replacement_ci_full = None, None
     repl_ci = wf.get("replacement_ci")
     if repl_ci:
-        repl = db.get_content_entity(repl_ci)
-        if repl:
-            replacement_source = repl["source"]
-        else:
-            bi = db.get_babylon_item_by_ci_name(repl_ci)
-            if not bi:
-                for sfx in (".prod", ".event", ".dev"):
-                    bi = db.get_babylon_item_by_ci_name(f"{repl_ci}{sfx}")
-                    if bi:
-                        break
-            if bi:
-                replacement_source = "babylon"
-                replacement_ci_full = bi["ci_name"]
+        replacement_source, replacement_ci_full = _resolve_replacement_source(db, repl_ci)
 
     wf_for_jira = {**wf, "jira_project": body.jira_project, "retirement_target_date": target_date, "target_days": body.target_days, "replacement_source": replacement_source, "replacement_ci_full": replacement_ci_full}
 
@@ -465,10 +473,10 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
 
 
 @router.put(
-    "/performance/workflow/{base_name}/link-jira",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}/link-jira",
+    tags=["Retirement"],
     summary="Link existing Jira ticket",
-    description="Links an existing Jira ticket to the retirement workflow and advances to started status. Requires prior approval.",
+    description="Links an existing Jira ticket and advances to started status. Requires a prior recommendation. Does not compute a target date. Admin-only.",
     response_model=WorkflowResponse,
     responses={400: {"description": "Item must be approved before linking Jira"}},
 )
@@ -499,8 +507,8 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
 
 
 @router.put(
-    "/performance/workflow/{base_name}/notes",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}/notes",
+    tags=["Retirement"],
     summary="Update curator notes",
     description="Sets or updates curator notes on a retirement workflow item. Curator-only.",
     response_model=WorkflowResponse,
@@ -517,22 +525,256 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
 
 
 @router.delete(
-    "/performance/workflow/{base_name}",
-    tags=["Performance"],
+    "/retirement/workflow/{base_name}",
+    tags=["Retirement"],
     summary="Cancel retirement workflow",
-    description="Cancels and removes the retirement workflow for a catalog item. Admin-only.",
+    description=(
+        "Closes open removal/notice PRs and opens a notice revert if needed. GitHub cleanup failures return 502 "
+        "and retain the workflow for retry. A pending revert returns pending_revert with deleted=false; "
+        "reconciliation deletes the workflow only after GitHub cleanup and required Jira closure succeed. "
+        "Does not restore an already removed CI. Admin-only."
+    ),
     response_model=CancelWorkflowResponse,
+    responses={502: {"description": "Required Jira/GitHub cleanup failed; workflow retained for retry"}},
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError
+    from rcars.services.retirement_jira_events import deliver_pending_events
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    try:
+        result = await cancel_retirement(db, settings, content_id, user)
+    except CleanupError as exc:
+        await deliver_pending_events(db, settings, content_id=content_id)
+        raise HTTPException(502, str(exc)) from exc
+    result["jira_comment_errors"] = await deliver_pending_events(db, settings, content_id=content_id)
+    return result
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/agv-notice",
+    tags=["Retirement"],
+    summary="Open agnosticv retirement notice PR",
+    description=(
+        "Creates a branch on the relevant agnosticv repo, prepends the AsciiDoc "
+        "retirement notice to description.adoc, and opens a PR. Idempotent: if a "
+        "notice PR URL is already stored, returns it without creating a duplicate. "
+        "Admin-only."
+    ),
+    response_model=AgvPrResponse,
+)
+async def open_agv_notice_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
-    deleted = db.delete_retirement_workflow(content_id)
-    if deleted:
-        db.log_action(base_name, "retirement_cancelled", user, "Workflow cancelled")
-    return {"status": "ok", "deleted": deleted}
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Retirement cleanup or PR creation is already running")
+        result = await _open_agv_notice_pr_locked(base_name, request, user)
+    result["jira_comment_errors"] = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
+    return result
+
+
+async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str):
+    from rcars.services.agv_access import create_notice_pr
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf or not wf.get("step_started_at"):
+        raise HTTPException(400, "Retirement must be started (Jira ticket created) before opening the notice PR")
+    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+        raise HTTPException(409, "Cancellation cleanup is pending")
+
+    if wf.get("agv_notice_pr_url"):
+        return {
+            "status": "ok",
+            "workflow": wf,
+            "pr_url": wf["agv_notice_pr_url"],
+            "pr_number": 0,
+            "repo": "",
+        }
+
+    repl_ci = wf.get("replacement_ci")
+    if repl_ci:
+        repl_source, repl_full = _resolve_replacement_source(db, repl_ci)
+        if repl_source:
+            wf = {**wf, "replacement_source": repl_source, "replacement_ci_full": repl_full}
+
+    jira_key = wf.get("jira_key", "")
+    try:
+        result = await create_notice_pr(settings, base_name, jira_key, wf)
+    except Exception as exc:
+        logger.error("agv_notice_pr_failed", base_name=base_name, error=str(exc))
+        raise HTTPException(502, f"Failed to create notice PR: {exc}") from exc
+
+    updated = db.record_retirement_pr(content_id, "agv_notice_pr_url", result)
+    db.log_action(base_name, "agv_notice_pr_opened", user, f"PR: {result['pr_url']}")
+    return {"status": "ok", "workflow": updated, **result}
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/agv-retire",
+    tags=["Retirement"],
+    summary="Open agnosticv removal PR",
+    description=(
+        "Creates a branch on the relevant agnosticv repo that deletes the CI folder. "
+        "Opens a PR for human review. Admins may open it before the target date "
+        "once retirement is started and a Jira ticket is linked. Admin-only."
+    ),
+    response_model=AgvPrResponse,
+)
+async def open_agv_retire_pr(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Retirement cleanup or PR creation is already running")
+        result = await _open_agv_retire_pr_locked(base_name, request, user)
+    result["jira_comment_errors"] = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
+    return result
+
+
+async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str):
+    from rcars.services.agv_access import create_retire_pr
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf or not wf.get("step_started_at"):
+        raise HTTPException(400, "Retirement must be started before opening the removal PR")
+    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+        raise HTTPException(409, "Cancellation cleanup is pending")
+
+    if wf.get("agv_retire_pr_url"):
+        return {
+            "status": "ok",
+            "workflow": wf,
+            "pr_url": wf["agv_retire_pr_url"],
+            "pr_number": 0,
+            "repo": "",
+        }
+
+    jira_key = wf.get("jira_key", "")
+    if not jira_key:
+        raise HTTPException(400, "A Jira ticket must be linked before opening the removal PR")
+    try:
+        result = await create_retire_pr(settings, base_name, jira_key)
+    except Exception as exc:
+        logger.error("agv_retire_pr_failed", base_name=base_name, error=str(exc))
+        raise HTTPException(502, f"Failed to create removal PR: {exc}") from exc
+
+    updated = db.record_retirement_pr(content_id, "agv_retire_pr_url", result)
+    db.log_action(base_name, "agv_retire_pr_opened", user, f"PR: {result['pr_url']}")
+    return {"status": "ok", "workflow": updated, **result}
+
+
+@router.post(
+    "/retirement/workflow/{base_name}/check-prs",
+    tags=["Retirement"],
+    summary="Check agnosticv PR statuses",
+    description="Checks PRs and reconciles required cleanup. Retirement closes Jira as Done; cancellation closes Jira as Won't Do and retains tracking until GitHub cleanup and any revert merge complete. Cleanup errors are returned with the retained workflow for retry. Admin-only.",
+    response_model=RetirementPrStatusResponse,
+)
+async def check_pr_statuses(base_name: str, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.agv_access import get_pr_state
+    from rcars.services.retirement_jira_events import deliver_pending_events, PR_KINDS
+
+    db = request.app.state.db
+    settings = request.app.state.settings
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+
+    wf = db.get_retirement_workflow(content_id)
+    if not wf:
+        raise HTTPException(404, "No workflow found")
+
+    def _parse_pr_url(url: str) -> tuple[str, int]:
+        parts = url.rstrip("/").split("/")
+        return f"{parts[-4]}/{parts[-3]}", int(parts[-1])
+
+    pr_statuses: dict[str, dict] = {}
+    for key in ("agv_notice_pr_url", "agv_retire_pr_url", "agv_revert_pr_url"):
+        url = wf.get(key)
+        if not url:
+            continue
+        try:
+            repo_full, pr_number = _parse_pr_url(url)
+            state = await get_pr_state(settings, repo_full, pr_number)
+            pr_statuses[key] = {"url": url, "pr_number": pr_number, **state}
+            if key in PR_KINDS:
+                db.record_retirement_pr_state(content_id, key, {"url": url, **state})
+        except Exception as exc:
+            pr_statuses[key] = {"url": url, "error": str(exc)}
+
+    jira_status = None
+    jira_key = wf.get("jira_key")
+    if jira_key:
+        try:
+            from rcars.services.jira import get_issue_status
+            jira_status = await asyncio.to_thread(get_issue_status, settings, jira_key)
+        except Exception as exc:
+            jira_status = {"error": str(exc)}
+
+    from rcars.services.retirement_cleanup import cancel_retirement, complete_retirement, CleanupError
+    cleanup_error = None
+    deleted = False
+    try:
+        if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+            result = await cancel_retirement(db, settings, content_id, user)
+            deleted = result["deleted"]
+        elif pr_statuses.get("agv_retire_pr_url", {}).get("merged") or wf.get("step_retired_at"):
+            await complete_retirement(db, settings, content_id, user)
+    except CleanupError as exc:
+        cleanup_error = str(exc)
+    wf = db.get_retirement_workflow(content_id)
+    comment_errors = await deliver_pending_events(db, settings, content_id=content_id)
+    return {"status": "ok", "deleted": deleted, "pr_statuses": pr_statuses, "jira_status": jira_status,
+            "workflow": wf, "cleanup_error": cleanup_error, "jira_comment_errors": comment_errors}
+
+
+@router.post(
+    "/retirement/sweep",
+    tags=["Retirement"],
+    summary="Queue retirement PR creation and merge reconciliation",
+    description=(
+        "Scans retirement workflows for items whose target date has passed and "
+        "no removal PR exists. Opens removal PRs on agnosticv for each. "
+        "Reconciles merged removal PRs and cancellation reverts even when no removals are due. "
+        "Returns a job_id; the scan worker performs the work and reports per-item errors. "
+        "Also runs as part of the nightly maintenance pipeline. Admin-only."
+    ),
+    response_model=JobResponse,
+)
+async def retirement_sweep(request: Request, user: str = Depends(require_admin)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    job_id = db.create_job(job_type="retirement_sweep", queue="scan", created_by=user)
+    await arq_redis.enqueue_job("run_retirement_sweep_job", job_id, _queue_name="arq:queue:scan")
+    return {"job_id": job_id}
 
 
 @router.post(

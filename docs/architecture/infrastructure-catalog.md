@@ -124,17 +124,11 @@ The Advisor chat supports an `infrastructure` intent for natural-language querie
 
 **Linked items** — The infrastructure chat response includes the catalog items that use the matched entry, with links to the Browse page filtered to the appropriate stage.
 
-## API Endpoints
+## API
 
-All endpoints are under `/api/v1/catalog/`:
+See [Swagger UI](api-reference.md#interactive-api-documentation) under **Catalog** for infrastructure listings, linked items, statistics, filters, and response schemas.
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/infrastructure` | GET | List infrastructure catalog with item counts. Supports type, category, collection, search, and has_mappings filters. |
-| `/infrastructure/{role_name}/items` | GET | Catalog items linked to a specific infrastructure entry. The `role_name` is the Ansible role name (for workloads) or config directory name (for configs). |
-| `/infra-stats` | GET | Infrastructure catalog statistics: totals by type, category breakdown, mapping coverage. |
-
-For semantic search ("What deploys OpenShift AI?"), use `POST /advisor/chat` — the infrastructure intent handles these queries through vector search, which is not exposed as a standalone API endpoint.
+Semantic infrastructure search ("What deploys OpenShift AI?") runs through advisor chat rather than a standalone vector-search endpoint; see the **Advisor** operations in Swagger.
 
 ## CLI
 

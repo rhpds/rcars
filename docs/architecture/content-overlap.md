@@ -123,7 +123,7 @@ The "Similar Content" section on browse cards shows the top 5 similar items for 
 - **Browse page** — expanded items show "Similar Content" section with top 5 neighbors
 - **Sync page** (`/system/sync`) — "Refresh Similarity" action card
 - **Nightly pipeline** — Step 6, runs after all embeddings are current
-- **API** — `GET /admin/overlap` (paginated item-centric report), `GET /catalog/{content_id}/similar` (per-item), `POST /admin/compute-similarity` (trigger)
+- **API** — item-centric reporting, per-item similarity, and queued recomputation; see [Swagger UI](api-reference.md#interactive-api-documentation) for contracts.
 - **CLI** — `rcars compute-similarity [--stage prod] [--threshold 0.75]`
 
 ## Relationship to the Recommendation Pipeline
@@ -137,7 +137,7 @@ The overlap system and the recommendation pipeline both use pgvector cosine simi
 
 Cosine similarity identifies *how similar* two items are but cannot determine *whether the overlap matters*. Two OpenShift Virtualization labs at 88% similarity might cover the same products but teach different skills (keep both), or might be genuinely redundant (retire one).
 
-[RHDPCD-614](https://redhat.atlassian.net/browse/RHDPCD-614) will add an LLM assessment step to the pipeline: for each high-scoring pair, send both summaries to the LLM to generate a verdict (Redundant / Distinct / Needs Review) and rationale. This will transform the overlap page from a data viewer into an actionable curation tool.
+An LLM assessment step can send both summaries for each high-scoring pair to generate a verdict (Redundant / Distinct / Needs Review) and rationale. This supports retirement and consolidation decisions beyond the similarity score alone.
 
 ---
 
@@ -159,6 +159,4 @@ rcars compute-similarity --threshold 0.80   # custom storage threshold
 
 ## API
 
-- `GET /admin/overlap?min_score=0.85&stage=prod&search=text&relationship_type=overlap` — paginated item-centric overlap report
-- `GET /catalog/{content_id}/similar?min_score=0.85&relationship_type=all` — similar items for a specific content entity
-- `POST /admin/compute-similarity?threshold=0.75&stage=prod` — trigger recomputation
+See [Swagger UI](api-reference.md#interactive-api-documentation) for overlap reporting and recomputation under **Administration**, and per-item similarity under **Catalog**. Filters, request and response schemas, and access requirements are documented there.

@@ -817,3 +817,66 @@ def osspa_sync_cmd(force: bool, confirm_empty_inventory: bool):
     _print(f"  Failed:    {result['failed']}")
     if result["retire_skipped_reason"]:
         _print(f"  WARNING: retirement skipped ({result['retire_skipped_reason']})")
+
+
+@cli.group(name="retirement")
+def retirement_group():
+    """Retirement workflow commands."""
+    pass
+
+
+@retirement_group.command("sweep")
+def retirement_sweep_cmd():
+    """Open removal PRs for items past their retirement target date."""
+    import asyncio as _asyncio
+    from rcars.services.agv_access import create_retire_pr
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    from rcars.services.retirement_jira_events import deliver_pending_events
+
+    settings = Settings()
+    if not settings.github_app_id:
+        _print("ERROR: RCARS_GITHUB_APP_ID not set — GitHub App not configured.")
+        raise SystemExit(1)
+
+    db = Database(settings.database_url)
+    try:
+        ready = db.list_retirement_ready_for_removal()
+        if not ready:
+            _print("No items ready for removal PRs.")
+            for error in _asyncio.run(deliver_pending_events(db, settings)):
+                _print(f"  WARN {error}")
+            return
+
+        _print(f"Found {len(ready)} item(s) ready for removal PRs...")
+
+        async def _sweep():
+            opened = 0
+            for wf in ready:
+                content_id = wf["content_id"]
+                base_name = content_id.removeprefix("babylon:")
+                jira_key = wf.get("jira_key", "")
+                if not jira_key:
+                    _print(f"  SKIP {base_name}: no Jira key")
+                    continue
+                try:
+                    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+                        if not acquired:
+                            continue
+                        current = db.get_retirement_workflow(content_id)
+                        if not current or current.get("cancellation_requested_at") or current.get("agv_revert_pr_url") or current.get("agv_retire_pr_url") or current.get("step_retired_at"):
+                            continue
+                        result = await create_retire_pr(settings, base_name, jira_key)
+                        db.record_retirement_pr(content_id, "agv_retire_pr_url", result)
+                        db.log_action(base_name, "agv_retire_pr_opened", "cli", f"PR: {result['pr_url']}")
+                    _print(f"  OK {base_name}: {result['pr_url']}")
+                    opened += 1
+                except Exception as exc:
+                    _print(f"  FAIL {base_name}: {exc}")
+            for error in await deliver_pending_events(db, settings):
+                _print(f"  WARN {error}")
+            return opened
+
+        opened = _asyncio.run(_sweep())
+        _print(f"Done. Opened {opened} removal PR(s).")
+    finally:
+        db.close()
