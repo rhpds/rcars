@@ -2,10 +2,13 @@
 
 import os
 import asyncio
+import json
+from io import BytesIO
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import urlparse
+from urllib.error import HTTPError
 
 import pytest
 
@@ -186,18 +189,52 @@ def test_comment_uses_adf_and_event_property(settings, monkeypatch):
             {"type": "paragraph", "content": [{"type": "text", "text": "Notice PR opened."}]},
             {"type": "paragraph", "content": [{"type": "text", "text": NOTICE, "marks": [{"type": "link", "attrs": {"href": NOTICE}}]}]},
         ]},
-        "properties": [{"key": "rcars.retirement.event", "value": "event-1"}],
+        "properties": [{"key": "rcars.retirement.event", "value": {"event_key": "event-1"}}],
     }
 
 
-def test_comment_existing_event_on_later_page_prevents_post(settings, monkeypatch):
+def test_comment_http_payload_accepts_object_marker_and_recovers_lost_response(settings, monkeypatch):
+    """Exercise serialization: Jira rejects scalar entity properties (HTTP 400)."""
+    settings.jira_base_url = "https://jira.example.com"
+    remote = []
+    posts = []
+
+    def urlopen(request, **kwargs):
+        if request.method == "GET":
+            payload = {"comments": remote, "startAt": 0, "total": len(remote)}
+            response = Mock(status=200)
+            response.read.return_value = json.dumps(payload).encode()
+            context = Mock()
+            context.__enter__ = Mock(return_value=response)
+            context.__exit__ = Mock(return_value=False)
+            return context
+        body = json.loads(request.data)
+        posts.append(body)
+        if not isinstance(body["properties"][0]["value"], dict):
+            raise HTTPError(
+                request.full_url, 400, "Bad Request", {},
+                BytesIO(b'{"errorMessages":["Invalid entity property JSON"]}'),
+            )
+        remote.append({"id": "42", "properties": body["properties"]})
+        raise TimeoutError("Response lost after Jira accepted the comment")
+
+    monkeypatch.setattr(jira.urllib.request, "urlopen", urlopen)
+    with pytest.raises(TimeoutError):
+        jira.ensure_issue_event_comment(settings, "EXAMPLE-1", "event-1", "Notice PR opened.")
+    assert jira.ensure_issue_event_comment(settings, "EXAMPLE-1", "event-1", "Notice PR opened.") == "42"
+    assert len(posts) == 1
+    assert posts[0]["properties"] == [{"key": "rcars.retirement.event", "value": {"event_key": "event-1"}}]
+
+
+@pytest.mark.parametrize("property_value", [{"event_key": "event-1"}, "event-1"])
+def test_comment_existing_event_on_later_page_prevents_post(settings, monkeypatch, property_value):
     paths = []
     def request(settings, path, method="POST", body=None):
         assert method == "GET", "Existing remote event must not be posted again"
         paths.append(path)
         if "startAt=0" in path:
             return {"comments": [{"id": "1", "properties": []}], "startAt": 0, "total": 2}
-        return {"comments": [{"id": "2", "properties": [{"key": "rcars.retirement.event", "value": "event-1"}]}], "startAt": 1, "total": 2}
+        return {"comments": [{"id": "2", "properties": [{"key": "rcars.retirement.event", "value": property_value}]}], "startAt": 1, "total": 2}
     monkeypatch.setattr(jira, "_jira_request", request)
     assert jira.ensure_issue_event_comment(settings, "EXAMPLE-1", "event-1", "message") == "2"
     assert len(paths) == 2 and "startAt=1" in paths[-1] and "expand=properties" in paths[0]
