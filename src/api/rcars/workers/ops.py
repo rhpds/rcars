@@ -881,11 +881,26 @@ async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
     log = logger.bind(job_id=job_id)
     log.info("retirement_sweep_job_started", action="retirement_sweep_job_started")
     wctx.db.update_job_status(job_id, "running")
+    await publish_progress(wctx.relay, job_id, wctx.db,
+                           phase="retirement_sweep", status="running",
+                           message="Running retirement sweep...")
     try:
         result = await run_retirement_sweep(ctx, job_id)
     except Exception as exc:
+        await publish_progress(wctx.relay, job_id, wctx.db,
+                               phase="retirement_sweep", status="failed",
+                               message=f"Retirement sweep failed: {exc}")
         wctx.db.fail_job(job_id, error=str(exc))
         raise
+    opened = result.get("prs_opened", 0)
+    reverts = result.get("reverts_completed", 0)
+    errors = result.get("errors", [])
+    msg = f"Sweep complete: {opened} PR(s) opened, {reverts} revert(s) resolved"
+    if errors:
+        msg += f", {len(errors)} error(s)"
+    await publish_progress(wctx.relay, job_id, wctx.db,
+                           phase="retirement_sweep", status="complete",
+                           message=msg)
     wctx.db.complete_job(job_id, result_json=result)
     return result
 
