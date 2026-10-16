@@ -44,7 +44,8 @@ def db(monkeypatch):
     yield database
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM retirement_jira_events WHERE content_id = %s", (CONTENT_ID,))
-        conn.execute("DELETE FROM content_entities WHERE content_id = %s", (CONTENT_ID,))
+        conn.execute("DELETE FROM content_entities WHERE content_id = ANY(%s)",
+                     ([f"babylon:{BASE_NAME}.{stage}" for stage in ("prod", "dev", "event")],))
         conn.execute("DELETE FROM analysis_log WHERE ci_name = %s", (BASE_NAME,))
         conn.commit()
     database.close()
@@ -74,6 +75,38 @@ def _sweep_context(db, **credentials):
     return {"worker_ctx": SimpleNamespace(db=db, settings=Settings(
         database_url=TEST_DB_URL, **configured,
     ))}
+
+
+@pytest.mark.parametrize("action,helper", [("agv-notice", "create_notice_pr"), ("agv-retire", "create_retire_pr")])
+@pytest.mark.parametrize("retirement", ["workflow", "catalog", "catalog_no_workflow", "catalog_dev_sibling", "catalog_event_sibling"])
+def test_retired_items_cannot_create_prs(client, db, monkeypatch, action, helper, retirement):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1", "agv_retire_pr_url": None,
+        **({"step_retired_at": "NOW()"} if retirement == "workflow" else {}),
+    })
+    if retirement.startswith("catalog"):
+        if retirement.endswith("_sibling"):
+            stage = retirement.split("_")[1]
+            db.upsert_babylon_catalog_item({"ci_name": f"{BASE_NAME}.{stage}", "stage": stage})
+        if retirement == "catalog_no_workflow":
+            db.delete_retirement_workflow(CONTENT_ID)
+        with db.pool.connection() as conn:
+            conn.execute("UPDATE content_entities SET retired_at = NOW() WHERE content_id = %s", (CONTENT_ID,))
+            conn.commit()
+    create_pr = AsyncMock(return_value={"pr_url": REMOVAL_URL, "pr_number": 42, "repo": "rhpds/agnosticv"})
+    monkeypatch.setattr(agv_access, helper, create_pr)
+
+    response = client.post(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/{action}")
+
+    assert response.status_code == 409
+    assert "retired" in response.json()["detail"].lower()
+    create_pr.assert_not_called()
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    if retirement == "catalog_no_workflow":
+        assert wf is None
+    else:
+        assert wf["agv_notice_pr_url"] is None
+        assert wf["agv_retire_pr_url"] is None
 
 
 @pytest.mark.parametrize("failure", ["notice_lookup", "notice_close", "removal_lookup", "removal_close", "revert"])

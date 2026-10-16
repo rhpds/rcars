@@ -19,6 +19,7 @@ export interface WorkflowItem {
   avg_cost_per_provision?: number
   first_activity?: string | null
   last_activity?: string | null
+  retired_at?: string | null
   owners?: Array<{ name: string; email: string }>
   stages?: Array<{ stage: string; ci_name: string; catalog_url: string }>
 }
@@ -422,7 +423,7 @@ RHDP Content Team`
   const isApproved = !!wf?.step_approved_at
   const isNotified = !!wf?.step_notified_at
   const isStarted = !!wf?.step_started_at
-  const isRetired = !!wf?.step_retired_at
+  const isRetired = !!item.retired_at || !!wf?.step_retired_at || wf?.status === 'retired'
   const cleanupError = actionError || wf?.cleanup_error
 
   const approveIsNext = !isApproved
@@ -732,7 +733,8 @@ RHDP Content Team`
                         ) : isAdmin && !wf?.cancellation_requested_at && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenNoticePr}
-                            disabled={!!actionLoading}
+                            disabled={!!actionLoading || isRetired}
+                            title={isRetired ? 'This item is already retired' : undefined}
                             style={{ fontSize: '11px' }}>
                             {actionLoading === 'noticePr' ? 'Opening PR...' : 'Open Notice PR'}
                           </button>
@@ -757,7 +759,8 @@ RHDP Content Team`
                         ) : isAdmin && !wf?.agv_revert_pr_url && !wf?.cancellation_requested_at && (
                           <button className="ret-action-btn ret-action-btn--start"
                             onClick={handleOpenRetirePr}
-                            disabled={!!actionLoading}
+                            disabled={!!actionLoading || isRetired}
+                            title={isRetired ? 'This item is already retired' : undefined}
                             style={{ fontSize: '11px' }}>
                             {actionLoading === 'retirePr' ? 'Opening PR...' : 'Open Removal PR'}
                           </button>
@@ -841,7 +844,7 @@ RHDP Content Team`
                     active={false}
                     pending={!isStarted}
                     auto
-                    completedAt={wf?.step_retired_at}
+                    completedAt={item.retired_at || wf?.step_retired_at}
                   >
                     {!isRetired && (
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
