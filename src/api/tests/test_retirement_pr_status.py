@@ -109,6 +109,68 @@ def test_retired_items_cannot_create_prs(client, db, monkeypatch, action, helper
         assert wf["agv_retire_pr_url"] is None
 
 
+@pytest.mark.parametrize("retirement", ["workflow", "workflow_status", "catalog", "catalog_no_workflow", "catalog_dev_sibling", "catalog_event_sibling"])
+def test_retired_items_cannot_be_cancelled(client, db, monkeypatch, retirement):
+    db.upsert_retirement_workflow(CONTENT_ID, {
+        "jira_key": "EXAMPLE-1",
+        **({"step_retired_at": "NOW()"} if retirement == "workflow" else {}),
+    })
+    if retirement == "workflow_status":
+        with db.pool.connection() as conn:
+            conn.execute("UPDATE retirement_workflow SET status = 'retired' WHERE content_id = %s", (CONTENT_ID,))
+            conn.commit()
+    if retirement.startswith("catalog"):
+        if retirement.endswith("_sibling"):
+            stage = retirement.split("_")[1]
+            db.upsert_babylon_catalog_item({"ci_name": f"{BASE_NAME}.{stage}", "stage": stage})
+        if retirement == "catalog_no_workflow":
+            db.delete_retirement_workflow(CONTENT_ID)
+        with db.pool.connection() as conn:
+            conn.execute("UPDATE content_entities SET retired_at = NOW() WHERE content_id = %s", (CONTENT_ID,))
+            conn.commit()
+    before = db.get_retirement_workflow(CONTENT_ID)
+    external_calls = []
+    async def state(*args):
+        external_calls.append("github")
+        return {"state": "closed", "merged": False}
+    def close_jira(*args):
+        external_calls.append("jira")
+        return True
+    monkeypatch.setattr(agv_access, "get_pr_state", state)
+    monkeypatch.setattr(jira, "close_issue_wont_do", close_jira)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert response.status_code == 409
+    assert "retired" in response.json()["detail"].lower()
+    assert db.get_retirement_workflow(CONTENT_ID) == before
+    assert external_calls == []
+
+
+@pytest.mark.parametrize("retirement", ["workflow", "catalog"])
+def test_cancellation_does_not_mark_concurrently_retired_item(client, db, monkeypatch, retirement):
+    original_get_entity = db.get_content_entity
+    completed = []
+    def get_entity(content_id):
+        entity = original_get_entity(content_id)
+        if not completed:
+            if retirement == "workflow":
+                db.upsert_retirement_workflow(content_id, {"step_retired_at": "NOW()"})
+            else:
+                with db.pool.connection() as conn:
+                    conn.execute("UPDATE content_entities SET retired_at = NOW() WHERE content_id = %s", (content_id,))
+                    conn.commit()
+            completed.append(db.get_retirement_workflow(content_id))
+        return entity
+    monkeypatch.setattr(db, "get_content_entity", get_entity)
+
+    response = client.delete(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}")
+
+    assert response.status_code == 409
+    assert db.get_retirement_workflow(CONTENT_ID) == completed[0]
+    assert db.get_retirement_workflow(CONTENT_ID)["cancellation_requested_at"] is None
+
+
 @pytest.mark.parametrize("failure", ["notice_lookup", "notice_close", "removal_lookup", "removal_close", "revert"])
 def test_cancel_preserves_tracking_on_github_failure(client, db, monkeypatch, failure):
     notice_url = "https://github.com/rhpds/agnosticv/pull/41"

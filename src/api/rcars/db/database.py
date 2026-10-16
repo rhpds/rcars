@@ -3608,6 +3608,25 @@ class Database:
             conn.commit()
         return deleted
 
+    def request_retirement_cancellation(self, content_id: str) -> dict | None:
+        """Record intent only while both catalog and workflow remain unretired."""
+        with self._pool.connection() as conn:
+            entity = conn.execute(
+                "SELECT retired_at FROM content_entities WHERE content_id = %s FOR UPDATE",
+                (content_id,),
+            ).fetchone()
+            row = None
+            if entity and not entity["retired_at"]:
+                row = conn.execute(
+                    "UPDATE retirement_workflow "
+                    "SET cancellation_requested_at = COALESCE(cancellation_requested_at, NOW()), updated_at = NOW() "
+                    "WHERE content_id = %s AND step_retired_at IS NULL AND status IS DISTINCT FROM 'retired' "
+                    "RETURNING *",
+                    (content_id,),
+                ).fetchone()
+            conn.commit()
+        return row
+
     def update_retirement_cleanup(self, content_id: str, fields: dict) -> dict | None:
         """Update cleanup tracking without recreating a concurrently deleted workflow."""
         allowed = {"cancellation_requested_at", "jira_closed_at", "cleanup_error", "agv_revert_pr_url"}

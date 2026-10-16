@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from datetime import datetime, timezone
 
 import structlog
 
@@ -14,6 +13,16 @@ logger = structlog.get_logger(component="retirement_cleanup")
 
 class CleanupError(RuntimeError):
     """External cleanup is incomplete; tracking must be retained."""
+
+
+class RetirementAlreadyCompleted(CleanupError):
+    """Completed retirement cannot be cancelled or have its history removed."""
+
+
+def _ensure_cancellable(db, content_id: str, wf: dict | None) -> None:
+    entity = db.get_content_entity(content_id)
+    if (entity and entity.get("retired_at")) or (wf and (wf.get("step_retired_at") or wf.get("status") == "retired")):
+        raise RetirementAlreadyCompleted("This item is already retired; retirement cannot be stopped")
 
 
 def workflow_lock_id(content_id: str) -> int:
@@ -62,14 +71,17 @@ async def cancel_retirement(
 ) -> dict:
     """Retain intent until PR cleanup AND Jira closure are complete."""
     wf = db.get_retirement_workflow(content_id)
+    _ensure_cancellable(db, content_id, wf)
     if not wf:
         return {"status": "ok", "deleted": True, "revert_pr_urls": []}
     if not wf.get("cancellation_requested_at"):
-        db.update_retirement_cleanup(content_id, {"cancellation_requested_at": datetime.now(timezone.utc)})
+        if db.request_retirement_cancellation(content_id) is None:
+            _ensure_cancellable(db, content_id, db.get_retirement_workflow(content_id))
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
             raise CleanupError("Retirement cleanup is already running; retry shortly")
         wf = db.get_retirement_workflow(content_id)
+        _ensure_cancellable(db, content_id, wf)
         if not wf:
             return {"status": "ok", "deleted": True, "revert_pr_urls": []}
         try:

@@ -532,13 +532,16 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
         "Closes open removal/notice PRs and opens a notice revert if needed. GitHub cleanup failures return 502 "
         "and retain the workflow for retry. A pending revert returns pending_revert with deleted=false; "
         "reconciliation deletes the workflow only after GitHub cleanup and required Jira closure succeed. "
-        "Does not restore an already removed CI. Admin-only."
+        "Already-retired catalog items or completed workflows cannot be cancelled (409). Admin-only."
     ),
     response_model=CancelWorkflowResponse,
-    responses={502: {"description": "Required Jira/GitHub cleanup failed; workflow retained for retry"}},
+    responses={
+        409: {"description": "Item is already retired; cancellation is not allowed"},
+        502: {"description": "Required Jira/GitHub cleanup failed; workflow retained for retry"},
+    },
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
-    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError
+    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError, RetirementAlreadyCompleted
     from rcars.services.retirement_jira_events import deliver_pending_events
 
     db = request.app.state.db
@@ -549,6 +552,8 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
 
     try:
         result = await cancel_retirement(db, settings, content_id, user)
+    except RetirementAlreadyCompleted as exc:
+        raise HTTPException(409, str(exc)) from exc
     except CleanupError as exc:
         await deliver_pending_events(db, settings, content_id=content_id)
         raise HTTPException(502, str(exc)) from exc

@@ -768,7 +768,8 @@ RHDP Content Team`
                         {!wf?.agv_revert_pr_url && (
                           isAdmin ? (
                             <button className="ret-action-btn ret-action-btn--danger" onClick={handleCancel}
-                              disabled={!!actionLoading}
+                              disabled={!!actionLoading || isRetired}
+                              title={isRetired ? 'This item is already retired' : undefined}
                               style={{ fontSize: '11px', marginTop: '4px' }}>
                               {actionLoading === 'cancel' ? 'Stopping...' : 'Stop Retirement'}
                             </button>
