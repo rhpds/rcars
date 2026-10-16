@@ -594,6 +594,9 @@ async def _open_agv_notice_pr_locked(base_name: str, request: Request, user: str
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     wf = db.get_retirement_workflow(content_id)
+    entity = db.get_content_entity(content_id)
+    if (entity and entity.get("retired_at")) or (wf and (wf.get("step_retired_at") or wf.get("status") == "retired")):
+        raise HTTPException(409, "This item is already retired; new retirement PRs cannot be created")
     if not wf or not wf.get("step_started_at"):
         raise HTTPException(400, "Retirement must be started (Jira ticket created) before opening the notice PR")
     if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
@@ -663,6 +666,9 @@ async def _open_agv_retire_pr_locked(base_name: str, request: Request, user: str
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     wf = db.get_retirement_workflow(content_id)
+    entity = db.get_content_entity(content_id)
+    if (entity and entity.get("retired_at")) or (wf and (wf.get("step_retired_at") or wf.get("status") == "retired")):
+        raise HTTPException(409, "This item is already retired; new retirement PRs cannot be created")
     if not wf or not wf.get("step_started_at"):
         raise HTTPException(400, "Retirement must be started before opening the removal PR")
     if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):

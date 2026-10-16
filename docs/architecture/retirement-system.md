@@ -139,7 +139,9 @@ The removal action builds a deletion commit for the resolved CI directory using 
 
 ### Retries and Existing PRs
 
-Stored notice/removal URLs are returned without creating another PR. The helpers also reuse an existing open PR when branch creation reports a conflict, read the existing branch on retry where needed, and recover an existing PR after a duplicate-creation response. Branch names combine the item, ticket key, date, and action suffix where applicable.
+For active items, stored notice/removal URLs are returned without creating another PR. The helpers also reuse an existing open PR when branch creation reports a conflict, read the existing branch on retry where needed, and recover an existing PR after a duplicate-creation response. Branch names combine the item, ticket key, date, and action suffix where applicable.
+
+Once RCARS marks the workflow or catalog item retired, the drawer keeps any existing PR links readable but disables **Open Notice PR** and **Open Removal PR**. The API rejects those PR actions with `409`, including for catalog retirements detected without an RCARS-created PR. Catalog retirement is detected when the item disappears from Babylon, independent of workflow history.
 
 These checks do not form a distributed transaction across GitHub and PostgreSQL. A failure can leave an external branch or PR before its URL is saved. Inspect external state before retrying or clearing stored links; do not assume any arbitrary failure is safe to repeat.
 
