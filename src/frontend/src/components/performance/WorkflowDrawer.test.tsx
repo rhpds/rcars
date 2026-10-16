@@ -49,11 +49,11 @@ it.each([
   { label: 'retired workflow status', workflow: { status: 'retired' }, retired_at: null, disabled: true },
   { label: 'catalog retirement without completed workflow', workflow: {}, retired_at: '2026-10-03', disabled: true },
   { label: 'active item', workflow: {}, retired_at: null, disabled: false },
-])('gates new PR buttons for $label', ({ workflow, retired_at, disabled }) => {
+])('gates new PR and stop buttons for $label', ({ workflow, retired_at, disabled }) => {
   hooks.workflow = { step_started_at: '2026-09-25', step_approved_at: '2026-09-25', ...workflow } as RetirementWorkflow
   const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0, retired_at }, onClose: vi.fn(), onChanged: vi.fn() })
 
-  for (const label of ['Open Notice PR', 'Open Removal PR']) {
+  for (const label of ['Open Notice PR', 'Open Removal PR', 'Stop Retirement']) {
     const button = findButton(tree, label)
     expect(button).toBeDefined()
     expect(button!.props.disabled).toBe(disabled)

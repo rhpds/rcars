@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/analysis.py": {
-    "mtime": 1792136245.2718267,
-    "seen": 1792136252.106327,
-    "ast_hash": "8da3ab0486be4643bdcf762ae2fce66f",
+    "mtime": 1792138713.0910244,
+    "seen": 1792138730.975538,
+    "ast_hash": "53dd2a4d0098c87c43c86d797c84674b",
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/auth.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1792082458.9134526,
-    "seen": 1792082613.368209,
-    "ast_hash": "a215b207e02559138dc87df007496e0b",
+    "mtime": 1792138983.0428376,
+    "seen": 1792139019.9611478,
+    "ast_hash": "72f7ceddfe6be5201d900f93cdb870f5",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -1284,9 +1284,9 @@
     "semantic_hash": "e42fe81c01fe4aa0ec5f0af9128b7074"
   },
   "src/frontend/src/components/performance/WorkflowDrawer.tsx": {
-    "mtime": 1792136097.8124313,
-    "seen": 1792136157.9042299,
-    "ast_hash": "cbbb638c48085ce64d95b0bae2241bc4",
+    "mtime": 1792138713.0906203,
+    "seen": 1792138730.975633,
+    "ast_hash": "239dd84182b8726f454a65fd0b7a3ab9",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/PerformancePage.tsx": {
@@ -1758,9 +1758,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_pr_status.py": {
-    "mtime": 1792136228.2599654,
-    "seen": 1792136252.106411,
-    "ast_hash": "30333813ef1b1873d82f54f4e5d61639",
+    "mtime": 1792138965.1631045,
+    "seen": 1792139019.961217,
+    "ast_hash": "cc610cb09a9cec034e2ae7cfc0f17874",
     "semantic_hash": ""
   },
   "ansible/templates/manifests-app.yaml.j2": {
@@ -1776,9 +1776,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/retirement-system.md": {
-    "mtime": 1792136149.4498367,
-    "seen": 1792136157.904267,
-    "ast_hash": "0f1fd1355b037d448528b296fa1bd447",
+    "mtime": 1792138713.0911524,
+    "seen": 1792138730.975668,
+    "ast_hash": "e53187a3132b4a941c63d13bf75fcc89",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/agv-retire-integration.md": {
@@ -1806,15 +1806,15 @@
     "semantic_hash": ""
   },
   "src/frontend/src/components/performance/WorkflowDrawer.test.tsx": {
-    "mtime": 1792136245.2720876,
-    "seen": 1792136252.106434,
-    "ast_hash": "0119e6afffed45e8738390c005a482ea",
+    "mtime": 1792138696.0913625,
+    "seen": 1792138730.975632,
+    "ast_hash": "0dad60856de86e161a1562c3398dc3b4",
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement_cleanup.py": {
-    "mtime": 1792082458.9145577,
-    "seen": 1792082613.368233,
-    "ast_hash": "735be2126fe36394484f5f7155625ae0",
+    "mtime": 1792138983.0431325,
+    "seen": 1792139019.961171,
+    "ast_hash": "51369fdf231e69c39b15a53df5cdfc9f",
     "semantic_hash": ""
   },
   "src/api/tests/test_required_jira_cleanup.py": {

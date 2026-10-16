@@ -193,7 +193,9 @@ There is no historical comment backfill. Additive schema setup records a per-wor
 
 ## Cancellation and Recovery
 
-Cancellation is an admin action:
+Cancellation is an admin action for items that are not yet retired. Once the workflow or catalog item is retired, **Stop Retirement** is disabled and the API returns `409` without changing workflow history or calling Jira/GitHub cleanup. Status refresh and completion cleanup remain available.
+
+For an active retirement:
 
 1. Attempt to close an open removal PR. A merged removal is not undone by this action.
 2. Check the notice PR: attempt to close it if open, or create a notice-removal PR if it was merged.
