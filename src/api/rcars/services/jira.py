@@ -98,7 +98,11 @@ def ensure_issue_event_comment(settings, jira_key: str, event_key: str, message:
         for comment in comments:
             if not isinstance(comment, dict) or not isinstance(comment.get("properties", []), list):
                 raise RuntimeError("Invalid Jira comment properties")
-            if any(isinstance(prop, dict) and prop.get("key") == property_key and prop.get("value") == event_key for prop in comment.get("properties", [])):
+            if any(
+                isinstance(prop, dict) and prop.get("key") == property_key
+                and prop.get("value") in ({"event_key": event_key}, event_key)
+                for prop in comment.get("properties", [])
+            ):
                 if not comment.get("id"):
                     raise RuntimeError("Jira event comment has no ID")
                 return str(comment["id"])
@@ -120,7 +124,8 @@ def ensure_issue_event_comment(settings, jira_key: str, event_key: str, message:
         paragraphs.append({"type": "paragraph", "content": content})
     result = _jira_request(settings, f"/rest/api/3/issue/{jira_key}/comment", body={
         "body": {"type": "doc", "version": 1, "content": paragraphs},
-        "properties": [{"key": property_key, "value": event_key}],
+        # Jira rejects scalar entity-property values; keep the marker in an object.
+        "properties": [{"key": property_key, "value": {"event_key": event_key}}],
     })
     if not isinstance(result, dict) or not result.get("id"):
         raise RuntimeError("Jira comment response has no ID; reconcile before retry")
