@@ -17,7 +17,6 @@ from rcars.api.streaming import JobProgressRelay, create_sse_response
 from rcars.config import Settings
 from rcars.db.overlap import get_overlap_items, get_overlap_stats
 from rcars.services.overlap_assessment import assess_overlap
-from rcars.workers.ops import sha_dedup_scan_items
 import structlog
 
 logger = structlog.get_logger(component="api")
@@ -794,7 +793,7 @@ async def retirement_sweep(request: Request, user: str = Depends(require_admin))
     summary="Scan items needing analysis",
     description=(
         "Enqueues analysis jobs for all catalog items that need (re-)analysis. "
-        "Uses SHA-based deduplication to avoid scanning identical content twice. Admin-only."
+        "Schedules each eligible item stage independently, skipping complete unchanged items. Admin-only."
     ),
     response_model=ScanResponse,
 )
@@ -804,20 +803,17 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
 
     dedup_stats = db.get_scan_dedup_stats()
     items = db.get_items_needing_analysis()
-    scan_items, sha_siblings_map = sha_dedup_scan_items(items)
-    sha_stats = {"ref_groups": len(items), "sha_groups": len(scan_items), "sha_merged": len(items) - len(scan_items)}
 
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
 
-    for item in scan_items:
+    for item in items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
-            sha_siblings=sha_siblings_map.get(item["content_id"]),
             _job_id=sub_job_id, _queue_name="arq:queue:scan"
         )
 
-    result = {"enqueued": len(scan_items), **dedup_stats, **sha_stats}
+    result = {"enqueued": len(items), **dedup_stats}
     db.complete_job(parent_job_id, result_json=result)
     return {"job_id": parent_job_id, **result}
 
@@ -841,30 +837,26 @@ async def check_stale(request: Request, user: str = Depends(require_admin)):
     "/rescan-all",
     tags=["Content Analysis"],
     summary="Force rescan of entire catalog",
-    description="Marks all items as stale and enqueues re-analysis for the entire catalog. Admin-only.",
+    description="Enqueues forced re-analysis for every resolved Babylon item stage. Admin-only.",
     response_model=RescanResponse,
 )
 async def rescan_all(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
-    marked = db.mark_all_stale()
-    dedup_stats = db.get_scan_dedup_stats()
-    items = db.get_items_needing_analysis()
-    scan_items, sha_siblings_map = sha_dedup_scan_items(items)
-    sha_stats = {"ref_groups": len(items), "sha_groups": len(scan_items), "sha_merged": len(items) - len(scan_items)}
+    items = db.get_items_needing_analysis(force=True)
 
     parent_job_id = db.create_job(job_type="rescan_all", queue="analyze", created_by=user)
 
-    for item in scan_items:
+    for item in items:
         sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all")
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
-            sha_siblings=sha_siblings_map.get(item["content_id"]),
+            force=True,
             _job_id=sub_job_id, _queue_name="arq:queue:scan"
         )
 
-    result = {"marked_stale": marked, "enqueued": len(scan_items), **dedup_stats, **sha_stats}
+    result = {"marked_stale": 0, "enqueued": len(items), "stage_jobs": len(items)}
     db.complete_job(parent_job_id, result_json=result)
     return {"job_id": parent_job_id, **result}
 

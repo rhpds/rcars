@@ -52,9 +52,7 @@ class HandsOnDriver(ContentTypeDriver):
 
     def fetch_analysis(self, db: Any, candidate: Candidate) -> dict:
         if candidate.content_type in ("lab", "demo"):
-            base = candidate.type_data.get("base_ci_name")
-            analysis_cid = f"babylon:{base}" if base else candidate.content_id
-            return db.get_showroom_analysis(analysis_cid) or {}
+            return db.get_showroom_analysis(candidate.content_id) or {}
         # sandbox
         item = db.get_babylon_item(candidate.content_id) or {}
         workloads = db.get_workload_classifications(candidate.content_id)

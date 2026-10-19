@@ -20,6 +20,10 @@ from psycopg_pool import ConnectionPool
 import structlog
 
 from rcars.config import STAGE_PRIORITY
+from rcars.services.showroom_source import (
+    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete,
+    effective_showroom_source, item_family_key, signature_matches_source,
+)
 
 logger = structlog.get_logger()
 
@@ -630,6 +634,9 @@ CREATE INDEX IF NOT EXISTS idx_retirement_jira_pending ON retirement_jira_events
 UPDATE retirement_workflow SET cancellation_requested_at = updated_at
 WHERE agv_revert_pr_url IS NOT NULL AND cancellation_requested_at IS NULL;
 
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS showroom_source_json JSONB;
+ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS analysis_provenance_json JSONB;
+
 """
 
 
@@ -664,6 +671,22 @@ class Database:
         self._pool.close()
 
     # ── Schema management ──
+
+    @contextmanager
+    def _artifact_connection(self, conn=None):
+        """Join an existing write transaction, or commit a standalone write."""
+        if conn is not None:
+            yield conn
+        else:
+            with self._pool.connection() as connection:
+                yield connection
+
+    def lock_babylon_item(self, conn, content_id: str) -> dict | None:
+        return conn.execute(
+            "SELECT ce.*, bi.*, ce.scan_status, ce.scan_error_class FROM content_entities ce "
+            "JOIN babylon_items bi USING (content_id) WHERE ce.content_id = %s FOR UPDATE OF ce, bi",
+            (content_id,),
+        ).fetchone()
 
     def create_schema(self):
         with self._pool.connection() as conn:
@@ -762,6 +785,14 @@ class Database:
 
     # ── Content entities + Babylon items ──
 
+    @staticmethod
+    def _babylon_content_type(item: dict, source: ResolvedShowroom) -> str:
+        has_metadata = item.get("showroom_source_json") is not None or item.get("showroom_source") is not None
+        has_content = source.status != "none" if has_metadata else bool(item.get("showroom_url_override") or item.get("showroom_url"))
+        if not has_content:
+            return "sandbox"
+        return "demo" if (item.get("category") or "").lower() in ("demo", "demos") else "lab"
+
     def upsert_babylon_catalog_item(self, item: dict[str, Any]) -> str:
         """Upsert a Babylon catalog item across content_entities + babylon_items in one transaction.
 
@@ -771,8 +802,9 @@ class Database:
         content_id = f"babylon:{ci_name}"
 
         showroom_url = item.get("showroom_url")
+        source = item.get("showroom_source")
         category = (item.get("category") or "").lower()
-        if showroom_url:
+        if showroom_url or (source and source.get("status") in ("invalid", "ambiguous")):
             content_type = "demo" if category in ("demo", "demos") else "lab"
         else:
             content_type = "sandbox"
@@ -793,7 +825,7 @@ class Database:
         bi_fields = [
             "ci_name", "category", "stage", "catalog_namespace",
             "keywords", "description", "icon_url", "owners_json",
-            "showroom_url", "showroom_ref", "content_path",
+            "showroom_url", "showroom_ref",
             "last_crd_update", "is_prod", "is_published",
             "published_ci_name", "base_ci_name",
             "is_agd_v2", "agd_config", "cloud_provider", "ocp_version",
@@ -801,6 +833,8 @@ class Database:
             "instances_json",
         ]
         bi_data = {"content_id": content_id}
+        if source is not None:
+            bi_data["showroom_source_json"] = Jsonb(source)
         for k in bi_fields:
             if k in item:
                 bi_data[k] = item[k]
@@ -832,19 +866,27 @@ class Database:
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT content_type FROM content_entities WHERE content_id = %s", (content_id,))
-                row = cur.fetchone()
-                prev_type = row["content_type"] if row else None
+                previous = self.lock_babylon_item(conn, content_id)
+                effective_item = {**(previous or {}), **item}
+                if source is not None:
+                    effective_item["showroom_source_json"] = source
+                effective_source = effective_showroom_source(effective_item)
+                content_type = self._babylon_content_type(effective_item, effective_source)
+                ce_data["content_type"] = content_type
+                prev_type = previous["content_type"] if previous else None
 
                 cur.execute(ce_sql, ce_data)
                 cur.execute(bi_sql, bi_data)
 
                 if prev_type and prev_type != content_type:
-                    cur.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
-                    cur.execute("DELETE FROM showroom_analysis WHERE content_id = %s", (content_id,))
+                    self.clear_babylon_generated_artifacts([content_id], conn=conn)
                     logger.info("content_type_transition", component="rcars",
                                 content_id=content_id, prev=prev_type, new=content_type,
                                 action="cleared_artifacts")
+                elif previous and previous.get("showroom_source_json") is not None and effective_showroom_source(previous) != effective_source:
+                    self.clear_babylon_generated_artifacts([content_id], conn=conn)
+                if source and effective_source.status in ("invalid", "ambiguous"):
+                    self.invalidate_babylon_scan_failure(content_id, f"{effective_source.status}_source", effective_source.error, conn=conn)
             conn.commit()
         return content_id
 
@@ -858,7 +900,7 @@ class Database:
 
     def get_babylon_item(self, content_id: str) -> dict[str, Any] | None:
         sql = """
-            SELECT ce.*, bi.*
+            SELECT ce.*, bi.*, ce.scan_status, ce.scan_error_class, ce.scan_error, ce.scan_failed_at
             FROM content_entities ce
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE ce.content_id = %(content_id)s
@@ -869,7 +911,7 @@ class Database:
 
     def get_babylon_item_by_ci_name(self, ci_name: str) -> dict[str, Any] | None:
         sql = """
-            SELECT ce.*, bi.*
+            SELECT ce.*, bi.*, ce.scan_status, ce.scan_error_class, ce.scan_error, ce.scan_failed_at
             FROM content_entities ce
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE bi.ci_name = %(ci_name)s
@@ -1367,16 +1409,29 @@ class Database:
             return newly_retired
 
     def set_content_path(self, content_id: str, path: str | None):
+        self._set_showroom_override(content_id, "content_path", path)
+
+    def _set_showroom_override(self, content_id: str, field: str, value: str | None):
+        if field not in ("content_path", "showroom_url_override"):
+            raise ValueError("Unsupported Showroom override")
         with self._pool.connection() as conn:
-            conn.execute(
-                "UPDATE babylon_items SET content_path = %s WHERE content_id = %s",
-                (path, content_id),
-            )
-            conn.commit()
+            item = self.lock_babylon_item(conn, content_id)
+            if not item or item.get(field) == value:
+                return
+            old_source = effective_showroom_source(item)
+            conn.execute(f"UPDATE babylon_items SET {field} = %s WHERE content_id = %s", (value, content_id))
+            item[field] = value
+            source = effective_showroom_source(item)
+            kind = self._babylon_content_type(item, source)
+            conn.execute("UPDATE content_entities SET content_type = %s WHERE content_id = %s", (kind, content_id))
+            if old_source.status != "none" or source.status != "none":
+                self.clear_babylon_generated_artifacts([content_id], conn=conn)
+            if source.status in ("invalid", "ambiguous"):
+                self.invalidate_babylon_scan_failure(content_id, f"{source.status}_source", source.error, conn=conn)
 
     # ── Showroom analysis ──
 
-    def upsert_showroom_analysis(self, analysis: dict[str, Any]):
+    def upsert_showroom_analysis(self, analysis: dict[str, Any], conn=None):
         fields = [
             "content_id", "content_type", "summary",
             "products_json", "audience_json", "recommender_audience_json", "topics_json",
@@ -1386,6 +1441,7 @@ class Database:
             "last_repo_commit", "last_repo_updated",
             "last_analyzed", "is_stale", "stale_commit", "content_hash",
             "enrichment_review_needed", "review_reasons",
+            "analysis_provenance_json",
         ]
         present = {k: analysis.get(k) for k in fields if k in analysis}
         if "last_analyzed" not in present:
@@ -1396,6 +1452,7 @@ class Database:
             "modules_json", "learning_objectives_json",
             "format_suitability_json", "use_cases_json",
             "review_reasons",
+            "analysis_provenance_json",
         ]
         for f in jsonb_fields:
             if f in present and present[f] is not None:
@@ -1410,10 +1467,9 @@ class Database:
             VALUES ({', '.join(placeholders)})
             ON CONFLICT (content_id) DO UPDATE SET {', '.join(updates)}
         """
-        with self._pool.connection() as conn:
+        with self._artifact_connection(conn) as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, present)
-            conn.commit()
 
     # ── Controlled vocabulary — unknown terms queue ──
 
@@ -1530,8 +1586,9 @@ class Database:
         topics_json: Any = None,
         audience_json: Any = None,
         difficulty: str | None = None,
+        conn=None,
     ) -> None:
-        with self._pool.connection() as conn:
+        with self._artifact_connection(conn) as conn:
             conn.execute(
                 """UPDATE content_entities
                    SET summary = %s, products_json = %s, topics_json = %s,
@@ -1543,7 +1600,6 @@ class Database:
                  Jsonb(audience_json) if audience_json is not None else None,
                  difficulty, content_id),
             )
-            conn.commit()
 
     # ── Architecture analysis (OSSPA) ──
 
@@ -1615,10 +1671,10 @@ class Database:
                 "WHERE content_id = %s", (content_id,))
             conn.commit()
 
-    def get_showroom_analysis(self, content_id: str) -> dict[str, Any] | None:
-        with self._pool.connection() as conn:
+    def get_showroom_analysis(self, content_id: str, conn=None, *, for_update: bool = False) -> dict[str, Any] | None:
+        with self._artifact_connection(conn) as conn:
             cur = conn.execute(
-                "SELECT * FROM showroom_analysis WHERE content_id = %(content_id)s",
+                "SELECT * FROM showroom_analysis WHERE content_id = %(content_id)s" + (" FOR UPDATE" if for_update else ""),
                 {"content_id": content_id},
             )
             return cur.fetchone()
@@ -1637,25 +1693,36 @@ class Database:
         content_id = f"babylon:{ci_name}"
         return self.get_showroom_analysis(content_id)
 
-    def find_donor_by_content_hash(self, content_hash: str, exclude_content_id: str | None = None) -> dict[str, Any] | None:
+    def find_showroom_donor(self, signature: AnalysisSignature, *, exclude_content_id: str) -> dict | None:
         with self._pool.connection() as conn:
-            with conn.cursor() as cur:
-                exclude_clause = "AND sa.content_id != %s" if exclude_content_id else ""
-                params = [content_hash]
-                if exclude_content_id:
-                    params.append(exclude_content_id)
-                cur.execute(f"""
-                    SELECT sa.*, bi.stage, bi.ci_name
+            rows = conn.execute("""
+                    SELECT sa.*, bi.stage, bi.ci_name, bi.showroom_source_json,
+                           bi.showroom_url_override, bi.content_path
                     FROM showroom_analysis sa
                     JOIN content_entities ce ON ce.content_id = sa.content_id
                     JOIN babylon_items bi ON bi.content_id = sa.content_id
-                    JOIN embeddings e ON e.content_id = sa.content_id AND e.embed_type = 'summary'
-                    WHERE sa.content_hash = %s AND ce.retired_at IS NULL {exclude_clause}
+                    WHERE sa.analysis_provenance_json->'signature' = %s
+                      AND sa.content_id != %s AND ce.retired_at IS NULL
+                      AND ce.scan_status = 'success' AND sa.is_stale IS FALSE
+                      AND sa.content_hash = %s
                     ORDER BY CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
                              sa.last_analyzed DESC NULLS LAST, sa.content_id
-                    LIMIT 1
-                """, params)
-                return cur.fetchone()
+                """, (Jsonb(signature.to_dict()), exclude_content_id, signature.content_hash)).fetchall()
+        for row in rows:
+            source = effective_showroom_source(row)
+            if (signature_matches_source(signature.to_dict(), source)
+                    and row["analysis_provenance_json"].get("source") == source.to_dict()
+                    and analysis_artifacts_complete(row, self.get_embeddings_for_content(row["content_id"]))):
+                return row
+        return None
+
+    def get_stage_counterpart(self, content_id: str, stage: str) -> dict | None:
+        item = self.get_babylon_item(content_id)
+        if not item or stage not in ("prod", "event", "dev", "test"):
+            return None
+        family = item_family_key(item["ci_name"], item.get("stage", ""))
+        counterpart = self.get_babylon_item_by_ci_name(f"{family}.{stage}")
+        return counterpart if counterpart and counterpart.get("retired_at") is None else None
 
     def get_embeddings_for_content(self, content_id: str) -> list[dict[str, Any]]:
         with self._pool.connection() as conn:
@@ -1667,21 +1734,21 @@ class Database:
                 )
                 return cur.fetchall()
 
-    def find_prod_ci_by_content_hash(self, content_hash: str) -> dict[str, Any] | None:
+    def get_virtual_content_aliases(self, content_id: str) -> list[dict]:
+        item = self.get_babylon_item(content_id)
+        if not item:
+            return []
         with self._pool.connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """SELECT ce.content_id, bi.ci_name, ce.display_name, bi.stage,
-                              bi.catalog_namespace, bi.published_ci_name, bi.is_published
-                       FROM content_entities ce
-                       JOIN babylon_items bi ON bi.content_id = ce.content_id
-                       JOIN showroom_analysis sa ON sa.content_id = ce.content_id
-                       WHERE sa.content_hash = %s AND bi.stage = 'prod' AND ce.retired_at IS NULL
-                       ORDER BY bi.ci_name
-                       LIMIT 1""",
-                    (content_hash,),
-                )
-                return cur.fetchone()
+            rows = conn.execute(
+                "SELECT ce.*, bi.*, ce.scan_status FROM content_entities ce "
+                "JOIN babylon_items bi USING (content_id) WHERE bi.stage = %s "
+                "AND ce.retired_at IS NULL AND ce.scan_status = 'success' "
+                "AND bi.showroom_source_json->>'status' = 'resolved' ORDER BY bi.ci_name",
+                (item["stage"],),
+            ).fetchall()
+        return [row for row in rows if row["content_id"] != content_id and any(
+            item["ci_name"] in path[1:] for path in effective_showroom_source(row).paths
+        )]
 
     def mark_stale(self, content_id: str, new_commit: str | None = None) -> None:
         with self._pool.connection() as conn:
@@ -1712,9 +1779,9 @@ class Database:
             conn.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
             conn.commit()
 
-    def replace_embeddings(self, content_id: str, rows: list[dict]) -> None:
+    def replace_embeddings(self, content_id: str, rows: list[dict], conn=None) -> None:
         """Delete all embeddings for content_id and insert rows atomically."""
-        with self._pool.connection() as conn:
+        with self._artifact_connection(conn) as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM embeddings WHERE content_id = %s", (content_id,))
                 for r in rows:
@@ -1725,7 +1792,6 @@ class Database:
                          r.get("module_title"), r["content_text"],
                          f"[{','.join(str(v) for v in r['embedding'])}]"),
                     )
-            conn.commit()
 
     def store_embedding(
         self, content_id: str, content_type: str, source: str,
@@ -2369,43 +2435,123 @@ class Database:
 
     # ── Scan management ──
 
-    def get_items_needing_analysis(self) -> list[dict[str, Any]]:
+    def clear_babylon_generated_artifacts(self, content_ids: list[str], *, conn) -> dict[str, int]:
+        """Internal target-only invalidation; caller owns validation and locks.
+
+        No human fields, identity/source metadata, or operational histories are
+        changed. Shared by failure handling, source transitions, and opt-in reset.
+        """
+        analysis = conn.execute(
+            "UPDATE showroom_analysis SET summary = NULL, products_json = NULL, topics_json = NULL, "
+            "audience_json = NULL, recommender_audience_json = NULL, difficulty = NULL, content_hash = NULL, "
+            "last_analyzed = NULL, is_stale = TRUE, stale_commit = NULL, content_type = NULL, modules_json = NULL, "
+            "learning_objectives_json = NULL, estimated_duration_min = NULL, format_suitability_json = NULL, "
+            "use_cases_json = NULL, last_repo_commit = NULL, last_repo_updated = NULL, analysis_provenance_json = NULL "
+            "WHERE content_id = ANY(%s)", (content_ids,),
+        ).rowcount
+        items = conn.execute(
+            "UPDATE content_entities SET summary = NULL, products_json = NULL, topics_json = NULL, audience_json = NULL, "
+            "difficulty = NULL, scan_status = 'not_scanned', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL "
+            "WHERE content_id = ANY(%s)", (content_ids,),
+        ).rowcount
+        embeddings = conn.execute(
+            "DELETE FROM embeddings WHERE content_id = ANY(%s) AND source = 'babylon' AND embed_type IN ('summary', 'module')", (content_ids,),
+        ).rowcount
+        overlaps = conn.execute(
+            "DELETE FROM overlap_candidates WHERE content_id_a = ANY(%s) OR content_id_b = ANY(%s)", (content_ids, content_ids),
+        ).rowcount
+        return {"items": items, "analysis": analysis, "embeddings": embeddings, "overlaps": overlaps}
+
+    def invalidate_babylon_scan_failure(self, content_id: str, error_class: str, message: str | None, *, conn):
+        self.clear_babylon_generated_artifacts([content_id], conn=conn)
+        self.set_scan_status(content_id, "failed", error_class, message, conn=conn)
+
+    def _showroom_reset_ids(self, conn, ids):
+        # Sandbox cards are generated by the separate infrastructure-summary
+        # workflow, not rcars scan. A Showroom reset must leave them intact.
+        return [row["content_id"] for row in conn.execute(
+            "SELECT content_id FROM content_entities WHERE content_id = ANY(%s) "
+            "AND content_type IN ('lab', 'demo') ORDER BY content_id", (ids,),
+        ).fetchall()]
+
+    def _validate_babylon_reset_targets(self, conn, content_ids: list[str]) -> list[str]:
+        ids = sorted(set(content_ids))
+        if any(not cid.startswith("babylon:") for cid in ids):
+            raise ValueError("Reset accepts only explicit Babylon content IDs")
+        actual = conn.execute(
+            "SELECT ce.content_id FROM content_entities ce JOIN babylon_items bi USING (content_id) "
+            "WHERE ce.source = 'babylon' AND ce.content_id = ANY(%s)", (ids,),
+        ).fetchall()
+        if {row["content_id"] for row in actual} != set(ids):
+            raise ValueError("Reset includes missing or non-Babylon content IDs")
+        return ids
+
+    def preview_babylon_scan_artifacts(self, content_ids: list[str]) -> dict[str, int]:
+        with self._pool.connection() as conn:
+            conn.execute("SET TRANSACTION READ ONLY")
+            ids = self._validate_babylon_reset_targets(conn, content_ids)
+            ids = self._showroom_reset_ids(conn, ids)
+            counts = {"items": len(ids)}
+            for key, table, where in (
+                ("analysis", "showroom_analysis", "content_id = ANY(%s)"),
+                ("embeddings", "embeddings", "content_id = ANY(%s) AND source = 'babylon' AND embed_type IN ('summary', 'module')"),
+                ("overlaps", "overlap_candidates", "content_id_a = ANY(%s) OR content_id_b = ANY(%s)"),
+            ):
+                counts[key] = conn.execute(f"SELECT count(*) AS n FROM {table} WHERE {where}",
+                    (ids, ids) if key == "overlaps" else (ids,)).fetchone()["n"]
+            return counts
+
+    def reset_babylon_scan_artifacts(self, content_ids: list[str]) -> dict[str, int]:
+        """Opt-in maintenance operation; callers MUST stop/drain all scan producers.
+
+        The job check is a guard, not race safety against active CLI/queue producers.
+        Preserve identity, source/curator overrides, human review fields and history.
+        """
+        with self._pool.connection() as conn:
+            ids = self._validate_babylon_reset_targets(conn, content_ids)
+            conn.execute("SELECT content_id FROM content_entities WHERE content_id = ANY(%s) ORDER BY content_id FOR UPDATE", (ids,)).fetchall()
+            ids = self._showroom_reset_ids(conn, ids)
+            outstanding = conn.execute(
+                "SELECT id FROM jobs WHERE status IN ('queued', 'running') AND "
+                "(queue IN ('scan', 'analyze') OR job_type IN ('analyze', 'scan', 'rescan_all', 'check_stale', "
+                "'refresh', 'maintenance', 'sandbox_summary', 'workload_scan')) LIMIT 1"
+            ).fetchone()
+            if outstanding:
+                raise RuntimeError("Reset refused: outstanding scan-related jobs; stop producers/workers and drain old work first")
+            return self.clear_babylon_generated_artifacts(ids, conn=conn)
+
+    def get_items_needing_analysis(self, settings=None, *, force: bool = False) -> list[dict[str, Any]]:
+        from rcars.config import Settings
+        from rcars.services.analyzer import showroom_work_needed
+        settings = settings or Settings(database_url=self._url)
         with self._pool.connection() as conn:
             cur = conn.execute("""
-                SELECT ce.content_id, ce.content_type, ce.display_name,
-                       bi.ci_name, bi.category, bi.stage,
-                       bi.showroom_url, bi.showroom_ref, bi.showroom_url_override,
-                       bi.content_path, bi.keywords, ce.scan_status,
-                       bi.is_published, bi.published_ci_name, bi.base_ci_name,
-                       sa.content_hash, sa.last_repo_commit
+                SELECT ce.*, bi.*, ce.scan_status,
+                       sa.content_hash, sa.last_repo_commit, sa.is_stale,
+                       sa.analysis_provenance_json
                 FROM content_entities ce
                 JOIN babylon_items bi ON bi.content_id = ce.content_id
                 LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
                 WHERE ce.content_type IN ('lab', 'demo')
-                  AND bi.showroom_url IS NOT NULL AND bi.showroom_url != ''
-                  AND (bi.is_published IS NULL OR bi.is_published = FALSE)
-                  AND (sa.content_id IS NULL OR sa.is_stale = TRUE)
                   AND ce.retired_at IS NULL
                 ORDER BY bi.ci_name
             """)
             all_needing = cur.fetchall()
 
-        groups: dict[tuple, list[dict]] = {}
+        selected = []
         for item in all_needing:
-            key = (item.get("showroom_url_override") or item["showroom_url"], item.get("showroom_ref") or "")
-            groups.setdefault(key, []).append(item)
-
-        deduped = []
-        for group in groups.values():
-            group.sort(key=lambda i: STAGE_PRIORITY.get(i.get("stage", "dev"), 99))
-            deduped.append(group[0])
-        deduped.sort(key=lambda i: i.get("ci_name", ""))
-        return deduped
+            source = effective_showroom_source(item)
+            if source.status != "resolved":
+                continue
+            analysis = self.get_showroom_analysis(item["content_id"]) or {}
+            if force or showroom_work_needed(item, analysis, self.get_embeddings_for_content(item["content_id"]), settings):
+                selected.append(item)
+        return selected
 
     def get_stale_check_candidates(self) -> list[dict]:
         sql = """
-            SELECT ce.content_id, bi.ci_name, bi.showroom_url, bi.showroom_ref,
-                   bi.showroom_url_override, sa.content_hash, sa.last_repo_commit
+            SELECT ce.*, bi.*, ce.scan_status, sa.content_hash, sa.last_repo_commit,
+                   sa.analysis_provenance_json
             FROM content_entities ce
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             JOIN showroom_analysis sa ON sa.content_id = ce.content_id
@@ -2431,35 +2577,8 @@ class Database:
             return conn.execute(sql).fetchall()
 
     def get_scan_dedup_stats(self) -> dict[str, int]:
-        with self._pool.connection() as conn:
-            cur = conn.execute("""
-                SELECT COALESCE(bi.showroom_url_override, bi.showroom_url) AS effective_url,
-                       COALESCE(bi.showroom_ref, '') AS showroom_ref, COUNT(*) AS cnt
-                FROM babylon_items bi
-                JOIN content_entities ce ON ce.content_id = bi.content_id
-                LEFT JOIN showroom_analysis sa ON sa.content_id = bi.content_id
-                WHERE bi.showroom_url IS NOT NULL AND bi.showroom_url != ''
-                  AND (bi.is_published IS NULL OR bi.is_published = FALSE)
-                  AND (sa.content_id IS NULL OR sa.is_stale = TRUE)
-                  AND ce.retired_at IS NULL
-                GROUP BY COALESCE(bi.showroom_url_override, bi.showroom_url), COALESCE(bi.showroom_ref, '')
-            """)
-            groups = cur.fetchall()
-        total = sum(row["cnt"] for row in groups)
-        unique = len(groups)
-        propagated = total - unique
-        return {"total_scannable": total, "unique_pairs": unique, "will_propagate": propagated}
-
-    def get_siblings_by_showroom(self, showroom_url: str, showroom_ref: str | None) -> list[dict[str, Any]]:
-        with self._pool.connection() as conn:
-            cur = conn.execute(
-                "SELECT ce.*, bi.* FROM content_entities ce "
-                "JOIN babylon_items bi ON bi.content_id = ce.content_id "
-                "WHERE bi.showroom_url = %s AND COALESCE(bi.showroom_ref, '') = COALESCE(%s, '') "
-                "AND ce.retired_at IS NULL ORDER BY bi.ci_name",
-                (showroom_url, showroom_ref),
-            )
-            return cur.fetchall()
+        count = len(self.get_items_needing_analysis())
+        return {"total_scannable": count, "stage_jobs": count, "unique_pairs": count, "will_propagate": 0}
 
     def set_scan_status(self, content_id: str, status: str, error_class: str | None = None, error_message: str | None = None, conn=None):
         def _do(c):
@@ -2494,9 +2613,7 @@ class Database:
             return cur.fetchall()
 
     def set_showroom_url_override(self, content_id: str, override_url: str | None):
-        with self._pool.connection() as conn:
-            conn.execute("UPDATE babylon_items SET showroom_url_override = %s WHERE content_id = %s", (override_url, content_id))
-            conn.commit()
+        self._set_showroom_override(content_id, "showroom_url_override", override_url)
 
     # ── Status / currency ──
 

@@ -10,85 +10,14 @@ import traceback
 from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
-from rcars.services.analyzer import clone_showroom, check_showroom_stale, ls_remote_sha, resolve_refs_to_shas
+from rcars.services.analyzer import ls_remote_sha, classify_scan_error, showroom_analysis_current
+from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
 from rcars.services.overlap_assessment import batch_assess_overlaps
 import structlog
 
-from rcars.config import STAGE_PRIORITY
 
 logger = structlog.get_logger()
-
-
-def sha_dedup_scan_items(
-    items: list[dict],
-) -> tuple[list[dict], dict[str, list[dict]]]:
-    """Further deduplicate ref-based scan items by resolving refs to commit SHAs.
-
-    Returns (items_to_scan, sha_siblings_map).
-    sha_siblings_map keys are representative content_ids, values are lists of
-    skipped item dicts with keys: content_id, ci_name, content_type, effective_url, showroom_ref.
-    """
-    log = logger.bind(action="sha_dedup")
-
-    url_ref_pairs = []
-    items_by_key: dict[tuple[str, str | None], list[dict]] = {}
-    for item in items:
-        effective_url = item.get("showroom_url_override") or item["showroom_url"]
-        ref = item.get("showroom_ref")
-        key = (effective_url, ref)
-        url_ref_pairs.append(key)
-        items_by_key.setdefault(key, []).append(item)
-
-    unique_pairs = list(set(url_ref_pairs))
-    log.info("sha_dedup_started", input_items=len(items), unique_url_ref_pairs=len(unique_pairs))
-
-    sha_map = resolve_refs_to_shas(unique_pairs)
-
-    sha_groups: dict[tuple[str, str], list[dict]] = {}
-    for (url, ref), group_items in items_by_key.items():
-        sha = sha_map.get((url, ref))
-        if sha:
-            group_key = (url, sha)
-        else:
-            group_key = (url, f"ref:{ref or ''}")
-        sha_groups.setdefault(group_key, []).extend(group_items)
-
-    scan_items = []
-    sha_siblings_map: dict[str, list[dict]] = {}
-
-    for group_key, group_items in sha_groups.items():
-        group_items.sort(key=lambda i: STAGE_PRIORITY.get(i.get("stage", "dev"), 99))
-        representative = group_items[0]
-        scan_items.append(representative)
-
-        if len(group_items) > 1:
-            skipped = []
-            for item in group_items[1:]:
-                effective_url = item.get("showroom_url_override") or item["showroom_url"]
-                skipped.append({
-                    "content_id": item["content_id"],
-                    "ci_name": item["ci_name"],
-                    "content_type": item.get("content_type"),
-                    "effective_url": effective_url,
-                    "showroom_ref": item.get("showroom_ref"),
-                })
-            sha_siblings_map[representative["content_id"]] = skipped
-            refs_in_group = list({i.get("showroom_ref") for i in group_items})
-            if len(refs_in_group) > 1:
-                log.info("sha_group_merged",
-                         url=group_key[0], sha=group_key[1][:12],
-                         refs=refs_in_group,
-                         representative=representative["ci_name"],
-                         merged_count=len(group_items) - 1)
-
-    scan_items.sort(key=lambda i: i.get("ci_name", ""))
-    merged = len(items) - len(scan_items)
-    log.info("sha_dedup_complete",
-             input_groups=len(items), output_groups=len(scan_items),
-             sha_merged=merged)
-
-    return scan_items, sha_siblings_map
 
 
 async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
@@ -156,77 +85,50 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
     try:
         checkable = wctx.db.get_stale_check_candidates()
 
-        # Deduplicate by (showroom_url, showroom_ref) — clone each unique repo once
-        groups: dict[tuple[str, str | None], list[dict]] = {}
-        for item in checkable:
-            url = item.get("showroom_url_override") or item["showroom_url"]
-            ref = item.get("showroom_ref")
-            groups.setdefault((url, ref), []).append(item)
-
-        total_groups = len(groups)
-        total_cis = len(checkable)
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="stale_check", status="started",
-                               message=f"Checking {total_groups} unique Showrooms ({total_cis} CIs) for content changes...",
-                               total=total_groups)
-
-        # Phase 1: fast ls-remote to find repos with new commits
-        changed = []
         skipped = 0
-        for (url, ref), group_items in groups.items():
-            analysis = wctx.db.get_showroom_analysis(group_items[0]["content_id"])
-            stored_sha = analysis.get("last_repo_commit")
-            remote_sha = ls_remote_sha(url, ref)
-            if remote_sha and stored_sha and remote_sha == stored_sha:
-                for item in group_items:
-                    wctx.db.clear_stale(item["content_id"])
-                skipped += 1
-            else:
-                changed.append(((url, ref), group_items, analysis))
-            if (skipped + len(changed)) % 50 == 0:
-                await publish_progress(wctx.relay, job_id, wctx.db,
-                                       phase="stale_check", status="ls-remote",
-                                       message=f"Quick check: {skipped + len(changed)}/{total_groups} scanned, {len(changed)} have new commits...",
-                                       current=skipped + len(changed), total=total_groups)
-
-        await publish_progress(wctx.relay, job_id, wctx.db,
-                               phase="stale_check", status="cloning",
-                               message=f"Quick check done: {skipped} unchanged, {len(changed)} need content check...",
-                               skipped=skipped, need_clone=len(changed))
-
-        # Phase 2: clone only changed repos and compare content hash
-        checked = 0
         stale_count = 0
-        stale_cis = 0
-
-        for (url, ref), group_items, analysis in changed:
-            clone_path = clone_showroom(url, ref, wctx.settings.clone_dir)
-            if not clone_path:
-                checked += 1
-                continue
+        failures = 0
+        superseded = 0
+        for item in checkable:
+            source = effective_showroom_source(item)
+            observed = wctx.db.get_showroom_analysis(item["content_id"])
+            observed_generation = analysis_generation(observed)
             try:
-                stale_result = check_showroom_stale(clone_path, analysis.get("content_hash"))
-                for item in group_items:
-                    if stale_result["is_stale"]:
-                        wctx.db.mark_stale(item["content_id"], stale_result.get("head_sha"))
+                if source.status != "resolved":
+                    continue
+                remote_sha = await asyncio.to_thread(ls_remote_sha, source.repo, source.ref)
+                with wctx.db.pool.connection() as conn:
+                    current = wctx.db.lock_babylon_item(conn, item["content_id"])
+                    latest = wctx.db.get_showroom_analysis(item["content_id"], conn=conn, for_update=True)
+                    if (not current or effective_showroom_source(current) != source
+                            or analysis_generation(latest) != observed_generation):
+                        superseded += 1
+                        continue
+                    signature = ((latest or {}).get("analysis_provenance_json") or {}).get("signature") or {}
+                    if signature.get("commit") == remote_sha and showroom_analysis_current(current, latest, wctx.settings):
+                        skipped += 1
                     else:
-                        wctx.db.clear_stale(item["content_id"])
-                if stale_result["is_stale"]:
-                    stale_count += 1
-                    stale_cis += len(group_items)
-                checked += 1
-                if checked % 5 == 0:
-                    await publish_progress(wctx.relay, job_id, wctx.db,
-                                           phase="stale_check", status="progress",
-                                           message=f"Content check: {checked}/{len(changed)}, {stale_count} stale so far...",
-                                           current=checked, total=len(changed), stale=stale_count)
-            finally:
-                shutil.rmtree(clone_path, ignore_errors=True)
+                        conn.execute("UPDATE showroom_analysis SET is_stale = TRUE, stale_commit = %s WHERE content_id = %s",
+                                     (remote_sha, item["content_id"]))
+                        stale_count += 1
+            except Exception as exc:
+                error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
+                with wctx.db.pool.connection() as conn:
+                    current = wctx.db.lock_babylon_item(conn, item["content_id"])
+                    latest = wctx.db.get_showroom_analysis(item["content_id"], conn=conn, for_update=True)
+                    if (not current or effective_showroom_source(current) != source
+                            or analysis_generation(latest) != observed_generation):
+                        superseded += 1
+                        continue
+                    wctx.db.invalidate_babylon_scan_failure(item["content_id"], error, message, conn=conn)
+                    failures += 1
+                log.warning("stale_source_failed", content_id=item["content_id"], error_class=error)
 
-        result = {"checked": total_groups, "skipped": skipped, "cloned": len(changed), "stale": stale_count, "stale_cis": stale_cis, "total_cis": total_cis}
+        result = {"checked": len(checkable), "skipped": skipped, "cloned": 0, "stale": stale_count,
+                  "stale_cis": stale_count, "total_cis": len(checkable), "failed": failures, "superseded": superseded}
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="complete", status="complete",
-                               message=f"Stale check complete: {skipped} unchanged, {len(changed)} checked, {stale_count} stale ({stale_cis} CIs)",
+                               message=f"Stale check complete: {skipped} unchanged, {stale_count} stage revisions need checking, {failures} failures",
                                **result)
         wctx.db.complete_job(job_id, result_json=result)
         log.info("stale_check_complete", action="job_complete", **result)
@@ -296,29 +198,26 @@ async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = 
         await publish_progress(wctx.relay, job_id, wctx.db,
                                phase="pipeline:stale_check", status="failed", message=msg)
 
-    # Step 3: Enqueue analysis for items that need it (with SHA dedup)
+    # Step 3: Enqueue only item stages needing analysis or embedding repair.
     try:
-        items = wctx.db.get_items_needing_analysis()
+        items = wctx.db.get_items_needing_analysis(wctx.settings)
         if items:
-            scan_items, sha_siblings_map = sha_dedup_scan_items(items)
-            sha_merged = len(items) - len(scan_items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",
-                                   message=f"Step 3: Re-analyzing {len(scan_items)} items with updated content...")
+                                   message=f"Step 3: Checking {len(items)} item stages with updated inputs...")
             arq_redis = ctx["redis"]
-            for item in scan_items:
+            for item in items:
                 sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
                 await arq_redis.enqueue_job(
                     "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
-                    sha_siblings=sha_siblings_map.get(item["content_id"]),
                     _job_id=sub_job_id, _queue_name="arq:queue:scan"
                 )
-            analysis_enqueued = len(scan_items)
+            analysis_enqueued = len(items)
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",
                                    message=f"Step 3 complete: {analysis_enqueued} items queued for re-analysis (runs in background)")
             log.info("pipeline_analysis_enqueued", action="pipeline_step_complete",
-                     step="analysis", enqueued=analysis_enqueued, sha_merged=sha_merged)
+                     step="analysis", enqueued=analysis_enqueued)
         else:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="complete",

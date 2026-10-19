@@ -12,6 +12,10 @@ from typing import Any
 import structlog
 from kubernetes import client, config as k8s_config
 
+from rcars.services.showroom_source import (
+    ComponentLink, ContentDeclaration, SourceNode, resolve_showroom_source,
+)
+
 # Suppress SSL warnings for clusters with self-signed certificates
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -121,7 +125,7 @@ def _resolve_template_var(
     2. Fall back to the variable's value in spec.definition (e.g. from common.yaml)
     """
     import re
-    match = re.match(r"\{\{\s*(\w+)\s*\}\}", value.strip())
+    match = re.fullmatch(r"\{\{\s*(\w+)\s*\}\}", value.strip())
     if not match:
         return None
     var_name = match.group(1)
@@ -149,6 +153,38 @@ REF_VARS = [
     "ocp4_workload_showroom_content_git_ref",
     "showroom_git_ref",
 ]
+PATH_VARS = ["ocp4_workload_showroom_content_path", "showroom_content_path"]
+
+
+def _content_fields(values: dict, definition: dict, params: list[dict]) -> dict:
+    """Retain explicit field presence, including a deliberately defaulted ref."""
+    result = {}
+    for field, variables in (("repo", URL_VARS), ("ref", REF_VARS), ("content_path", PATH_VARS)):
+        for variable in variables:
+            if variable not in values:
+                continue
+            value = values[variable]
+            if isinstance(value, str):
+                if "{{" in value or "{%" in value:
+                    value = _resolve_template_var(value, definition, params) or value
+                value = value.split(" #")[0].strip() or None
+            result[field] = value
+            break
+    return result
+
+
+def _source_node(ci_name: str, stage: str, component: dict) -> SourceNode:
+    definition = component.get("spec", {}).get("definition") or {}
+    meta = definition.get("__meta__") or {}
+    params = (meta.get("catalog") or {}).get("parameters") or []
+    fields = _content_fields(definition, definition, params)
+    links = tuple(
+        ComponentLink(component_item_to_ci_name(comp["item"], stage),
+                      _content_fields(comp.get("parameter_values") or {}, definition, params))
+        for comp in meta.get("components", []) if comp.get("item")
+    )
+    return SourceNode(ci_name, stage, ContentDeclaration(
+        fields.get("repo"), fields.get("ref"), fields.get("content_path"), frozenset(fields)), links)
 
 
 TEMPLATE_REPOS = [
@@ -162,74 +198,22 @@ def _is_template_repo(url: str) -> bool:
     return any(t in url for t in TEMPLATE_REPOS)
 
 
-def _extract_from_dict(
-    d: dict, catalog_params: list[dict], definition: dict,
-) -> tuple[str | None, str | None]:
-    """Extract showroom URL and ref from a flat dict of variables."""
-    url = None
-    ref = None
-
-    for var in URL_VARS:
-        value = d.get(var)
-        if value and isinstance(value, str) and not value.startswith("{{"):
-            candidate = value.split(" #")[0].strip()
-            if _is_template_repo(candidate):
-                continue
-            url = candidate.removesuffix(".git")
-            break
-
-    for var in REF_VARS:
-        value = d.get(var)
-        if not value or not isinstance(value, str):
-            continue
-        if value.startswith("{{"):
-            resolved = _resolve_template_var(value, definition, catalog_params)
-            if resolved:
-                ref = resolved
-                break
-        else:
-            ref = value.split(" #")[0].strip()
-            break
-
-    return url, ref
-
-
 def extract_showroom_url(
     component_crd: dict[str, Any],
 ) -> tuple[str | None, str | None]:
-    """Extract Showroom URL and ref from an AgnosticVComponent CRD.
+    """Compatibility view of local explicit declarations, never first-branch wins.
 
-    Checks three locations in priority order:
-    1. Top-level spec.definition (direct showroom vars — standard CIs)
-    2. __meta__.components[].parameter_values (ZT Virtual CIs that pass
-       the showroom URL as a parameter override to a base component)
-
-    When a ref value is a Jinja2 template (e.g. '{{ showroom_repo_revision }}'),
-    resolves it by looking up the variable in spec.definition, with catalog
-    parameter defaults taking precedence per stage.
-
-    Returns (url, ref) tuple. Both are None if no Showroom URL found.
+    Catalog refresh resolves the complete fetched graph instead. This helper
+    cannot infer content from dependencies whose CRDs have not been supplied.
     """
-    definition = (
-        component_crd.get("spec", {}).get("definition", {}) or {}
-    )
-    meta = definition.get("__meta__", {})
-    catalog_params = (meta.get("catalog") or {}).get("parameters") or []
-
-    # 1. Check top-level definition
-    url, ref = _extract_from_dict(definition, catalog_params, definition)
-    if url:
-        return url, ref
-
-    # 2. Fall back to component parameter_values (ZT Virtual CI pattern)
-    for comp in meta.get("components", []):
-        pv = comp.get("parameter_values", {})
-        if pv:
-            url, ref = _extract_from_dict(pv, catalog_params, definition)
-            if url:
-                return url, ref
-
-    return None, None
+    name = component_crd.get("metadata", {}).get("name", "local")
+    stage = _get_label(component_crd.get("metadata", {}), "stage") or "prod"
+    root = _source_node(name, stage, component_crd)
+    empty = ContentDeclaration(None, None, None, frozenset())
+    nodes = {link.target_ci_name: SourceNode(link.target_ci_name, stage, empty, ()) for link in root.links}
+    nodes[name] = root
+    source = resolve_showroom_source(name, nodes)
+    return (source.repo, source.ref) if source.status == "resolved" else (None, None)
 
 
 AGD_V2_SCM_URL = "https://github.com/rhpds/agnosticd-v2"
@@ -383,22 +367,19 @@ def _collect_bases(item: dict, items_by_name: dict, max_depth: int = 2) -> list[
 
 
 def _apply_component_inheritance(items: list[dict]) -> None:
-    """Link published↔base, inherit showroom URLs, infra metadata,
+    """Link published↔base and inherit infrastructure metadata,
     and workloads from all base components (up to 2 hops deep).
 
     Mutates items in place.
     """
     items_by_name = {i["ci_name"]: i for i in items}
 
-    # First: set published_ci_name and inherit showroom URL from direct base
+    # Legacy identity links are retained only for infrastructure consumers.
     for item in items:
         if item.get("base_ci_name") and item["base_ci_name"] in items_by_name:
             base = items_by_name[item["base_ci_name"]]
             if item["is_published"]:
                 base["published_ci_name"] = item["ci_name"]
-            if not item.get("showroom_url") and base.get("showroom_url"):
-                item["showroom_url"] = base["showroom_url"]
-                item["showroom_ref"] = base.get("showroom_ref")
 
     # Second: inherit infra metadata and workloads from all reachable bases
     for item in items:
@@ -490,6 +471,27 @@ class CatalogReader:
         component_namespace: str = "babylon-config",
     ) -> list[dict[str, Any]]:
         items = []
+        nodes = {}
+        components = {}
+        minimum_depth = {}
+
+        def load(name):
+            if name not in components:
+                components[name] = self.get_agnosticv_component(name, component_namespace)
+            return components[name]
+
+        def collect(name, stage, depth=1):
+            if depth > 32 or minimum_depth.get(name, 33) <= depth:
+                return
+            minimum_depth[name] = depth
+            component = load(name)
+            if component is None:
+                return
+            source_node = _source_node(name, stage, component)
+            nodes[name] = source_node
+            for link in source_node.links:
+                collect(link.target_ci_name, stage, depth + 1)
+            return component
 
         for ns_idx, ns in enumerate(namespaces, 1):
             log.info("catalog_reading_namespace", ns_idx=ns_idx, total=len(namespaces), namespace=ns)
@@ -520,17 +522,12 @@ class CatalogReader:
                 item = extract_catalog_item(crd)
                 ci_name = item["ci_name"]
 
-                component = self.get_agnosticv_component(
-                    ci_name, component_namespace
-                )
+                component = load(ci_name)
                 if not component:
                     log.info("catalog_skip_no_component", ci_name=ci_name)
                     continue
-                url, ref = extract_showroom_url(component)
-                item["showroom_url"] = url
-                item["showroom_ref"] = ref
-                if url:
-                    log.debug("catalog_showroom_found", ci_name=ci_name, showroom_url=url, ref=ref)
+                stage = item.get("stage", "prod")
+                collect(ci_name, stage)
 
                 infra = extract_infrastructure_metadata(component)
                 if infra:
@@ -563,5 +560,12 @@ class CatalogReader:
             log.info("catalog_namespace_complete", namespace=ns, items=len(crds))
 
         _apply_component_inheritance(items)
+
+        for item in items:
+            source = resolve_showroom_source(item["ci_name"], nodes)
+            item["showroom_source"] = source.to_dict()
+            item["showroom_url"] = source.repo
+            item["showroom_ref"] = source.ref
+            item["showroom_content_path"] = source.content_path
 
         return items
