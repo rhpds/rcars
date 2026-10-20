@@ -1296,6 +1296,9 @@ async def analyze_single(identifier: str, request: Request, force: bool = True, 
     entity = db.get_content_entity(content_id)
     if not entity:
         raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")
+    from rcars.services.showroom_source import is_content_excluded
+    if is_content_excluded(content_id):
+        raise HTTPException(status_code=400, detail="Content analysis is disabled for AgnosticV tests/ items")
     job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
     await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, force=force, _job_id=job_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}

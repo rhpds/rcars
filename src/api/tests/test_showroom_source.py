@@ -161,3 +161,53 @@ def test_owner_need_not_have_catalogitem_and_adapter_order_is_independent(revers
     assert rows["example.other.prod"]["showroom_source"]["scope_key"] == "example.other"
     fetched_names = [call.args[0] for call in reader.get_agnosticv_component.call_args_list]
     assert sorted(fetched_names) == sorted(components)
+
+
+@pytest.mark.parametrize("reference,stage,expected", [
+    ("agd_v2/pools", "dev", "agd-v2.pools.dev"),
+    ("agd_v2/pools/prod", "dev", "agd-v2.pools.prod"),
+    ("agd-v2/pools/prod", "prod", "agd-v2.pools.prod"),
+    ("agd_v2/pools/event", "dev", "agd-v2.pools.event"),
+])
+def test_component_reference_honors_explicit_stage(reference, stage, expected):
+    from rcars.services.catalog import component_item_to_ci_name
+    assert component_item_to_ci_name(reference, stage) == expected
+
+
+def test_explicit_child_stage_applies_to_nested_component_references():
+    from rcars.services.catalog import CatalogReader
+    definitions = {
+        "example.virtual.dev": {"__meta__": {"components": [{"item": "example/wrapper/prod"}]}},
+        "example.wrapper.prod": {"__meta__": {"components": [{"item": "example/content"}]}},
+        "example.content.prod": {"showroom_git_repo": URL, "showroom_git_ref": "release"},
+    }
+    reader = CatalogReader.__new__(CatalogReader)
+    reader.list_catalog_items = Mock(return_value=[{
+        "metadata": {"name": "example.virtual.dev", "labels": {"babylon.gpte.redhat.com/stage": "dev"}}, "spec": {},
+    }])
+    reader.get_agnosticv_component = Mock(side_effect=lambda name, ns:
+        {"spec": {"definition": definitions[name]}} if name in definitions else None)
+    source = reader.refresh_catalog(["example"])[0]["showroom_source"]
+    assert source["status"] == "resolved"
+    assert source["owner_ci_name"] == "example.content.prod"
+    assert source["scope_key"] == "example.content"
+    assert source["ref"] == "release"
+    assert source["paths"] == [["example.virtual.dev", "example.wrapper.prod", "example.content.prod"]]
+
+
+def test_explicit_stage_infrastructure_chain_without_showroom_is_not_failure():
+    from rcars.services.catalog import CatalogReader
+    definitions = {
+        "example.training.dev": {"__meta__": {"components": [{"item": "example/pools/prod"}]}},
+        "example.pools.prod": {},
+    }
+    reader = CatalogReader.__new__(CatalogReader)
+    reader.list_catalog_items = Mock(return_value=[{
+        "metadata": {"name": "example.training.dev", "labels": {"babylon.gpte.redhat.com/stage": "dev"}}, "spec": {},
+    }])
+    reader.get_agnosticv_component = Mock(side_effect=lambda name, ns:
+        {"spec": {"definition": definitions[name]}} if name in definitions else None)
+    source = reader.refresh_catalog(["example"])[0]["showroom_source"]
+    assert source["status"] == "none"
+    assert source["error"] is None
+    assert source["paths"] == [["example.training.dev", "example.pools.prod"]]

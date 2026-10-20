@@ -13,7 +13,8 @@ import structlog
 from kubernetes import client, config as k8s_config
 
 from rcars.services.showroom_source import (
-    ComponentLink, ContentDeclaration, SourceNode, resolve_showroom_source,
+    KNOWN_STAGES, ComponentLink, ContentDeclaration, SourceNode, resolve_showroom_source,
+    is_content_excluded,
 )
 
 # Suppress SSL warnings for clusters with self-signed certificates
@@ -111,8 +112,12 @@ def component_item_to_ci_name(component_item: str, stage: str) -> str:
 
     e.g., 'openshift_cnv/ocp4-lightspeed-cnv' + 'prod'
        -> 'openshift-cnv.ocp4-lightspeed-cnv.prod'
+    An explicit third segment selects the component's stage, not the caller's.
     """
-    return component_item.replace("/", ".").replace("_", "-") + "." + stage
+    parts = component_item.split("/")
+    if len(parts) == 3 and parts[-1] in KNOWN_STAGES:
+        stage = parts.pop()
+    return ".".join(parts).replace("_", "-") + "." + stage
 
 
 def _resolve_template_var(
@@ -481,6 +486,8 @@ class CatalogReader:
             return components[name]
 
         def collect(name, stage, depth=1):
+            if is_content_excluded(name):
+                return
             if depth > 32 or minimum_depth.get(name, 33) <= depth:
                 return
             minimum_depth[name] = depth
@@ -490,7 +497,8 @@ class CatalogReader:
             source_node = _source_node(name, stage, component)
             nodes[name] = source_node
             for link in source_node.links:
-                collect(link.target_ci_name, stage, depth + 1)
+                child_stage = link.target_ci_name.rsplit(".", 1)[-1]
+                collect(link.target_ci_name, child_stage, depth + 1)
             return component
 
         for ns_idx, ns in enumerate(namespaces, 1):

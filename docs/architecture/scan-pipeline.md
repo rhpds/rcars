@@ -157,6 +157,32 @@ Nearer repo/ref/path overrides establish their own scope. Ambiguous, missing,
 cyclic, unresolved, and excessive-depth graphs fail visibly; no source anywhere
 is an ordinary no-Showroom outcome. Infrastructure inheritance stays separate.
 
+Component references may select their own stage: `account/item` inherits the
+requesting component's stage, while `account/item/prod` selects the prod component.
+That selected stage also applies to its stage-less nested references. RCARS does
+not append the requesting stage again to an already stage-qualified reference.
+
+### Tests-folder exclusion
+
+AgnosticV `tests/` items (`tests.*` Babylon identities) are excluded from content
+analysis and recommendations even when they declare a Showroom or have an existing
+analysis. Catalog refresh records their scan status as `excluded`, not failed.
+They remain in the catalog for infrastructure, usage, performance and historical
+records; existing analysis and embeddings are not deleted by this exclusion.
+
+Scheduled scans, stale checks, forced rescans and sandbox-summary generation skip
+these items. The single-item analysis API rejects them; old queued jobs finish as
+excluded without Git, LLM or embedding work. Tests-folder components cannot supply
+content to published wrappers or act as analysis donors. Existing test vectors are
+filtered before retrieval limits, and test items are excluded from overlap
+generation/assessment and Advisor evidence. No reset or rescan of retired records
+is needed to enforce the policy.
+
+The exclusion uses the AgnosticV folder identity, not the Kubernetes catalog
+namespace and not a substring match on titles or names.
+
+### Verified reuse and incremental maintenance
+
 Reuse requires the same authorized item/content-owner scope and complete matching
 versioned signatures: repo, exact requested ref, selected path, fetched commit,
 content hash, actual prompt/vocabulary/model inputs, and policy version. Legacy,

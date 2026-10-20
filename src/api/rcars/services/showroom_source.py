@@ -6,6 +6,11 @@ KNOWN_STAGES = frozenset({"dev", "event", "prod", "test"})
 SHOWROOM_ANALYSIS_POLICY_VERSION = 1
 
 
+def is_content_excluded(identity: str) -> bool:
+    """AgnosticV tests/ identities are never content, regardless of configured URLs."""
+    return identity.removeprefix("babylon:").startswith("tests.")
+
+
 def analysis_generation(row: dict | None):
     """Observed artifact generation for compare-and-swap, not a new epoch store."""
     if row is None:
@@ -85,6 +90,9 @@ class ResolvedShowroom:
 
 def effective_showroom_source(item: dict) -> ResolvedShowroom:
     """Curator overrides belong to this target, never to its generic base."""
+    identity = item.get("ci_name") or item.get("content_id") or ""
+    if is_content_excluded(identity):
+        return ResolvedShowroom("excluded", paths=((identity.removeprefix("babylon:"),),))
     raw = item.get("showroom_source_json") or item.get("showroom_source")
     source = ResolvedShowroom.from_dict(raw) if raw else ResolvedShowroom(
         "invalid", error="source_metadata_missing")
@@ -106,6 +114,10 @@ def effective_showroom_source(item: dict) -> ResolvedShowroom:
         if any(value is not None and (not isinstance(value, str) or "{{" in value or "{%" in value)
                for value in (source.repo, source.ref, source.content_path)):
             source = replace(source, status="invalid", error="unresolved_curator_override")
+    if (is_content_excluded(source.owner_ci_name or "")
+            or any(is_content_excluded(name) for path in source.paths
+                   if path and path[-1] == source.owner_ci_name for name in path)):
+        return ResolvedShowroom("excluded", paths=source.paths)
     return source
 
 
@@ -132,6 +144,8 @@ def analysis_artifacts_complete(analysis: dict, embeddings: list[dict]) -> bool:
 
 def resolve_showroom_source(root_ci_name: str, nodes: dict[str, SourceNode], *, max_depth: int = 32) -> ResolvedShowroom:
     """Walk to each nearest explicit repo; overrides belong to the nearer node."""
+    if is_content_excluded(root_ci_name):
+        return ResolvedShowroom("excluded", paths=((root_ci_name,),))
     candidates, paths, errors = [], [], []
 
     def unresolved(values):
@@ -140,6 +154,9 @@ def resolve_showroom_source(root_ci_name: str, nodes: dict[str, SourceNode], *, 
 
     def walk(name, path, inherited, origins, scope):
         current_path = (*path, name)
+        if is_content_excluded(name):
+            paths.append(current_path)
+            return
         if name in path or len(current_path) > max_depth or name not in nodes:
             reason = "cycle" if name in path else "depth_exceeded" if len(current_path) > max_depth else "missing_dependency"
             errors.append(f"{reason}: {' -> '.join(current_path)}")

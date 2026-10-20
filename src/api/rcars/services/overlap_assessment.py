@@ -124,8 +124,11 @@ def assess_overlap(
 
     Returns (assessment_dict, reason). Reason is "ok" on success,
     or one of: "cached", "missing_analysis", "not_overlap", "llm_error",
-    "parse_error", "validation_error".
+    "parse_error", "validation_error", "excluded_content".
     """
+    from rcars.services.showroom_source import is_content_excluded
+    if is_content_excluded(content_id_a) or is_content_excluded(content_id_b):
+        return None, "excluded_content"
     # Normalize order to match overlap_candidates constraint
     if content_id_a > content_id_b:
         content_id_a, content_id_b = content_id_b, content_id_a

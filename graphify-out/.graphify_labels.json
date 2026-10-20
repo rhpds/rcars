@@ -2,7 +2,6 @@
   "1": "Database",
   "2": "registry.ts",
   "5": "devDependencies",
-  "6": "services/catalog.py",
   "8": "routes/catalog.py",
   "9": "admin.py",
   "11": "Infrastructure Catalog",

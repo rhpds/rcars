@@ -10,6 +10,7 @@ from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
 from rcars.services.showroom_source import (
     AnalysisSignature, effective_showroom_source, signature_matches_source, signatures_match,
+    is_content_excluded,
 )
 
 log = structlog.get_logger()
@@ -82,6 +83,9 @@ def _resolve_ci_references(
     results = []
     seen = set()
     for item in resolved_items:
+        if (is_content_excluded(item["content_id"])
+                or effective_showroom_source(item).status == "excluded"):
+            continue
         # Virtual items own materialized artifacts too; infra links are irrelevant.
         embed_content_id = item["content_id"]
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
@@ -120,8 +124,13 @@ def _verified_signature(db, content_id):
 
 
 def _authorized_promotion(db, row, stages, include_zt, scope):
+    if is_content_excluded(row["content_id"]):
+        return None
     if row.get("source") != "babylon":
         return row
+    item = db.get_babylon_item(row["content_id"])
+    if item and effective_showroom_source(item).status == "excluded":
+        return None
     original_signature = _verified_signature(db, row["content_id"])
     if not original_signature:
         return row
@@ -189,7 +198,8 @@ def search(
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
 
-    rows = [_authorized_promotion(db, row, effective_stages, include_zt, scope_content_ids) for row in rows]
+    rows = [promoted for row in rows
+            if (promoted := _authorized_promotion(db, row, effective_stages, include_zt, scope_content_ids)) is not None]
 
     # Dedup by content_id after all promotions — keep the highest similarity
     seen_ids: dict[str, int] = {}

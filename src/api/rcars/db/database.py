@@ -788,6 +788,8 @@ class Database:
     @staticmethod
     def _babylon_content_type(item: dict, source: ResolvedShowroom) -> str:
         has_metadata = item.get("showroom_source_json") is not None or item.get("showroom_source") is not None
+        if source.status == "excluded":
+            return item.get("content_type") or "sandbox"
         has_content = source.status != "none" if has_metadata else bool(item.get("showroom_url_override") or item.get("showroom_url"))
         if not has_content:
             return "sandbox"
@@ -878,7 +880,10 @@ class Database:
                 cur.execute(ce_sql, ce_data)
                 cur.execute(bi_sql, bi_data)
 
-                if prev_type and prev_type != content_type:
+                if effective_source.status == "excluded":
+                    # Disable future work without deleting existing identity/history/artifacts.
+                    self.set_scan_status(content_id, "excluded", conn=conn)
+                elif prev_type and prev_type != content_type:
                     self.clear_babylon_generated_artifacts([content_id], conn=conn)
                     logger.info("content_type_transition", component="rcars",
                                 content_id=content_id, prev=prev_type, new=content_type,
@@ -1866,6 +1871,7 @@ class Database:
                 FROM embeddings e
                 JOIN content_entities ce ON ce.content_id = e.content_id
                 WHERE ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
                   {ct_filter}
                   {stage_filter}
                   {zt_filter}
@@ -2534,6 +2540,7 @@ class Database:
                 LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
                 WHERE ce.content_type IN ('lab', 'demo')
                   AND ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
                 ORDER BY bi.ci_name
             """)
             all_needing = cur.fetchall()
@@ -2557,6 +2564,7 @@ class Database:
             JOIN showroom_analysis sa ON sa.content_id = ce.content_id
             WHERE ce.content_type IN ('lab', 'demo')
               AND ce.retired_at IS NULL
+              AND ce.content_id NOT LIKE 'babylon:tests.%%'
         """
         with self._pool.connection() as conn:
             return conn.execute(sql).fetchall()
@@ -2571,6 +2579,7 @@ class Database:
             JOIN babylon_items bi ON bi.content_id = ce.content_id
             WHERE ce.content_type = 'sandbox'
               AND ce.retired_at IS NULL
+              AND ce.content_id NOT LIKE 'babylon:tests.%%'
               AND ce.summary IS NULL
         """
         with self._pool.connection() as conn:
@@ -2582,10 +2591,10 @@ class Database:
 
     def set_scan_status(self, content_id: str, status: str, error_class: str | None = None, error_message: str | None = None, conn=None):
         def _do(c):
-            if status == "success":
+            if status in ("success", "excluded"):
                 c.execute(
-                    "UPDATE content_entities SET scan_status = 'success', scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
-                    (content_id,),
+                    "UPDATE content_entities SET scan_status = %s, scan_error_class = NULL, scan_error = NULL, scan_failed_at = NULL WHERE content_id = %s",
+                    (status, content_id),
                 )
             else:
                 c.execute(
@@ -2608,6 +2617,7 @@ class Database:
                 FROM content_entities ce
                 LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
                 WHERE ce.scan_status = 'failed' AND ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
                 ORDER BY ce.scan_failed_at DESC
             """)
             return cur.fetchall()

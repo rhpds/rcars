@@ -19,6 +19,9 @@ def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> 
     if not item:
         return {"content_id": content_id, "success": False, "error": "missing_item", "outcome": "failed"}
     source = effective_showroom_source(item)
+    if source.status == "excluded":
+        log.info("showroom_scan_excluded", component="scanner", content_id=content_id, action="excluded")
+        return {"content_id": content_id, "success": True, "outcome": "excluded", "source": source.to_dict()}
     snapshot = _snapshot(item)
     observed_generation = analysis_generation(db.get_showroom_analysis(content_id))
     result = None
