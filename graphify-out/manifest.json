@@ -120,9 +120,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/config.py": {
-    "mtime": 1792082458.91264,
-    "seen": 1792082613.3682072,
-    "ast_hash": "cc1167df0148905fe359792d84c2b700",
+    "mtime": 1792593462.8893344,
+    "seen": 1792594971.17853,
+    "ast_hash": "e683beacd597276feccc823d74502545",
     "semantic_hash": ""
   },
   "src/api/rcars/db/__init__.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1792501835.4450705,
-    "seen": 1792501962.949615,
-    "ast_hash": "f4ff3540b908e5cf1bec14a7c1d67d7b",
+    "mtime": 1792593462.889726,
+    "seen": 1792594971.178533,
+    "ast_hash": "c97568d69040ba60d8ee26796fd2403b",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -150,9 +150,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "src/api/rcars/services/analyzer.py": {
-    "mtime": 1792161653.0088296,
-    "seen": 1792162034.2668421,
-    "ast_hash": "e22be2316cb412653d1d6363af7ee6bd",
+    "mtime": 1792593462.8899581,
+    "seen": 1792594971.178536,
+    "ast_hash": "9f4eda004c79bf7d34386bdfa4f175b5",
     "semantic_hash": ""
   },
   "src/api/rcars/services/catalog.py": {
@@ -246,9 +246,9 @@
     "semantic_hash": "6fc3b429c3c3e83175a634a08a737a39"
   },
   "src/api/rcars/workers/ops.py": {
-    "mtime": 1792161653.009107,
-    "seen": 1792162034.26687,
-    "ast_hash": "c0df082dc4d337fe7a96c606f5369e16",
+    "mtime": 1792596955.052499,
+    "seen": 1792598042.53136,
+    "ast_hash": "e61fd48af707280d856bfaf6a9c52c07",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/recommend.py": {
@@ -324,10 +324,10 @@
     "semantic_hash": "f83e835f7d6f5057abeef8d1c1e722fe"
   },
   "src/api/tests/test_config.py": {
-    "mtime": 1788860485.1709146,
-    "seen": 1792065592.376608,
-    "ast_hash": "624388c33d60141b2653e9887339af6c",
-    "semantic_hash": "624388c33d60141b2653e9887339af6c"
+    "mtime": 1792593462.890679,
+    "seen": 1792594971.1785831,
+    "ast_hash": "d647219ed0001267b5fdbc2b9d24d7d1",
+    "semantic_hash": ""
   },
   "src/api/tests/test_db.py": {
     "mtime": 1788860485.17125,
@@ -708,9 +708,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/scan-pipeline.md": {
-    "mtime": 1792501943.6322627,
-    "seen": 1792501962.9497442,
-    "ast_hash": "75ec7b3a9d6aacaee4bd7511c4b86fbd",
+    "mtime": 1792501975.722484,
+    "seen": 1792594971.178653,
+    "ast_hash": "ebed5122e14bfcf17c3afdc1070d29da",
     "semantic_hash": ""
   },
   "docs/architecture/system-design.md": {
@@ -1836,9 +1836,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/showroom_scan.py": {
-    "mtime": 1792501762.680715,
-    "seen": 1792501962.9496388,
-    "ast_hash": "9ccddd5f8fc26f13273a8a32d8275c47",
+    "mtime": 1792596955.0528574,
+    "seen": 1792598042.531352,
+    "ast_hash": "2c801f533bda8d6bcaf480121d94e8d2",
     "semantic_hash": ""
   },
   "src/api/rcars/services/showroom_source.py": {
@@ -1848,9 +1848,9 @@
     "semantic_hash": ""
   },
   "src/api/scripts/rebuild_babylon_analysis.py": {
-    "mtime": 1792160783.9391515,
-    "seen": 1792160964.2010372,
-    "ast_hash": "7b2d530a320a0907d07a3bd84d565a98",
+    "mtime": 1792593462.8904786,
+    "seen": 1792594971.178567,
+    "ast_hash": "15d0efd9728e36489eae8c1105db7c5f",
     "semantic_hash": ""
   },
   "src/api/tests/showroom_helpers.py": {
@@ -1860,9 +1860,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_showroom_rebuild.py": {
-    "mtime": 1792161865.1463604,
-    "seen": 1792162034.266908,
-    "ast_hash": "eadbf5ed6d1a142fe8d9ad4be49f557b",
+    "mtime": 1792593462.890877,
+    "seen": 1792594971.1785989,
+    "ast_hash": "bd046e3c88ef2b7e7a704ee68360223b",
     "semantic_hash": ""
   },
   "src/api/tests/test_showroom_recommendation_isolation.py": {
@@ -1878,9 +1878,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_showroom_scan.py": {
-    "mtime": 1792161653.0093064,
-    "seen": 1792162034.2669098,
-    "ast_hash": "0b9fb8fe874031c0547cdff37c86ae60",
+    "mtime": 1792596955.0531085,
+    "seen": 1792598042.531399,
+    "ast_hash": "f8c76ef579f4d22b19ae02ad6263c3b0",
     "semantic_hash": ""
   },
   "src/api/tests/test_showroom_scope_db.py": {
