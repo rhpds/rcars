@@ -117,7 +117,7 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
                         stale_count += 1
             except Exception as exc:
                 error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
-                if not isinstance(exc, InvalidShowroomRef):
+                if not isinstance(exc, InvalidShowroomRef) and error != "http_404":
                     # Network, throttle, or access failures are not proof the source is gone.
                     failures += 1
                     log.warning("stale_source_lookup_transient", content_id=item["content_id"], error_class=error)

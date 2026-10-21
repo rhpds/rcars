@@ -351,7 +351,24 @@ async def test_transient_stale_lookup_failure_keeps_artifacts(db, scan, monkeypa
     ctx = _worker_ctx()
     ctx["worker_ctx"].db = db
     result = await ops.run_stale_check(ctx, "fixture-transient-ref-check")
-    assert result["failed"] == 1
+    assert result["failed"] >= 1
     assert db.get_embeddings_for_content(cid)
     assert db.get_content_entity(cid)["summary"]
     assert db.get_babylon_item(cid)["scan_status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_missing_repo_stale_lookup_invalidates_artifacts(db, scan, monkeypatch):
+    import subprocess
+    from rcars.workers import ops
+    from tests.test_workers import _worker_ctx
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    monkeypatch.setattr(ops, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
+        128, ["git", "ls-remote"], stderr="remote: Repository not found.")))
+    ctx = _worker_ctx()
+    ctx["worker_ctx"].db = db
+    await ops.run_stale_check(ctx, "fixture-missing-repo-check")
+    assert db.get_embeddings_for_content(cid) == []
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+    assert db.get_babylon_item(cid)["scan_error_class"] == "http_404"

@@ -79,8 +79,8 @@ def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> 
         return outcome_result
     except Exception as exc:
         error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
-        if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
-            # Git transport failures keep prior artifacts; the next scan retries.
+        if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) and error != "http_404":
+            # Retryable Git failures keep prior artifacts; a missing repo is definitive.
             log.warning("showroom_scan_transient_failure", component="scanner", content_id=content_id, error_class=error)
             return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
         with db.pool.connection() as conn:
