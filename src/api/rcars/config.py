@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # LLM
     model: str = "claude-sonnet-4-6"
     vertex_project_id: str = ""
-    cloud_ml_region: str = "us-east5"
+    cloud_ml_region: str = "global"
     anthropic_api_key: str = ""
     litemaas_url: str = ""
     litemaas_api_key: str = ""
