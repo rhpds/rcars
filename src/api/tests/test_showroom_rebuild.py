@@ -148,3 +148,15 @@ def test_dry_run_performs_no_writes(db, monkeypatch, capsys):
     assert script.main(["--content-id", target]) == 0
     assert "dry_run" in capsys.readouterr().out
     assert snapshots(db, ["showroom_analysis", "embeddings", "content_entities", "jobs"]) == before
+
+
+def test_script_rejects_selection_with_no_showroom_items(db, monkeypatch, capsys):
+    from rcars.services.showroom_source import ResolvedShowroom
+    from scripts import rebuild_babylon_analysis as script
+    cid = db.upsert_babylon_catalog_item({"ci_name": "isolation-test.sandbox.prod", "stage": "prod",
+        "showroom_source": ResolvedShowroom("none").to_dict()})
+    monkeypatch.setattr(script, "Settings", lambda: SimpleNamespace(database_url=db._url))
+    monkeypatch.setattr(script, "Database", lambda _: db)
+    monkeypatch.setattr(db, "close", lambda: None)
+    assert script.main(["--content-id", cid]) == 1
+    assert "no Showroom" in capsys.readouterr().err

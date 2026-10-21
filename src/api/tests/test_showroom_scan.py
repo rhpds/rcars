@@ -337,3 +337,21 @@ async def test_unchanged_maintenance_enqueues_no_analysis_jobs(db, scan, monkeyp
     assert result["warnings"] == []
     assert ctx["redis"].enqueue_job.call_count == 0
     assert scan.llm.call_count == scan.embed.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_transient_stale_lookup_failure_keeps_artifacts(db, scan, monkeypatch):
+    import subprocess
+    from rcars.workers import ops
+    from tests.test_workers import _worker_ctx
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    monkeypatch.setattr(ops, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
+        128, ["git", "ls-remote"], stderr="fatal: unable to access: Could not resolve host")))
+    ctx = _worker_ctx()
+    ctx["worker_ctx"].db = db
+    result = await ops.run_stale_check(ctx, "fixture-transient-ref-check")
+    assert result["failed"] == 1
+    assert db.get_embeddings_for_content(cid)
+    assert db.get_content_entity(cid)["summary"]
+    assert db.get_babylon_item(cid)["scan_status"] == "success"

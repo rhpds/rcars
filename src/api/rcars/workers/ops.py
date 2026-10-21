@@ -10,7 +10,7 @@ import traceback
 from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
-from rcars.services.analyzer import ls_remote_sha, classify_scan_error, showroom_analysis_current
+from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
 from rcars.services.overlap_assessment import batch_assess_overlaps
@@ -89,6 +89,7 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
         stale_count = 0
         failures = 0
         superseded = 0
+        remote_cache: dict[tuple[str, str | None], str] = {}
         for item in checkable:
             source = effective_showroom_source(item)
             observed = wctx.db.get_showroom_analysis(item["content_id"])
@@ -96,7 +97,10 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
             try:
                 if source.status != "resolved":
                     continue
-                remote_sha = await asyncio.to_thread(ls_remote_sha, source.repo, source.ref)
+                key = (source.repo, source.ref)
+                if key not in remote_cache:
+                    remote_cache[key] = await asyncio.to_thread(ls_remote_sha, source.repo, source.ref)
+                remote_sha = remote_cache[key]
                 with wctx.db.pool.connection() as conn:
                     current = wctx.db.lock_babylon_item(conn, item["content_id"])
                     latest = wctx.db.get_showroom_analysis(item["content_id"], conn=conn, for_update=True)
@@ -113,6 +117,11 @@ async def run_stale_check(ctx: dict, job_id: str) -> dict:
                         stale_count += 1
             except Exception as exc:
                 error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
+                if not isinstance(exc, InvalidShowroomRef):
+                    # Network, throttle, or access failures are not proof the source is gone.
+                    failures += 1
+                    log.warning("stale_source_lookup_transient", content_id=item["content_id"], error_class=error)
+                    continue
                 with wctx.db.pool.connection() as conn:
                     current = wctx.db.lock_babylon_item(conn, item["content_id"])
                     latest = wctx.db.get_showroom_analysis(item["content_id"], conn=conn, for_update=True)

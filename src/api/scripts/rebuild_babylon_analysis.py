@@ -29,7 +29,11 @@ def main(argv: list[str] | None = None) -> int:
                 ids = [row["content_id"] for row in conn.execute(
                     "SELECT ce.content_id FROM content_entities ce JOIN babylon_items bi USING (content_id) "
                     "WHERE ce.source = 'babylon' ORDER BY ce.content_id").fetchall()]
+        if not ids:
+            raise ValueError("No Babylon content IDs selected")
         counts = (db.reset_babylon_scan_artifacts(ids) if args.execute else db.preview_babylon_scan_artifacts(ids))
+        if not counts["items"]:
+            raise ValueError("Selected content IDs include no Showroom lab/demo items")
         print(json.dumps({"mode": "executed" if args.execute else "dry_run", "content_ids": sorted(set(ids)), "counts": counts}, indent=2))
         return 0
     except (ValueError, RuntimeError) as exc:

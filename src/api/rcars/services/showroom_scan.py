@@ -2,6 +2,8 @@
 
 Queue and job lifecycle belong to the caller. No lock spans Git/LLM requests.
 """
+import subprocess
+
 from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 import structlog
@@ -77,6 +79,10 @@ def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> 
         return outcome_result
     except Exception as exc:
         error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
+        if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
+            # Git transport failures keep prior artifacts; the next scan retries.
+            log.warning("showroom_scan_transient_failure", component="scanner", content_id=content_id, error_class=error)
+            return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
         with db.pool.connection() as conn:
             current = db.lock_babylon_item(conn, content_id)
             if (current is None or _snapshot(current) != snapshot

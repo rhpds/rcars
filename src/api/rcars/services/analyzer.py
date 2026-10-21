@@ -319,10 +319,8 @@ def clone_showroom(
         if actual != commit:
             raise InvalidShowroomRef("Fetched Showroom commit does not match resolved ref")
         return clone_path
-    except Exception as exc:
+    except Exception:
         shutil.rmtree(clone_path, ignore_errors=True)
-        if isinstance(exc, subprocess.CalledProcessError):
-            raise InvalidShowroomRef(f"Cannot fetch requested Showroom revision {ref or 'HEAD'}") from exc
         raise
 
 
