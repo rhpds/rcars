@@ -504,10 +504,10 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/RecentJobsPage.tsx": {
-    "mtime": 1782991315.7351182,
-    "seen": 1792065592.376649,
-    "ast_hash": "1f3873ce1af584e6d4fe4fab87f60224",
-    "semantic_hash": "1f3873ce1af584e6d4fe4fab87f60224"
+    "mtime": 1792655918.2899961,
+    "seen": 1792658933.865197,
+    "ast_hash": "0f504f7cc33c95715eeb3e6070c94b89",
+    "semantic_hash": ""
   },
   "src/frontend/src/pages/StatusPage.tsx": {
     "mtime": 1787311504.7826433,
@@ -654,21 +654,21 @@
     "semantic_hash": "24f3caaf60250c8e531e24b5df703aba"
   },
   "ansible/vars/common.yml": {
-    "mtime": 1786098495.472673,
-    "seen": 1792065592.376668,
-    "ast_hash": "f577a2c24204b28a818ea631e27dc216",
-    "semantic_hash": "f577a2c24204b28a818ea631e27dc216"
+    "mtime": 1792654794.0681639,
+    "seen": 1792658933.865215,
+    "ast_hash": "e44daa10d0fef34e600419233160ad66",
+    "semantic_hash": ""
   },
   "docs/admin/cli-guide.md": {
-    "mtime": 1792082458.891402,
-    "seen": 1792082613.368331,
-    "ast_hash": "8f3dc1eb0479579544f30e1406974448",
+    "mtime": 1792654794.0841367,
+    "seen": 1792658933.865215,
+    "ast_hash": "d9f1a2465dcace3fb715fcc572fefe20",
     "semantic_hash": ""
   },
   "docs/admin/deployment.md": {
-    "mtime": 1792082458.8916812,
-    "seen": 1792082613.3683321,
-    "ast_hash": "7c01df3aab026ff824811b77dfd6f777",
+    "mtime": 1792654794.0779037,
+    "seen": 1792658933.865215,
+    "ast_hash": "4e504351337ef1a8784d84729ffa8ff9",
     "semantic_hash": ""
   },
   "docs/admin/operations.md": {
