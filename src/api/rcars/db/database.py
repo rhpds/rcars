@@ -2801,7 +2801,7 @@ class Database:
     # ── Jobs ──
 
     def create_job(self, job_type: str, queue: str, created_by: str | None = None,
-                   limit_active: bool = False) -> str | None:
+                   limit_active: bool = False, progress_json: dict | None = None) -> str | None:
         job_id = str(uuid.uuid4())
         with self._pool.connection() as conn:
             if limit_active and created_by:
@@ -2812,8 +2812,10 @@ class Database:
                 if cur.fetchone() is not None:
                     return None
             conn.execute(
-                "INSERT INTO jobs (id, job_type, status, queue, created_by, created_at) VALUES (%s, %s, 'queued', %s, %s, %s)",
-                (job_id, job_type, queue, created_by, datetime.now(timezone.utc)),
+                "INSERT INTO jobs (id, job_type, status, queue, created_by, created_at, progress_json) "
+                "VALUES (%s, %s, 'queued', %s, %s, %s, %s)",
+                (job_id, job_type, queue, created_by, datetime.now(timezone.utc),
+                 Jsonb(progress_json) if progress_json else None),
             )
             conn.commit()
         return job_id
@@ -2948,11 +2950,13 @@ class Database:
         return count
 
     def list_jobs(self, limit: int = 50, job_type: str | None = None) -> list[dict]:
+        # Running jobs first so a large queued backlog cannot push them past the limit.
+        order = "ORDER BY (status = 'running') DESC, created_at DESC LIMIT %s"
         if job_type:
-            sql = "SELECT * FROM jobs WHERE job_type = %s ORDER BY created_at DESC LIMIT %s"
+            sql = f"SELECT * FROM jobs WHERE job_type = %s {order}"
             params = (job_type, limit)
         else:
-            sql = "SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s"
+            sql = f"SELECT * FROM jobs {order}"
             params = (limit,)
         with self._pool.connection() as conn:
             cur = conn.execute(sql, params)

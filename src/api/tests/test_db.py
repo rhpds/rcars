@@ -112,6 +112,21 @@ def test_list_jobs(db):
     assert len(db.list_jobs(job_type="scan")) == 2
 
 
+def test_queued_job_keeps_progress_json(db):
+    job_id = db.create_job(job_type="analyze", queue="analyze", progress_json={"content_id": "babylon:x.y.prod"})
+    job = db.get_job(job_id)
+    assert job["status"] == "queued"
+    assert job["progress_json"] == {"content_id": "babylon:x.y.prod"}
+
+
+def test_list_jobs_shows_running_before_newer_queued(db):
+    running = db.create_job(job_type="analyze", queue="analyze")
+    db.update_job_status(running, "running", progress_json={"content_id": "babylon:x.y.prod"})
+    for _ in range(3):
+        db.create_job(job_type="analyze", queue="analyze")
+    assert db.list_jobs(limit=2)[0]["id"] == running
+
+
 def test_enrichment_tags(db):
     db.upsert_babylon_catalog_item({"ci_name": "test.item", "stage": "prod"})
     content_id = "babylon:test.item"

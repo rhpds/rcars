@@ -216,7 +216,8 @@ async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = 
                                    message=f"Step 3: Checking {len(items)} item stages with updated inputs...")
             arq_redis = ctx["redis"]
             for item in items:
-                sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance")
+                sub_job_id = wctx.db.create_job(job_type="analyze", queue="analyze", created_by="maintenance",
+                                                progress_json={"content_id": item["content_id"]})
                 await arq_redis.enqueue_job(
                     "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
                     _job_id=sub_job_id, _queue_name="arq:queue:scan"
