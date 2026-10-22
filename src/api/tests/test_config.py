@@ -114,3 +114,13 @@ def test_osspa_shrink_guard_must_be_a_fraction():
         Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=1.5)
     with pytest.raises(ValueError):
         Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=0)
+
+
+def test_cloud_ml_region_env_fallback(monkeypatch):
+    monkeypatch.delenv("RCARS_CLOUD_ML_REGION", raising=False)
+    monkeypatch.setenv("CLOUD_ML_REGION", "europe-west1")
+    url = "postgresql://test:test@localhost/test"
+    assert Settings(database_url=url).cloud_ml_region == "europe-west1"
+    assert Settings(database_url=url, cloud_ml_region="us-east5").cloud_ml_region == "us-east5"
+    monkeypatch.delenv("CLOUD_ML_REGION")
+    assert Settings(database_url=url).cloud_ml_region == "global"

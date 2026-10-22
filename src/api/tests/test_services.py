@@ -111,8 +111,8 @@ def test_three_layer_workload_propagation():
     assert result["openshift-cnv.kafka-developer-workshop-cnv"]["published_ci_name"] == "published.kafka-developer-workshop"
     assert result["agd-v2.ocp-cluster-cnv-pools.prod"]["published_ci_name"] is None
 
-    # Showroom URL inherited
-    assert published["showroom_url"] == "https://github.com/example/showroom.git"
+    # Infrastructure inheritance must not imply content ownership.
+    assert published["showroom_url"] is None
 
     # Infrastructure metadata inherited
     assert published.get("is_agd_v2") is True

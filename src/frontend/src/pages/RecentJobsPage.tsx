@@ -12,8 +12,8 @@ interface Job {
   error: string | null
   created_at: string
   completed_at: string | null
-  progress_json: { ci_name?: string } | null
-  result_json: { ci_name?: string; status?: string; propagated?: number } | null
+  progress_json: { ci_name?: string; content_id?: string } | null
+  result_json: { ci_name?: string; status?: string; propagated?: number; error?: string; message?: string } | null
 }
 
 // ── RecentJobsPage ──
@@ -60,12 +60,18 @@ export function RecentJobsPage() {
             <thead><tr><th>Type</th><th>CI Name</th><th>Status</th><th>Created</th><th>Completed</th><th>Duration</th></tr></thead>
             <tbody>
               {jobs.map(job => {
+                // Failed analyze jobs only record content_id; strip the source prefix for display.
                 const ciName = job.progress_json?.ci_name || job.result_json?.ci_name
+                  || job.progress_json?.content_id?.replace(/^[a-z_]+:/, '')
+                const errorClass = job.status === 'failed' ? job.result_json?.error : undefined
                 return (
-                  <tr key={job.id} title={job.error || undefined}>
+                  <tr key={job.id} title={job.error || job.result_json?.message || undefined}>
                     <td>{job.job_type}</td>
                     <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ciName || '-'}</td>
-                    <td style={{ color: jobStatusColor(job.status) }}>{job.status}</td>
+                    <td style={{ color: jobStatusColor(job.status), whiteSpace: 'nowrap' }}>
+                      {job.status}
+                      {errorClass && <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}> · {errorClass}</span>}
+                    </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '12px', whiteSpace: 'nowrap' }}>{shortTime(job.created_at)}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '12px', whiteSpace: 'nowrap' }}>{job.completed_at ? shortTime(job.completed_at) : '-'}</td>
                     <td style={{ color: 'var(--text-muted)', fontSize: '12px', whiteSpace: 'nowrap' }}>{elapsed(job.created_at, job.completed_at)}</td>

@@ -32,6 +32,8 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
                LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
                WHERE (oc.content_id_a = ANY(%(ids)s) OR oc.content_id_b = ANY(%(ids)s))
                  AND NOT (oc.content_id_a = ANY(%(ids)s) AND oc.content_id_b = ANY(%(ids)s))
+                 AND oc.content_id_a NOT LIKE 'babylon:tests.%%'
+                 AND oc.content_id_b NOT LIKE 'babylon:tests.%%'
                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT %(cap)s""",
             {"ids": anchor_ids, "cap": MAX_NEIGHBORS}).fetchall()
@@ -45,6 +47,8 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
                JOIN content_entities ce ON ce.content_id = w2.content_id
                LEFT JOIN babylon_items bi ON bi.content_id = w2.content_id
                WHERE w1.content_id = ANY(%(ids)s)
+                 AND w1.content_id NOT LIKE 'babylon:tests.%%'
+                 AND w2.content_id NOT LIKE 'babylon:tests.%%'
                LIMIT 20""",
             {"ids": anchor_ids}).fetchall()
 

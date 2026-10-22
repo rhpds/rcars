@@ -13,8 +13,7 @@ from rcars.config import Settings
 from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
 from rcars.logging import setup_logging
-from rcars.services.analyzer import regenerate_embeddings
-from rcars.workers.scan import _sanitize_format_suitability
+from rcars.services.showroom_scan import scan_babylon_item
 
 console = Console()
 log = structlog.get_logger()
@@ -116,189 +115,49 @@ def refresh():
 
 @cli.command()
 @click.option("--max", "max_analyze", type=int, default=None, help="Max items to analyze")
-def scan(max_analyze: int | None):
-    """Analyze Showroom content via Sonnet API."""
-    import shutil
+@click.option("--force", is_flag=True, help="Bypass unchanged analysis and embedding reuse")
+@click.option("--content-id", "content_ids", multiple=True, help="Restrict scanning to these Babylon content IDs")
+def scan(max_analyze: int | None, force: bool, content_ids: tuple[str, ...]):
+    """Scan eligible item stages independently, materializing only each target."""
     import time
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    from pathlib import Path
-    from rcars.services.analyzer import analyze_showroom, classify_scan_error
 
     settings = Settings()
     db = get_db()
-
-    clone_base = Path(settings.clone_dir)
-    clone_base.mkdir(parents=True, exist_ok=True)
-
-    from rcars.config import fetch_litemaas_models
-    if settings.use_litemaas:
-        fetch_litemaas_models(settings)
-    elif not settings.get_anthropic_client():
-        _print("ERROR: No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID)")
-        db.close()
-        sys.exit(1)
-
-    from rcars.workers.ops import sha_dedup_scan_items
-
-    items = db.get_items_needing_analysis()
-    _print(f"Found {len(items)} items needing analysis (ref-deduped)")
-
-    items = [i for i in items if not i.get("is_published")]
-
-    scan_items, sha_siblings_map = sha_dedup_scan_items(items)
-    sha_merged = len(items) - len(scan_items)
-    if sha_merged:
-        _print(f"SHA dedup: {len(items)} ref-groups → {len(scan_items)} SHA-groups ({sha_merged} merged)")
-
+    items = db.get_items_needing_analysis(settings, force=force)
+    if content_ids:
+        items = [item for item in items if item["content_id"] in content_ids]
     if max_analyze:
-        _print(f"Limiting to first {max_analyze} items (--max)")
-        scan_items = scan_items[:max_analyze]
-
-    if not scan_items:
+        items = items[:max_analyze]
+    if not items:
         _print("Nothing to analyze.")
         db.close()
         return
-
-    items = scan_items
-    _print(f"Analyzing {len(items)} Showroom(s) (max_parallel={settings.max_parallel})...")
+    _print(f"Scanning {len(items)} item stages (max_parallel={settings.max_parallel})...")
     completed = 0
     errors = 0
     total = len(items)
     t0 = time.monotonic()
-
-    def process_item(item):
-        effective_url = item.get("showroom_url_override") or item["showroom_url"]
-        return analyze_showroom(
-            ci_name=item["ci_name"],
-            display_name=item.get("display_name", ""),
-            category=item.get("category", ""),
-            product=item.get("product", ""),
-            showroom_url=effective_url,
-            showroom_ref=item.get("showroom_ref"),
-            settings=settings,
-            model=settings.model,
-            clone_dir=settings.clone_dir,
-            db=db,
-            content_path=item.get("content_path"),
-            keywords=item.get("keywords") or [],
-            entity_content_type=item.get("content_type") or "lab",
-        )
-
     with ThreadPoolExecutor(max_workers=settings.max_parallel) as executor:
-        futures = {executor.submit(process_item, item): item for item in items}
+        futures = {executor.submit(scan_babylon_item, db, settings, item["content_id"], force=force): item for item in items}
         for future in as_completed(futures):
             item = futures[future]
-            content_id = item["content_id"]
-            content_type = item.get("content_type", "lab")
             try:
                 result = future.result()
-                if result and "error" in result:
-                    errors += 1
-                    db.set_scan_status(content_id, "failed", error_class=result["error"], error_message=result["message"])
-                    _print(f"  FAIL: {item['ci_name']} — [{result['error']}] {result['message']}")
-                elif result and "analysis" in result:
-                    analysis = result["analysis"]
-                    db.upsert_showroom_analysis({
-                        "content_id": content_id,
-                        "content_type": analysis.get("content_type"),
-                        "summary": analysis.get("summary"),
-                        "products_json": analysis.get("products"),
-                        "audience_json": analysis.get("audience"),
-                        "recommender_audience_json": analysis.get("recommender_audience"),
-                        "topics_json": analysis.get("topics"),
-                        "modules_json": analysis.get("modules"),
-                        "learning_objectives_json": analysis.get("learning_objectives"),
-                        "difficulty": analysis.get("difficulty"),
-                        "estimated_duration_min": analysis.get("estimated_duration_min"),
-                        "format_suitability_json": _sanitize_format_suitability(analysis.get("format_suitability")),
-                        "use_cases_json": analysis.get("use_cases"),
-                        "last_repo_commit": result.get("last_repo_commit"),
-                        "last_repo_updated": result.get("last_repo_updated"),
-                        "content_hash": result.get("content_hash"),
-                        "is_stale": False,
-                        "stale_commit": None,
-                    })
-                    regenerate_embeddings(
-                        db, content_id, content_type, "babylon",
-                        result["ci_embedding_text"], result["ci_embedding"],
-                        module_embeddings=result.get("module_embeddings"),
-                    )
-                    db.set_scan_status(content_id, "success")
-
-                    # Propagate to siblings with same (url, ref)
-                    effective_url = item.get("showroom_url_override") or item["showroom_url"]
-                    siblings = db.get_siblings_by_showroom(effective_url, item.get("showroom_ref"))
-                    propagated_set = {content_id}
-                    analysis_data = {
-                        "content_id": None,
-                        "content_type": analysis.get("content_type"),
-                        "summary": analysis.get("summary"),
-                        "products_json": analysis.get("products"),
-                        "audience_json": analysis.get("audience"),
-                        "recommender_audience_json": analysis.get("recommender_audience"),
-                        "topics_json": analysis.get("topics"),
-                        "modules_json": analysis.get("modules"),
-                        "learning_objectives_json": analysis.get("learning_objectives"),
-                        "difficulty": analysis.get("difficulty"),
-                        "estimated_duration_min": analysis.get("estimated_duration_min"),
-                        "format_suitability_json": _sanitize_format_suitability(analysis.get("format_suitability")),
-                        "use_cases_json": analysis.get("use_cases"),
-                        "last_repo_commit": result.get("last_repo_commit"),
-                        "last_repo_updated": result.get("last_repo_updated"),
-                        "content_hash": result.get("content_hash"),
-                        "is_stale": False,
-                        "stale_commit": None,
-                    }
-
-                    def _cli_propagate(sib_content_id, sib_content_type):
-                        sib_data = dict(analysis_data)
-                        sib_data["content_id"] = sib_content_id
-                        db.upsert_showroom_analysis(sib_data)
-                        regenerate_embeddings(
-                            db, sib_content_id, sib_content_type, "babylon",
-                            result["ci_embedding_text"], result["ci_embedding"],
-                            module_embeddings=result.get("module_embeddings"),
-                        )
-                        db.set_scan_status(sib_content_id, "success")
-
-                    for sibling in siblings:
-                        if sibling["content_id"] not in propagated_set:
-                            _cli_propagate(sibling["content_id"], sibling.get("content_type", "lab"))
-                            propagated_set.add(sibling["content_id"])
-
-                    # Propagate to SHA siblings (different ref, same commit)
-                    sha_sibs = sha_siblings_map.get(content_id, [])
-                    for sha_sib in sha_sibs:
-                        sib_cid = sha_sib["content_id"]
-                        sib_ctype = sha_sib.get("content_type", "lab")
-                        if sib_cid not in propagated_set:
-                            _cli_propagate(sib_cid, sib_ctype)
-                            propagated_set.add(sib_cid)
-                            ref_sibs = db.get_siblings_by_showroom(sha_sib["effective_url"], sha_sib.get("showroom_ref"))
-                            for ref_sib in ref_sibs:
-                                if ref_sib["content_id"] not in propagated_set:
-                                    _cli_propagate(ref_sib["content_id"], ref_sib.get("content_type", "lab"))
-                                    propagated_set.add(ref_sib["content_id"])
-
-                    propagated = len(propagated_set) - 1
+                if result.get("success"):
                     completed += 1
-                    prop_msg = f" (+{propagated} siblings)" if propagated else ""
-                    _print(f"  done: [{completed}/{total}] {item['ci_name']}{prop_msg}")
+                    _print(f"  {result['outcome']}: {item['ci_name']}")
                 else:
                     errors += 1
-                    db.set_scan_status(content_id, "failed", error_class="no_result", error_message="Analysis returned no results")
-                    _print(f"  FAIL: {item['ci_name']} — analysis returned no results")
+                    _print(f"  FAIL: {item['ci_name']} — {result.get('message', result.get('outcome'))}")
             except Exception as e:
-                error_class, error_msg = classify_scan_error(
-                    e, url=item.get("showroom_url"), ref=item.get("showroom_ref"),
-                    content_path=item.get("content_path"))
                 errors += 1
-                db.set_scan_status(content_id, "failed", error_class=error_class, error_message=error_msg)
-                _print(f"  FAIL: {item['ci_name']} — [{error_class}] {error_msg}")
-
+                _print(f"  FAIL: {item['ci_name']} — {e}")
     elapsed = time.monotonic() - t0
     _print(f"Done in {elapsed:.1f}s. {completed}/{total} analyzed, {errors} errors")
     db.close()
+    if errors:
+        raise click.ClickException(f"{errors} item scans failed")
 
 
 @cli.command()
@@ -720,13 +579,9 @@ def vocab_unknowns(status: str, dimension: str | None, limit: int):
 def vocab_stage_rescan(execute: bool):
     """Stage the one-off Babylon re-scan that applies normalization corpus-wide.
 
-    Marks every analyzed Babylon lab/demo stale and clears its content_hash, so
-    `rcars scan` re-analyzes each DISTINCT showroom once. Clearing the hash
-    matters: find_donor_by_content_hash would otherwise hand back the old,
-    un-normalized analysis and the whole re-scan would be a no-op.
-
-    Sibling propagation means the cost is one analysis per distinct showroom
-    (same URL + resolved SHA), not per catalog item.
+    Marks analyzed Babylon lab/demo stages stale and clears their content hash
+    so `rcars scan` validates each stage independently under the scoped policy.
+    URL/ref counts are informational, never an estimate of LLM calls or fan-out.
     """
     db = get_db()
     try:
@@ -743,7 +598,7 @@ def vocab_stage_rescan(execute: bool):
             counts = cur.fetchone()
 
         _print(f"Analyzed Babylon items:     {counts['items']}")
-        _print(f"Distinct showrooms (url+ref): {counts['showrooms']}  <- LLM calls")
+        _print(f"Distinct source URL/ref pairs: {counts['showrooms']} (informational only)")
 
         if not execute:
             _print("")

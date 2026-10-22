@@ -11,8 +11,16 @@ import shutil
 import subprocess
 import threading
 import uuid
+from copy import deepcopy
+from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from rcars.services.showroom_source import (
+    AnalysisSignature, ResolvedShowroom, SHOWROOM_ANALYSIS_POLICY_VERSION,
+    effective_showroom_source, signature_matches_source,
+)
 
 import structlog
 
@@ -34,8 +42,8 @@ BOILERPLATE_SIGNALS = [
 ]
 
 BOILERPLATE_FILENAMES = [
-    "index.adoc",
-    "index-no-nav.adoc",
+    "_nav.adoc",
+    "nav.adoc",
     "_attributes.adoc",
 ]
 
@@ -114,6 +122,16 @@ def filter_boilerplate_files(files: dict[str, str]) -> dict[str, str]:
         content_lower = content.lower()[:500]  # Check first 500 chars
         is_boilerplate = any(signal in content_lower for signal in BOILERPLATE_SIGNALS)
 
+        # Publishing House starter pages and pure navigation have no lab evidence.
+        if "publishing house" in content_lower and any(
+            marker in content_lower for marker in ("placeholder", "welcome", "template", "your content")
+        ):
+            is_boilerplate = True
+        substantive = [line for line in content.splitlines() if line.strip() and not re.match(
+            r"^\s*(?:=+\s|//|:[\w-]+:|\*?\s*xref:|include::|ifdef::|endif::)", line)]
+        if not substantive:
+            is_boilerplate = True
+
         if not is_boilerplate:
             filtered[filename] = content
 
@@ -129,11 +147,7 @@ def hash_showroom_content(files: dict[str, str]) -> str:
     """
     h = hashlib.sha256()
     for filename in sorted(files.keys()):
-        content = files[filename]
-        # Normalize: strip trailing whitespace per line, collapse blank lines
-        lines = [line.rstrip() for line in content.splitlines()]
-        normalized = "\n".join(line for line in lines if line or (lines and lines[-1]))
-        normalized = re.sub(r'\n{3,}', '\n\n', normalized).strip()
+        normalized = _canonical_content(files[filename])
         h.update(filename.encode())
         h.update(b"\x00")
         h.update(normalized.encode())
@@ -141,9 +155,16 @@ def hash_showroom_content(files: dict[str, str]) -> str:
     return h.hexdigest()
 
 
+def _canonical_content(content: str) -> str:
+    """The exact text hashed is also the text sent to the analysis model."""
+    text = "\n".join(line.rstrip() for line in content.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
 def check_showroom_stale(
     clone_path: Path,
     old_content_hash: str | None,
+    content_path: str | None = None,
 ) -> dict[str, Any]:
     """Check if a cloned showroom has materially changed since last analysis.
 
@@ -155,13 +176,13 @@ def check_showroom_stale(
     """
     head_sha, _ = get_repo_head(clone_path)
 
-    raw_files = read_showroom_content(clone_path)
+    raw_files = read_showroom_content(clone_path, content_path=content_path)
     if not raw_files:
-        return {"is_stale": False, "content_hash": None, "head_sha": head_sha, "content_chars": 0}
+        return {"is_stale": True, "content_hash": None, "head_sha": head_sha, "content_chars": 0}
 
     content_files = filter_boilerplate_files(raw_files)
     if not content_files:
-        content_files = raw_files
+        return {"is_stale": True, "content_hash": None, "head_sha": head_sha, "content_chars": 0}
 
     content_hash = hash_showroom_content(content_files)
     content_chars = sum(len(v) for v in content_files.values())
@@ -189,6 +210,8 @@ def classify_scan_error(
 ) -> tuple[str, str]:
     """Classify a scan error and return (error_class, human_message)."""
     msg = str(exc)
+    if isinstance(exc, InvalidShowroomRef):
+        return "invalid_ref", msg
     stderr = getattr(exc, "stderr", "") or ""
     suffix = ""
     if ref:
@@ -243,79 +266,24 @@ def _run_git_with_retry(cmd: list[str], timeout: int = 120, max_retries: int = 3
     raise RuntimeError("unreachable")
 
 
-def ls_remote_sha(url: str, ref: str | None) -> str | None:
-    """Get the current SHA for a ref without cloning. Returns None on failure."""
-    cmd = ["git", "ls-remote", url]
-    if ref:
-        cmd.append(ref)
-    else:
-        cmd.append("HEAD")
-    try:
-        result = _run_git_with_retry(cmd, timeout=30)
-        for line in result.stdout.strip().splitlines():
-            sha = line.split()[0]
-            return sha
-        return None
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        stderr = getattr(e, "stderr", "") or ""
-        log.warning("ls_remote_failed", url=url, ref=ref, stderr=stderr.strip()[:200])
-        return None
+class InvalidShowroomRef(ValueError):
+    """Requested source cannot be resolved to exactly one commit."""
 
 
-def resolve_refs_to_shas(
-    url_ref_pairs: list[tuple[str, str | None]],
-) -> dict[tuple[str, str | None], str | None]:
-    """Batch-resolve git refs to commit SHAs via ls-remote.
-
-    Groups pairs by URL so each unique URL needs only one ls-remote call.
-    Falls back to individual ls_remote_sha() on failure.
-
-    Returns {(url, ref): sha_or_none}.
-    """
-    import time
-
-    by_url: dict[str, list[str | None]] = {}
-    for url, ref in url_ref_pairs:
-        by_url.setdefault(url, []).append(ref)
-
-    result: dict[tuple[str, str | None], str | None] = {}
-    t0 = time.monotonic()
-
-    for url, refs in by_url.items():
-        ref_lookup: dict[str, str] | None = None
-        head_sha: str | None = None
-
-        try:
-            proc = _run_git_with_retry(["git", "ls-remote", url], timeout=30)
-            ref_lookup = {}
-            for line in proc.stdout.strip().splitlines():
-                parts = line.split()
-                if len(parts) < 2:
-                    continue
-                sha, refname = parts[0], parts[1]
-                if refname == "HEAD":
-                    head_sha = sha
-                elif refname.endswith("^{}"):
-                    base = refname[:-3]
-                    ref_lookup[base] = sha
-                else:
-                    ref_lookup.setdefault(refname, sha)
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-            stderr = getattr(e, "stderr", "") or ""
-            log.warning("ls_remote_batch_failed", url=url, stderr=stderr.strip()[:200])
-
-        for ref in refs:
-            if ref_lookup is not None:
-                sha = _resolve_ref_from_lookup(ref, ref_lookup, head_sha)
-                result[(url, ref)] = sha
-            else:
-                result[(url, ref)] = ls_remote_sha(url, ref)
-
-    elapsed_ms = int((time.monotonic() - t0) * 1000)
-    resolved = sum(1 for v in result.values() if v is not None)
-    log.info("resolve_refs_complete", pairs=len(result), resolved=resolved,
-             failed=len(result) - resolved, elapsed_ms=elapsed_ms)
-    return result
+def ls_remote_sha(url: str, ref: str | None) -> str:
+    """Resolve exact heads/tags (peeling annotated tags), not Git glob matches."""
+    result = _run_git_with_retry(["git", "ls-remote", "--", url], timeout=30)
+    lookup = dict(line.split()[::-1] for line in result.stdout.splitlines() if len(line.split()) == 2)
+    head = lookup.get("HEAD")
+    for name, commit in list(lookup.items()):
+        if name.endswith("^{}"):
+            lookup[name[:-3]] = commit
+    if ref and re.fullmatch(r"[0-9a-fA-F]{40}", ref):
+        return ref.lower()  # reachability/type verified by detached fetch before use
+    commit = _resolve_ref_from_lookup(ref, lookup, head)
+    if not commit:
+        raise InvalidShowroomRef(f"Missing or ambiguous Showroom ref: {ref or 'HEAD'}")
+    return commit
 
 
 def _resolve_ref_from_lookup(
@@ -324,54 +292,36 @@ def _resolve_ref_from_lookup(
     head_sha: str | None,
 ) -> str | None:
     """Resolve a single ref against the parsed ls-remote output."""
-    if ref is None:
+    if ref is None or ref == "HEAD":
         return head_sha
 
-    candidates = [
-        f"refs/heads/{ref}",
-        f"refs/tags/{ref}",
-        ref,
-    ]
-    for candidate in candidates:
-        if candidate in ref_lookup:
-            return ref_lookup[candidate]
-    return None
+    if ref.startswith("refs/"):
+        return ref_lookup.get(ref)
+    candidates = [name for name in (f"refs/heads/{ref}", f"refs/tags/{ref}") if name in ref_lookup]
+    return ref_lookup[candidates[0]] if len(candidates) == 1 else None
 
 
 def clone_showroom(
-    url: str, ref: str | None, clone_dir: str = "/tmp"
+    url: str, ref: str | None, clone_dir: str = "/tmp", *, expected_commit: str | None = None,
 ) -> Path | None:
-    """Shallow clone a Showroom repo. Returns clone path or None on failure."""
+    """Fetch and verify an exact detached commit. Never fall back to default HEAD."""
     repo_name = url.rstrip("/").split("/")[-1].replace(".git", "")
     suffix = uuid.uuid4().hex[:8]
     clone_path = Path(clone_dir) / f"rcars-showroom-{repo_name}-{suffix}"
 
-    if clone_path.exists():
-        shutil.rmtree(clone_path)
-
-    cmd = ["git", "clone", "--depth", "1"]
-    if ref:
-        cmd.extend(["--branch", ref])
-    cmd.extend([url, str(clone_path)])
-
+    commit = expected_commit or ls_remote_sha(url, ref)
     try:
-        _run_git_with_retry(cmd, timeout=120)
+        _run_git_with_retry(["git", "init", str(clone_path)])
+        _run_git_with_retry(["git", "-C", str(clone_path), "remote", "add", "origin", url])
+        _run_git_with_retry(["git", "-C", str(clone_path), "fetch", "--depth", "1", "origin", commit])
+        _run_git_with_retry(["git", "-C", str(clone_path), "checkout", "--detach", "FETCH_HEAD"])
+        actual, _ = get_repo_head(clone_path)
+        if actual != commit:
+            raise InvalidShowroomRef("Fetched Showroom commit does not match resolved ref")
         return clone_path
-    except subprocess.CalledProcessError as e:
-        if ref and ("not found" in e.stderr or "could not find" in e.stderr.lower()):
-            log.warning("clone_ref_fallback", ref=ref, url=url)
-            cmd_fallback = ["git", "clone", "--depth", "1", url, str(clone_path)]
-            try:
-                _run_git_with_retry(cmd_fallback, timeout=120)
-                return clone_path
-            except subprocess.CalledProcessError as e2:
-                log.error("clone_failed", url=url, stderr=e2.stderr.strip()[:200])
-                return None
-        log.error("clone_failed", url=url, ref=ref, stderr=e.stderr.strip()[:200])
-        return None
-    except subprocess.TimeoutExpired:
-        log.error("clone_timeout", url=url)
-        return None
+    except Exception:
+        shutil.rmtree(clone_path, ignore_errors=True)
+        raise
 
 
 def _parse_nav_includes(nav_text: str) -> set[str]:
@@ -388,7 +338,7 @@ def _parse_nav_includes(nav_text: str) -> set[str]:
         match = re.search(r'xref:([^\[]+)', stripped)
         if match:
             ref_path = match.group(1).strip().split("#")[0]
-            included.add(Path(ref_path).name)
+            included.add(ref_path)
     return included
 
 
@@ -403,12 +353,21 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
     label = ci_name or clone_path.name
     files = {}
     if content_path:
+        if Path(content_path).is_absolute() or ".." in Path(content_path).parts:
+            raise ValueError("content_path must remain inside the clone")
         pages_dir = clone_path / content_path
     else:
         pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
 
+    def contained(path):
+        if not path.resolve().is_relative_to(clone_path.resolve()):
+            raise ValueError("content_path symlink leaves the clone")
+        return path
+
+    contained(pages_dir)
+
     # Parse nav.adoc to determine which pages are active
-    nav_file = clone_path / "content" / "modules" / "ROOT" / "nav.adoc"
+    nav_file = contained(pages_dir.parent / "nav.adoc")
     nav_includes: set[str] | None = None
     if nav_file.exists():
         try:
@@ -424,6 +383,7 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
 
     if pages_dir.exists():
         for adoc_file in sorted(pages_dir.glob("*.adoc")):
+            contained(adoc_file)
             if nav_includes and adoc_file.name not in nav_includes:
                 log.info("nav_skip_file", ci_name=label, file=adoc_file.name)
                 continue
@@ -435,10 +395,10 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
     # For nav.adoc with subdirectory xrefs (e.g. 200-ops/lab_1.adoc),
     # also check those paths relative to ROOT/pages/
     if nav_includes:
-        root_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
+        root_dir = pages_dir
         for inc in nav_includes:
             if "/" in inc:
-                subpath = root_dir / inc
+                subpath = contained(root_dir / inc)
                 if subpath.exists() and inc not in files:
                     try:
                         files[inc] = subpath.read_text(errors="replace")
@@ -498,7 +458,7 @@ def build_analysis_prompt(
     # Concatenate file contents with headers
     content_parts = []
     for filename, content in sorted(content_files.items()):
-        content_parts.append(f"=== File: {filename} ===\n{content}")
+        content_parts.append(f"=== File: {filename} ===\n{_canonical_content(content)}")
     all_content = "\n\n".join(content_parts)
     all_content = truncate_content(all_content)
 
@@ -554,7 +514,7 @@ EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 EMBEDDING_DIM = 768
 
 
-def generate_embedding(text: str, prefix: str = "search_document") -> list[float]:
+def generate_embedding(text: str, prefix: str = "search_document", *, model: str | None = None) -> list[float]:
     """Generate a 768-dim embedding via the vLLM embedding server.
 
     Nomic requires task prefixes: 'search_query' for advisor queries,
@@ -566,7 +526,7 @@ def generate_embedding(text: str, prefix: str = "search_document") -> list[float
     prefixed_text = f"{prefix}: {text}" if prefix else text
 
     resp = client.post("/embeddings", json={
-        "model": Settings().embedding_model,
+        "model": model or Settings().embedding_model,
         "input": prefixed_text,
     })
     resp.raise_for_status()
@@ -611,6 +571,123 @@ def build_module_embedding_text(module: dict[str, Any]) -> str:
     return " ".join(str(p) for p in parts if p)
 
 
+def _fingerprint(*values) -> str:
+    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def compute_analysis_input_hash(system_prompt: str, user_message: str, model: str) -> str:
+    return _fingerprint(system_prompt, user_message, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
+
+
+def compute_analysis_context_hash(system_prompt: str, canonical_item_info: str, model: str) -> str:
+    return _fingerprint(system_prompt, canonical_item_info, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
+
+
+def compute_embedding_fingerprint(text: str, model: str, configuration: dict) -> str:
+    return _fingerprint(text, model, configuration)
+
+
+def analysis_from_row(row: dict) -> dict:
+    result = {key: row.get(key) for key in ("summary", "content_type", "difficulty", "estimated_duration_min")}
+    for key in ("products", "topics", "audience", "modules", "learning_objectives", "format_suitability", "use_cases", "recommender_audience"):
+        result[key] = row.get(key + "_json")
+    return result
+
+
+def _embedding_specs(analysis, keywords, display_name, settings):
+    configuration = {"prefix": "search_document", "dimensions": settings.embedding_dim}
+    specs = [("summary", None, build_embedding_text(analysis, keywords=keywords, display_name=display_name))]
+    for index, module in enumerate(analysis.get("modules") or []):
+        text = build_module_embedding_text(module)
+        if text.strip():
+            specs.append((f"{index}:{module.get('title', '')}", module.get("title", ""), text))
+    return [(key, title, text, compute_embedding_fingerprint(text, settings.embedding_model, configuration))
+            for key, title, text in specs]
+
+
+def _valid_embedding(spec, embeddings, fingerprints):
+    key, title, text, fingerprint = spec
+    prior = fingerprints.get("summary") if key == "summary" else (fingerprints.get("modules") or {}).get(key)
+    if prior != fingerprint:
+        return None
+    for row in embeddings:
+        if (row["embed_type"] == ("summary" if key == "summary" else "module")
+                and row.get("module_title") == title and row.get("content_text") == text
+                and row.get("embedding_text")):
+            return row
+    return None
+
+
+def _own_analysis_current(row, source, context_hash, *, allow_stale=False):
+    provenance = (row or {}).get("analysis_provenance_json") or {}
+    signature = provenance.get("signature") or {}
+    return bool(row and row.get("summary") and isinstance(row.get("modules_json"), list)
+                and (allow_stale or not row.get("is_stale"))
+                and signature_matches_source(signature, source)
+                and row.get("content_hash") == signature.get("content_hash")
+                and signature.get("context_hash") == context_hash
+                and provenance.get("source") == source.to_dict())
+
+
+def showroom_analysis_current(item: dict, row: dict, settings) -> bool:
+    """Current source AND actual non-content prompt inputs, not just Git SHA."""
+    source = effective_showroom_source(item)
+    system, info = build_analysis_prompt(source.scope_key or item["ci_name"], item.get("display_name", ""),
+        item.get("category", ""), item.get("product", ""), {}, entity_content_type=item.get("content_type") or "lab")
+    context = compute_analysis_context_hash(system, info, settings.model)
+    return item.get("scan_status") == "success" and _own_analysis_current(row, source, context)
+
+
+def showroom_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
+    """Read-only selection predicate: no Git, LLM, or embedding requests."""
+    if not showroom_analysis_current(item, row, settings):
+        return True
+    fingerprints = (row.get("analysis_provenance_json") or {}).get("embedding_fingerprints") or {}
+    return any(not _valid_embedding(spec, embeddings, fingerprints) for spec in _embedding_specs(
+        analysis_from_row(row), item.get("keywords"), item.get("display_name"), settings))
+
+
+def _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature,
+                            source, *, origin=None, prior_embeddings=(), force=False,
+                            outcome="analyzed", head_date=None, input_tokens=0, output_tokens=0,
+                            content_file_count=0, reused_from=None, fresh_generation=False):
+    provenance = deepcopy((origin or {}).get("analysis_provenance_json") or {})
+    prior_fingerprints = provenance.get("embedding_fingerprints") or {}
+    fingerprints = {"modules": {}}
+    summary = None
+    modules = []
+    changed = []
+    for spec in _embedding_specs(analysis, keywords, display_name, settings):
+        key, title, text, fingerprint = spec
+        existing = None if force else _valid_embedding(spec, prior_embeddings, prior_fingerprints)
+        vector = json.loads(existing["embedding_text"]) if existing else generate_embedding(text, model=settings.embedding_model)
+        if existing is None:
+            changed.append(key)
+        if key == "summary":
+            fingerprints["summary"] = fingerprint
+            summary = (text, vector)
+        else:
+            fingerprints["modules"][key] = fingerprint
+            modules.append({"module_title": title, "content_text": text, "embedding": vector})
+    if outcome == "unchanged" and changed:
+        outcome = "embeddings_repaired"
+    if fresh_generation:
+        provenance = {}
+    provenance.update(signature=signature.to_dict(), source=source.to_dict(),
+        generated_for=provenance.get("generated_for") or f"babylon:{ci_name}",
+        generated_commit=provenance.get("generated_commit") or signature.commit,
+        reused_from=reused_from if reused_from is not None else provenance.get("reused_from"),
+        embedding_fingerprints=fingerprints)
+    return {"ci_name": ci_name, "analysis": analysis, "analysis_provenance": provenance,
+        "outcome": outcome, "reused_from": provenance["reused_from"],
+        "ci_embedding_text": summary[0], "ci_embedding": summary[1], "module_embeddings": modules,
+        "embedding_changes": changed, "last_repo_commit": signature.commit,
+        "last_repo_updated": head_date or (origin or {}).get("last_repo_updated"),
+        "last_analyzed": (origin or {}).get("last_analyzed") if origin and not fresh_generation else datetime.now(timezone.utc),
+        "content_hash": signature.content_hash, "input_tokens": input_tokens, "output_tokens": output_tokens,
+        "content_file_count": content_file_count}
+
+
 def regenerate_embeddings(
     db,
     content_id: str,
@@ -619,6 +696,7 @@ def regenerate_embeddings(
     summary_text: str,
     summary_embedding: list[float],
     module_embeddings: list[dict] | None = None,
+    conn=None,
 ) -> int:
     """Clear old embeddings and store fresh ones for a content_id atomically.
 
@@ -630,7 +708,7 @@ def regenerate_embeddings(
         rows.append({"content_id": content_id, "content_type": content_type, "source": source,
                      "embed_type": "module", "module_title": mod["module_title"],
                      "content_text": mod["content_text"], "embedding": mod["embedding"]})
-    db.replace_embeddings(content_id, rows)
+    db.replace_embeddings(content_id, rows, conn=conn)
     return len(rows)
 
 
@@ -663,6 +741,8 @@ def analyze_showroom(
     content_path: str | None = None,
     keywords: list[str] | None = None,
     entity_content_type: str = "lab",
+    *,
+    source: ResolvedShowroom,
     force: bool = False,
 ) -> dict[str, Any] | None:
     """Full analysis pipeline for a single Showroom.
@@ -681,15 +761,42 @@ def analyze_showroom(
     t0 = time.monotonic()
     clone_path = None
     try:
+        content_id = f"babylon:{ci_name}"
+        item = db.get_babylon_item(content_id) if db is not None else None
+        if item:
+            source = effective_showroom_source(item)
+        if source.status != "resolved" or not source.repo or not source.scope_key:
+            return {"error": f"{source.status}_source", "message": source.error or "No resolved Showroom source"}
+        showroom_url, showroom_ref, content_path = source.repo, source.ref, source.content_path
+        if any(value and ("{{" in value or "{%" in value) for value in (showroom_url, showroom_ref, content_path)):
+            return {"error": "invalid_source", "message": "Unresolved Showroom variables"}
+        system_context, canonical_info = build_analysis_prompt(source.scope_key, display_name, category, product, {},
+                                                               entity_content_type=entity_content_type)
+        context_hash = compute_analysis_context_hash(system_context, canonical_info, model)
+        revision = ls_remote_sha(showroom_url, showroom_ref)
+        own = db.get_showroom_analysis(content_id) if db is not None else None
+        own_embeddings = db.get_embeddings_for_content(content_id) if own and db is not None else []
+        own_current = not force and _own_analysis_current(own, source, context_hash, allow_stale=True)
+        if item and item.get("scan_status") not in (None, "success"):
+            own_current = False
+        if own_current:
+            own_signature = AnalysisSignature(**own["analysis_provenance_json"]["signature"])
+            if own_signature.commit == revision and not own.get("is_stale"):
+                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+                    own_signature, source, origin=own, prior_embeddings=own_embeddings, outcome="unchanged")
+
         # Clone
         log.info("analyze_cloning", ci_name=ci_name, url=showroom_url, ref=showroom_ref or "HEAD")
-        clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir)
+        Path(clone_dir).mkdir(parents=True, exist_ok=True)
+        clone_path = clone_showroom(showroom_url, showroom_ref, clone_dir, expected_commit=revision)
         if not clone_path:
             log.error("analyze_clone_failed", ci_name=ci_name)
             return {"error": "clone_failed", "message": f"Failed to clone {showroom_url}"}
 
         # Get repo HEAD info
         head_sha, head_date = get_repo_head(clone_path)
+        if head_sha != revision:
+            raise InvalidShowroomRef("Checkout differs from the verified Showroom revision")
         log.info("analyze_cloned", ci_name=ci_name, head_sha=head_sha[:8] if head_sha else "?")
 
         # Read content
@@ -704,82 +811,33 @@ def analyze_showroom(
         content_files = filter_boilerplate_files(raw_files)
         if not content_files:
             log.warning("analyze_all_boilerplate", ci_name=ci_name)
-            content_files = raw_files
+            return {"error": "no_content", "message": "Only navigation or template content found"}
 
         total_chars = sum(len(v) for v in content_files.values())
         log.info("analyze_content", ci_name=ci_name, files=len(content_files),
                  chars=total_chars, boilerplate=len(raw_files) - len(content_files))
 
         content_hash = hash_showroom_content(content_files)
-
-        # Check if another CI already has analysis + embeddings for this content.
-        # If so, reuse them instead of calling the LLM again — identical content
-        # must produce identical analysis and embeddings.
-        if db is not None and not force:
-            donor = db.find_donor_by_content_hash(content_hash, exclude_content_id=f"babylon:{ci_name}")
-            if donor:
-                donor_name = donor["ci_name"]
-                log.info("analyze_reuse", ci_name=ci_name, donor=donor_name, content_hash=content_hash[:12])
-                donor_analysis = {
-                    "content_type": donor.get("content_type"),
-                    "summary": donor.get("summary"),
-                    "products": donor.get("products_json"),
-                    "audience": donor.get("audience_json"),
-                    "topics": donor.get("topics_json"),
-                    "modules": donor.get("modules_json"),
-                    "learning_objectives": donor.get("learning_objectives_json"),
-                    "difficulty": donor.get("difficulty"),
-                    "estimated_duration_min": donor.get("estimated_duration_min"),
-                    "format_suitability": donor.get("format_suitability_json"),
-                    "use_cases": donor.get("use_cases_json"),
-                }
-
-                # Normalize the borrowed analysis too — the donor may predate a
-                # vocabulary change, and normalization is idempotent.
-                from rcars.services.vocabulary import normalize_analysis
-                donor_analysis["recommender_audience"] = donor.get("recommender_audience_json")
-                donor_analysis = normalize_analysis(
-                    donor_analysis, entity_content_type,
-                    db=db, content_id=f"babylon:{ci_name}",
-                )
-
-                # Rebuild CI embedding with this CI's own keywords
-                ci_embedding_text = build_embedding_text(donor_analysis, keywords=keywords, display_name=display_name)
-                ci_embedding = generate_embedding(ci_embedding_text)
-
-                # Module embeddings don't include keywords, safe to copy
-                donor_embeddings = db.get_embeddings_for_content(donor["content_id"])
-                module_embeddings = []
-                for e in donor_embeddings:
-                    if e["embed_type"] == "module":
-                        raw_vec = e["embedding_text"]
-                        module_embeddings.append({
-                            "module_title": e.get("module_title", ""),
-                            "content_text": e["content_text"],
-                            "embedding": [float(x) for x in raw_vec.strip("[]").split(",")],
-                        })
-
-                return {
-                    "ci_name": ci_name,
-                    "analysis": donor_analysis,
-                    "ci_embedding_text": ci_embedding_text,
-                    "ci_embedding": ci_embedding,
-                    "module_embeddings": module_embeddings,
-                    "last_repo_commit": head_sha,
-                    "last_repo_updated": head_date,
-                    "content_hash": content_hash,
-                    "input_tokens": 0,
-                    "output_tokens": 0,
-                    "content_file_count": len(content_files),
-                    "elapsed_seconds": round(time.monotonic() - t0, 1),
-                    "reused_from": donor_name,
-                    }
-
-        # Build prompt and call Sonnet
         system_prompt, user_message = build_analysis_prompt(
-            ci_name, display_name, category, product, content_files,
+            source.scope_key, display_name, category, product, content_files,
             entity_content_type=entity_content_type,
         )
+        signature = AnalysisSignature(source.scope_key, source.repo, source.ref, source.content_path,
+            head_sha, content_hash, context_hash, compute_analysis_input_hash(system_prompt, user_message, model),
+            SHOWROOM_ANALYSIS_POLICY_VERSION)
+        if own_current and own_signature.content_hash == content_hash and own_signature.input_hash == signature.input_hash:
+            return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+                signature, source, origin=own, prior_embeddings=own_embeddings, outcome="revision_verified", head_date=head_date)
+
+        # Only the full authorized signature may identify a donor, after validation.
+        if db is not None and not force:
+            donor = db.find_showroom_donor(signature, exclude_content_id=content_id)
+            if donor:
+                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(donor),
+                    signature, source, origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
+                    outcome="reused", head_date=head_date, content_file_count=len(content_files), reused_from=donor["content_id"])
+
+        # Build prompt and call Sonnet
         log.info("analyze_sending", ci_name=ci_name, model=model, prompt_chars=len(system_prompt) + len(user_message))
 
         from rcars.config import call_llm
@@ -802,7 +860,7 @@ def analyze_showroom(
 
         response_text = result.text
         analysis = parse_analysis_response(response_text)
-        if not analysis:
+        if not isinstance(analysis, dict) or not analysis.get("summary"):
             log.error("analyze_parse_failed", ci_name=ci_name)
             return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
 
@@ -812,42 +870,17 @@ def analyze_showroom(
             analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
         )
 
-        # Generate embeddings (include catalog keywords for event/metadata signal)
-        ci_embedding_text = build_embedding_text(analysis, keywords=keywords, display_name=display_name)
-        ci_embedding = generate_embedding(ci_embedding_text)
+        analysis.setdefault("modules", [])
+        result = _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature, source,
+            origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
+            force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
+            content_file_count=len(content_files))
+        result["elapsed_seconds"] = round(time.monotonic() - t0, 1)
+        log.info("analyze_complete", ci_name=ci_name, outcome=result["outcome"], signature=signature.to_dict())
+        return result
 
-        module_embeddings = []
-        modules = analysis.get("modules", [])
-        for module in modules:
-            mod_text = build_module_embedding_text(module)
-            if mod_text.strip():
-                mod_embedding = generate_embedding(mod_text)
-                module_embeddings.append({
-                    "module_title": module.get("title", ""),
-                    "content_text": mod_text,
-                    "embedding": mod_embedding,
-                })
-
-        elapsed = time.monotonic() - t0
-        log.info("analyze_complete", ci_name=ci_name, elapsed=round(elapsed, 1),
-                 modules=len(modules), embeddings=1 + len(module_embeddings))
-
-        # Assemble result
-        return {
-            "ci_name": ci_name,
-            "analysis": analysis,
-            "ci_embedding_text": ci_embedding_text,
-            "ci_embedding": ci_embedding,
-            "module_embeddings": module_embeddings,
-            "last_repo_commit": head_sha,
-            "last_repo_updated": head_date,
-            "content_hash": content_hash,
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
-            "content_file_count": len(content_files),
-            "elapsed_seconds": round(elapsed, 1),
-        }
-
+    except InvalidShowroomRef as exc:
+        return {"error": "invalid_ref", "message": str(exc)}
     except Exception:
         elapsed = time.monotonic() - t0
         log.exception("analyze_failed", ci_name=ci_name, elapsed=round(elapsed, 1))

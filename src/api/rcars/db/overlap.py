@@ -19,6 +19,7 @@ WITH deduped AS (
     LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
     WHERE ce.retired_at IS NULL
       AND ce.source = 'babylon'
+      AND ce.content_id NOT LIKE 'babylon:tests.%%'
     ORDER BY COALESCE(bi.showroom_url, ce.content_id),
              CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 WHEN 'dev' THEN 2 ELSE 3 END
 ),

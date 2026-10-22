@@ -8,6 +8,10 @@ import structlog
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
+from rcars.services.showroom_source import (
+    AnalysisSignature, effective_showroom_source, signature_matches_source, signatures_match,
+    is_content_excluded,
+)
 
 log = structlog.get_logger()
 
@@ -79,11 +83,11 @@ def _resolve_ci_references(
     results = []
     seen = set()
     for item in resolved_items:
-        # For published CIs, look up embedding on the base CI
-        if item.get("is_published") and item.get("base_ci_name"):
-            embed_content_id = f"babylon:{item['base_ci_name']}"
-        else:
-            embed_content_id = item["content_id"]
+        if (is_content_excluded(item["content_id"])
+                or effective_showroom_source(item).status == "excluded"):
+            continue
+        # Virtual items own materialized artifacts too; infra links are irrelevant.
+        embed_content_id = item["content_id"]
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
         if not embedding:
             log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
@@ -100,6 +104,53 @@ def _resolve_ci_references(
                 seen.add(row["content_id"])
 
     return results
+
+
+def _verified_signature(db, content_id):
+    item = db.get_babylon_item(content_id)
+    analysis = db.get_showroom_analysis(content_id)
+    if not item or item.get("retired_at") or item.get("scan_status") != "success" or not analysis or analysis.get("is_stale"):
+        return None
+    provenance = analysis.get("analysis_provenance_json") or {}
+    signature = provenance.get("signature") or {}
+    source = effective_showroom_source(item)
+    if (not signature_matches_source(signature, source) or provenance.get("source") != source.to_dict()
+            or signature.get("content_hash") != analysis.get("content_hash")):
+        return None
+    try:
+        return AnalysisSignature(**signature)
+    except (TypeError, ValueError):
+        return None
+
+
+def _authorized_promotion(db, row, stages, include_zt, scope):
+    if is_content_excluded(row["content_id"]):
+        return None
+    if row.get("source") != "babylon":
+        return row
+    item = db.get_babylon_item(row["content_id"])
+    if item and effective_showroom_source(item).status == "excluded":
+        return None
+    original_signature = _verified_signature(db, row["content_id"])
+    if not original_signature:
+        return row
+
+    def eligible(target):
+        if not target or target.get("stage") not in stages or (scope and target["content_id"] not in scope):
+            return False
+        if not include_zt and ((target.get("ci_name") or "").startswith("zt-") or (target.get("catalog_namespace") or "").startswith("zt-")):
+            return False
+        signature = _verified_signature(db, target["content_id"])
+        return signature is not None and signatures_match(original_signature, signature)
+
+    if "prod" in stages and row.get("stage") != "prod":
+        target = db.get_stage_counterpart(row["content_id"], "prod")
+        if eligible(target):
+            row = {**target, "best_similarity": row["best_similarity"]}
+    aliases = [alias for alias in db.get_virtual_content_aliases(row["content_id"]) if eligible(alias)]
+    if len(aliases) == 1:
+        row = {**aliases[0], "best_similarity": row["best_similarity"]}
+    return row
 
 
 def search(
@@ -147,59 +198,8 @@ def search(
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
 
-    # Stage promotion: for any non-prod Babylon CI, check if a prod CI with
-    # the same content_hash exists. If so, swap to the prod version. This handles
-    # cases where the LIMIT excluded the prod base CI from vector results —
-    # the content is identical, so always prefer the prod identity.
-    if "prod" in effective_stages:
-        promoted_rows = []
-        for row in rows:
-            if row.get("source") != "babylon" or row.get("stage") == "prod":
-                promoted_rows.append(row)
-                continue
-            content_hash = row.get("content_hash")
-            if not content_hash:
-                promoted_rows.append(row)
-                continue
-            prod_item = db.find_prod_ci_by_content_hash(content_hash)
-            if not prod_item or prod_item["content_id"] == row["content_id"]:
-                promoted_rows.append(row)
-                continue
-            prod_content_id = prod_item["content_id"]
-            prod_ci_name = prod_item.get("ci_name", "")
-            if not include_zt and (prod_ci_name.startswith("zt-") or prod_item.get("catalog_namespace", "").startswith("zt-")):
-                promoted_rows.append(row)
-                continue
-            log.info("stage_promote", content_id=row["content_id"],
-                     from_stage=row.get("stage"), to_content_id=prod_content_id)
-            row = {**row,
-                   "content_id": prod_content_id,
-                   "ci_name": prod_ci_name,
-                   "display_name": prod_item.get("display_name", prod_content_id),
-                   "stage": "prod",
-                   "catalog_namespace": prod_item.get("catalog_namespace", row.get("catalog_namespace", "")),
-                   "published_ci_name": prod_item.get("published_ci_name"),
-                   "is_published": prod_item.get("is_published", False)}
-            promoted_rows.append(row)
-        rows = promoted_rows
-
-    # Published CI promotion: base CI → published identity (users can only
-    # order the published CI, embeddings live on the base CI).
-    for i, row in enumerate(rows):
-        if row.get("published_ci_name") and not row.get("is_published"):
-            pub_content_id = f"babylon:{row['published_ci_name']}"
-            published_item = db.get_babylon_item(pub_content_id)
-            if published_item:
-                log.debug("vector_search_promote_published", content_id=row["content_id"], published=pub_content_id)
-                rows[i] = {**row,
-                           "content_id": pub_content_id,
-                           "ci_name": published_item.get("ci_name", row["published_ci_name"]),
-                           "display_name": published_item.get("display_name", row["published_ci_name"]),
-                           "category": published_item.get("category", row.get("category", "")),
-                           "is_published": True,
-                           "base_ci_name": row.get("ci_name")}
-            else:
-                log.debug("vector_search_published_not_in_db", content_id=row["content_id"], published_ci_name=row["published_ci_name"])
+    rows = [promoted for row in rows
+            if (promoted := _authorized_promotion(db, row, effective_stages, include_zt, scope_content_ids)) is not None]
 
     # Dedup by content_id after all promotions — keep the highest similarity
     seen_ids: dict[str, int] = {}
@@ -223,11 +223,7 @@ def search(
 
         type_data: dict = {}
         if content_type in ("lab", "demo"):
-            if row.get("is_published") and row.get("base_ci_name"):
-                analysis_content_id = f"babylon:{row['base_ci_name']}"
-            else:
-                analysis_content_id = content_id
-            analysis = db.get_showroom_analysis(analysis_content_id)
+            analysis = db.get_showroom_analysis(content_id)
 
             lo = (analysis or {}).get("learning_objectives_json") or {}
             learning_objs = (lo.get("stated", []) if isinstance(lo, dict) else []) or []

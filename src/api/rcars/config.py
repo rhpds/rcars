@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     # LLM
     model: str = "claude-sonnet-4-6"
     vertex_project_id: str = ""
-    cloud_ml_region: str = "us-east5"
+    cloud_ml_region: str = "global"
     anthropic_api_key: str = ""
     litemaas_url: str = ""
     litemaas_api_key: str = ""
@@ -150,7 +150,7 @@ class Settings(BaseSettings):
     def model_post_init(self, __context) -> None:
         if not self.vertex_project_id:
             self.vertex_project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
-        if not self.cloud_ml_region or self.cloud_ml_region == "us-east5":
+        if "cloud_ml_region" not in self.model_fields_set or not self.cloud_ml_region:
             self.cloud_ml_region = os.environ.get("CLOUD_ML_REGION", self.cloud_ml_region)
         if not self.anthropic_api_key:
             self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")

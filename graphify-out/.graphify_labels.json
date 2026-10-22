@@ -2,7 +2,6 @@
   "1": "Database",
   "2": "registry.ts",
   "5": "devDependencies",
-  "6": "services/catalog.py",
   "8": "routes/catalog.py",
   "9": "admin.py",
   "11": "Infrastructure Catalog",
@@ -44,7 +43,6 @@
   "106": "API Key Authentication",
   "109": "Jira Epic RHDPCD-25 (RCARS Backlog)",
   "110": "Rec Card Duration and Best Fit Spec",
-  "111": "Controlled Vocabulary Design",
   "116": "Deploy Docs GitHub Actions Workflow",
   "117": "Change Detection",
   "118": "Plan 3a: Web UI Implementation",
@@ -81,7 +79,6 @@
   "168": "middleware/__init__.py",
   "170": "rcars/__init__.py",
   "171": "Match Event Prompt Template",
-  "174": "Field Source Content",
   "176": "Python Requirements Entry Point",
   "177": "tests/__init__.py",
   "179": "vite-env.d.ts"

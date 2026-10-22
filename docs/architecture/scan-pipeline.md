@@ -1,38 +1,35 @@
 ---
 title: Scan Pipeline
-description: How RCARS analyzes Showroom content — cloning, filtering, LLM analysis, embeddings, and deduplication
+description: How RCARS resolves, verifies, and incrementally analyzes each item's Showroom content
 ---
 
 # Scan Pipeline
 
 The scan pipeline is how RCARS understands what each lab teaches. For every catalog item that has a Showroom (a Git repository containing the lab's AsciiDoc content), the pipeline clones the repo, reads the content files, sends them to an LLM for structured analysis, generates vector embeddings from the analysis, and stores everything in PostgreSQL. The result is a searchable understanding of each lab — its topics, learning objectives, audience, duration, and format suitability — that powers both the recommendation engine and content overlap detection.
 
-The pipeline runs on the scan worker and is implemented in `analyzer.py`. It can be triggered per-item, in bulk for unanalyzed content, or automatically as part of the nightly maintenance pipeline when stale content is detected.
+The worker and CLI use `services/showroom_scan.py` for atomic, target-only persistence, `showroom_source.py` for explicit content ownership, and `analyzer.py` for verified analysis and incremental embedding repair. It can be triggered per-item, in bulk for items needing work, or automatically during nightly maintenance.
 
 ```mermaid
 flowchart TD
-    Start[Catalog Item] --> Clone[Clone Showroom Repo<br/>git clone --depth 1]
+    Start[Resolved Item Stage] --> Clone[Verify Exact Ref<br/>Fetch Detached Commit If Needed]
     Clone --> Nav{nav.adoc<br/>exists?}
     Nav -->|Yes| NavFilter[Parse nav.adoc<br/>Keep only referenced pages]
     Nav -->|No| ReadAll[Read all .adoc files<br/>from content/modules/ROOT/pages/]
-    NavFilter --> Filter[Filter Boilerplate<br/>login, index, credentials pages]
+    NavFilter --> Filter[Reject Navigation and Template Stubs<br/>Keep Substantive Index Pages]
     ReadAll --> Filter
     Filter --> Prompt[Build Prompt<br/>+ CI metadata]
     Prompt --> LLM[Call Claude Sonnet<br/>max_tokens=8192, temp=0]
     LLM --> Parse[Parse JSON Response]
     Parse --> Embed[Generate Embeddings<br/>nomic-embed-text-v1.5, 768-dim]
     Embed --> Store[Store Analysis +<br/>Embeddings in PostgreSQL]
-    Store --> Siblings{Has Siblings?<br/>Same URL+ref}
-    Siblings -->|Yes| Propagate[Propagate to<br/>All Siblings]
-    Siblings -->|No| Cleanup[Cleanup<br/>Delete Clone]
-    Propagate --> Cleanup
+    Store --> Cleanup[Cleanup<br/>Delete Clone]
 ```
 
 Each item is processed independently with no shared state between items.
 
 ## Step 1 — Clone
 
-The item's Showroom Git repository is shallow-cloned (`--depth 1`) to a temporary directory. If the configured branch or ref is not found, the clone falls back to the repository's default branch. Clone timeout is 120 seconds. On any clone failure, the item is marked as an error in the action log and the pipeline moves to the next item.
+Resolve the requested branch, tag (including annotated tags), full commit ID, or default HEAD. Ambiguous short branch/tag names require qualification. Fetch the exact detached commit with depth 1 and verify it before reading content. A missing ref fails with `invalid_ref`; there is no default-branch fallback. Unchanged verified sources do not clone.
 
 ## Step 2 — Read
 
@@ -40,7 +37,7 @@ AsciiDoc files are read from the standard Antora content layout: `content/module
 
 ## Step 3 — Filter Boilerplate
 
-Not all pages in a Showroom contain educational content. Login/credentials pages, environment setup pages, index and navigation pages, and author bio pages are filtered out before the content reaches the LLM. The filter checks both filename patterns (e.g., `index.adoc`) and content signals in the first 500 characters of each file (e.g., "your username is", "your lab environment has been provisioned"). If the filter removes everything, the pipeline falls back to the unfiltered content rather than failing.
+Navigation, credentials boilerplate, and known Publishing House placeholder pages are filtered before donor lookup or LLM calls. Substantive `index.adoc` pages and valid short overviews remain analyzable. If filtering removes everything, the scan reports `no_content`; it never falls back to the rejected text. Scans and freshness checks use the same contained content path, rejecting traversal and escaping symlinks.
 
 This filtering step is important for analysis quality. Without it, the LLM would spend a significant portion of its context window on content that looks similar across every Showroom in the catalog and teaches it nothing about what makes this particular lab unique.
 
@@ -142,56 +139,77 @@ The CI-level embedding combines data from **two different sources**: keywords co
 
 The embedding model runs on a dedicated vLLM server that provides an OpenAI-compatible `/v1/embeddings` API. Nomic requires task prefixes (`search_document` for indexing, `search_query` for queries), which RCARS applies automatically. Embeddings are normalized to unit vectors, which makes cosine similarity equivalent to dot product. pgvector's IVFFlat index on the embedding column enables fast nearest-neighbor search across thousands of vectors.
 
-## Step 7 — Store, Propagate, and Clean Up
+## Step 7 — Store and Clean Up
 
-The analysis and embeddings are written to the database. The temporary clone directory is deleted. This cleanup runs in a `finally` block — the clone is always deleted regardless of whether earlier steps succeeded or failed.
+Analysis, provenance, card, and embeddings commit together after locking and rechecking the target's source configuration. Results whose configuration changed return `superseded`, not success. No lock is held during Git/LLM calls. The temporary clone is always deleted in a `finally` block. Unchanged paths do not replace generated artifacts.
 
 ---
 
-## Deduplication and Propagation
+## Scoped Reuse and Incremental Maintenance
 
-Many catalog items share the same Showroom content. For example, `agd-v2.modernize-ocp-virt` exists as dev, event, and prod — if event and prod both point to the same `(showroom_url, showroom_ref)`, scanning both would be redundant. With ~600 scannable items in the catalog, deduplication and change detection are essential to keeping the nightly pipeline fast and LLM costs reasonable.
+Each eligible item stage gets its own job only when it needs work, including
+virtual items. Shared URLs, refs, SHAs, hashes, lab numbers, and infrastructure
+bases never establish item identity. There is no unsolicited sibling fan-out.
 
-### Phase A — Ref-Based Sibling Grouping
+The stage-specific CRD graph resolves to its nearest explicit content owner,
+including components without CatalogItems and multi-hop transparent wrappers.
+Nearer repo/ref/path overrides establish their own scope. Ambiguous, missing,
+cyclic, unresolved, and excessive-depth graphs fail visibly; no source anywhere
+is an ordinary no-Showroom outcome. Infrastructure inheritance stays separate.
 
-RCARS deduplicates scan jobs by `(showroom_url, showroom_ref)`:
+Component references may select their own stage: `account/item` inherits the
+requesting component's stage, while `account/item/prod` selects the prod component.
+That selected stage also applies to its stage-less nested references. RCARS does
+not append the requesting stage again to an already stage-qualified reference.
 
-1. All scannable items (with Showroom URL, non-published) are grouped by `(url, ref)`.
-2. One representative per group is selected for scanning (prod preferred, then event, then dev).
-3. After scanning the representative, the analysis and embeddings are **propagated** to all siblings in the same group.
-4. Each sibling gets its own `showroom_analysis` row and `embeddings` rows — every CI is independently searchable and recommendable.
+### Tests-folder exclusion
 
-**Different ref = different scan.** If dev has `ref=main` and prod has `ref=v1.0.0`, they are in separate groups and scanned independently, even if the underlying content happens to be identical. This avoids the complexity of resolving whether two refs point to the same commit.
+AgnosticV `tests/` items (`tests.*` Babylon identities) are excluded from content
+analysis and recommendations even when they declare a Showroom or have an existing
+analysis. Catalog refresh records their scan status as `excluded`, not failed.
+They remain in the catalog for infrastructure, usage, performance and historical
+records; existing analysis and embeddings are not deleted by this exclusion.
 
-**`ref=NULL` (HEAD) is its own group**, separate from `ref=main` — they may resolve to the same content, but RCARS treats them as distinct.
+Scheduled scans, stale checks, forced rescans and sandbox-summary generation skip
+these items. The single-item analysis API rejects them; old queued jobs finish as
+excluded without Git, LLM or embedding work. Tests-folder components cannot supply
+content to published wrappers or act as analysis donors. Existing test vectors are
+filtered before retrieval limits, and test items are excluded from overlap
+generation/assessment and Advisor evidence. No reset or rescan of retired records
+is needed to enforce the policy.
 
-### Phase B — SHA-Based Deduplication
+The exclusion uses the AgnosticV folder identity, not the Kubernetes catalog
+namespace and not a substring match on titles or names.
 
-After ref-based grouping, RCARS resolves refs to commit SHAs via batch `git ls-remote` calls. Items in different ref groups that resolve to the **same commit SHA** are identified as SHA siblings. Only one group is scanned; the rest receive propagated results. Each SHA sibling's own ref-based siblings are also propagated to transitively. This catches the common case where `ref=main` and `ref=v1.0.1` point to the same commit.
+### Verified reuse and incremental maintenance
 
-### Phase C — Published CI Propagation
+Reuse requires the same authorized item/content-owner scope and complete matching
+versioned signatures: repo, exact requested ref, selected path, fetched commit,
+content hash, actual prompt/vocabulary/model inputs, and policy version. Legacy,
+stale, failed, retired, or incomplete donors cannot donate. Each target owns its
+materialized analysis/card/embeddings and durable donor provenance. Summary text
+uses that target's display name and keywords. Recommendation promotion follows
+verified exact stage counterparts or explicit content-delegation paths only.
 
-After both sibling phases complete, RCARS checks every CI that was scanned or propagated to. If any of them has a `published_ci_name` set (linking a base CI to its published Virtual Catalog Item), the analysis and embeddings are propagated to the published CI. This ensures published CIs — which are excluded from the scan queue since they have no Showroom content of their own — show full content analysis in Browse and participate in content overlap detection.
+- Same source/revision/context with current complete embeddings: lightweight
+  freshness check only; no analysis job, clone, LLM, embedding call, or replacement.
+- New commit with identical selected content/context: fetch once and advance the
+  verified revision while preserving `generated_commit` and `last_analyzed`.
+- Changed content/context: analyze or use a fully matching authorized donor.
+- Changed/missing embedding artifacts: repair only affected vectors, without
+  rerunning otherwise-current LLM analysis.
+- Explicit force/rescan-all bypasses unchanged and donor fast paths for targets.
 
-Published CIs inherit the same analysis and embedding vectors as their base CI. When the base is re-scanned (due to content changes), the published CI's data is updated in the same propagation pass.
-
-### Change Detection — Only Scan What Changed
-
-RCARS does not rescan the entire catalog on every run. Whether triggered by the nightly pipeline or a manual scan, only items whose content has actually changed are reprocessed. The change detection is a two-phase process:
-
-1. **Fast check (`git ls-remote`)** — for every analyzed Showroom, RCARS calls `git ls-remote` to get the current commit SHA for the configured ref. This is a lightweight network call that does not clone the repository. If the SHA matches the one recorded during the last scan, the item is unchanged and skipped entirely.
-
-2. **Content hash comparison** — if the SHA has changed (or the item has never been scanned), RCARS clones the repo and hashes the content files. If the hash matches the stored `content_hash`, the content is identical despite the SHA change (e.g., a merge commit that didn't modify the content directory). The item is still skipped.
-
-Only items that fail both checks — new SHA **and** different content hash — are sent through the full scan pipeline (Steps 1-7 above). In practice, the nightly pipeline typically rescans 5-20 items out of ~600, completing in minutes rather than hours.
-
-Clone operations use exponential backoff with 3 retries (10s, 20s, 40s delays) when GitHub rate limiting is detected.
+Historical/curated data is preserved during the separately approved,
+[dry-run-first Babylon artifact rebuild](../operations/showroom-analysis-rebuild.md).
 
 ---
 
 ## Error Classification
 
-When a scan fails, RCARS classifies the error into one of these categories (stored in `babylon_items.scan_error_class`):
+When a scan fails, RCARS records its class on `content_entities.scan_error_class`.
+Resolution failures include `invalid_source` and `ambiguous_source`; exact Git
+ref failures use `invalid_ref`. Other categories include:
 
 | Error Class | Cause |
 |---|---|
@@ -234,7 +252,9 @@ For full details, see [Infrastructure Catalog](infrastructure-catalog.md).
 
 ```bash
 rcars refresh              # Sync catalog from Babylon CRDs
-rcars scan [--max N]       # Analyze unanalyzed items (optionally limit batch size)
+rcars scan [--max N]       # Process eligible stages needing analysis/embedding repair
+rcars scan --content-id babylon:example.content.prod  # Limit to selected targets
+rcars scan --force         # Explicit fresh analysis; bypass skip/reuse
 rcars status [--failures]  # Show catalog and analysis status
 ```
 

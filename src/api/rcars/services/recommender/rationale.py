@@ -218,9 +218,7 @@ def generate_rationale(
                 analyses[c.content_id] = analysis
         else:
             if c.content_type in ("lab", "demo"):
-                base = c.type_data.get("base_ci_name")
-                analysis_cid = f"babylon:{base}" if base else c.content_id
-                analysis = db.get_showroom_analysis(analysis_cid)
+                analysis = db.get_showroom_analysis(c.content_id)
                 if analysis:
                     analyses[c.content_id] = analysis
             elif c.content_type == "architecture":
