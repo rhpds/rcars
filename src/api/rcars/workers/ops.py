@@ -10,7 +10,7 @@ import traceback
 from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress
 from rcars.services.catalog import CatalogReader
-from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current
+from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current, order_for_reuse
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
 from rcars.services.overlap_assessment import batch_assess_overlaps
@@ -209,7 +209,8 @@ async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = 
 
     # Step 3: Enqueue only item stages needing analysis or embedding repair.
     try:
-        items = wctx.db.get_items_needing_analysis(wctx.settings)
+        # Group leaders first so stage siblings reuse a finished donor instead of racing it.
+        items = order_for_reuse(wctx.db.get_items_needing_analysis(wctx.settings), wctx.settings)
         if items:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",

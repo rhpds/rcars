@@ -1,10 +1,13 @@
 """One target's scan and source-checked, atomic artifact persistence.
 
-Queue and job lifecycle belong to the caller. No lock spans Git/LLM requests.
+Queue and job lifecycle belong to the caller. No row lock or pooled connection
+spans Git/LLM requests; only a per-reuse-key advisory lock on a dedicated
+connection serializes stages that can share one generation.
 """
+import hashlib
 import subprocess
 
-from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings
+from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings, showroom_reuse_key
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 import structlog
 
@@ -16,7 +19,29 @@ def _snapshot(item):
         ("display_name", "category", "product", "keywords", "content_type", "retired_at")))
 
 
+# Longer than one analysis, well inside the 600s scan job timeout.
+REUSE_LOCK_WAIT_SECONDS = 300
+
+
+def reuse_lock_id(reuse_key: str) -> int:
+    return int.from_bytes(hashlib.blake2b(f"showroom-reuse:{reuse_key}".encode(), digest_size=8).digest(), signed=True)
+
+
 def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> dict:
+    """Serialize stages sharing a reuse key so the second finds the first's
+    persisted generation as a donor instead of making its own LLM call."""
+    item = db.get_babylon_item(content_id)
+    reuse_key = showroom_reuse_key(item, settings) if item and not force else None
+    if reuse_key is None:
+        return _scan_babylon_item(db, settings, content_id, force=force)
+    with db.wait_advisory_lock(reuse_lock_id(reuse_key), wait_seconds=REUSE_LOCK_WAIT_SECONDS) as acquired:
+        if not acquired:
+            log.warning("showroom_reuse_lock_timeout", component="scanner", content_id=content_id,
+                        action="reuse_lock_timeout", wait_seconds=REUSE_LOCK_WAIT_SECONDS)
+        return _scan_babylon_item(db, settings, content_id, force=force)
+
+
+def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> dict:
     item = db.get_babylon_item(content_id)
     if not item:
         return {"content_id": content_id, "success": False, "error": "missing_item", "outcome": "failed"}

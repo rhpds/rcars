@@ -290,7 +290,7 @@ async def test_scan_endpoints_submit_each_stage_without_llm_or_fanout(db, scan, 
     from rcars.api.routes.analysis import start_scan, rescan_all
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.prod", "isolation-test.a.dev", "isolation-test.virtual.prod")]
     redis = SimpleNamespace(enqueue_job=AsyncMock())
-    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis)))
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis, settings=scan.settings)))
     result = await (rescan_all if forced else start_scan)(request, user="test@example.com")
     jobs = redis.enqueue_job.call_args_list
     assert {call.kwargs["content_id"] for call in jobs} == set(ids)
@@ -378,3 +378,88 @@ async def test_missing_repo_stale_lookup_invalidates_artifacts(db, scan, monkeyp
     assert db.get_embeddings_for_content(cid) == []
     assert db.get_babylon_item(cid)["scan_status"] == "failed"
     assert db.get_babylon_item(cid)["scan_error_class"] == "http_404"
+
+
+def test_reuse_key_groups_stage_siblings_and_matches_stored_signature(db, scan):
+    from rcars.services.analyzer import showroom_reuse_key, reuse_key_from_signature
+    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev")
+    renamed = add_item(db, scan, "isolation-test.a.event", display_name="TLS workshop (event)")
+    other = add_item(db, scan, "isolation-test.b.prod")
+    key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings)
+    assert key(prod) == key(dev)
+    assert key(renamed) != key(prod)
+    assert key(other) != key(prod)
+    scan_babylon_item(db, scan.settings, prod)
+    signature = db.get_showroom_analysis(prod)["analysis_provenance_json"]["signature"]
+    # Guards against the pre-clone key drifting from analyze_showroom's signature inputs.
+    assert reuse_key_from_signature(signature) == key(prod)
+
+
+def test_reuse_key_is_none_for_unresolved_source(db, scan):
+    from rcars.services.analyzer import showroom_reuse_key
+    cid = add_item(db, scan, "isolation-test.broken.prod", showroom_source=ResolvedShowroom("invalid", error="x").to_dict())
+    assert showroom_reuse_key(db.get_babylon_item(cid), scan.settings) is None
+
+
+def test_order_for_reuse_puts_one_prod_preferred_leader_per_group_first(db, scan):
+    from rcars.services.analyzer import order_for_reuse
+    names = ["isolation-test.a.dev", "isolation-test.a.event", "isolation-test.a.prod",
+             "isolation-test.b.dev", "isolation-test.c.event", "isolation-test.c.dev"]
+    items = [db.get_babylon_item(add_item(db, scan, name)) for name in names]
+    ordered = [item["ci_name"] for item in order_for_reuse(items, scan.settings)]
+    assert ordered == ["isolation-test.a.prod", "isolation-test.c.event", "isolation-test.b.dev",
+                       "isolation-test.a.event", "isolation-test.a.dev", "isolation-test.c.dev"]
+
+
+def test_concurrent_sibling_scans_make_one_llm_call(db, scan):
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev")
+    reply, both_started = scan.llm.return_value, threading.Barrier(2, timeout=10)
+    from rcars.services import showroom_scan
+    analyze = showroom_scan.analyze_showroom
+
+    def slow_llm(*args, **kwargs):
+        time.sleep(1)
+        return reply
+
+    def started_together(**kwargs):
+        try:
+            both_started.wait(timeout=2)  # without serialization both reach this point together
+        except threading.BrokenBarrierError:
+            pass
+        return analyze(**kwargs)
+
+    scan.llm.side_effect = slow_llm
+    showroom_scan.analyze_showroom = started_together
+    try:
+        with ThreadPoolExecutor(2) as pool:
+            results = list(pool.map(lambda cid: scan_babylon_item(db, scan.settings, cid), (prod, dev)))
+    finally:
+        showroom_scan.analyze_showroom = analyze
+    assert sorted(r["outcome"] for r in results) == ["analyzed", "reused"]
+    assert scan.llm.call_count == 1
+
+
+def test_reuse_lock_wait_times_out_and_reports_not_acquired(db):
+    import psycopg
+    with psycopg.connect(db._url, autocommit=True) as holder:
+        holder.execute("SELECT pg_advisory_lock(%s)", (4242,))
+        with db.wait_advisory_lock(4242, wait_seconds=1) as acquired:
+            assert acquired is False
+    with db.wait_advisory_lock(4242, wait_seconds=1) as acquired:
+        assert acquired is True
+
+
+@pytest.mark.asyncio
+async def test_scan_endpoint_enqueues_group_leaders_before_siblings(db, scan):
+    from rcars.api.routes.analysis import start_scan
+    ids = [add_item(db, scan, name) for name in ("isolation-test.a.dev", "isolation-test.a.prod", "isolation-test.b.dev")]
+    redis = SimpleNamespace(enqueue_job=AsyncMock())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis, settings=scan.settings)))
+    await start_scan(request, user="test@example.com")
+    order = [call.kwargs["content_id"] for call in redis.enqueue_job.call_args_list if call.kwargs["content_id"] in ids]
+    assert order.index(ids[1]) < order.index(ids[2]) < order.index(ids[0])
+    with db.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE created_by = 'test@example.com'")

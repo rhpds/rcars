@@ -629,12 +629,51 @@ def _own_analysis_current(row, source, context_hash, *, allow_stale=False):
                 and provenance.get("source") == source.to_dict())
 
 
+def analysis_context_hash(scope_key: str, display_name: str, category: str, product: str,
+                          entity_content_type: str, model: str) -> str:
+    system, info = build_analysis_prompt(scope_key, display_name, category, product, {},
+                                         entity_content_type=entity_content_type)
+    return compute_analysis_context_hash(system, info, model)
+
+
+def _item_context_hash(item: dict, scope_key: str, model: str) -> str:
+    return analysis_context_hash(scope_key, item.get("display_name", ""), item.get("category", ""),
+                                 item.get("product", ""), item.get("content_type") or "lab", model)
+
+
+def reuse_key_from_signature(signature: dict) -> str:
+    return _fingerprint(*(signature.get(key) for key in ("scope_key", "repo", "ref", "content_path", "context_hash")))
+
+
+def showroom_reuse_key(item: dict, settings) -> str | None:
+    """Pre-clone part of the AnalysisSignature. Stages sharing it share one generation
+    unless the commit or selected content differs; None when no source resolves."""
+    source = effective_showroom_source(item)
+    if source.status != "resolved" or not source.repo or not source.scope_key:
+        return None
+    return reuse_key_from_signature({"scope_key": source.scope_key, "repo": source.repo, "ref": source.ref,
+        "content_path": source.content_path, "context_hash": _item_context_hash(item, source.scope_key, settings.model)})
+
+
+def order_for_reuse(items: list[dict], settings) -> list[dict]:
+    """Queue one donor candidate per reuse key first (prod preferred, matching donor
+    lookup), then its siblings, so siblings find a finished donor instead of racing it."""
+    rank = {"prod": 0, "event": 1}
+    leaders, followers, seen = [], [], set()
+    for item in sorted(items, key=lambda i: (rank.get(i.get("stage"), 2), i["ci_name"])):
+        key = showroom_reuse_key(item, settings)
+        if key is not None and key in seen:
+            followers.append(item)
+        else:
+            seen.add(key)
+            leaders.append(item)
+    return leaders + followers
+
+
 def showroom_analysis_current(item: dict, row: dict, settings) -> bool:
     """Current source AND actual non-content prompt inputs, not just Git SHA."""
     source = effective_showroom_source(item)
-    system, info = build_analysis_prompt(source.scope_key or item["ci_name"], item.get("display_name", ""),
-        item.get("category", ""), item.get("product", ""), {}, entity_content_type=item.get("content_type") or "lab")
-    context = compute_analysis_context_hash(system, info, settings.model)
+    context = _item_context_hash(item, source.scope_key or item["ci_name"], settings.model)
     return item.get("scan_status") == "success" and _own_analysis_current(row, source, context)
 
 
@@ -770,9 +809,8 @@ def analyze_showroom(
         showroom_url, showroom_ref, content_path = source.repo, source.ref, source.content_path
         if any(value and ("{{" in value or "{%" in value) for value in (showroom_url, showroom_ref, content_path)):
             return {"error": "invalid_source", "message": "Unresolved Showroom variables"}
-        system_context, canonical_info = build_analysis_prompt(source.scope_key, display_name, category, product, {},
-                                                               entity_content_type=entity_content_type)
-        context_hash = compute_analysis_context_hash(system_context, canonical_info, model)
+        context_hash = analysis_context_hash(source.scope_key, display_name, category, product,
+                                             entity_content_type, model)
         revision = ls_remote_sha(showroom_url, showroom_ref)
         own = db.get_showroom_analysis(content_id) if db is not None else None
         own_embeddings = db.get_embeddings_for_content(content_id) if own and db is not None else []

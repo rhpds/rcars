@@ -14,6 +14,7 @@ from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
 from rcars.logging import setup_logging
 from rcars.services.showroom_scan import scan_babylon_item
+from rcars.services.analyzer import order_for_reuse
 
 console = Console()
 log = structlog.get_logger()
@@ -127,6 +128,7 @@ def scan(max_analyze: int | None, force: bool, content_ids: tuple[str, ...]):
     items = db.get_items_needing_analysis(settings, force=force)
     if content_ids:
         items = [item for item in items if item["content_id"] in content_ids]
+    items = order_for_reuse(items, settings)
     if max_analyze:
         items = items[:max_analyze]
     if not items:
