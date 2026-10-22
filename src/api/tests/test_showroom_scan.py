@@ -219,6 +219,9 @@ async def test_stale_lookup_failure_invalidates_unchanged_targets_old_vectors(db
     from tests.test_workers import _worker_ctx
     cid = add_item(db, scan)
     scan_babylon_item(db, scan.settings, cid)
+    # Invalidating lookups must not touch other items in the shared test database.
+    candidates = db.get_stale_check_candidates
+    monkeypatch.setattr(db, "get_stale_check_candidates", lambda: [i for i in candidates() if i["content_id"] == cid])
     monkeypatch.setattr(ops, "ls_remote_sha", Mock(side_effect=InvalidShowroomRef("Missing ref")))
     ctx = _worker_ctx()
     ctx["worker_ctx"].db = db
@@ -364,6 +367,9 @@ async def test_missing_repo_stale_lookup_invalidates_artifacts(db, scan, monkeyp
     from tests.test_workers import _worker_ctx
     cid = add_item(db, scan)
     scan_babylon_item(db, scan.settings, cid)
+    # Invalidating lookups must not touch other items in the shared test database.
+    candidates = db.get_stale_check_candidates
+    monkeypatch.setattr(db, "get_stale_check_candidates", lambda: [i for i in candidates() if i["content_id"] == cid])
     monkeypatch.setattr(ops, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
         128, ["git", "ls-remote"], stderr="remote: Repository not found.")))
     ctx = _worker_ctx()
