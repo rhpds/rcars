@@ -27,7 +27,7 @@ redis_pvc_size: 1Gi
 # redis_password: set in dev.yml / prod.yml (required)
 
 # Vertex AI
-vertex_region: us-east5
+vertex_region: global  # override per env in dev.yml / prod.yml if needed
 
 # Cluster — must be set in env vars file (e.g. apps.ocpv-infra01.dal12.infra.demo.redhat.com)
 # cluster_domain:

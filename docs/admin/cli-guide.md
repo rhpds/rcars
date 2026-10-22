@@ -331,7 +331,7 @@ RCARS prefers LiteMaaS (internal Red Hat proxy). If that is not configured, it f
 |---|---|
 | `RCARS_LITEMAAS_URL` | LiteMaaS proxy endpoint (preferred). |
 | `ANTHROPIC_VERTEX_PROJECT_ID` | GCP project ID for Vertex AI (fallback). |
-| `CLOUD_ML_REGION` | GCP region for Vertex AI (default: `us-east5`). |
+| `CLOUD_ML_REGION` | GCP region for Vertex AI (default: `global`). |
 | `ANTHROPIC_API_KEY` | Direct Anthropic API key (development fallback). |
 
 ### Models
