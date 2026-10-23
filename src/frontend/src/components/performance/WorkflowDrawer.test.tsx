@@ -93,3 +93,18 @@ it('closes the drawer and refreshes its parent when initial reconciliation delet
   expect(onClose).toHaveBeenCalledOnce()
   expect(onChanged).toHaveBeenCalledOnce()
 })
+
+function hasText(node: unknown, text: string): boolean {
+  if (typeof node === 'string') return node.includes(text)
+  if (!node || typeof node !== 'object') return false
+  if (Array.isArray(node)) return node.some(child => hasText(child, text))
+  return hasText((node as ReactElement<{ children?: unknown }>).props?.children, text)
+}
+
+it('renders without performance metrics when opened from Browse', () => {
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.base', display_name: 'Example Base' }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  expect(hasText(tree, 'No performance data')).toBe(true)
+  expect(hasText(tree, 'Provisions')).toBe(false)
+  expect(findButton(tree, 'Recommend Retirement')).toBeDefined()
+})

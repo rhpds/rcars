@@ -33,6 +33,14 @@ export function isArchitecture(item: { source?: string | null }): boolean {
   return item.source === 'portfolio_arch'
 }
 
+/** Retirement workflows are keyed by catalog base name: the CI name minus its
+ *  stage suffix, matching the backend's '^(.+)\.[^.]+$' extraction. */
+export function retirementBaseName(item: { source?: string | null; ci_name?: string | null }): string | null {
+  if (isArchitecture(item) || !item.ci_name) return null
+  const dot = item.ci_name.lastIndexOf('.')
+  return dot > 0 ? item.ci_name.slice(0, dot) : null
+}
+
 /* Never "Reference Architecture": a reference architecture is a prescriptive
    Red Hat artifact, and these are curated "art of the possible" examples.
    Mislabelling them sets a false expectation for sales teams. */
