@@ -417,14 +417,23 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
     responses={400: {"description": "Item must be approved before starting retirement"}},
 )
 async def start_retirement(base_name: str, body: StartRequest, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    # API workers run as separate processes: without the lock, two starts can
+    # both pass the not-started check and each create a Jira ticket.
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Retirement start or cleanup is already running")
+        return _start_retirement_locked(base_name, content_id, body, request, user)
+
+
+def _start_retirement_locked(base_name: str, content_id: str, body: StartRequest, request: Request, user: str):
     db = request.app.state.db
     settings = request.app.state.settings
     from datetime import datetime, timedelta
-
-    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
-    if not content_id:
-        from fastapi import HTTPException
-        raise HTTPException(404, f"No content found for base name: {base_name}")
 
     wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_approved_at"):

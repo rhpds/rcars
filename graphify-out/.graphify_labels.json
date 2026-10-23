@@ -21,7 +21,6 @@
   "49": "dev-services.sh",
   "53": "test_chat_sessions_db.py",
   "57": "run_osspa_sync",
-  "58": "vocabulary/__init__.py",
   "60": "parse_analysis_response",
   "61": "analyze_architecture_item",
   "62": "test_catalog_osspa_routes.py",

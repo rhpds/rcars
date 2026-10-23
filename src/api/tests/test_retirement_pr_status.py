@@ -824,3 +824,43 @@ async def test_sweep_jira_only_entry_retries_recorded_retirement_without_github(
         with db.pool.connection() as conn:
             conn.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
             conn.commit()
+
+
+def _approved_unstarted(db):
+    db.delete_retirement_workflow(CONTENT_ID)
+    db.upsert_retirement_workflow(CONTENT_ID, {"status": "approved", "step_approved_at": "NOW()"})
+
+
+def test_start_retirement_respects_workflow_lock(client, db, monkeypatch):
+    # A start already running in another API worker holds the lock: no second ticket.
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    _approved_unstarted(db)
+    created = []
+    monkeypatch.setattr(jira, "create_retirement_ticket", lambda *args: created.append(1) or "EXAMPLE-2")
+    with db.advisory_lock(workflow_lock_id(CONTENT_ID)) as acquired:
+        assert acquired
+        response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/start", json={})
+    assert response.status_code == 409
+    assert created == []
+    assert db.get_retirement_workflow(CONTENT_ID)["step_started_at"] is None
+
+
+def test_start_retirement_holds_lock_while_creating_ticket(client, db, monkeypatch):
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    _approved_unstarted(db)
+    other = Database(TEST_DB_URL)
+    lock_free_during_create = []
+
+    def fake_create(*args):
+        with other.advisory_lock(workflow_lock_id(CONTENT_ID)) as got:
+            lock_free_during_create.append(got)
+        return "EXAMPLE-2"
+
+    monkeypatch.setattr(jira, "create_retirement_ticket", fake_create)
+    try:
+        response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/start", json={})
+    finally:
+        other.close()
+    assert response.status_code == 200
+    assert lock_free_during_create == [False]
+    assert db.get_retirement_workflow(CONTENT_ID)["jira_key"] == "EXAMPLE-2"
