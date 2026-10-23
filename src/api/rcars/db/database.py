@@ -3538,7 +3538,9 @@ class Database:
         status: str | None = None,
     ) -> list[dict]:
         """List non-prod items with joined entity/babylon data."""
-        conditions = []
+        # Usage rows are pruned only by the reporting sync; hide soft-deleted
+        # items as soon as a catalog refresh retires them.
+        conditions = ["ce.retired_at IS NULL"]
         params: dict = {}
 
         if content_type:
@@ -3555,7 +3557,7 @@ class Database:
         elif status == "active":
             conditions.append("(nu.ignored_until IS NULL OR nu.ignored_until < CURRENT_DATE)")
 
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        where = f"WHERE {' AND '.join(conditions)}"
         direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
 
         allowed_sorts = {"provisions", "total_provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}

@@ -187,3 +187,23 @@ def test_browse_sibling_retirement_ignores_unapproved_own_row(db):
     by_id = {i["content_id"]: i for i in result["items"]}
 
     assert by_id["babylon:x.dev"]["workflow_status"] == "started"
+
+
+def test_nonprod_list_hides_items_retired_from_babylon(db):
+    # Usage rows stay until the next reporting sync, but a catalog refresh
+    # that soft-deletes the item must hide it right away.
+    for ci in ("keep.event", "gone.event"):
+        db.upsert_babylon_catalog_item({"ci_name": ci, "display_name": ci, "stage": "event",
+                                        "showroom_url": "https://example.com/r"})
+    with db._pool.connection() as conn:
+        for ci in ("keep.event", "gone.event"):
+            conn.execute(
+                "INSERT INTO nonprod_usage (content_id, catalog_base_name, provisions) VALUES (%s, %s, 5)",
+                (f"babylon:{ci}", ci.split(".")[0]),
+            )
+        conn.commit()
+    db.retire_missing_babylon({"babylon:keep.event"})
+
+    ids = {i["content_id"] for i in db.list_nonprod_items()}
+
+    assert ids == {"babylon:keep.event"}
