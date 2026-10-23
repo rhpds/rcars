@@ -49,10 +49,70 @@ class TestNonprodIgnore:
         assert hasattr(Database, "clear_nonprod_ignored")
 
 
+class TestNonprodProvisionsSql:
+    def test_filters_to_real_users_across_all_environments(self):
+        from rcars.services.reporting_sync import _build_nonprod_provisions_sql
+        sql = _build_nonprod_provisions_sql("2025-10-23", ["a.b"])
+        assert "ps.user_group IN ('Only Regular Users', 'Red Hat Console')" in sql
+        assert "ps.environment = 'PROD'" not in sql
+        assert "Poolboy" not in sql
+
+    def test_counts_team_run_workshop_seats_separately(self):
+        from rcars.services.reporting_sync import _build_nonprod_provisions_sql
+        sql = _build_nonprod_provisions_sql("2025-10-23", ["a.b"])
+        assert "ps.user_group = 'Only GPTE Exclusions' AND ps.workshop_id IS NOT NULL" in sql
+        assert "AS team_seats" in sql
+
+    def test_groups_by_item_and_environment(self):
+        from rcars.services.reporting_sync import _build_nonprod_provisions_sql
+        sql = _build_nonprod_provisions_sql("2025-10-23", ["a.b"])
+        assert "GROUPING SETS ((ci.name), (ci.name, ps.environment))" in sql
+
+
 class TestSyncNonprodUsage:
     def test_function_exists(self):
         from rcars.services.reporting_sync import _sync_nonprod_usage
         assert callable(_sync_nonprod_usage)
+
+    def test_stores_totals_and_per_environment_metrics(self):
+        import json
+        from unittest.mock import MagicMock, patch
+        from rcars.services.reporting_sync import _sync_nonprod_usage
+
+        def row(env, is_total, provisions, seats, users, first, last):
+            return {
+                "catalog_base_name": "summit-2026.lb2596", "environment": env, "is_total": is_total,
+                "provisions": provisions, "team_seats": seats,
+                "requests": provisions, "experiences": provisions,
+                "unique_users": users, "success_ratio": 0.9, "failure_ratio": 0.1,
+                "first_provision": first, "last_provision": last,
+            }
+
+        rows = [
+            row(None, 1, 106, 466, 5, "2026-03-13", "2026-09-14"),
+            row("dev", 0, 37, 0, 4, "2026-03-13", "2026-05-11"),
+            row("event", 0, 69, 466, 2, "2026-05-06", "2026-09-14"),
+        ]
+        db = MagicMock()
+        db.get_nonprod_base_names.return_value = {"summit-2026.lb2596": "cid-1"}
+        db.upsert_nonprod_usage.side_effect = lambda r: len(r)
+        db.delete_orphan_nonprod_data.return_value = 0
+
+        with patch("rcars.services.reporting_sync.mcp_query", return_value=rows):
+            _sync_nonprod_usage(db, "url", "token")
+
+        upserted = db.upsert_nonprod_usage.call_args[0][0][0]
+        assert upserted["provisions"] == 106
+        assert upserted["unique_users"] == 5
+        assert upserted["team_seats"] == 466
+        assert upserted["first_provision"] == "2026-03-13"
+        windowed = json.loads(upserted["windowed_metrics"])
+        assert windowed["12m"]["provisions"] == 106
+        by_env = windowed["12m"]["by_env"]
+        assert by_env["dev"]["provisions"] == 37
+        assert by_env["dev"]["last_provision"] == "2026-05-11"
+        assert by_env["event"]["unique_users"] == 2
+        assert by_env["event"]["team_seats"] == 466
 
 
 class TestNonprodRouteExists:

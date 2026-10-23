@@ -15,9 +15,11 @@ logger = structlog.get_logger(component="reporting_sync")
 
 STAGE_SUFFIXES = (".prod", ".dev", ".event", ".test")
 
-PROVISION_FILTERS = """
+REAL_USER_FILTER = "ps.user_group IN ('Only Regular Users', 'Red Hat Console')"
+
+PROVISION_FILTERS = f"""
     AND ps.environment = 'PROD'
-    AND ps.user_group IN ('Only Regular Users', 'Red Hat Console')
+    AND {REAL_USER_FILTER}
 """
 
 EXCLUDE_PREFIXES = ("tests.",)
@@ -634,26 +636,39 @@ def _build_windowed_metrics(
 
 
 def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str:
-    """Like _build_provisions_sql but WITHOUT PROVISION_FILTERS — all envs, all users.
+    """Non-prod usage: all environments, real users, plus team-run workshop seats.
+
+    Metrics count the same user groups as PROVISION_FILTERS so totals match the
+    Superset dashboard. ``team_seats`` separately counts workshop seats ordered by
+    cost-center-542 staff (``Only GPTE Exclusions``) — mostly real event attendees
+    that the user-group filter would otherwise hide. Poolboy is always excluded.
+
+    GROUPING SETS returns one total row per item (``is_total = 1``) plus one row
+    per environment, so unique users stay distinct across environments.
 
     Scoped to the provided base_names so the reporting DB filters at query time
     instead of streaming the full provisions table across the MCP connection.
     """
     names_literal = ", ".join(f"'{n.replace(chr(39), chr(39)*2)}'" for n in base_names)
+    real = REAL_USER_FILTER
+    team_seat = "ps.user_group = 'Only GPTE Exclusions' AND ps.workshop_id IS NOT NULL"
     return f"""
         SELECT
             ci.name AS catalog_base_name,
-            COUNT(DISTINCT ps.uuid) AS provisions,
-            COUNT(DISTINCT ps.request_id) AS requests,
-            COALESCE(SUM(ps.user_experiences), 0) AS experiences,
-            COUNT(DISTINCT ps.user_id) AS unique_users,
+            LOWER(ps.environment) AS environment,
+            GROUPING(ps.environment) AS is_total,
+            COUNT(DISTINCT ps.uuid) FILTER (WHERE {real}) AS provisions,
+            COUNT(DISTINCT ps.uuid) FILTER (WHERE {team_seat}) AS team_seats,
+            COUNT(DISTINCT ps.request_id) FILTER (WHERE {real}) AS requests,
+            COALESCE(SUM(ps.user_experiences) FILTER (WHERE {real}), 0) AS experiences,
+            COUNT(DISTINCT ps.user_id) FILTER (WHERE {real}) AS unique_users,
             ROUND(
-                SUM(ps.provision_success)::numeric
-                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
+                SUM(ps.provision_success) FILTER (WHERE {real})::numeric
+                / NULLIF(SUM(ps.provision_success + ps.provision_failure) FILTER (WHERE {real}), 0), 4
             ) AS success_ratio,
             ROUND(
-                SUM(ps.provision_failure)::numeric
-                / NULLIF(SUM(ps.provision_success) + SUM(ps.provision_failure), 0), 4
+                SUM(ps.provision_failure) FILTER (WHERE {real})::numeric
+                / NULLIF(SUM(ps.provision_success + ps.provision_failure) FILTER (WHERE {real}), 0), 4
             ) AS failure_ratio,
             MIN(ps.provisioned_at)::date::text AS first_provision,
             MAX(ps.provisioned_at)::date::text AS last_provision
@@ -661,8 +676,21 @@ def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str
         JOIN catalog_items ci ON ci.id = ps.catalog_id
         WHERE ps.provisioned_at >= '{start_date}'
           AND ci.name IN ({names_literal})
-        GROUP BY ci.name
+          AND (({real}) OR ({team_seat}))
+        GROUP BY GROUPING SETS ((ci.name), (ci.name, ps.environment))
     """
+
+
+def _nonprod_metrics(r: dict) -> dict:
+    return {
+        "provisions": int(r.get("provisions", 0) or 0),
+        "team_seats": int(r.get("team_seats", 0) or 0),
+        "requests": int(r.get("requests", 0) or 0),
+        "experiences": int(r.get("experiences", 0) or 0),
+        "unique_users": int(r.get("unique_users", 0) or 0),
+        "success_ratio": float(r.get("success_ratio", 0) or 0),
+        "failure_ratio": float(r.get("failure_ratio", 0) or 0),
+    }
 
 
 def _sync_nonprod_usage(db, url: str, token: str) -> dict:
@@ -678,40 +706,47 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
     log.info("nonprod_items_found", count=len(nonprod_map))
 
     base_names = list(nonprod_map.keys())
-    w_data: dict[str, dict[str, dict]] = {}
+    # w_totals[window][base_name] = total row; w_envs[window][base_name][env] = env row
+    w_totals: dict[str, dict[str, dict]] = {}
+    w_envs: dict[str, dict[str, dict[str, dict]]] = {}
     for wk, days in NONPROD_WINDOWS.items():
         w_start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         log.info("fetching_nonprod_window", window=wk, start=w_start)
         rows = mcp_query(_build_nonprod_provisions_sql(w_start, base_names), url=url, token=token)
-        w_data[wk] = {r["catalog_base_name"]: r for r in rows}
-        log.info("fetched_nonprod_window", window=wk, rows=len(rows))
+        totals: dict[str, dict] = {}
+        envs: dict[str, dict[str, dict]] = {}
+        for r in rows:
+            name = r["catalog_base_name"]
+            if int(r.get("is_total", 0) or 0):
+                totals[name] = r
+            elif r.get("environment"):
+                envs.setdefault(name, {})[r["environment"]] = r
+        w_totals[wk] = totals
+        w_envs[wk] = envs
+        log.info("fetched_nonprod_window", window=wk, rows=len(rows), items=len(totals))
 
     upsert_rows = []
-    data_12m = w_data.get("12m", {})
+    totals_12m = w_totals.get("12m", {})
     for base_name, content_id in nonprod_map.items():
-        row_12m = data_12m.get(base_name, {})
+        row_12m = totals_12m.get(base_name, {})
 
         windowed = {}
         for wk in NONPROD_WINDOWS:
-            r = w_data.get(wk, {}).get(base_name, {})
-            windowed[wk] = {
-                "provisions": int(r.get("provisions", 0)),
-                "requests": int(r.get("requests", 0)),
-                "experiences": int(r.get("experiences", 0)),
-                "unique_users": int(r.get("unique_users", 0)),
-                "success_ratio": float(r.get("success_ratio", 0) or 0),
-                "failure_ratio": float(r.get("failure_ratio", 0) or 0),
+            metrics = _nonprod_metrics(w_totals.get(wk, {}).get(base_name, {}))
+            metrics["by_env"] = {
+                env: {
+                    **_nonprod_metrics(r),
+                    "first_provision": r.get("first_provision"),
+                    "last_provision": r.get("last_provision"),
+                }
+                for env, r in w_envs.get(wk, {}).get(base_name, {}).items()
             }
+            windowed[wk] = metrics
 
         upsert_rows.append({
             "content_id": content_id,
             "catalog_base_name": base_name,
-            "provisions": int(row_12m.get("provisions", 0)),
-            "requests": int(row_12m.get("requests", 0)),
-            "experiences": int(row_12m.get("experiences", 0)),
-            "unique_users": int(row_12m.get("unique_users", 0)),
-            "success_ratio": float(row_12m.get("success_ratio", 0) or 0),
-            "failure_ratio": float(row_12m.get("failure_ratio", 0) or 0),
+            **_nonprod_metrics(row_12m),
             "first_provision": row_12m.get("first_provision"),
             "last_provision": row_12m.get("last_provision"),
             "windowed_metrics": json.dumps(windowed),

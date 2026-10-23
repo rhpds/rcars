@@ -3,10 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import { api, NonProdItem } from '../services/api'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
+import {
+  RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
+} from '../components/performance/RetirementBadge'
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'muted'
-type SortField = 'provisions' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
+type SortField = 'provisions' | 'team_seats' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -30,6 +33,8 @@ export function NonProdItemsPage() {
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
   const [provFilter, setProvFilter] = useState<string>(searchParams.get('provs') || 'all')
+  const [retirementFilter, setRetirementFilter] = useState<RetirementFilter>(
+    (searchParams.get('retirement') as RetirementFilter) || 'all')
 
   const [allItems, setAllItems] = useState<NonProdItem[]>([])
   const [syncedAt, setSyncedAt] = useState<string | null>(null)
@@ -73,8 +78,9 @@ export function NonProdItemsPage() {
     if (selectedContentTypes.size > 0) params.content_types = Array.from(selectedContentTypes).sort().join(',')
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
     if (provFilter !== 'all') params.provs = provFilter
+    if (retirementFilter !== 'all') params.retirement = retirementFilter
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, retirementFilter, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -115,6 +121,7 @@ export function NonProdItemsPage() {
     setSelectedContentTypes(new Set())
     setSelectedNamespaces(new Set())
     setProvFilter('all')
+    setRetirementFilter('all')
   }
 
   const isIgnored = (i: NonProdItem) => !!i.ignored_until
@@ -131,6 +138,7 @@ export function NonProdItemsPage() {
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
+    if (!matchesRetirementFilter(i.workflow_status, retirementFilter)) return false
     return true
   })
 
@@ -240,6 +248,12 @@ export function NonProdItemsPage() {
         </div>
 
         <div className="browse-filter-group">
+          <div className="browse-filter-group-label">Retirement</div>
+          <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
+            counts={{ retiring: allItems.filter(i => isRetiring(i.workflow_status)).length }} />
+        </div>
+
+        <div className="browse-filter-group">
           <div className="browse-filter-group-label">Provisions</div>
           <div className="ret-filter-group">
             {(['all', '0', '1-10', '10+'] as const).map(f => (
@@ -335,6 +349,10 @@ export function NonProdItemsPage() {
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
                     Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
+                  <th className="clickable num" onClick={() => toggleSort('team_seats')}
+                    title="Workshop seats ordered by RHDP team members (cost center 542). Not counted in Provisions.">
+                    Team-Run Seats {sortBy === 'team_seats' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
                     Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
@@ -360,6 +378,7 @@ export function NonProdItemsPage() {
                         <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.display_name}
+                            <RetirementInlineBadge status={item.workflow_status} targetDate={item.retirement_target_date} />
                             {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
                           </div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>
@@ -375,6 +394,7 @@ export function NonProdItemsPage() {
                           ))}
                         </td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
+                        <td className="num">{(item.team_seats ?? 0).toLocaleString()}</td>
                         <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
@@ -384,7 +404,7 @@ export function NonProdItemsPage() {
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">
-                          <td colSpan={10}>
+                          <td colSpan={11}>
                             {item.stages.length > 0 && (
                               <div style={{ marginBottom: '8px' }}>
                                 <div style={{ fontSize: '11px', fontWeight: 600, marginBottom: '6px', color: 'var(--text-muted)' }}>
@@ -395,6 +415,7 @@ export function NonProdItemsPage() {
                                     <tr>
                                       <th>Environment</th>
                                       <th className="num">Provisions</th>
+                                      <th className="num">Team-Run Seats</th>
                                       <th className="num">Unique Users</th>
                                       <th className="num">Experiences</th>
                                       <th>First Provision</th>
@@ -402,7 +423,9 @@ export function NonProdItemsPage() {
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {item.stages.map(s => (
+                                    {item.stages.map(s => {
+                                      const env = item.by_env?.[s.stage]
+                                      return (
                                       <tr key={s.ci_name}>
                                         <td>
                                           <a href={s.catalog_url} target="_blank" rel="noreferrer"
@@ -414,17 +437,19 @@ export function NonProdItemsPage() {
                                             {s.ci_name}
                                           </span>
                                         </td>
-                                        <td className="num">—</td>
-                                        <td className="num">—</td>
-                                        <td className="num">—</td>
-                                        <td>—</td>
-                                        <td>—</td>
+                                        <td className="num">{env ? env.provisions.toLocaleString() : '—'}</td>
+                                        <td className="num">{env ? env.team_seats.toLocaleString() : '—'}</td>
+                                        <td className="num">{env ? env.unique_users.toLocaleString() : '—'}</td>
+                                        <td className="num">{env ? env.experiences.toLocaleString() : '—'}</td>
+                                        <td>{env?.first_provision || '—'}</td>
+                                        <td>{env?.last_provision || '—'}</td>
                                       </tr>
-                                    ))}
+                                      )
+                                    })}
                                   </tbody>
                                 </table>
                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
-                                  Per-environment metrics require per-stage MCP queries (not yet implemented). Totals shown in main row.
+                                  Provisions count regular and Red Hat Console users (matches Superset). Team-Run Seats are workshop seats ordered by RHDP staff. Unique users can overlap across environments.
                                 </div>
                               </div>
                             )}
