@@ -4,8 +4,9 @@ import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
+import { WorkflowDrawer, type WorkflowItem } from '../components/performance/WorkflowDrawer'
 import {
-  contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel,
+  contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel, retirementBaseName,
   architectureDetailUrl, architectureSubline,
   type ContentFormat,
 } from './browse/helpers'
@@ -464,6 +465,9 @@ export function BrowsePage() {
 
   // Curator editing state
   const [drawerItem, setDrawerItem] = useState<string | null>(null)
+  // Base components merged into a published CI are hidden from Performance
+  // and Non-Prod, so Browse is where curators start their retirement.
+  const [retireItem, setRetireItem] = useState<WorkflowItem | null>(null)
   const [newTags, setNewTags] = useState<Record<string, string>>({})
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
@@ -875,6 +879,18 @@ export function BrowsePage() {
                         Edit
                       </button>
                     )}
+                    {(auth.isCurator || auth.isAdmin) && isExpanded && retirementBaseName(item) && (
+                      <button
+                        className="browse-btn-action"
+                        onClick={() => setRetireItem({
+                          catalog_base_name: retirementBaseName(item)!,
+                          display_name: item.display_name,
+                          retired_at: item.retired_at,
+                        })}
+                      >
+                        Retire
+                      </button>
+                    )}
                   </div>
 
                   {/* ── Expanded card body ── */}
@@ -1169,6 +1185,10 @@ export function BrowsePage() {
           onClose={() => setDrawerItem(null)}
           babylonOnlyActions={!isArchitecture(drawerDetail || {})}
         />
+      )}
+
+      {retireItem && (
+        <WorkflowDrawer item={retireItem} onClose={() => setRetireItem(null)} onChanged={() => fetchItems(page)} />
       )}
     </div>
   )

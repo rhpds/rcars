@@ -7,10 +7,12 @@ import { fmt, num, scoreColor } from './ScoreBreakdownPopover'
 export interface WorkflowItem {
   catalog_base_name: string
   display_name: string
-  provisions: number
-  unique_users: number
-  experiences: number
-  success_ratio: number
+  // Metrics are absent when the drawer opens from Browse for an item without
+  // its own performance row (e.g. a base merged into its published CI).
+  provisions?: number
+  unique_users?: number
+  experiences?: number
+  success_ratio?: number
   failure_ratio?: number
   performance_score?: number
   pipeline_touched?: number
@@ -393,12 +395,12 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     const ownerNames = owners.map(o => o.name || o.email).join(', ') || 'Content Owner'
     const reason = drawerWorkflow?.approval_reason || approvalReason || 'See RCARS retirement analysis'
     const replacement = drawerWorkflow?.replacement_name || replacementName
-    const provs = num(item.provisions).toLocaleString()
-
-    const metrics = [`- Provisions: ${provs}`]
+    const metrics: string[] = []
+    if (item.provisions != null) metrics.push(`- Provisions: ${item.provisions.toLocaleString()}`)
     if (item.performance_score != null) metrics.push(`- Performance Score: ${item.performance_score}`)
     if (item.total_cost != null) metrics.push(`- Total Cost: ${fmt(item.total_cost)}`)
     if (item.pipeline_touched != null) metrics.push(`- Pipeline Touched: ${fmt(item.pipeline_touched)}`)
+    const metricsBlock = metrics.length ? `\nKey metrics (last 12 months):\n${metrics.join('\n')}\n` : ''
 
     const template = `Hi ${ownerNames},
 
@@ -406,10 +408,7 @@ This is a notification that "${item.display_name}" has been flagged for retireme
 
 Reason:
 ${reason.split('\n').filter(l => l.trim()).map(l => `- ${l.trim()}`).join('\n')}
-
-Key metrics (last 12 months):
-${metrics.join('\n')}
-${replacement ? `\nReplacement: ${replacement}` : ''}
+${metricsBlock}${replacement ? `\nReplacement: ${replacement}` : ''}
 ${drawerWorkflow?.jira_key ? `\nJira: https://redhat.atlassian.net/browse/${drawerWorkflow.jira_key}` : ''}
 If you have questions or concerns about this retirement, please reach out to Nate Stephany (nstephan@redhat.com).
 
@@ -425,6 +424,7 @@ RHDP Content Team`
   const isStarted = !!wf?.step_started_at
   const isRetired = !!item.retired_at || !!wf?.step_retired_at || wf?.status === 'retired'
   const cleanupError = actionError || wf?.cleanup_error
+  const hasMetrics = item.provisions != null
 
   const approveIsNext = !isApproved
   const notifyIsNext = isApproved && !isNotified && !isStarted
@@ -457,6 +457,14 @@ RHDP Content Team`
               {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
               <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
               <div className="ret-data-grid">
+                {!hasMetrics ? (
+                <div className="ret-data-cell ret-data-cell--wide">
+                  <div className="ret-data-label">Usage</div>
+                  <div className="ca-color-muted" style={{ marginTop: '4px' }}>
+                    No performance data for this item. Its usage may be counted under the published CI that includes it.
+                  </div>
+                </div>
+                ) : (<>
                 {item.performance_score != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Score</div>
@@ -467,15 +475,15 @@ RHDP Content Team`
                 )}
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Provisions</div>
-                  <div className="ret-data-value">{item.provisions.toLocaleString()}</div>
+                  <div className="ret-data-value">{num(item.provisions).toLocaleString()}</div>
                 </div>
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Unique Users</div>
-                  <div className="ret-data-value">{item.unique_users.toLocaleString()}</div>
+                  <div className="ret-data-value">{num(item.unique_users).toLocaleString()}</div>
                 </div>
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Experiences</div>
-                  <div className="ret-data-value">{item.experiences.toLocaleString()}</div>
+                  <div className="ret-data-value">{num(item.experiences).toLocaleString()}</div>
                 </div>
                 {item.pipeline_touched != null && (
                 <div className="ret-data-cell">
@@ -523,6 +531,7 @@ RHDP Content Team`
                   <div className="ret-data-value ret-data-value--small">{item.last_activity || 'N/A'}</div>
                 </div>
                 )}
+                </>)}
                 {item.stages && (
                 <div className="ret-data-cell ret-data-cell--wide">
                   <div className="ret-data-label">Environments</div>

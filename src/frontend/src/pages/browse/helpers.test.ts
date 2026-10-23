@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contentTypeParam, isArchitecture, isZtItem, itemKey } from './helpers'
+import { contentTypeParam, isArchitecture, isZtItem, itemKey, retirementBaseName } from './helpers'
 
 describe('contentTypeParam', () => {
   it('sends the explicit hands-on set by default', () => {
@@ -92,5 +92,19 @@ describe('architectureSubline', () => {
   it('falls back to Architecture with no solutions', () => {
     expect(architectureSubline({ pa_name: '275-rhacs', solutions: [] }))
       .toBe('275-rhacs · Architecture')
+  })
+})
+
+describe('retirementBaseName', () => {
+  it('strips the stage suffix like the backend base-name regex', () => {
+    expect(retirementBaseName({ ci_name: 'openshift-cnv.ocp-virt-base.prod' })).toBe('openshift-cnv.ocp-virt-base')
+  })
+
+  it('returns null for architectures, which have no retirement workflow', () => {
+    expect(retirementBaseName({ source: 'portfolio_arch', ci_name: null })).toBeNull()
+  })
+
+  it('returns null for a CI name without a stage suffix', () => {
+    expect(retirementBaseName({ ci_name: 'nostage' })).toBeNull()
   })
 })
