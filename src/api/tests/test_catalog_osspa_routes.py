@@ -179,3 +179,25 @@ def test_facets_include_solutions_verticals_and_audience(client, db):
     assert "Security" in facets["solutions"]
     assert "Manufacturing" in facets["verticals"]
     assert "operations teams" in facets["audience"]
+
+
+def test_detail_route_reports_sibling_stage_retirement(client, db):
+    db.upsert_babylon_catalog_item({
+        "ci_name": "lab.dev", "display_name": "A Lab", "stage": "dev",
+        "catalog_namespace": "babylon-catalog-dev", "showroom_url": "https://example.com/r"})
+    db.upsert_retirement_workflow("babylon:lab.prod", {
+        "status": "started", "step_approved_at": "NOW()", "retirement_target_date": "2026-11-22"})
+
+    body = client.get("/api/v1/catalog/babylon:lab.dev").json()
+
+    assert body["workflow_status"] == "started"
+    assert body["retirement_target_date"] == "2026-11-22"
+    assert body["retirement_label"] == "in_progress"
+
+
+def test_detail_route_reports_no_retirement(client):
+    body = client.get("/api/v1/catalog/pa:275").json()
+
+    assert body["workflow_status"] is None
+    assert body["retirement_target_date"] is None
+    assert body["retirement_label"] is None
