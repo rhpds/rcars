@@ -1071,7 +1071,7 @@ async def nonprod_dashboard(
                 wm = {}
         w = wm.get(window, {})
         item["provisions"] = w.get("provisions", 0)
-        item["team_seats"] = w.get("team_seats", 0)
+        item["total_provisions"] = w.get("total_provisions", 0)
         item["by_env"] = w.get("by_env", {})
         item["requests"] = w.get("requests", 0)
         item["experiences"] = w.get("experiences", 0)
@@ -1094,7 +1094,7 @@ async def nonprod_dashboard(
             item["ignored_until"] = None
 
     # Re-sort after windowed overlay
-    allowed_sorts = {"provisions", "team_seats", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+    allowed_sorts = {"provisions", "total_provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
         if sort_by == "display_name":

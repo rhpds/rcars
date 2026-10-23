@@ -641,12 +641,12 @@ def _build_windowed_metrics(
 
 
 def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str:
-    """Non-prod usage: all environments, real users, plus team-run workshop seats.
+    """Non-prod usage across all environments.
 
-    Metrics count the same user groups as PROVISION_FILTERS so totals match the
-    Superset dashboard. ``team_seats`` separately counts workshop seats ordered by
-    cost-center-542 staff (``Only GPTE Exclusions``) — mostly real event attendees
-    that the user-group filter would otherwise hide. Poolboy is always excluded.
+    User metrics count the same user groups as PROVISION_FILTERS so they match
+    the Superset dashboard. ``total_provisions`` counts every provision except
+    unclaimed Poolboy pool instances, so it also includes RHDP staff (cost
+    center 542, ``Only GPTE Exclusions``). Dates span the total population.
 
     GROUPING SETS returns one total row per item (``is_total = 1``) plus one row
     per environment, so unique users stay distinct across environments.
@@ -656,14 +656,14 @@ def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str
     """
     names_literal = ", ".join(f"'{n.replace(chr(39), chr(39)*2)}'" for n in base_names)
     real = REAL_USER_FILTER
-    team_seat = "ps.user_group = 'Only GPTE Exclusions' AND ps.workshop_id IS NOT NULL"
+    total = "ps.user_group IS DISTINCT FROM 'Poolboy'"
     return f"""
         SELECT
             ci.name AS catalog_base_name,
             LOWER(ps.environment) AS environment,
             GROUPING(ps.environment) AS is_total,
             COUNT(DISTINCT ps.uuid) FILTER (WHERE {real}) AS provisions,
-            COUNT(DISTINCT ps.uuid) FILTER (WHERE {team_seat}) AS team_seats,
+            COUNT(DISTINCT ps.uuid) AS total_provisions,
             COUNT(DISTINCT ps.request_id) FILTER (WHERE {real}) AS requests,
             COALESCE(SUM(ps.user_experiences) FILTER (WHERE {real}), 0) AS experiences,
             COUNT(DISTINCT ps.user_id) FILTER (WHERE {real}) AS unique_users,
@@ -681,7 +681,7 @@ def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str
         JOIN catalog_items ci ON ci.id = ps.catalog_id
         WHERE ps.provisioned_at >= '{start_date}'
           AND ci.name IN ({names_literal})
-          AND (({real}) OR ({team_seat}))
+          AND {total}
         GROUP BY GROUPING SETS ((ci.name), (ci.name, ps.environment))
     """
 
@@ -689,7 +689,7 @@ def _build_nonprod_provisions_sql(start_date: str, base_names: list[str]) -> str
 def _nonprod_metrics(r: dict) -> dict:
     return {
         "provisions": int(r.get("provisions", 0) or 0),
-        "team_seats": int(r.get("team_seats", 0) or 0),
+        "total_provisions": int(r.get("total_provisions", 0) or 0),
         "requests": int(r.get("requests", 0) or 0),
         "experiences": int(r.get("experiences", 0) or 0),
         "unique_users": int(r.get("unique_users", 0) or 0),
