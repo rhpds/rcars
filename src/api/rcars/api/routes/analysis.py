@@ -807,7 +807,8 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
 
     for item in items:
-        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
+        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user,
+                                   progress_json={"content_id": item["content_id"]})
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             _job_id=sub_job_id, _queue_name="arq:queue:scan"
@@ -849,7 +850,8 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     parent_job_id = db.create_job(job_type="rescan_all", queue="analyze", created_by=user)
 
     for item in items:
-        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all")
+        sub_job_id = db.create_job(job_type="analyze", queue="analyze", created_by="rescan-all",
+                                   progress_json={"content_id": item["content_id"]})
         await arq_redis.enqueue_job(
             "run_analysis", job_id=sub_job_id, content_id=item["content_id"],
             force=True,
@@ -1299,7 +1301,8 @@ async def analyze_single(identifier: str, request: Request, force: bool = True, 
     from rcars.services.showroom_source import is_content_excluded
     if is_content_excluded(content_id):
         raise HTTPException(status_code=400, detail="Content analysis is disabled for AgnosticV tests/ items")
-    job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user)
+    job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user,
+                           progress_json={"content_id": content_id})
     await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id, force=force, _job_id=job_id, _queue_name="arq:queue:scan")
     return {"job_id": job_id}
 
