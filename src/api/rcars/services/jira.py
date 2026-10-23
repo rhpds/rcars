@@ -279,13 +279,35 @@ def create_retirement_ticket(
             "labels": ["RHDP_RETIREMENT"],
         }
     }
+    parent = settings.jira_retirement_parent
+    if parent and parent.upper().startswith(f"{project_key}-"):
+        create_body["fields"]["parent"] = {"key": parent}
 
     result = _jira_request(settings, "/rest/api/2/issue", body=create_body)
     issue_key = result["key"]
 
-    logger.info("retirement_ticket_created", issue_key=issue_key)
+    logger.info("retirement_ticket_created", issue_key=issue_key, parent=create_body["fields"].get("parent"))
+
+    # The retirement is underway once the ticket exists; it stays In Progress until closed.
+    _move_to_in_progress(settings, issue_key)
 
     return issue_key
+
+
+def _move_to_in_progress(settings, jira_key: str) -> None:
+    """Best effort: the ticket already exists, so a failed transition must not fail the start."""
+    try:
+        resp = _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions", method="GET")
+        target = next((t for t in (resp or {}).get("transitions", [])
+                       if t["to"]["name"].lower() == "in progress"), None)
+        if not target:
+            logger.warning("jira_no_in_progress_transition", jira_key=jira_key)
+            return
+        _jira_request(settings, f"/rest/api/2/issue/{jira_key}/transitions",
+                      body={"transition": {"id": target["id"]}})
+        logger.info("jira_moved_to_in_progress", jira_key=jira_key)
+    except Exception as exc:
+        logger.warning("jira_in_progress_transition_failed", jira_key=jira_key, error=str(exc))
 
 
 def _issue_is_closed(issue: dict) -> bool:

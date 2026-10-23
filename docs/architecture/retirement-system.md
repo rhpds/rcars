@@ -36,7 +36,7 @@ There is no separate retirement deployment. The API handles individual workflow 
 | `api/routes/analysis.py` | Workflow actions, role enforcement, retirement report, PR-status checks, sweep enqueueing |
 | `services/retirement.py` | Workflow status derivation from completed steps |
 | `services/retirement_cleanup.py` | Shared required Jira/GitHub cleanup, retries, and per-workflow coordination |
-| `services/jira.py` | Ticket creation, notice templates, status lookup, cancellation transition |
+| `services/jira.py` | Ticket creation (epic parent, In Progress transition), notice templates, status lookup, cancellation transition |
 | `services/agv_access.py` | Repository/path resolution, GitHub App authentication, branch/file/PR operations |
 | `workers/ops.py` | Due-removal creation and merged-PR reconciliation |
 | `db/database.py` | Workflow persistence, eligibility queries, soft-delete, and workflow completion |
@@ -101,6 +101,8 @@ An admin either creates a retirement ticket or links an existing one. Both paths
 Creating a ticket sets `retirement_target_date` from the requested `target_days` (default 30). The API accepts a zero-day request for immediate retirement. Linking a ticket sets the Jira key and started markers but does **not** calculate a target date; without a target date, the automatic removal sweep will not select that workflow.
 
 The Jira service uses direct REST calls with configured credentials. Its wiki-markup ticket description includes the decision, metrics, replacement information, catalog reference, and notice-period length. The notice PR uses a separate AsciiDoc notice helper; Jira does not embed that notice. Resolved Babylon replacements can be linked; other replacements are included as text.
+
+New tickets are created under the retirement epic set by `RCARS_JIRA_RETIREMENT_PARENT` (default `RHDPCD-2191`). The parent is applied only when the ticket's project matches the epic's project. After creation, RCARS moves the ticket to **In Progress**, where it stays until completion or cancellation closes it. A missing or failed transition is logged and does not fail the start.
 
 Starting retirement does **not** automatically open the notice PR. An admin uses **Open Notice PR** after starting the workflow. Once retirement is detected, status refresh and the nightly/API sweep close the linked Jira in a terminal state with resolution **Done**, or confirm that it is already closed. Jira work runs outside the API event loop. A failed closure remains tracked and is retried even after catalog retirement; the drawer displays pending cleanup and the last error.
 

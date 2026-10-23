@@ -119,6 +119,8 @@ class Settings(BaseSettings):
     jira_base_url: str = "https://redhat.atlassian.net"
     jira_api_email: str = ""
     jira_api_token: str = ""
+    # Epic for new retirement tickets; applied only when the ticket's project matches.
+    jira_retirement_parent: str = "RHDPCD-2191"
 
     # GitHub App (agv-retire PR creation — RHDPCD-2103)
     github_app_id: str = ""

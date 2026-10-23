@@ -90,19 +90,41 @@ def test_wiki_markup_format():
     assert "||Metric||Value||" in desc  # wiki table header
 
 
+def _settings(parent="RHDPCD-2191"):
+    settings = MagicMock()
+    settings.jira_retirement_parent = parent
+    return settings
+
+
+IN_PROGRESS_TRANSITIONS = {"transitions": [
+    {"id": "11", "to": {"name": "New"}},
+    {"id": "41", "to": {"name": "In Progress"}},
+    {"id": "61", "to": {"name": "Closed"}},
+]}
+
+
+def _fake_jira(key="RHDPCD-999", transitions=IN_PROGRESS_TRANSITIONS):
+    def fake(settings, path, method="POST", body=None):
+        if path == "/rest/api/2/issue":
+            return {"key": key}
+        if path.endswith("/transitions") and method == "GET":
+            return transitions
+        return None
+    return fake
+
+
 @patch("rcars.services.jira._jira_request")
 def test_creates_ticket_and_returns_key(mock_request):
     """Verify ticket creation calls Jira v2 API and returns the key."""
-    mock_request.return_value = {"key": "RHDPCD-999"}
+    mock_request.side_effect = _fake_jira()
 
-    settings = MagicMock()
+    settings = _settings()
     workflow = _make_workflow()
     metrics = _make_metrics()
 
     result = create_retirement_ticket(settings, workflow, metrics)
 
     assert result == "RHDPCD-999"
-    assert mock_request.call_count == 1
 
     create_call = mock_request.call_args_list[0]
     assert create_call[0][0] is settings
@@ -117,13 +139,81 @@ def test_creates_ticket_and_returns_key(mock_request):
 @patch("rcars.services.jira._jira_request")
 def test_project_key_uppercased(mock_request):
     """Verify lowercase project key is uppercased."""
-    mock_request.return_value = {"key": "RHDPCD-100"}
+    mock_request.side_effect = _fake_jira("RHDPCD-100")
 
-    settings = MagicMock()
+    settings = _settings()
     workflow = _make_workflow(jira_project="rhdpcd")
     metrics = _make_metrics()
 
     create_retirement_ticket(settings, workflow, metrics)
 
-    body = mock_request.call_args.kwargs.get("body") or mock_request.call_args[0][2]
+    create_call = mock_request.call_args_list[0]
+    body = create_call.kwargs.get("body") or create_call[0][2]
     assert body["fields"]["project"]["key"] == "RHDPCD"
+
+
+def _create_body(mock_request):
+    call = mock_request.call_args_list[0]
+    return call.kwargs.get("body") or call[0][2]
+
+
+@patch("rcars.services.jira._jira_request")
+def test_ticket_parent_set_for_matching_project(mock_request):
+    mock_request.side_effect = _fake_jira()
+
+    create_retirement_ticket(_settings(), _make_workflow(jira_project="RHDPCD"), _make_metrics())
+
+    assert _create_body(mock_request)["fields"]["parent"] == {"key": "RHDPCD-2191"}
+
+
+@patch("rcars.services.jira._jira_request")
+def test_ticket_parent_skipped_for_other_project(mock_request):
+    mock_request.side_effect = _fake_jira("GPTEINFRA-1")
+
+    create_retirement_ticket(_settings(), _make_workflow(jira_project="GPTEINFRA"), _make_metrics())
+
+    assert "parent" not in _create_body(mock_request)["fields"]
+
+
+@patch("rcars.services.jira._jira_request")
+def test_ticket_parent_skipped_when_unset(mock_request):
+    mock_request.side_effect = _fake_jira()
+
+    create_retirement_ticket(_settings(parent=""), _make_workflow(jira_project="RHDPCD"), _make_metrics())
+
+    assert "parent" not in _create_body(mock_request)["fields"]
+
+
+@patch("rcars.services.jira._jira_request")
+def test_new_ticket_moves_to_in_progress(mock_request):
+    mock_request.side_effect = _fake_jira()
+
+    create_retirement_ticket(_settings(), _make_workflow(jira_project="RHDPCD"), _make_metrics())
+
+    transition_posts = [c for c in mock_request.call_args_list
+                        if c[0][1] == "/rest/api/2/issue/RHDPCD-999/transitions"
+                        and c.kwargs.get("method", "POST") == "POST"]
+    assert len(transition_posts) == 1
+    assert transition_posts[0].kwargs["body"] == {"transition": {"id": "41"}}
+
+
+@patch("rcars.services.jira._jira_request")
+def test_missing_in_progress_transition_still_returns_key(mock_request):
+    mock_request.side_effect = _fake_jira(transitions={"transitions": [{"id": "61", "to": {"name": "Closed"}}]})
+
+    result = create_retirement_ticket(_settings(), _make_workflow(jira_project="RHDPCD"), _make_metrics())
+
+    assert result == "RHDPCD-999"
+    assert not any(c[0][1].endswith("/transitions") and c.kwargs.get("method", "POST") == "POST"
+                   for c in mock_request.call_args_list)
+
+
+@patch("rcars.services.jira._jira_request")
+def test_failed_in_progress_transition_still_returns_key(mock_request):
+    def fake(settings, path, method="POST", body=None):
+        if path == "/rest/api/2/issue":
+            return {"key": "RHDPCD-999"}
+        raise RuntimeError("Jira down")
+    mock_request.side_effect = fake
+
+    assert create_retirement_ticket(_settings(), _make_workflow(jira_project="RHDPCD"), _make_metrics()) == "RHDPCD-999"
