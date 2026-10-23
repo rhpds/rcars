@@ -150,3 +150,40 @@ def test_browse_reports_retirement_workflow_status(db):
     assert str(by_id["babylon:b.prod"]["retirement_target_date"]) == "2026-11-22"
     assert by_id["babylon:c.prod"]["workflow_status"] is None
     assert by_id["babylon:d.prod"]["workflow_status"] is None
+
+
+def test_browse_maps_retirement_to_sibling_stages(db):
+    # Stages of one CI share a description, so retiring one stage retires them all.
+    for ci in ("cluster.dev", "cluster.event", "combined.dev", "combined.prod", "other.dev"):
+        stage = ci.rsplit(".", 1)[1]
+        db.upsert_babylon_catalog_item({"ci_name": ci, "display_name": ci, "stage": stage,
+                                        "showroom_url": "https://example.com/r"})
+    db.upsert_retirement_workflow("babylon:cluster.event", {
+        "status": "started", "step_approved_at": "NOW()", "retirement_target_date": "2026-11-22"})
+    db.upsert_retirement_workflow("babylon:combined.prod", {"status": "approved", "step_approved_at": "NOW()"})
+
+    result = db.list_content_entities_filtered(stages=["prod", "event", "dev"], limit=50)
+    by_id = {i["content_id"]: i for i in result["items"]}
+
+    for cid in ("babylon:cluster.dev", "babylon:cluster.event"):
+        assert by_id[cid]["workflow_status"] == "started"
+        assert str(by_id[cid]["retirement_target_date"]) == "2026-11-22"
+        assert by_id[cid]["retirement_label"] == "in_progress"
+    for cid in ("babylon:combined.dev", "babylon:combined.prod"):
+        assert by_id[cid]["workflow_status"] == "approved"
+        assert by_id[cid]["retirement_label"] == "recommended"
+    assert by_id["babylon:other.dev"]["workflow_status"] is None
+    assert by_id["babylon:other.dev"]["retirement_label"] is None
+
+
+def test_browse_sibling_retirement_ignores_unapproved_own_row(db):
+    for ci in ("x.dev", "x.event"):
+        db.upsert_babylon_catalog_item({"ci_name": ci, "display_name": ci, "stage": ci.split(".")[1],
+                                        "showroom_url": "https://example.com/r"})
+    db.upsert_retirement_workflow("babylon:x.dev", {"status": "reviewed"})
+    db.upsert_retirement_workflow("babylon:x.event", {"status": "started", "step_approved_at": "NOW()"})
+
+    result = db.list_content_entities_filtered(stages=["event", "dev"], limit=50)
+    by_id = {i["content_id"]: i for i in result["items"]}
+
+    assert by_id["babylon:x.dev"]["workflow_status"] == "started"

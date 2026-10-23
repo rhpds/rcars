@@ -78,8 +78,8 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/analysis.py": {
-    "mtime": 1792750173.5392807,
-    "seen": 1792750236.762176,
+    "mtime": 1792750776.9795947,
+    "seen": 1792752846.707569,
     "ast_hash": "4d28d1de7d680247d81ab577483ecdd6",
     "semantic_hash": ""
   },
@@ -90,10 +90,10 @@
     "semantic_hash": "9aba8c63886598150007b8853d534b28"
   },
   "src/api/rcars/api/routes/catalog.py": {
-    "mtime": 1790152614.4328234,
-    "seen": 1792065592.376555,
-    "ast_hash": "1121fdf7594698551a24c0533211a37a",
-    "semantic_hash": "1121fdf7594698551a24c0533211a37a"
+    "mtime": 1792752775.3510826,
+    "seen": 1792752846.707571,
+    "ast_hash": "cbf9fb49e199375c972db3e2602c034d",
+    "semantic_hash": ""
   },
   "src/api/rcars/api/routes/health.py": {
     "mtime": 1790766120.625401,
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1792750180.2553499,
-    "seen": 1792750236.762184,
-    "ast_hash": "cda967ecfb0a6372348c06cf8833c03c",
+    "mtime": 1792752813.4339018,
+    "seen": 1792752846.7075782,
+    "ast_hash": "a2aafab81792f0ac0cf814375249e3d1",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -210,16 +210,16 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/reporting_sync.py": {
-    "mtime": 1792750173.5385666,
-    "seen": 1792750236.762207,
+    "mtime": 1792750776.9819064,
+    "seen": 1792752846.7075992,
     "ast_hash": "f0796bb96118a4357f6dbea5013cc410",
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement.py": {
-    "mtime": 1783337952.508044,
-    "seen": 1792065592.3765812,
-    "ast_hash": "412147bcf6c2a898c40f12aa8790974a",
-    "semantic_hash": "412147bcf6c2a898c40f12aa8790974a"
+    "mtime": 1792752756.0114422,
+    "seen": 1792752846.7075999,
+    "ast_hash": "453f4849e25c01f0d370d2f9581408a2",
+    "semantic_hash": ""
   },
   "src/api/rcars/services/sandbox_summary.py": {
     "mtime": 1787311504.775303,
@@ -528,8 +528,8 @@
     "semantic_hash": "57cb7f9e812b124b1f4135531d5b81de"
   },
   "src/frontend/src/services/api.ts": {
-    "mtime": 1792750209.7066116,
-    "seen": 1792750236.7622888,
+    "mtime": 1792750776.9833837,
+    "seen": 1792752846.707687,
     "ast_hash": "926763711f6332fe4ee706008aa22cf8",
     "semantic_hash": ""
   },
@@ -1404,8 +1404,8 @@
     "semantic_hash": "a213ac58aa2d8b12cba7392b6f0bbff9"
   },
   "src/api/tests/test_nonprod.py": {
-    "mtime": 1792750186.4783561,
-    "seen": 1792750236.762243,
+    "mtime": 1792750776.9822924,
+    "seen": 1792752846.707638,
     "ast_hash": "f6f5adb35e20839241d3553b17fcbe85",
     "semantic_hash": ""
   },
@@ -1464,8 +1464,8 @@
     "semantic_hash": "44ef86722b4d0008741e2abf601b7698"
   },
   "src/frontend/src/pages/NonProdItemsPage.tsx": {
-    "mtime": 1792750209.7064464,
-    "seen": 1792750236.762283,
+    "mtime": 1792750776.9826221,
+    "seen": 1792752846.7076821,
     "ast_hash": "c0ecb4bb193385e5806bd2440579fdad",
     "semantic_hash": ""
   },
@@ -1584,10 +1584,10 @@
     "semantic_hash": "1de90c547648157718fbb5874726c9ac"
   },
   "src/api/tests/test_catalog_osspa_routes.py": {
-    "mtime": 1788860485.1706028,
-    "seen": 1792065592.376599,
-    "ast_hash": "d865627781432cc1f5a2b856b4f15a0d",
-    "semantic_hash": "d865627781432cc1f5a2b856b4f15a0d"
+    "mtime": 1792752729.3225596,
+    "seen": 1792752846.7076218,
+    "ast_hash": "1fd1cdd1b7633b5b414ea0bc7d654347",
+    "semantic_hash": ""
   },
   "src/api/tests/test_osspa_adoc.py": {
     "mtime": 1788860485.1715152,
@@ -1620,9 +1620,9 @@
     "semantic_hash": "7ea3f671ed6bb6f58159143a7f1f9894"
   },
   "src/api/tests/test_status_visibility.py": {
-    "mtime": 1792748491.237472,
-    "seen": 1792750236.7622578,
-    "ast_hash": "deed643aadab94cde2c8ec85626ae061",
+    "mtime": 1792752722.8872414,
+    "seen": 1792752846.707652,
+    "ast_hash": "86017b5acefe7d7dfa7b73c18995c154",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/browse/helpers.test.ts": {
