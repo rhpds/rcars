@@ -743,6 +743,31 @@ class Database:
                     except Exception:
                         logger.exception("advisory_unlock_failed")
 
+    @contextmanager
+    def wait_advisory_lock(self, lock_id: int, *, wait_seconds: int):
+        """Blocking session-level advisory lock. Yields True if acquired within
+        wait_seconds, False otherwise.
+
+        Uses a dedicated connection, not the pool, so a block that spans Git/LLM
+        requests never starves the pool, and a crashed process releases the lock
+        when its connection drops.
+        """
+        with psycopg.connect(self._url, autocommit=True) as conn:
+            conn.execute(f"SET lock_timeout = '{int(wait_seconds)}s'")
+            try:
+                conn.execute("SELECT pg_advisory_lock(%s)", (lock_id,))
+                got = True
+            except psycopg.errors.LockNotAvailable:
+                got = False
+            try:
+                yield got
+            finally:
+                if got:
+                    try:
+                        conn.execute("SELECT pg_advisory_unlock(%s)", (lock_id,))
+                    except Exception:
+                        logger.exception("advisory_unlock_failed")
+
     def drop_schema(self):
         hostname = urlsplit(self._url).hostname or ""
         is_local = hostname in ("localhost", "127.0.0.1")
