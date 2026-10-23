@@ -3538,9 +3538,15 @@ class Database:
         status: str | None = None,
     ) -> list[dict]:
         """List non-prod items with joined entity/babylon data."""
-        # Usage rows are pruned only by the reporting sync; hide soft-deleted
-        # items as soon as a catalog refresh retires them.
-        conditions = ["ce.retired_at IS NULL"]
+        # Usage rows are pruned only by the reporting sync; hide a base name as
+        # soon as a catalog refresh retires all of its stages. The row may point
+        # at a retired stage while a sibling stage is still active.
+        conditions = ["""EXISTS (
+            SELECT 1 FROM babylon_items sib
+            JOIN content_entities sce ON sce.content_id = sib.content_id
+            WHERE substring(sib.ci_name FROM '^(.+)\\.[^.]+$') = nu.catalog_base_name
+              AND sce.retired_at IS NULL
+        )"""]
         params: dict = {}
 
         if content_type:

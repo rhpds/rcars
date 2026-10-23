@@ -207,3 +207,22 @@ def test_nonprod_list_hides_items_retired_from_babylon(db):
     ids = {i["content_id"] for i in db.list_nonprod_items()}
 
     assert ids == {"babylon:keep.event"}
+
+
+def test_nonprod_list_keeps_item_when_stored_stage_retires_but_sibling_is_active(db):
+    # The usage row points at one stage; until the next sync re-points it,
+    # an active sibling must keep the base name listed.
+    for ci in ("foo.event", "foo.dev"):
+        db.upsert_babylon_catalog_item({"ci_name": ci, "display_name": ci, "stage": ci.split(".")[1],
+                                        "showroom_url": "https://example.com/r"})
+    with db._pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO nonprod_usage (content_id, catalog_base_name, provisions) VALUES (%s, %s, 5)",
+            ("babylon:foo.event", "foo"),
+        )
+        conn.commit()
+    db.retire_missing_babylon({"babylon:foo.dev"})
+
+    names = {i["catalog_base_name"] for i in db.list_nonprod_items()}
+
+    assert names == {"foo"}
