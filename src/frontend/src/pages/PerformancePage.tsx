@@ -526,8 +526,8 @@ export function PerformancePage() {
                       <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}
                         style={muted ? { opacity: 0.45 } : undefined}>
                         <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
-                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {item.display_name}
+                          <div style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{item.display_name}</span>
                             <RetirementInlineBadge status={item.workflow_status} targetDate={item.retirement_target_date} />
                             {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
                           </div>

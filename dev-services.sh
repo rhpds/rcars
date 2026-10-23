@@ -238,7 +238,7 @@ db_pull() {
     fi
 
     local dump_file
-    dump_file=$(mktemp /tmp/rcars-dev-dump.XXXXXX.sql)
+    dump_file=$(mktemp /tmp/rcars-dev-dump.XXXXXX)
     chmod 600 "${dump_file}"
     trap "rm -f '${dump_file}'" RETURN
 
