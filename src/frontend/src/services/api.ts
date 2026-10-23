@@ -524,7 +524,7 @@ export interface PerformanceDashboardResponse {
 
 export interface NonProdEnvMetrics {
   provisions: number
-  team_seats: number
+  total_provisions: number
   experiences: number
   unique_users: number
   first_provision: string | null
@@ -540,7 +540,7 @@ export interface NonProdItem {
   catalog_namespace: string | null
   ci_name: string | null
   provisions: number
-  team_seats: number
+  total_provisions: number
   requests: number
   experiences: number
   unique_users: number

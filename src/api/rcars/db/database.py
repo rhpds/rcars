@@ -636,7 +636,8 @@ WHERE agv_revert_pr_url IS NOT NULL AND cancellation_requested_at IS NULL;
 
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS showroom_source_json JSONB;
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS analysis_provenance_json JSONB;
-ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS team_seats INTEGER DEFAULT 0;
+ALTER TABLE nonprod_usage DROP COLUMN IF EXISTS team_seats;
+ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFAULT 0;
 
 """
 
@@ -3475,13 +3476,13 @@ class Database:
         sql = """
             INSERT INTO nonprod_usage (
                 content_id, catalog_base_name,
-                provisions, team_seats, requests, experiences, unique_users,
+                provisions, total_provisions, requests, experiences, unique_users,
                 success_ratio, failure_ratio,
                 first_provision, last_provision,
                 windowed_metrics, synced_at
             ) VALUES (
                 %(content_id)s, %(catalog_base_name)s,
-                %(provisions)s, %(team_seats)s, %(requests)s, %(experiences)s, %(unique_users)s,
+                %(provisions)s, %(total_provisions)s, %(requests)s, %(experiences)s, %(unique_users)s,
                 %(success_ratio)s, %(failure_ratio)s,
                 %(first_provision)s, %(last_provision)s,
                 %(windowed_metrics)s::jsonb, NOW()
@@ -3489,7 +3490,7 @@ class Database:
             ON CONFLICT (content_id) DO UPDATE SET
                 catalog_base_name = EXCLUDED.catalog_base_name,
                 provisions = EXCLUDED.provisions,
-                team_seats = EXCLUDED.team_seats,
+                total_provisions = EXCLUDED.total_provisions,
                 requests = EXCLUDED.requests,
                 experiences = EXCLUDED.experiences,
                 unique_users = EXCLUDED.unique_users,
@@ -3537,7 +3538,7 @@ class Database:
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
         direction = "ASC" if sort_dir.lower() == "asc" else "DESC"
 
-        allowed_sorts = {"provisions", "team_seats", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+        allowed_sorts = {"provisions", "total_provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
         if sort_by == "display_name":
             order_expr = "ce.display_name"
         elif sort_by in allowed_sorts:
@@ -3547,7 +3548,7 @@ class Database:
 
         sql = f"""
             SELECT nu.content_id, nu.catalog_base_name,
-                   nu.provisions, nu.team_seats, nu.requests, nu.experiences, nu.unique_users,
+                   nu.provisions, nu.total_provisions, nu.requests, nu.experiences, nu.unique_users,
                    nu.success_ratio, nu.failure_ratio,
                    nu.first_provision, nu.last_provision,
                    nu.windowed_metrics, nu.ignored_until, nu.synced_at,

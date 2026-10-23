@@ -9,7 +9,7 @@ import {
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'muted'
-type SortField = 'provisions' | 'team_seats' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
+type SortField = 'provisions' | 'total_provisions' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -346,17 +346,18 @@ export function NonProdItemsPage() {
                   </th>
                   <th>Type</th>
                   <th>Stages</th>
-                  <th className="clickable num" onClick={() => toggleSort('provisions')}>
-                    Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                  <th className="clickable num" onClick={() => toggleSort('provisions')}
+                    title="Provisions by users outside RHDP. Matches Superset.">
+                    User Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th className="clickable num" onClick={() => toggleSort('team_seats')}
-                    title="Workshop seats ordered by RHDP team members (cost center 542). Not counted in Provisions.">
-                    Team-Run Seats {sortBy === 'team_seats' && (sortDir === 'desc' ? '↓' : '↑')}
-                  </th>
+                  <th className="num" title="Experiences by users outside RHDP.">User Experiences</th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
                     Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th className="num">Experiences</th>
+                  <th className="clickable num" onClick={() => toggleSort('total_provisions')}
+                    title="All provisions, including RHDP staff. Unclaimed pool instances are not counted.">
+                    Total Provisions {sortBy === 'total_provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable num" onClick={() => toggleSort('success_ratio')}>
                     Success {sortBy === 'success_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
@@ -394,9 +395,9 @@ export function NonProdItemsPage() {
                           ))}
                         </td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
-                        <td className="num">{(item.team_seats ?? 0).toLocaleString()}</td>
-                        <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
+                        <td className="num">{item.unique_users.toLocaleString()}</td>
+                        <td className="num">{(item.total_provisions ?? 0).toLocaleString()}</td>
                         <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
                         <td className="num">{(item.failure_ratio * 100).toFixed(1)}%</td>
                         <td style={{ fontSize: '11px' }}>{item.first_provision || '—'}</td>
@@ -414,10 +415,10 @@ export function NonProdItemsPage() {
                                   <thead>
                                     <tr>
                                       <th>Environment</th>
-                                      <th className="num">Provisions</th>
-                                      <th className="num">Team-Run Seats</th>
+                                      <th className="num">User Provisions</th>
+                                      <th className="num">User Experiences</th>
                                       <th className="num">Unique Users</th>
-                                      <th className="num">Experiences</th>
+                                      <th className="num">Total Provisions</th>
                                       <th>First Provision</th>
                                       <th>Last Provision</th>
                                     </tr>
@@ -438,9 +439,9 @@ export function NonProdItemsPage() {
                                           </span>
                                         </td>
                                         <td className="num">{env ? env.provisions.toLocaleString() : '—'}</td>
-                                        <td className="num">{env ? env.team_seats.toLocaleString() : '—'}</td>
-                                        <td className="num">{env ? env.unique_users.toLocaleString() : '—'}</td>
                                         <td className="num">{env ? env.experiences.toLocaleString() : '—'}</td>
+                                        <td className="num">{env ? env.unique_users.toLocaleString() : '—'}</td>
+                                        <td className="num">{env ? env.total_provisions.toLocaleString() : '—'}</td>
                                         <td>{env?.first_provision || '—'}</td>
                                         <td>{env?.last_provision || '—'}</td>
                                       </tr>
@@ -449,7 +450,7 @@ export function NonProdItemsPage() {
                                   </tbody>
                                 </table>
                                 <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '4px', fontStyle: 'italic' }}>
-                                  Provisions count regular and Red Hat Console users (matches Superset). Team-Run Seats are workshop seats ordered by RHDP staff. Unique users can overlap across environments.
+                                  User columns count users outside RHDP (matches Superset). Total Provisions adds RHDP staff. Unclaimed pool instances are not counted.
                                 </div>
                               </div>
                             )}

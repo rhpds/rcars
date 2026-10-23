@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/analysis.py": {
-    "mtime": 1792745199.2700605,
-    "seen": 1792747228.876787,
-    "ast_hash": "841f9a191cf23b097f91e83e12b29d94",
+    "mtime": 1792750173.5392807,
+    "seen": 1792750236.762176,
+    "ast_hash": "4d28d1de7d680247d81ab577483ecdd6",
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/auth.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1792747064.0985541,
-    "seen": 1792747228.8767931,
-    "ast_hash": "e7ccd7c922e399338d0b85aa96aa630a",
+    "mtime": 1792750180.2553499,
+    "seen": 1792750236.762184,
+    "ast_hash": "cda967ecfb0a6372348c06cf8833c03c",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -210,9 +210,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/reporting_sync.py": {
-    "mtime": 1792748003.3535364,
-    "seen": 1792748023.920149,
-    "ast_hash": "56eca9010bc864c372c0fa96833e8c7e",
+    "mtime": 1792750173.5385666,
+    "seen": 1792750236.762207,
+    "ast_hash": "f0796bb96118a4357f6dbea5013cc410",
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement.py": {
@@ -486,8 +486,8 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/BrowsePage.tsx": {
-    "mtime": 1792747126.334653,
-    "seen": 1792747228.876878,
+    "mtime": 1792748491.2393134,
+    "seen": 1792750236.76228,
     "ast_hash": "6da7fe623b435db1616c7e17bdfc3c0a",
     "semantic_hash": ""
   },
@@ -528,9 +528,9 @@
     "semantic_hash": "57cb7f9e812b124b1f4135531d5b81de"
   },
   "src/frontend/src/services/api.ts": {
-    "mtime": 1792745228.419402,
-    "seen": 1792747228.876885,
-    "ast_hash": "aada0398fa76d567282709d144b368b4",
+    "mtime": 1792750209.7066116,
+    "seen": 1792750236.7622888,
+    "ast_hash": "926763711f6332fe4ee706008aa22cf8",
     "semantic_hash": ""
   },
   "src/frontend/src/vite-env.d.ts": {
@@ -1290,8 +1290,8 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/PerformancePage.tsx": {
-    "mtime": 1792747097.5899339,
-    "seen": 1792747228.87688,
+    "mtime": 1792748491.2398329,
+    "seen": 1792750236.762283,
     "ast_hash": "65047665f375f90ccca6ee407803f72c",
     "semantic_hash": ""
   },
@@ -1404,9 +1404,9 @@
     "semantic_hash": "a213ac58aa2d8b12cba7392b6f0bbff9"
   },
   "src/api/tests/test_nonprod.py": {
-    "mtime": 1792747996.5131474,
-    "seen": 1792748023.9201841,
-    "ast_hash": "73521eada98c6b68494270b8031534ab",
+    "mtime": 1792750186.4783561,
+    "seen": 1792750236.762243,
+    "ast_hash": "f6f5adb35e20839241d3553b17fcbe85",
     "semantic_hash": ""
   },
   "src/api/tests/test_orphan_cleanup.py": {
@@ -1464,9 +1464,9 @@
     "semantic_hash": "44ef86722b4d0008741e2abf601b7698"
   },
   "src/frontend/src/pages/NonProdItemsPage.tsx": {
-    "mtime": 1792747114.0072985,
-    "seen": 1792747228.8768792,
-    "ast_hash": "656b19829fead64caaf0d2472502af1d",
+    "mtime": 1792750209.7064464,
+    "seen": 1792750236.762283,
+    "ast_hash": "c0ecb4bb193385e5806bd2440579fdad",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/VocabularyPage.tsx": {
@@ -1620,8 +1620,8 @@
     "semantic_hash": "7ea3f671ed6bb6f58159143a7f1f9894"
   },
   "src/api/tests/test_status_visibility.py": {
-    "mtime": 1792747056.0174966,
-    "seen": 1792747228.8768551,
+    "mtime": 1792748491.237472,
+    "seen": 1792750236.7622578,
     "ast_hash": "deed643aadab94cde2c8ec85626ae061",
     "semantic_hash": ""
   },
@@ -1710,8 +1710,8 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/RetirementPage.tsx": {
-    "mtime": 1792747145.0740442,
-    "seen": 1792747228.876881,
+    "mtime": 1792748491.240131,
+    "seen": 1792750236.762284,
     "ast_hash": "f756babc3c1d1b9e2dda80d447cb8a47",
     "semantic_hash": ""
   },
@@ -1920,8 +1920,8 @@
     "semantic_hash": ""
   },
   "src/frontend/src/components/performance/RetirementBadge.tsx": {
-    "mtime": 1792747076.8569596,
-    "seen": 1792747228.8768718,
+    "mtime": 1792748491.2390347,
+    "seen": 1792750236.762275,
     "ast_hash": "f5d1d0cd30e2ce9410e0bca6f32142d2",
     "semantic_hash": ""
   }
