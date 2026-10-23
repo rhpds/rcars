@@ -6,7 +6,7 @@ import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
-type SortField = 'display_name' | 'provisions' | 'unique_users' | 'experiences' | 'success_ratio'
+type SortField = 'display_name' | 'provisions' | 'unique_users' | 'experiences' | 'retirement_target_date'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -119,6 +119,13 @@ export function RetirementPage() {
   const sortedItems = [...filteredItems].sort((a, b) => {
     const mul = sortDir === 'asc' ? 1 : -1
     if (sortBy === 'display_name') return mul * (a.display_name || '').localeCompare(b.display_name || '')
+    if (sortBy === 'retirement_target_date') {
+      // Items without a scheduled date always sort last
+      if (!a.retirement_target_date || !b.retirement_target_date) {
+        return (a.retirement_target_date ? 0 : 1) - (b.retirement_target_date ? 0 : 1)
+      }
+      return mul * a.retirement_target_date.localeCompare(b.retirement_target_date)
+    }
     const av = (a[sortBy as keyof RetirementItem] as number) ?? 0
     const bv = (b[sortBy as keyof RetirementItem] as number) ?? 0
     return mul * (av - bv)
@@ -266,6 +273,9 @@ export function RetirementPage() {
                     Name {sortBy === 'display_name' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
                   <th>Status</th>
+                  <th className="clickable" onClick={() => toggleSort('retirement_target_date')}>
+                    Scheduled {sortBy === 'retirement_target_date' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th>Type</th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
                     Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
@@ -276,11 +286,6 @@ export function RetirementPage() {
                   <th className="clickable num" onClick={() => toggleSort('experiences')}>
                     Experiences {sortBy === 'experiences' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th className="clickable num" onClick={() => toggleSort('success_ratio')}>
-                    Success {sortBy === 'success_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
-                  </th>
-                  <th>First</th>
-                  <th>Last</th>
                 </tr>
               </thead>
               <tbody>
@@ -303,17 +308,15 @@ export function RetirementPage() {
                             {statusLabels[item.effective_status] || item.effective_status}
                           </span>
                         </td>
+                        <td>{fmtDate(item.retirement_target_date)}</td>
                         <td><span className="ca-env-tag ca-env-test">{item.content_type || '—'}</span></td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
                         <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
-                        <td className="num">{(item.success_ratio * 100).toFixed(1)}%</td>
-                        <td>{fmtDate(item.first_activity)}</td>
-                        <td>{fmtDate(item.last_activity)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">
-                          <td colSpan={9}>
+                          <td colSpan={7}>
                             <div className="ca-detail">
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Jira</span>
@@ -337,6 +340,20 @@ export function RetirementPage() {
                                       ))
                                     : '—'}
                                 </span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Success Rate</span>
+                                <span className="ca-detail-value">
+                                  {item.success_ratio != null ? `${(item.success_ratio * 100).toFixed(1)}%` : '—'}
+                                </span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">First Provision</span>
+                                <span className="ca-detail-value">{fmtDate(item.first_activity)}</span>
+                              </div>
+                              <div className="ca-detail-item">
+                                <span className="ca-detail-label">Last Provision</span>
+                                <span className="ca-detail-value">{fmtDate(item.last_activity)}</span>
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Requested By</span>

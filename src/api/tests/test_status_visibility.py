@@ -131,3 +131,22 @@ def test_browse_babylon_only_facet_still_works(db):
     result = db.list_content_entities_filtered(cloud_provider="aws", limit=50)
 
     assert [i["content_id"] for i in result["items"]] == ["babylon:a.prod"]
+
+
+def test_browse_reports_retirement_workflow_status(db):
+    for name in ("a", "b", "c", "d"):
+        db.upsert_babylon_catalog_item({"ci_name": f"{name}.prod", "display_name": name.upper(),
+                                        "stage": "prod", "showroom_url": "https://example.com/r"})
+    db.upsert_retirement_workflow("babylon:a.prod", {"status": "approved", "step_approved_at": "NOW()"})
+    db.upsert_retirement_workflow("babylon:b.prod", {
+        "status": "started", "step_approved_at": "NOW()", "retirement_target_date": "2026-11-22"})
+    db.upsert_retirement_workflow("babylon:c.prod", {"status": "reviewed"})
+
+    result = db.list_content_entities_filtered(stages=["prod"], limit=50)
+    by_id = {i["content_id"]: i for i in result["items"]}
+
+    assert by_id["babylon:a.prod"]["workflow_status"] == "approved"
+    assert by_id["babylon:b.prod"]["workflow_status"] == "started"
+    assert str(by_id["babylon:b.prod"]["retirement_target_date"]) == "2026-11-22"
+    assert by_id["babylon:c.prod"]["workflow_status"] is None
+    assert by_id["babylon:d.prod"]["workflow_status"] is None

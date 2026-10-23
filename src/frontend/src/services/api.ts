@@ -522,6 +522,15 @@ export interface PerformanceDashboardResponse {
   channel: string
 }
 
+export interface NonProdEnvMetrics {
+  provisions: number
+  team_seats: number
+  experiences: number
+  unique_users: number
+  first_provision: string | null
+  last_provision: string | null
+}
+
 export interface NonProdItem {
   content_id: string
   catalog_base_name: string
@@ -531,6 +540,7 @@ export interface NonProdItem {
   catalog_namespace: string | null
   ci_name: string | null
   provisions: number
+  team_seats: number
   requests: number
   experiences: number
   unique_users: number
@@ -538,6 +548,7 @@ export interface NonProdItem {
   failure_ratio: number
   first_provision: string | null
   last_provision: string | null
+  by_env: Record<string, NonProdEnvMetrics>
   stages: Array<{ stage: string; ci_name: string; catalog_url: string; has_showroom: boolean }>
   workflow_status?: string | null
   jira_key?: string | null

@@ -5,6 +5,7 @@ import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
 import { WorkflowDrawer, type WorkflowItem } from '../components/performance/WorkflowDrawer'
+import { fmtTargetDate, isInProgress, isRecommended } from '../components/performance/RetirementBadge'
 import {
   contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel, retirementBaseName,
   architectureDetailUrl, architectureSubline,
@@ -40,6 +41,8 @@ interface CatalogItem {
   agd_config?: string | null
   cloud_provider?: string | null
   retired_at?: string | null
+  workflow_status?: string | null
+  retirement_target_date?: string | null
   // Architecture fields (null for Babylon rows)
   pa_name?: string | null
   asset_type?: string | null
@@ -868,6 +871,16 @@ export function BrowsePage() {
                         {item.enrichment_review_needed && <Badge className="badge-review">needs review</Badge>}
                         {item.retired_at && (
                           <Badge className="badge-retired">RETIRED {new Date(item.retired_at).toLocaleDateString()}</Badge>
+                        )}
+                        {!item.retired_at && isRecommended(item.workflow_status) && (
+                          <Badge className="badge-retired">RETIREMENT RECOMMENDED</Badge>
+                        )}
+                        {!item.retired_at && isInProgress(item.workflow_status) && (
+                          <Badge className="badge-retired">
+                            {item.retirement_target_date
+                              ? `RETIRING ${fmtTargetDate(item.retirement_target_date)!.toUpperCase()}`
+                              : 'RETIREMENT IN PROGRESS'}
+                          </Badge>
                         )}
                       </div>
                       <div className="browse-item-ci">

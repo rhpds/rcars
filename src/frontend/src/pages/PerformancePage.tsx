@@ -4,6 +4,9 @@ import { api, PerformanceItem } from '../services/api'
 import { ScoreBreakdownPopover, scoreColor, scoreBg, fmt, num, fmtRoi } from '../components/performance/ScoreBreakdownPopover'
 import { WorkflowDrawer } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
+import {
+  RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
+} from '../components/performance/RetirementBadge'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
@@ -17,12 +20,6 @@ const stageBadgeClass: Record<string, string> = {
 
 const safeHref = (url: string | undefined) => url?.startsWith('http') ? url : `https://${url}`
 
-function WorkflowInlineBadge({ status }: { status: string }) {
-  const labels: Record<string, string> = { approved: 'recommended', notified: 'recommended', started: 'in progress' }
-  const label = labels[status] || status
-  return <span className="ret-inline-badge">{label}</span>
-}
-
 export function PerformancePage() {
   const { isCurator, isAdmin, canViewPerformance } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -32,6 +29,8 @@ export function PerformancePage() {
   const [window_, setWindow] = useState<TimeWindow>((searchParams.get('window') as TimeWindow) || '12m')
   const [perfFilter, setPerfFilter] = useState<PerfFilter>((searchParams.get('performance') as PerfFilter) || 'all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get('status') as StatusFilter) || 'all')
+  const [retirementFilter, setRetirementFilter] = useState<RetirementFilter>(
+    (searchParams.get('retirement') as RetirementFilter) || 'all')
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
   const [sortBy, setSortBy] = useState<SortField>((searchParams.get('sort') as SortField) || 'performance_score')
@@ -90,6 +89,7 @@ export function PerformancePage() {
       setWindow('12m')
       setPerfFilter('all')
       setStatusFilter('all')
+      setRetirementFilter('all')
       setSelectedNamespaces(new Set())
       setSortBy('performance_score')
       setSortDir('desc')
@@ -106,6 +106,7 @@ export function PerformancePage() {
     if (window_ !== '12m') params.window = window_
     if (perfFilter !== 'all') params.performance = perfFilter
     if (statusFilter !== 'all') params.status = statusFilter
+    if (retirementFilter !== 'all') params.retirement = retirementFilter
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
     if (sortBy !== 'performance_score') params.sort = sortBy
     if (sortDir !== 'desc') params.order = sortDir
@@ -121,7 +122,7 @@ export function PerformancePage() {
       if (appliedRanges[stateKey as keyof RangeFilters]) params[urlKey] = appliedRanges[stateKey as keyof RangeFilters]
     })
     setSearchParams(params, { replace: true })
-  }, [search, channel, window_, perfFilter, statusFilter, selectedNamespaces, sortBy, sortDir, appliedRanges, setSearchParams])
+  }, [search, channel, window_, perfFilter, statusFilter, retirementFilter, selectedNamespaces, sortBy, sortDir, appliedRanges, setSearchParams])
 
   // Debounced range application
   useEffect(() => {
@@ -186,6 +187,7 @@ export function PerformancePage() {
   const clearFilters = () => {
     setPerfFilter('all')
     setStatusFilter('all')
+    setRetirementFilter('all')
     setSelectedNamespaces(new Set())
     setRangeInputs(emptyRanges)
     setAppliedRanges(emptyRanges)
@@ -215,7 +217,8 @@ export function PerformancePage() {
   const nsActiveItems = activeItems.filter(nsMatch)
 
   const perfBandFiltered = (() => {
-    const base = statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems
+    const base = (statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems)
+      .filter(i => matchesRetirementFilter(i.workflow_status, retirementFilter))
     if (perfFilter === 'all') return base.filter(nsMatch)
     if (perfFilter === 'strong') return base.filter(i => i.performance_score >= 55 && nsMatch(i))
     if (perfFilter === 'moderate') return base.filter(i => i.performance_score >= 35 && i.performance_score < 55 && nsMatch(i))
@@ -377,6 +380,12 @@ export function PerformancePage() {
           </div>
         </div>
 
+        <div className="browse-filter-group">
+          <div className="browse-filter-group-label">Retirement</div>
+          <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
+            counts={{ retiring: activeItems.filter(i => isRetiring(i.workflow_status)).length }} />
+        </div>
+
         {isAdmin && (
           <div className="browse-filter-group">
             <div className="browse-filter-group-label">Status</div>
@@ -519,7 +528,7 @@ export function PerformancePage() {
                         <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.display_name}
-                            {item.workflow_status && <WorkflowInlineBadge status={item.workflow_status} />}
+                            <RetirementInlineBadge status={item.workflow_status} targetDate={item.retirement_target_date} />
                             {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
                           </div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>{item.catalog_base_name}</div>
