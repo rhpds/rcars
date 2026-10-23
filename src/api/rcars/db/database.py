@@ -20,6 +20,7 @@ from psycopg_pool import ConnectionPool
 import structlog
 
 from rcars.config import STAGE_PRIORITY
+from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
     AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete,
     effective_showroom_source, item_family_key, signature_matches_source,
@@ -641,6 +642,24 @@ ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFA
 
 """
 
+# Approved retirement for an item or any stage sibling (same CI name minus the
+# stage suffix). Stages share one AgV description, so retiring one retires all;
+# the workflow row lives only on the stage it was started from. Non-Babylon
+# items match on content_id. Expects `ce` and `bi` aliases; exposes
+# `rw.status` and `rw.retirement_target_date`.
+_SIBLING_RETIREMENT_JOIN = """
+    LEFT JOIN (
+        SELECT DISTINCT ON (family) family, status, retirement_target_date
+        FROM (
+            SELECT COALESCE(substring(rw_bi.ci_name FROM '^(.+)\\.[^.]+$'), rw.content_id) AS family,
+                   rw.status, rw.retirement_target_date, rw.updated_at
+            FROM retirement_workflow rw
+            LEFT JOIN babylon_items rw_bi ON rw_bi.content_id = rw.content_id
+            WHERE rw.step_approved_at IS NOT NULL
+        ) approved
+        ORDER BY family, updated_at DESC
+    ) rw ON rw.family = COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id)
+"""
 
 
 def _prefix_overlap(query_words: set[str], name_words: set[str], min_prefix: int = 4) -> int:
@@ -1333,14 +1352,13 @@ class Database:
                    COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
                    COALESCE(sa.enrichment_review_needed, aa.enrichment_review_needed)
                        AS enrichment_review_needed,
-                   CASE WHEN rw.step_approved_at IS NOT NULL THEN rw.status END AS workflow_status,
-                   rw.retirement_target_date
+                   rw.status AS workflow_status, rw.retirement_target_date
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
             LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
             LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
-            LEFT JOIN retirement_workflow rw ON rw.content_id = ce.content_id
+            {_SIBLING_RETIREMENT_JOIN}
             {join_sql}
             {where}
             ORDER BY ce.content_id
@@ -1356,6 +1374,8 @@ class Database:
                 cur.execute(data_sql, params)
                 items = cur.fetchall()
 
+        for item in items:
+            item["retirement_label"] = retirement_label(item["workflow_status"])
         return {"items": items, "total": total}
 
     def retire_missing_babylon(self, current_content_ids: set[str]) -> list[dict]:
@@ -3613,6 +3633,24 @@ class Database:
                     (content_id,),
                 )
                 return cur.fetchone()
+
+    def get_sibling_retirement_status(self, content_id: str) -> dict:
+        """Approved retirement for an item or its stage siblings (see _SIBLING_RETIREMENT_JOIN)."""
+        sql = f"""
+            SELECT rw.status AS workflow_status, rw.retirement_target_date
+            FROM content_entities ce
+            LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+            {_SIBLING_RETIREMENT_JOIN}
+            WHERE ce.content_id = %s
+        """
+        with self._pool.connection() as conn:
+            row = conn.execute(sql, (content_id,)).fetchone()
+        status = row["workflow_status"] if row else None
+        return {
+            "workflow_status": status,
+            "retirement_target_date": row["retirement_target_date"] if row else None,
+            "retirement_label": retirement_label(status),
+        }
 
     def upsert_retirement_workflow(self, content_id: str, fields: dict) -> dict:
         all_fields = dict(fields)

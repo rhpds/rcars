@@ -48,7 +48,9 @@ def _resolve_item(identifier: str, db) -> dict | None:
     description=(
         "Paginated catalog listing with filtering by content type, stage, cloud provider, "
         "workloads, AgnosticD config type, and curator content filters. "
-        "Text search matches on CI name and display name (case-insensitive)."
+        "Text search matches on CI name and display name (case-insensitive). "
+        "Each item includes workflow_status, retirement_target_date, and retirement_label "
+        "(recommended, in_progress, retired, or null), shared across stage siblings."
     ),
 )
 async def list_catalog(
@@ -229,7 +231,8 @@ async def infrastructure_items(
     description=(
         "Returns full catalog item with LLM analysis, enrichment tags, "
         "workload mappings, ACL groups, and performance data (provisions, cost, sales impact). "
-        "Accepts content_id (babylon:...) or legacy ci_name."
+        "Accepts content_id (babylon:...) or legacy ci_name. Includes workflow_status, "
+        "retirement_target_date, and retirement_label, shared across stage siblings."
     ),
     response_model=CatalogItemResponse,
     responses={404: {"description": "Catalog item not found"}},
@@ -241,12 +244,14 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
     if not item:
         raise HTTPException(status_code=404, detail="Catalog item not found")
     content_id = item["content_id"]
+    retirement = db.get_sibling_retirement_status(content_id)
 
     if item.get("source") == "portfolio_arch":
         repo = settings.osspa_examples_repo_url.removesuffix(".git")
         detail_page = item.get("detail_page") or ""
         return {
             **item,
+            **retirement,
             "analysis": db.get_architecture_analysis(content_id),
             "tags": db.get_enrichment_tags(content_id),
             "workloads": [],
@@ -287,7 +292,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
         from rcars.services.reporting_sync import compute_sales_impact
         reporting["sales_impact"] = compute_sales_impact(float(reporting.get("closed_amount", 0) or 0))
 
-    return {**item, "analysis": analysis, "tags": tags,
+    return {**item, **retirement, "analysis": analysis, "tags": tags,
             "workloads": workloads, "acl_groups": acl_groups,
             "reporting": reporting}
 

@@ -10,6 +10,19 @@ STEP_ORDER = [
 ]
 
 
+RETIREMENT_LABELS = {
+    "approved": "recommended",
+    "notified": "recommended",
+    "started": "in_progress",
+    "retired": "retired",
+}
+
+
+def retirement_label(status: str | None) -> str | None:
+    """API-friendly label for an approved workflow status (None if not retiring)."""
+    return RETIREMENT_LABELS.get(status) if status else None
+
+
 def derive_status(fields: dict) -> str:
     """Derive the workflow status from the highest completed step."""
     for step_field, status in STEP_ORDER:
