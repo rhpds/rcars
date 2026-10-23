@@ -3077,6 +3077,7 @@ details.ca-band-section:not([open]) > .ca-band-header {
   font-weight: 600;
   padding: 2px 8px;
   margin-left: 8px;
+  flex-shrink: 0;
   border-radius: 10px;
   white-space: nowrap;
   vertical-align: middle;
