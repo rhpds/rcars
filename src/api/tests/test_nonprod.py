@@ -69,6 +69,22 @@ class TestNonprodProvisionsSql:
         assert "GROUPING SETS ((ci.name), (ci.name, ps.environment))" in sql
 
 
+class TestMcpQueryOrdering:
+    def test_defaults_to_first_column(self):
+        from unittest.mock import patch
+        from rcars.services.reporting_sync import mcp_query
+        with patch("rcars.services.reporting_sync._mcp_call", return_value={"rows": []}) as call:
+            mcp_query("SELECT 1", url="url", token="token")
+        assert "ORDER BY 1 LIMIT" in call.call_args[0][1]["sql"]
+
+    def test_accepts_unique_sort_key(self):
+        from unittest.mock import patch
+        from rcars.services.reporting_sync import mcp_query
+        with patch("rcars.services.reporting_sync._mcp_call", return_value={"rows": []}) as call:
+            mcp_query("SELECT 1", url="url", token="token", order_by="1, 2, 3")
+        assert "ORDER BY 1, 2, 3 LIMIT" in call.call_args[0][1]["sql"]
+
+
 class TestSyncNonprodUsage:
     def test_function_exists(self):
         from rcars.services.reporting_sync import _sync_nonprod_usage
@@ -98,8 +114,11 @@ class TestSyncNonprodUsage:
         db.upsert_nonprod_usage.side_effect = lambda r: len(r)
         db.delete_orphan_nonprod_data.return_value = 0
 
-        with patch("rcars.services.reporting_sync.mcp_query", return_value=rows):
+        with patch("rcars.services.reporting_sync.mcp_query", return_value=rows) as query:
             _sync_nonprod_usage(db, "url", "token")
+
+        # Several rows share a base name, so pagination needs a unique sort key
+        assert all(c.kwargs["order_by"] == "1, 2, 3" for c in query.call_args_list)
 
         upserted = db.upsert_nonprod_usage.call_args[0][0][0]
         assert upserted["provisions"] == 106

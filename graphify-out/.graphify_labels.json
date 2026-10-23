@@ -11,7 +11,6 @@
   "21": "test_db.py",
   "23": "test_osspa_adoc.py",
   "30": "App.tsx",
-  "31": "routes/auth.py",
   "36": "Controlled Vocabulary",
   "37": "load_vocabulary",
   "38": "render_vocabulary_block",

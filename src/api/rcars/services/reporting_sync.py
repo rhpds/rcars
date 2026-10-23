@@ -286,14 +286,19 @@ def mcp_query(
     url: str,
     token: str,
     timeout: int = 180,
+    order_by: str = "1",
 ) -> list[dict]:
-    """Execute SQL via MCP server, auto-paginating past the per-call row cap."""
+    """Execute SQL via MCP server, auto-paginating past the per-call row cap.
+
+    ``order_by`` must uniquely order rows, or rows tied at a page boundary
+    can be skipped or repeated between pages.
+    """
     PAGE = 500
     MAX_PAGES = 50
     all_rows: list[dict] = []
     offset = 0
     for _ in range(MAX_PAGES):
-        paged = f"WITH _q AS ({sql}) SELECT * FROM _q ORDER BY 1 LIMIT {PAGE} OFFSET {offset}"
+        paged = f"WITH _q AS ({sql}) SELECT * FROM _q ORDER BY {order_by} LIMIT {PAGE} OFFSET {offset}"
         result = _mcp_call(
             "query",
             {"sql": paged, "output_format": "json", "limit": PAGE},
@@ -712,7 +717,11 @@ def _sync_nonprod_usage(db, url: str, token: str) -> dict:
     for wk, days in NONPROD_WINDOWS.items():
         w_start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         log.info("fetching_nonprod_window", window=wk, start=w_start)
-        rows = mcp_query(_build_nonprod_provisions_sql(w_start, base_names), url=url, token=token)
+        # (catalog_base_name, environment, is_total) is unique per row
+        rows = mcp_query(
+            _build_nonprod_provisions_sql(w_start, base_names),
+            url=url, token=token, order_by="1, 2, 3",
+        )
         totals: dict[str, dict] = {}
         envs: dict[str, dict[str, dict]] = {}
         for r in rows:
