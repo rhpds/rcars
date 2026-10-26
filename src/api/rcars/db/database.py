@@ -3546,6 +3546,11 @@ class Database:
             JOIN content_entities sce ON sce.content_id = sib.content_id
             WHERE substring(sib.ci_name FROM '^(.+)\\.[^.]+$') = nu.catalog_base_name
               AND sce.retired_at IS NULL
+        )""", """NOT EXISTS (
+            SELECT 1 FROM retirement_workflow rrw
+            JOIN babylon_items rbi ON rbi.content_id = rrw.content_id
+            WHERE substring(rbi.ci_name FROM '^(.+)\\.[^.]+$') = nu.catalog_base_name
+              AND (rrw.status = 'retired' OR rrw.step_retired_at IS NOT NULL)
         )"""]
         params: dict = {}
 

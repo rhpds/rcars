@@ -226,3 +226,38 @@ def test_nonprod_list_keeps_item_when_stored_stage_retires_but_sibling_is_active
     names = {i["catalog_base_name"] for i in db.list_nonprod_items()}
 
     assert names == {"foo"}
+
+
+def _seed_nonprod(db, ci_names, usage_ci):
+    for ci in ci_names:
+        db.upsert_babylon_catalog_item({"ci_name": ci, "display_name": ci, "stage": ci.split(".")[1],
+                                        "showroom_url": "https://example.com/r"})
+    with db._pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO nonprod_usage (content_id, catalog_base_name, provisions) VALUES (%s, %s, 5)",
+            (f"babylon:{usage_ci}", usage_ci.split(".")[0]),
+        )
+        conn.commit()
+
+
+def test_nonprod_list_hides_item_with_finished_retirement_workflow(db):
+    # The catalog may not be refreshed yet, but a finished retirement workflow
+    # on any stage must hide the base name from Non-Prod.
+    _seed_nonprod(db, ["foo.event", "foo.dev"], "foo.event")
+    db.upsert_retirement_workflow("babylon:foo.dev", {
+        "status": "retired", "step_approved_at": "2026-10-26T00:00:00Z",
+        "step_retired_at": "2026-10-26T00:00:00Z",
+    })
+
+    assert db.list_nonprod_items() == []
+
+
+def test_nonprod_list_keeps_item_with_unfinished_retirement_workflow(db):
+    _seed_nonprod(db, ["foo.event"], "foo.event")
+    db.upsert_retirement_workflow("babylon:foo.event", {
+        "status": "started", "step_approved_at": "2026-10-26T00:00:00Z",
+    })
+
+    items = db.list_nonprod_items()
+
+    assert [i["workflow_status"] for i in items] == ["started"]
