@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, RetirementItem } from '../services/api'
+import { browseStageUrl } from '../utils/browseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 
@@ -334,9 +335,11 @@ export function RetirementPage() {
                                 <span className="ca-detail-value">
                                   {item.stages.length > 0
                                     ? item.stages.map(s => (
-                                        <span key={s.ci_name} className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}>
+                                        <a key={s.ci_name} href={browseStageUrl(item.display_name, s.stage)} target="_blank" rel="noreferrer"
+                                          className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
+                                          onClick={e => e.stopPropagation()}>
                                           {s.stage}
-                                        </span>
+                                        </a>
                                       ))
                                     : '—'}
                                 </span>

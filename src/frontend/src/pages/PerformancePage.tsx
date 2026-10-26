@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, PerformanceItem } from '../services/api'
+import { browseStageUrl } from '../utils/browseLink'
 import { ScoreBreakdownPopover, scoreColor, scoreBg, fmt, num, fmtRoi } from '../components/performance/ScoreBreakdownPopover'
 import { WorkflowDrawer } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
@@ -563,7 +564,7 @@ export function PerformancePage() {
                                 <span className="ca-detail-label">Environments</span>
                                 <span className="ca-detail-value">
                                   {item.stages.map(s => (
-                                    <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(item.display_name)}`} target="_blank" rel="noreferrer"
+                                    <a key={s.ci_name} href={browseStageUrl(item.display_name, s.stage)} target="_blank" rel="noreferrer"
                                       className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                                       onClick={e => e.stopPropagation()}>
                                       {s.stage}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../../services/api'
+import { browseStageUrl } from '../../utils/browseLink'
 import type { RetirementWorkflow } from '../../services/api'
 import { useAuth } from '../../hooks/useAuth'
 import { fmt, num, scoreColor } from './ScoreBreakdownPopover'
@@ -537,7 +538,7 @@ RHDP Content Team`
                   <div className="ret-data-label">Environments</div>
                   <div style={{ marginTop: '4px' }}>
                     {item.stages.map(s => (
-                      <a key={s.ci_name} href={`/browse?search=${encodeURIComponent(item.display_name)}`} target="_blank" rel="noreferrer"
+                      <a key={s.ci_name} href={browseStageUrl(item.display_name, s.stage)} target="_blank" rel="noreferrer"
                         className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
                         style={{ marginRight: 4 }}>
                         {s.stage}
