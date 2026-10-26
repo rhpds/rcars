@@ -1,16 +1,13 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, RetirementItem } from '../services/api'
+import { StageBrowseLink } from '../components/StageBrowseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
 type SortField = 'display_name' | 'provisions' | 'unique_users' | 'experiences' | 'retirement_target_date'
-
-const stageBadgeClass: Record<string, string> = {
-  prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
-}
 
 const statusLabels: Record<string, string> = {
   recommended: 'Recommended',
@@ -334,9 +331,7 @@ export function RetirementPage() {
                                 <span className="ca-detail-value">
                                   {item.stages.length > 0
                                     ? item.stages.map(s => (
-                                        <span key={s.ci_name} className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}>
-                                          {s.stage}
-                                        </span>
+                                        <StageBrowseLink key={s.ci_name} displayName={item.display_name} stage={s.stage} />
                                       ))
                                     : '—'}
                                 </span>

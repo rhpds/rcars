@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, NonProdItem } from '../services/api'
+import { StageBrowseLink } from '../components/StageBrowseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -429,11 +430,7 @@ export function NonProdItemsPage() {
                                       return (
                                       <tr key={s.ci_name}>
                                         <td>
-                                          <a href={s.catalog_url} target="_blank" rel="noreferrer"
-                                            className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
-                                            onClick={e => e.stopPropagation()}>
-                                            {s.stage}
-                                          </a>
+                                          <StageBrowseLink displayName={item.display_name} stage={s.stage} />
                                           <span style={{ marginLeft: '6px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', fontSize: '10px' }}>
                                             {s.ci_name}
                                           </span>
