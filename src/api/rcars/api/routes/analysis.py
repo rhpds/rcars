@@ -29,6 +29,14 @@ WINDOWS = {"3m", "6m", "9m", "12m"}
 CHANNEL_SOURCES = {"sales": "rhdp", "marketing": "interactive_labs"}
 
 
+def _sort_empty_last(items: list[dict], key, reverse: bool) -> None:
+    """Sort in place by a string key; items whose key is empty stay at the end in either direction."""
+    keyed = [i for i in items if key(i)]
+    empty = [i for i in items if not key(i)]
+    keyed.sort(key=key, reverse=reverse)
+    items[:] = keyed + empty
+
+
 def _base_name_to_content_id(base_name: str, db, *, include_retired: bool = False) -> str | None:
     """Resolve a catalog base name (e.g. 'ocp4-getting-started') to a content_id.
 
@@ -196,10 +204,14 @@ async def performance_dashboard(
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 
     # Re-sort by frontend sort names (DB sorted by DB column names, may differ)
-    allowed_sorts = {"performance_score", "provisions", "total_cost", "closed_amount", "pipeline_touched", "display_name", "touched_roi", "closed_roi"}
+    allowed_sorts = {"performance_score", "provisions", "total_cost", "closed_amount", "pipeline_touched", "display_name",
+                     "touched_roi", "closed_roi", "channels"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
-        if sort_by == "touched_roi":
+        if sort_by == "channels":
+            items.sort(key=lambda i: (len(i.get("channels_present") or []), ",".join(sorted(i.get("channels_present") or []))),
+                       reverse=reverse)
+        elif sort_by == "touched_roi":
             items.sort(key=lambda i: (i.get("pipeline_touched") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
         elif sort_by == "closed_roi":
             items.sort(key=lambda i: (i.get("closed_amount") or 0) / max(i.get("total_cost") or 1, 0.01), reverse=reverse)
@@ -1103,11 +1115,18 @@ async def nonprod_dashboard(
             item["ignored_until"] = None
 
     # Re-sort after windowed overlay
-    allowed_sorts = {"provisions", "total_provisions", "unique_users", "success_ratio", "failure_ratio", "display_name"}
+    allowed_sorts = {"provisions", "total_provisions", "experiences", "unique_users", "success_ratio", "failure_ratio",
+                     "display_name", "content_type", "stages", "first_provision", "last_provision"}
     if sort_by in allowed_sorts:
         reverse = sort_dir.lower() == "desc"
         if sort_by == "display_name":
             items.sort(key=lambda i: (i.get(sort_by) or ""), reverse=reverse)
+        elif sort_by == "content_type":
+            _sort_empty_last(items, lambda i: (i.get("content_type") or "").lower(), reverse)
+        elif sort_by == "stages":
+            _sort_empty_last(items, lambda i: ", ".join(sorted(s["stage"] for s in i["stages"])), reverse)
+        elif sort_by in ("first_provision", "last_provision"):
+            _sort_empty_last(items, lambda i: str(i.get(sort_by) or ""), reverse)
         else:
             items.sort(key=lambda i: (i.get(sort_by) or 0), reverse=reverse)
 

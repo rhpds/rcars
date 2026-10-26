@@ -7,7 +7,7 @@ import { useAuth } from '../hooks/useAuth'
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
-type SortField = 'display_name' | 'provisions' | 'unique_users' | 'experiences' | 'retirement_target_date'
+type SortField = 'display_name' | 'effective_status' | 'content_type' | 'provisions' | 'unique_users' | 'experiences' | 'retirement_target_date'
 
 const statusLabels: Record<string, string> = {
   recommended: 'Recommended',
@@ -116,6 +116,11 @@ export function RetirementPage() {
   const sortedItems = [...filteredItems].sort((a, b) => {
     const mul = sortDir === 'asc' ? 1 : -1
     if (sortBy === 'display_name') return mul * (a.display_name || '').localeCompare(b.display_name || '')
+    if (sortBy === 'effective_status' || sortBy === 'content_type') {
+      const as = (a[sortBy] || '') as string, bs = (b[sortBy] || '') as string
+      if (!as || !bs) return (as ? 0 : 1) - (bs ? 0 : 1)
+      return mul * as.localeCompare(bs)
+    }
     if (sortBy === 'retirement_target_date') {
       // Items without a scheduled date always sort last
       if (!a.retirement_target_date || !b.retirement_target_date) {
@@ -269,11 +274,15 @@ export function RetirementPage() {
                   <th className="clickable" style={{ maxWidth: '280px' }} onClick={() => toggleSort('display_name')}>
                     Name {sortBy === 'display_name' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th>Status</th>
+                  <th className="clickable" onClick={() => toggleSort('effective_status')}>
+                    Status {sortBy === 'effective_status' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable" onClick={() => toggleSort('retirement_target_date')}>
                     Scheduled {sortBy === 'retirement_target_date' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th>Type</th>
+                  <th className="clickable" onClick={() => toggleSort('content_type')}>
+                    Type {sortBy === 'content_type' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}>
                     Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>

@@ -13,7 +13,7 @@ type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
 type StatusFilter = 'all' | 'muted'
 type SortField = 'performance_score' | 'provisions' | 'pipeline_touched' | 'touched_roi'
-  | 'closed_amount' | 'closed_roi' | 'total_cost' | 'display_name'
+  | 'closed_amount' | 'closed_roi' | 'total_cost' | 'display_name' | 'channels'
 
 const safeHref = (url: string | undefined) => url?.startsWith('http') ? url : `https://${url}`
 
@@ -511,7 +511,9 @@ export function PerformancePage() {
                   <th className="clickable num" onClick={() => toggleSort('total_cost')}>
                     Cost {sortBy === 'total_cost' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th className="num">Data</th>
+                  <th className="clickable num" onClick={() => toggleSort('channels')}>
+                    Data {sortBy === 'channels' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                 </tr>
               </thead>
               <tbody>
