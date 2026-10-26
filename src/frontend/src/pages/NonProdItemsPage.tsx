@@ -10,7 +10,8 @@ import {
 
 type TimeWindow = '6m' | '12m'
 type StatusFilter = 'all' | 'muted'
-type SortField = 'provisions' | 'total_provisions' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
+type SortField = 'provisions' | 'total_provisions' | 'experiences' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
+  | 'content_type' | 'stages' | 'first_provision' | 'last_provision'
 
 const stageBadgeClass: Record<string, string> = {
   prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
@@ -345,13 +346,20 @@ export function NonProdItemsPage() {
                   <th className="clickable" style={{ maxWidth: '300px' }} onClick={() => toggleSort('display_name')}>
                     Name {sortBy === 'display_name' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th>Type</th>
-                  <th>Stages</th>
+                  <th className="clickable" onClick={() => toggleSort('content_type')}>
+                    Type {sortBy === 'content_type' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('stages')}>
+                    Stages {sortBy === 'stages' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable num" onClick={() => toggleSort('provisions')}
                     title="Provisions by users outside RHDP. Matches Superset.">
                     User Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th className="num" title="Experiences by users outside RHDP.">User Experiences</th>
+                  <th className="clickable num" onClick={() => toggleSort('experiences')}
+                    title="Experiences by users outside RHDP.">
+                    User Experiences {sortBy === 'experiences' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
                     Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
@@ -365,8 +373,12 @@ export function NonProdItemsPage() {
                   <th className="clickable num" onClick={() => toggleSort('failure_ratio')}>
                     Failure {sortBy === 'failure_ratio' && (sortDir === 'desc' ? '↓' : '↑')}
                   </th>
-                  <th>First Prov</th>
-                  <th>Last Prov</th>
+                  <th className="clickable" onClick={() => toggleSort('first_provision')}>
+                    First Prov {sortBy === 'first_provision' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('last_provision')}>
+                    Last Prov {sortBy === 'last_provision' && (sortDir === 'desc' ? '↓' : '↑')}
+                  </th>
                 </tr>
               </thead>
               <tbody>

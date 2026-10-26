@@ -145,3 +145,13 @@ class TestNonprodRouteExists:
         paths = [r.path for r in router.routes]
         assert "/analysis/nonprod" in paths
         assert "/analysis/nonprod/ignore/{base_name}" in paths
+
+
+class TestSortEmptyLast:
+    def test_empty_values_stay_last_in_both_directions(self):
+        from rcars.api.routes.analysis import _sort_empty_last
+
+        for reverse, expected in ((False, ["a", "b", ""]), (True, ["b", "a", ""])):
+            items = [{"v": ""}, {"v": "b"}, {"v": "a"}]
+            _sort_empty_last(items, lambda i: i["v"], reverse)
+            assert [i["v"] for i in items] == expected
