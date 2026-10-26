@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { api } from '../../services/api'
-import { browseStageUrl } from '../../utils/browseLink'
+import { StageBrowseLink } from '../StageBrowseLink'
 import type { RetirementWorkflow } from '../../services/api'
 import { useAuth } from '../../hooks/useAuth'
 import { fmt, num, scoreColor } from './ScoreBreakdownPopover'
@@ -25,10 +25,6 @@ export interface WorkflowItem {
   retired_at?: string | null
   owners?: Array<{ name: string; email: string }>
   stages?: Array<{ stage: string; ci_name: string; catalog_url: string }>
-}
-
-const stageBadgeClass: Record<string, string> = {
-  prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
 }
 
 function ReplacementPicker({
@@ -538,11 +534,7 @@ RHDP Content Team`
                   <div className="ret-data-label">Environments</div>
                   <div style={{ marginTop: '4px' }}>
                     {item.stages.map(s => (
-                      <a key={s.ci_name} href={browseStageUrl(item.display_name, s.stage)} target="_blank" rel="noreferrer"
-                        className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
-                        style={{ marginRight: 4 }}>
-                        {s.stage}
-                      </a>
+                      <StageBrowseLink key={s.ci_name} displayName={item.display_name} stage={s.stage} style={{ marginRight: 4 }} />
                     ))}
                     {item.stages.length === 0 && <span className="ca-color-muted">none</span>}
                   </div>

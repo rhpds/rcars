@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, Fragment } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { api, PerformanceItem } from '../services/api'
-import { browseStageUrl } from '../utils/browseLink'
+import { StageBrowseLink } from '../components/StageBrowseLink'
 import { ScoreBreakdownPopover, scoreColor, scoreBg, fmt, num, fmtRoi } from '../components/performance/ScoreBreakdownPopover'
 import { WorkflowDrawer } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
@@ -14,10 +14,6 @@ type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
 type StatusFilter = 'all' | 'muted'
 type SortField = 'performance_score' | 'provisions' | 'pipeline_touched' | 'touched_roi'
   | 'closed_amount' | 'closed_roi' | 'total_cost' | 'display_name'
-
-const stageBadgeClass: Record<string, string> = {
-  prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
-}
 
 const safeHref = (url: string | undefined) => url?.startsWith('http') ? url : `https://${url}`
 
@@ -564,11 +560,7 @@ export function PerformancePage() {
                                 <span className="ca-detail-label">Environments</span>
                                 <span className="ca-detail-value">
                                   {item.stages.map(s => (
-                                    <a key={s.ci_name} href={browseStageUrl(item.display_name, s.stage)} target="_blank" rel="noreferrer"
-                                      className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}
-                                      onClick={e => e.stopPropagation()}>
-                                      {s.stage}
-                                    </a>
+                                    <StageBrowseLink key={s.ci_name} displayName={item.display_name} stage={s.stage} />
                                   ))}
                                   {!item.has_content && item.catalog_url && (
                                     <a href={safeHref(item.catalog_url)} target="_blank" rel="noreferrer"
