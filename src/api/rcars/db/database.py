@@ -3886,7 +3886,6 @@ class Database:
                    pc.windowed_metrics AS perf_windowed_metrics,
                    nu.provisions AS np_provisions, nu.unique_users AS np_unique_users,
                    nu.experiences AS np_experiences, nu.success_ratio AS np_success_ratio,
-                   nu.failure_ratio AS np_failure_ratio, nu.total_provisions AS np_total_provisions,
                    nu.first_provision, nu.last_provision,
                    nu.windowed_metrics AS np_windowed_metrics,
                    ps.performance_score, ps.score_breakdown,

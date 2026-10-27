@@ -668,7 +668,7 @@ export function PerformancePage() {
       </div>
 
       </div>{/* end browse-content */}
-      {drawerItem && <WorkflowDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
+      {drawerItem && <WorkflowDrawer item={drawerItem} itemWindow={window_} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
 }

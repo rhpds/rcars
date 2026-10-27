@@ -564,7 +564,7 @@ export interface RetirementItem {
   unique_users: number
   experiences: number
   total_provisions: number | null
-  success_ratio: number
+  success_ratio: number | null
   failure_ratio: number | null
   first_activity: string | null
   last_activity: string | null

@@ -182,7 +182,13 @@ function StepperStep({
   )
 }
 
-export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowItem; onClose: () => void; onChanged: () => void }) {
+export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
+  item: WorkflowItem
+  // Window the passed-in item's metrics cover, used when the fixed window has no data
+  itemWindow?: string
+  onClose: () => void
+  onChanged: () => void
+}) {
   const { isAdmin } = useAuth()
   const [drawerWorkflow, setDrawerWorkflow] = useState<RetirementWorkflow | null>(null)
   const [drawerLoading, setDrawerLoading] = useState(false)
@@ -401,7 +407,7 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     if (view.performance_score != null) metrics.push(`- Performance Score: ${view.performance_score}`)
     if (view.total_cost != null) metrics.push(`- Total Cost: ${fmt(view.total_cost)}`)
     if (view.pipeline_touched != null) metrics.push(`- Pipeline Touched: ${fmt(view.pipeline_touched)}`)
-    const metricsBlock = metrics.length ? `\nKey metrics (${windowLabel ?? 'last 12 months'}):\n${metrics.join('\n')}\n` : ''
+    const metricsBlock = metrics.length ? `\nKey metrics${windowLabel ? ` (${windowLabel})` : ''}:\n${metrics.join('\n')}\n` : ''
 
     const template = `Hi ${ownerNames},
 
@@ -421,9 +427,10 @@ RHDP Content Team`
 
   // Metrics always come from one fixed window so the drawer reads the same
   // whichever window the page behind it is viewing. Pages without a row for
-  // that window (e.g. Non-Prod) fall back to the numbers they passed in.
+  // that window fall back to the numbers they passed in, labeled with their window.
   const view: WorkflowItem = windowMetrics ? { ...item, ...windowMetrics } : item
-  const windowLabel = metricsWindow ? `last ${parseInt(metricsWindow)} months` : null
+  const shownWindow = windowMetrics ? metricsWindow : itemWindow
+  const windowLabel = shownWindow ? `last ${parseInt(shownWindow)} months` : null
 
   const wf = drawerWorkflow
   const isApproved = !!wf?.step_approved_at

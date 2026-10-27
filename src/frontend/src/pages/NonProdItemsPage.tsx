@@ -493,7 +493,7 @@ export function NonProdItemsPage() {
       </div>
 
       </div>{/* end browse-content */}
-      {drawerItem && <WorkflowDrawer item={drawerItem as any} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
+      {drawerItem && <WorkflowDrawer item={drawerItem as any} itemWindow={window_} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
 }

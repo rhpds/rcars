@@ -1006,33 +1006,31 @@ async def retirement_dashboard(
 
     # Apply windowed metrics + compute effective status
     for item in items:
-        wm = item.pop("perf_windowed_metrics", None) or item.pop("np_windowed_metrics", None) or {}
-        item.pop("perf_windowed_metrics", None)
-        item.pop("np_windowed_metrics", None)
+        perf_wm = item.pop("perf_windowed_metrics", None)
+        np_wm = item.pop("np_windowed_metrics", None)
+        from_nonprod = not perf_wm and bool(np_wm)
+        wm = perf_wm or np_wm or {}
         if isinstance(wm, str):
             try:
                 wm = _json.loads(wm)
             except (ValueError, TypeError):
                 wm = {}
-        w = wm.get(window, {})
-
-        # Merge metrics: prefer perf, fall back to nonprod, then windowed
-        # Use `is not None` — `or` treats 0 as falsy and pulls wrong values
-        def _pref(a, b):
-            return a if a is not None else (b if b is not None else 0)
-        item["provisions"] = w.get("provisions", _pref(item.get("provisions"), item.get("np_provisions")))
-        item["unique_users"] = w.get("unique_users", _pref(item.get("unique_users"), item.get("np_unique_users")))
-        item["experiences"] = w.get("experiences", _pref(item.get("experiences"), item.get("np_experiences")))
-        item["success_ratio"] = w.get("success_ratio", _pref(item.get("success_ratio"), item.get("np_success_ratio")))
-        item["failure_ratio"] = w.get("failure_ratio", item.get("np_failure_ratio"))
+        # Usage always comes from the selected window. A missing window is zero,
+        # as on Non-Prod, never the unwindowed (12-month) columns.
+        w = wm.get(window) or {}
+        item["provisions"] = w.get("provisions", 0)
+        item["unique_users"] = w.get("unique_users", 0)
+        item["experiences"] = w.get("experiences", 0)
+        item["success_ratio"] = w.get("success_ratio")
+        item["failure_ratio"] = w.get("failure_ratio")
         # Only the non-prod sync counts RHDP staff, so prod items have no total
-        item["total_provisions"] = w.get("total_provisions") if wm else item.get("np_total_provisions")
+        item["total_provisions"] = w.get("total_provisions", 0) if from_nonprod else None
         item["first_activity"] = item.get("first_activity") or item.get("first_provision")
         item["last_activity"] = item.get("last_activity") or item.get("last_provision")
 
         # Clean up intermediate fields
         for k in ("np_provisions", "np_unique_users", "np_experiences", "np_success_ratio",
-                   "np_failure_ratio", "np_total_provisions", "first_provision", "last_provision"):
+                   "first_provision", "last_provision"):
             item.pop(k, None)
 
         # Score breakdown from windowed metrics if available

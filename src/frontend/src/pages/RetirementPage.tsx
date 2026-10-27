@@ -137,8 +137,10 @@ export function RetirementPage() {
       if (!as || !bs) return (as ? 0 : 1) - (bs ? 0 : 1)
       return mul * as.localeCompare(bs)
     }
-    const av = (a[sortBy as keyof RetirementItem] as number) ?? 0
-    const bv = (b[sortBy as keyof RetirementItem] as number) ?? 0
+    const av = a[sortBy as keyof RetirementItem] as number | null
+    const bv = b[sortBy as keyof RetirementItem] as number | null
+    // Missing values (e.g. prod items have no total provisions) always sort last
+    if (av == null || bv == null) return (av != null ? 0 : 1) - (bv != null ? 0 : 1)
     return mul * (av - bv)
   })
 
@@ -439,7 +441,7 @@ export function RetirementPage() {
       </div>
 
       </div>{/* end browse-content */}
-      {drawerItem && <WorkflowDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
+      {drawerItem && <WorkflowDrawer item={drawerItem} itemWindow={window_} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
 }

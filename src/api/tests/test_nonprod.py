@@ -213,14 +213,25 @@ class TestRetirementDashboardMetrics:
     def test_nonprod_item_gets_total_provisions_and_failure_ratio(self):
         item = self._run({
             "content_id": "babylon:ns.item.dev", "workflow_raw_status": "approved",
-            "np_provisions": 3, "np_total_provisions": 99, "np_failure_ratio": 0.9,
+            "np_provisions": 3,
             "np_windowed_metrics": {"12m": {"provisions": 5, "total_provisions": 12, "failure_ratio": 0.2}},
         })
 
         assert item["provisions"] == 5
         assert item["total_provisions"] == 12
         assert item["failure_ratio"] == 0.2
-        assert "np_total_provisions" not in item and "np_failure_ratio" not in item
+
+    def test_missing_window_is_zero_not_unwindowed_usage(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.dev", "workflow_raw_status": "approved",
+            "np_provisions": 300, "np_unique_users": 40, "np_success_ratio": 0.9,
+            "np_windowed_metrics": {"6m": {"provisions": 5}},
+        })
+
+        assert item["provisions"] == 0
+        assert item["unique_users"] == 0
+        assert item["total_provisions"] == 0
+        assert item["success_ratio"] is None
 
     def test_prod_item_has_no_total_provisions(self):
         item = self._run({
