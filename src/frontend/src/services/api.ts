@@ -273,7 +273,7 @@ export const api = {
 
   // Retirement workflows
   getRetirementWorkflow: (baseName: string) =>
-    request<{ workflow: RetirementWorkflow | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
+    request<{ workflow: RetirementWorkflow | null; metrics: Record<string, unknown> | null; metrics_window: string | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
 
   reviewRetirementItem: (baseName: string) =>
     request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),

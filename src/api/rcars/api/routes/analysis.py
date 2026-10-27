@@ -29,6 +29,26 @@ WINDOWS = {"3m", "6m", "9m", "12m"}
 CHANNEL_SOURCES = {"sales": "rhdp", "marketing": "interactive_labs"}
 
 
+# The retirement drawer always shows this window, so its numbers do not change
+# with whichever window the page behind it is viewing.
+RETIREMENT_METRICS_WINDOW = "9m"
+_RETIREMENT_METRIC_KEYS = (
+    "provisions", "unique_users", "experiences", "success_ratio", "failure_ratio",
+    "performance_score", "pipeline_touched", "closed_amount", "total_cost",
+    "avg_cost_per_provision", "score_breakdown", "extrapolated", "active_months",
+)
+
+
+def _retirement_metrics(channels: list[dict]) -> dict | None:
+    """Sales-channel metrics for the retirement window, as the Performance page serves them."""
+    sales = next((c for c in channels if c.get("channel") == CHANNEL_SOURCES["sales"]), None)
+    wm = (sales or {}).get("windowed_metrics") or {}
+    w = wm.get(RETIREMENT_METRICS_WINDOW)
+    if not w:
+        return None
+    return {k: w[k] for k in _RETIREMENT_METRIC_KEYS if k in w}
+
+
 def _sort_empty_last(items: list[dict], key, reverse: bool) -> None:
     """Sort in place by a string key; items whose key is empty stay at the end in either direction."""
     keyed = [i for i in items if key(i)]
@@ -308,7 +328,11 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     wf = db.get_retirement_workflow(content_id) if content_id else None
-    return {"workflow": wf}
+    return {
+        "workflow": wf,
+        "metrics": _retirement_metrics(db.get_performance_channels(content_id) or []) if content_id else None,
+        "metrics_window": RETIREMENT_METRICS_WINDOW,
+    }
 
 
 @router.put(

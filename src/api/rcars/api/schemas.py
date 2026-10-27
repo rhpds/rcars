@@ -220,6 +220,8 @@ class WorkflowResponse(BaseModel):
 
 class WorkflowGetResponse(BaseModel):
     workflow: dict | None = None
+    metrics: dict | None = None
+    metrics_window: str | None = None
 
 
 class StartRetirementResponse(BaseModel):

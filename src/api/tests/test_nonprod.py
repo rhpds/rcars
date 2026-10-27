@@ -155,3 +155,24 @@ class TestSortEmptyLast:
             items = [{"v": ""}, {"v": "b"}, {"v": "a"}]
             _sort_empty_last(items, lambda i: i["v"], reverse)
             assert [i["v"] for i in items] == expected
+
+
+class TestRetirementMetrics:
+    def test_uses_sales_channel_and_fixed_window(self):
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, _retirement_metrics
+
+        channels = [
+            {"channel": "interactive_labs", "windowed_metrics": {RETIREMENT_METRICS_WINDOW: {"provisions": 1}}},
+            {"channel": "rhdp", "windowed_metrics": {
+                "3m": {"provisions": 5},
+                RETIREMENT_METRICS_WINDOW: {"provisions": 20, "performance_score": 40, "unrelated": 1},
+            }},
+        ]
+
+        assert _retirement_metrics(channels) == {"provisions": 20, "performance_score": 40}
+
+    def test_returns_none_without_data_for_the_window(self):
+        from rcars.api.routes.analysis import _retirement_metrics
+
+        assert _retirement_metrics([]) is None
+        assert _retirement_metrics([{"channel": "rhdp", "windowed_metrics": {"3m": {"provisions": 5}}}]) is None

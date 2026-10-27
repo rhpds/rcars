@@ -199,6 +199,8 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
   const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
+  const [windowMetrics, setWindowMetrics] = useState<Partial<WorkflowItem> | null>(null)
+  const [metricsWindow, setMetricsWindow] = useState<string | null>(null)
 
   useEffect(() => {
     const loadWorkflow = async () => {
@@ -206,8 +208,10 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
       setEmailTemplate(null)
       setActionError(null)
       try {
-        const { workflow } = await api.getRetirementWorkflow(item.catalog_base_name)
+        const { workflow, metrics, metrics_window } = await api.getRetirementWorkflow(item.catalog_base_name)
         setDrawerWorkflow(workflow)
+        setWindowMetrics(metrics as Partial<WorkflowItem> | null)
+        setMetricsWindow(metrics ? metrics_window : null)
         setApprovalReason(workflow?.approval_reason || '')
         setReplacementCi(workflow?.replacement_ci || '')
         setReplacementName(workflow?.replacement_name || '')
@@ -393,11 +397,11 @@ export function WorkflowDrawer({ item, onClose, onChanged }: { item: WorkflowIte
     const reason = drawerWorkflow?.approval_reason || approvalReason || 'See RCARS retirement analysis'
     const replacement = drawerWorkflow?.replacement_name || replacementName
     const metrics: string[] = []
-    if (item.provisions != null) metrics.push(`- Provisions: ${item.provisions.toLocaleString()}`)
-    if (item.performance_score != null) metrics.push(`- Performance Score: ${item.performance_score}`)
-    if (item.total_cost != null) metrics.push(`- Total Cost: ${fmt(item.total_cost)}`)
-    if (item.pipeline_touched != null) metrics.push(`- Pipeline Touched: ${fmt(item.pipeline_touched)}`)
-    const metricsBlock = metrics.length ? `\nKey metrics (last 12 months):\n${metrics.join('\n')}\n` : ''
+    if (view.provisions != null) metrics.push(`- Provisions: ${view.provisions.toLocaleString()}`)
+    if (view.performance_score != null) metrics.push(`- Performance Score: ${view.performance_score}`)
+    if (view.total_cost != null) metrics.push(`- Total Cost: ${fmt(view.total_cost)}`)
+    if (view.pipeline_touched != null) metrics.push(`- Pipeline Touched: ${fmt(view.pipeline_touched)}`)
+    const metricsBlock = metrics.length ? `\nKey metrics (${windowLabel ?? 'last 12 months'}):\n${metrics.join('\n')}\n` : ''
 
     const template = `Hi ${ownerNames},
 
@@ -415,13 +419,19 @@ RHDP Content Team`
     setEmailTemplate(template)
   }
 
+  // Metrics always come from one fixed window so the drawer reads the same
+  // whichever window the page behind it is viewing. Pages without a row for
+  // that window (e.g. Non-Prod) fall back to the numbers they passed in.
+  const view: WorkflowItem = windowMetrics ? { ...item, ...windowMetrics } : item
+  const windowLabel = metricsWindow ? `last ${parseInt(metricsWindow)} months` : null
+
   const wf = drawerWorkflow
   const isApproved = !!wf?.step_approved_at
   const isNotified = !!wf?.step_notified_at
   const isStarted = !!wf?.step_started_at
   const isRetired = !!item.retired_at || !!wf?.step_retired_at || wf?.status === 'retired'
   const cleanupError = actionError || wf?.cleanup_error
-  const hasMetrics = item.provisions != null
+  const hasMetrics = view.provisions != null
 
   const approveIsNext = !isApproved
   const notifyIsNext = isApproved && !isNotified && !isStarted
@@ -453,6 +463,11 @@ RHDP Content Team`
               )}
               {/* ── Usage Data Grid (fixed top, not scrollable) ── */}
               <div style={{ flexShrink: 0, padding: 'var(--sp-md)', paddingBottom: 0 }}>
+              {windowLabel && hasMetrics && (
+                <div className="ca-color-muted" style={{ fontSize: '11px', marginBottom: 'var(--sp-xs)' }}>
+                  Metrics for the {windowLabel}
+                </div>
+              )}
               <div className="ret-data-grid">
                 {!hasMetrics ? (
                 <div className="ret-data-cell ret-data-cell--wide">
@@ -462,70 +477,70 @@ RHDP Content Team`
                   </div>
                 </div>
                 ) : (<>
-                {item.performance_score != null && (
+                {view.performance_score != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Score</div>
-                  <div className="ret-data-value" style={{ color: scoreColor(item.performance_score) }}>
-                    {item.performance_score}
+                  <div className="ret-data-value" style={{ color: scoreColor(view.performance_score) }}>
+                    {view.performance_score}
                   </div>
                 </div>
                 )}
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Provisions</div>
-                  <div className="ret-data-value">{num(item.provisions).toLocaleString()}</div>
+                  <div className="ret-data-value">{num(view.provisions).toLocaleString()}</div>
                 </div>
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Unique Users</div>
-                  <div className="ret-data-value">{num(item.unique_users).toLocaleString()}</div>
+                  <div className="ret-data-value">{num(view.unique_users).toLocaleString()}</div>
                 </div>
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Experiences</div>
-                  <div className="ret-data-value">{num(item.experiences).toLocaleString()}</div>
+                  <div className="ret-data-value">{num(view.experiences).toLocaleString()}</div>
                 </div>
-                {item.pipeline_touched != null && (
+                {view.pipeline_touched != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Touched</div>
-                  <div className="ret-data-value">{fmt(item.pipeline_touched)}</div>
+                  <div className="ret-data-value">{fmt(view.pipeline_touched)}</div>
                 </div>
                 )}
-                {item.closed_amount != null && (
+                {view.closed_amount != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Closed</div>
-                  <div className="ret-data-value ret-data-value--green">{fmt(item.closed_amount)}</div>
+                  <div className="ret-data-value ret-data-value--green">{fmt(view.closed_amount)}</div>
                 </div>
                 )}
-                {item.total_cost != null && (
+                {view.total_cost != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Total Cost</div>
-                  <div className="ret-data-value">{fmt(item.total_cost)}</div>
+                  <div className="ret-data-value">{fmt(view.total_cost)}</div>
                 </div>
                 )}
-                {item.avg_cost_per_provision != null && (
+                {view.avg_cost_per_provision != null && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Cost / Provision</div>
-                  <div className="ret-data-value ret-data-value--small">${num(item.avg_cost_per_provision).toFixed(2)}</div>
+                  <div className="ret-data-value ret-data-value--small">${num(view.avg_cost_per_provision).toFixed(2)}</div>
                 </div>
                 )}
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Success Rate</div>
-                  <div className="ret-data-value ret-data-value--green ret-data-value--small">{(num(item.success_ratio) * 100).toFixed(1)}%</div>
+                  <div className="ret-data-value ret-data-value--green ret-data-value--small">{(num(view.success_ratio) * 100).toFixed(1)}%</div>
                 </div>
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Failure Rate</div>
-                  <div className="ret-data-value ret-data-value--small" style={{ color: num(item.failure_ratio) > 0.1 ? 'var(--score-red)' : 'var(--text-primary)' }}>
-                    {(num(item.failure_ratio) * 100).toFixed(1)}%
+                  <div className="ret-data-value ret-data-value--small" style={{ color: num(view.failure_ratio) > 0.1 ? 'var(--score-red)' : 'var(--text-primary)' }}>
+                    {(num(view.failure_ratio) * 100).toFixed(1)}%
                   </div>
                 </div>
                 {'first_activity' in item && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">First Activity</div>
-                  <div className="ret-data-value ret-data-value--small">{item.first_activity || 'N/A'}</div>
+                  <div className="ret-data-value ret-data-value--small">{view.first_activity || 'N/A'}</div>
                 </div>
                 )}
                 {'last_activity' in item && (
                 <div className="ret-data-cell">
                   <div className="ret-data-label">Last Activity</div>
-                  <div className="ret-data-value ret-data-value--small">{item.last_activity || 'N/A'}</div>
+                  <div className="ret-data-value ret-data-value--small">{view.last_activity || 'N/A'}</div>
                 </div>
                 )}
                 </>)}
