@@ -176,3 +176,21 @@ class TestRetirementMetrics:
 
         assert _retirement_metrics([]) is None
         assert _retirement_metrics([{"channel": "rhdp", "windowed_metrics": {"3m": {"provisions": 5}}}]) is None
+
+
+class TestNonprodWindows:
+    def test_same_windows_as_performance(self):
+        from rcars.api.routes.analysis import NONPROD_WINDOWS as api_windows, WINDOWS
+        from rcars.services.reporting_sync import NONPROD_WINDOWS, WINDOW_DAYS
+
+        assert set(NONPROD_WINDOWS) == set(WINDOW_DAYS) == {"3m", "6m", "9m", "12m"}
+        assert api_windows == WINDOWS
+
+    def test_retirement_metrics_fall_back_to_nonprod_window(self):
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, _nonprod_retirement_metrics
+
+        wm = {RETIREMENT_METRICS_WINDOW: {"provisions": 4, "total_provisions": 9, "unique_users": 2, "by_env": {}}}
+
+        assert _nonprod_retirement_metrics(wm) == {"provisions": 4, "unique_users": 2}
+        assert _nonprod_retirement_metrics({"3m": {"provisions": 1}}) is None
+        assert _nonprod_retirement_metrics(None) is None

@@ -49,6 +49,16 @@ def _retirement_metrics(channels: list[dict]) -> dict | None:
     return {k: w[k] for k in _RETIREMENT_METRIC_KEYS if k in w}
 
 
+_NONPROD_RETIREMENT_METRIC_KEYS = ("provisions", "unique_users", "experiences", "success_ratio", "failure_ratio")
+
+
+def _nonprod_retirement_metrics(windowed_metrics: dict | None) -> dict | None:
+    w = (windowed_metrics or {}).get(RETIREMENT_METRICS_WINDOW)
+    if not w:
+        return None
+    return {k: w[k] for k in _NONPROD_RETIREMENT_METRIC_KEYS if k in w}
+
+
 def _sort_empty_last(items: list[dict], key, reverse: bool) -> None:
     """Sort in place by a string key; items whose key is empty stay at the end in either direction."""
     keyed = [i for i in items if key(i)]
@@ -328,9 +338,13 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     wf = db.get_retirement_workflow(content_id) if content_id else None
+    metrics = _retirement_metrics(db.get_performance_channels(content_id) or []) if content_id else None
+    if metrics is None:
+        # Items without a prod stage have usage only in nonprod_usage
+        metrics = _nonprod_retirement_metrics(db.get_nonprod_windowed_metrics(base_name))
     return {
         "workflow": wf,
-        "metrics": _retirement_metrics(db.get_performance_channels(content_id) or []) if content_id else None,
+        "metrics": metrics,
         "metrics_window": RETIREMENT_METRICS_WINDOW,
     }
 
@@ -1063,7 +1077,7 @@ async def retirement_dashboard(
     }
 
 
-NONPROD_WINDOWS = {"6m", "12m"}
+NONPROD_WINDOWS = WINDOWS
 
 
 @router.get(
