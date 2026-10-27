@@ -503,8 +503,6 @@ export interface PerformanceItem {
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
   owners: Array<{ name: string; email: string }>
-  has_content: boolean
-  catalog_url?: string
   workflow_status?: string | null
   jira_key?: string | null
   retirement_target_date?: string | null
