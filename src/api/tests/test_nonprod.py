@@ -155,3 +155,97 @@ class TestSortEmptyLast:
             items = [{"v": ""}, {"v": "b"}, {"v": "a"}]
             _sort_empty_last(items, lambda i: i["v"], reverse)
             assert [i["v"] for i in items] == expected
+
+
+class TestRetirementMetrics:
+    def test_uses_sales_channel_and_fixed_window(self):
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, _retirement_metrics
+
+        channels = [
+            {"channel": "interactive_labs", "windowed_metrics": {RETIREMENT_METRICS_WINDOW: {"provisions": 1}}},
+            {"channel": "rhdp", "windowed_metrics": {
+                "3m": {"provisions": 5},
+                RETIREMENT_METRICS_WINDOW: {"provisions": 20, "performance_score": 40, "unrelated": 1},
+            }},
+        ]
+
+        assert _retirement_metrics(channels) == {"provisions": 20, "performance_score": 40}
+
+    def test_returns_none_without_data_for_the_window(self):
+        from rcars.api.routes.analysis import _retirement_metrics
+
+        assert _retirement_metrics([]) is None
+        assert _retirement_metrics([{"channel": "rhdp", "windowed_metrics": {"3m": {"provisions": 5}}}]) is None
+
+
+class TestNonprodWindows:
+    def test_same_windows_as_performance(self):
+        from rcars.api.routes.analysis import NONPROD_WINDOWS as api_windows, WINDOWS
+        from rcars.services.reporting_sync import NONPROD_WINDOWS, WINDOW_DAYS
+
+        assert set(NONPROD_WINDOWS) == set(WINDOW_DAYS) == {"3m", "6m", "9m", "12m"}
+        assert api_windows == WINDOWS
+
+    def test_retirement_metrics_fall_back_to_nonprod_window(self):
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, _nonprod_retirement_metrics
+
+        wm = {RETIREMENT_METRICS_WINDOW: {"provisions": 4, "total_provisions": 9, "unique_users": 2, "by_env": {}}}
+
+        assert _nonprod_retirement_metrics(wm) == {"provisions": 4, "unique_users": 2}
+        assert _nonprod_retirement_metrics({"3m": {"provisions": 1}}) is None
+        assert _nonprod_retirement_metrics(None) is None
+
+
+class TestRetirementDashboardMetrics:
+    def _run(self, row):
+        import asyncio
+        from unittest.mock import MagicMock
+        from rcars.api.routes.analysis import retirement_dashboard
+
+        db = MagicMock()
+        db.list_retirement_items.return_value = [row]
+        db.get_stages_for_base_names.return_value = {}
+        db.get_earliest_retired_at.return_value = None
+        request = MagicMock()
+        request.app.state.db = db
+        return asyncio.run(retirement_dashboard(request, user="dev@redhat.com", search=None, window="12m"))["items"][0]
+
+    def test_nonprod_item_gets_total_provisions_and_failure_ratio(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.dev", "workflow_raw_status": "approved",
+            "np_provisions": 3,
+            "np_windowed_metrics": {"12m": {"provisions": 5, "total_provisions": 12, "failure_ratio": 0.2}},
+        })
+
+        assert item["provisions"] == 5
+        assert item["total_provisions"] == 12
+        assert item["failure_ratio"] == 0.2
+
+    def test_missing_window_is_zero_not_unwindowed_usage(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.dev", "workflow_raw_status": "approved",
+            "np_provisions": 300, "np_unique_users": 40, "np_success_ratio": 0.9,
+            "np_windowed_metrics": {"6m": {"provisions": 5}},
+        })
+
+        assert item["provisions"] == 0
+        assert item["unique_users"] == 0
+        assert item["total_provisions"] == 0
+        assert item["success_ratio"] is None
+
+    def test_prod_item_has_no_total_provisions(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.prod", "workflow_raw_status": "approved",
+            "provisions": 40,
+            "perf_windowed_metrics": {"12m": {"provisions": 40, "failure_ratio": 0.1}},
+        })
+
+        assert item["total_provisions"] is None
+        assert item["failure_ratio"] == 0.1
+
+    def test_retirement_uses_all_windows_and_defaults_to_drawer_window(self):
+        import inspect
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, RETIREMENT_WINDOWS, WINDOWS, retirement_dashboard
+
+        assert RETIREMENT_WINDOWS == WINDOWS
+        assert inspect.signature(retirement_dashboard).parameters["window"].default.default == RETIREMENT_METRICS_WINDOW

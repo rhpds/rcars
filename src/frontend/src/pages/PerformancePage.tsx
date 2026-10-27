@@ -15,8 +15,6 @@ type StatusFilter = 'all' | 'muted'
 type SortField = 'performance_score' | 'provisions' | 'pipeline_touched' | 'touched_roi'
   | 'closed_amount' | 'closed_roi' | 'total_cost' | 'display_name' | 'channels'
 
-const safeHref = (url: string | undefined) => url?.startsWith('http') ? url : `https://${url}`
-
 export function PerformancePage() {
   const { isCurator, isAdmin, canViewPerformance } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -564,14 +562,7 @@ export function PerformancePage() {
                                   {item.stages.map(s => (
                                     <StageBrowseLink key={s.ci_name} displayName={item.display_name} stage={s.stage} />
                                   ))}
-                                  {!item.has_content && item.catalog_url && (
-                                    <a href={safeHref(item.catalog_url)} target="_blank" rel="noreferrer"
-                                      className="ca-env-tag ca-env-test"
-                                      onClick={e => e.stopPropagation()}>
-                                      catalog
-                                    </a>
-                                  )}
-                                  {item.has_content && item.stages.length === 0 && <span className="ca-color-muted">none</span>}
+                                  {item.stages.length === 0 && <span className="ca-color-muted">none</span>}
                                 </span>
                               </div>
                               <div className="ca-detail-item">
@@ -677,7 +668,7 @@ export function PerformancePage() {
       </div>
 
       </div>{/* end browse-content */}
-      {drawerItem && <WorkflowDrawer item={drawerItem} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
+      {drawerItem && <WorkflowDrawer item={drawerItem} itemWindow={window_} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
 }

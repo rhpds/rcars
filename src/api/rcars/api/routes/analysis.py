@@ -29,6 +29,36 @@ WINDOWS = {"3m", "6m", "9m", "12m"}
 CHANNEL_SOURCES = {"sales": "rhdp", "marketing": "interactive_labs"}
 
 
+# The retirement drawer always shows this window, so its numbers do not change
+# with whichever window the page behind it is viewing.
+RETIREMENT_METRICS_WINDOW = "9m"
+_RETIREMENT_METRIC_KEYS = (
+    "provisions", "unique_users", "experiences", "success_ratio", "failure_ratio",
+    "performance_score", "pipeline_touched", "closed_amount", "total_cost",
+    "avg_cost_per_provision", "score_breakdown", "extrapolated", "active_months",
+)
+
+
+def _retirement_metrics(channels: list[dict]) -> dict | None:
+    """Sales-channel metrics for the retirement window, as the Performance page serves them."""
+    sales = next((c for c in channels if c.get("channel") == CHANNEL_SOURCES["sales"]), None)
+    wm = (sales or {}).get("windowed_metrics") or {}
+    w = wm.get(RETIREMENT_METRICS_WINDOW)
+    if not w:
+        return None
+    return {k: w[k] for k in _RETIREMENT_METRIC_KEYS if k in w}
+
+
+_NONPROD_RETIREMENT_METRIC_KEYS = ("provisions", "unique_users", "experiences", "success_ratio", "failure_ratio")
+
+
+def _nonprod_retirement_metrics(windowed_metrics: dict | None) -> dict | None:
+    w = (windowed_metrics or {}).get(RETIREMENT_METRICS_WINDOW)
+    if not w:
+        return None
+    return {k: w[k] for k in _NONPROD_RETIREMENT_METRIC_KEYS if k in w}
+
+
 def _sort_empty_last(items: list[dict], key, reverse: bool) -> None:
     """Sort in place by a string key; items whose key is empty stay at the end in either direction."""
     keyed = [i for i in items if key(i)]
@@ -195,10 +225,6 @@ async def performance_dashboard(
     for item in items:
         stages = stages_map.get(item["catalog_base_name"], [])
         item["stages"] = stages
-        has_showroom = any(True for s in stages if s.get("has_showroom"))
-        item["has_content"] = has_showroom
-        if not has_showroom:
-            item["catalog_url"] = f"https://demo.redhat.com/catalog?search={item['catalog_base_name']}"
         item["owners"] = owners_map.get(item["catalog_base_name"], [])
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
@@ -312,7 +338,15 @@ async def get_workflow(base_name: str, request: Request, user: str = Depends(req
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     wf = db.get_retirement_workflow(content_id) if content_id else None
-    return {"workflow": wf}
+    metrics = _retirement_metrics(db.get_performance_channels(content_id) or []) if content_id else None
+    if metrics is None:
+        # Items without a prod stage have usage only in nonprod_usage
+        metrics = _nonprod_retirement_metrics(db.get_nonprod_windowed_metrics(base_name))
+    return {
+        "workflow": wf,
+        "metrics": metrics,
+        "metrics_window": RETIREMENT_METRICS_WINDOW,
+    }
 
 
 @router.put(
@@ -929,7 +963,7 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
     return {"status": "ok"}
 
 
-RETIREMENT_WINDOWS = {"6m", "12m"}
+RETIREMENT_WINDOWS = WINDOWS
 
 
 @router.get(
@@ -943,7 +977,7 @@ async def retirement_dashboard(
     request: Request,
     user: str = Depends(require_curator),
     search: str | None = Query(None),
-    window: str = Query("12m"),
+    window: str = Query(RETIREMENT_METRICS_WINDOW),
 ):
     if window not in RETIREMENT_WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(RETIREMENT_WINDOWS)}")
@@ -972,24 +1006,25 @@ async def retirement_dashboard(
 
     # Apply windowed metrics + compute effective status
     for item in items:
-        wm = item.pop("perf_windowed_metrics", None) or item.pop("np_windowed_metrics", None) or {}
-        item.pop("perf_windowed_metrics", None)
-        item.pop("np_windowed_metrics", None)
+        perf_wm = item.pop("perf_windowed_metrics", None)
+        np_wm = item.pop("np_windowed_metrics", None)
+        from_nonprod = not perf_wm and bool(np_wm)
+        wm = perf_wm or np_wm or {}
         if isinstance(wm, str):
             try:
                 wm = _json.loads(wm)
             except (ValueError, TypeError):
                 wm = {}
-        w = wm.get(window, {})
-
-        # Merge metrics: prefer perf, fall back to nonprod, then windowed
-        # Use `is not None` — `or` treats 0 as falsy and pulls wrong values
-        def _pref(a, b):
-            return a if a is not None else (b if b is not None else 0)
-        item["provisions"] = w.get("provisions", _pref(item.get("provisions"), item.get("np_provisions")))
-        item["unique_users"] = w.get("unique_users", _pref(item.get("unique_users"), item.get("np_unique_users")))
-        item["experiences"] = w.get("experiences", _pref(item.get("experiences"), item.get("np_experiences")))
-        item["success_ratio"] = w.get("success_ratio", _pref(item.get("success_ratio"), item.get("np_success_ratio")))
+        # Usage always comes from the selected window. A missing window is zero,
+        # as on Non-Prod, never the unwindowed (12-month) columns.
+        w = wm.get(window) or {}
+        item["provisions"] = w.get("provisions", 0)
+        item["unique_users"] = w.get("unique_users", 0)
+        item["experiences"] = w.get("experiences", 0)
+        item["success_ratio"] = w.get("success_ratio")
+        item["failure_ratio"] = w.get("failure_ratio")
+        # Only the non-prod sync counts RHDP staff, so prod items have no total
+        item["total_provisions"] = w.get("total_provisions", 0) if from_nonprod else None
         item["first_activity"] = item.get("first_activity") or item.get("first_provision")
         item["last_activity"] = item.get("last_activity") or item.get("last_provision")
 
@@ -1043,7 +1078,7 @@ async def retirement_dashboard(
     }
 
 
-NONPROD_WINDOWS = {"6m", "12m"}
+NONPROD_WINDOWS = WINDOWS
 
 
 @router.get(

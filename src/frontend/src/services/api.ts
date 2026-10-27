@@ -273,7 +273,7 @@ export const api = {
 
   // Retirement workflows
   getRetirementWorkflow: (baseName: string) =>
-    request<{ workflow: RetirementWorkflow | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
+    request<{ workflow: RetirementWorkflow | null; metrics: Record<string, unknown> | null; metrics_window: string | null }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`),
 
   reviewRetirementItem: (baseName: string) =>
     request<{ status: string; workflow: RetirementWorkflow }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/review`, { method: 'PUT' }),
@@ -503,8 +503,6 @@ export interface PerformanceItem {
   sales_impact: string | null
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
   owners: Array<{ name: string; email: string }>
-  has_content: boolean
-  catalog_url?: string
   workflow_status?: string | null
   jira_key?: string | null
   retirement_target_date?: string | null
@@ -565,7 +563,9 @@ export interface RetirementItem {
   provisions: number
   unique_users: number
   experiences: number
-  success_ratio: number
+  total_provisions: number | null
+  success_ratio: number | null
+  failure_ratio: number | null
   first_activity: string | null
   last_activity: string | null
   performance_score: number | null

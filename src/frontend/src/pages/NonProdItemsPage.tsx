@@ -8,7 +8,7 @@ import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
 
-type TimeWindow = '6m' | '12m'
+type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'muted'
 type SortField = 'provisions' | 'total_provisions' | 'experiences' | 'unique_users' | 'success_ratio' | 'failure_ratio' | 'display_name'
   | 'content_type' | 'stages' | 'first_provision' | 'last_provision'
@@ -296,7 +296,7 @@ export function NonProdItemsPage() {
         <div className="ca-tab-bar">
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', gap: '4px' }}>
-            {([['6m', '6 Mo'], ['12m', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
+            {([['3m', '3 Mo'], ['6m', '6 Mo'], ['9m', '9 Mo'], ['12m', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
               <button key={w} onClick={() => setWindow(w)}
                 className={`ca-filter-btn${window_ === w ? ' active' : ''}`}>
                 {label}
@@ -493,7 +493,7 @@ export function NonProdItemsPage() {
       </div>
 
       </div>{/* end browse-content */}
-      {drawerItem && <WorkflowDrawer item={drawerItem as any} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
+      {drawerItem && <WorkflowDrawer item={drawerItem as any} itemWindow={window_} onClose={() => setDrawerItem(null)} onChanged={loadData} />}
     </div>
   )
 }

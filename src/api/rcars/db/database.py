@@ -3457,6 +3457,14 @@ class Database:
 
     # ── Non-Prod Usage ──
 
+    def get_nonprod_windowed_metrics(self, base_name: str) -> dict | None:
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT windowed_metrics FROM nonprod_usage WHERE catalog_base_name = %s",
+                (base_name,),
+            ).fetchone()
+        return row["windowed_metrics"] if row else None
+
     def get_nonprod_base_names(self) -> dict[str, str]:
         """Return {base_name: content_id} for items with no active prod-stage variant."""
         sql = """

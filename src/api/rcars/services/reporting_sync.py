@@ -412,7 +412,7 @@ def _build_cost_sql(start_date: str) -> str:
 
 WINDOW_DAYS = {"3m": 91, "6m": 182, "9m": 274, "12m": 365}
 
-NONPROD_WINDOWS = {"6m": 182, "12m": 365}
+NONPROD_WINDOWS = dict(WINDOW_DAYS)
 
 
 def _window_start(window: str) -> str:
