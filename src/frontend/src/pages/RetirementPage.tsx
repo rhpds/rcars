@@ -5,9 +5,14 @@ import { StageBrowseLink } from '../components/StageBrowseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 
-type TimeWindow = '6m' | '12m'
+type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
-type SortField = 'display_name' | 'effective_status' | 'content_type' | 'provisions' | 'unique_users' | 'experiences' | 'retirement_target_date'
+type SortField = 'display_name' | 'effective_status' | 'content_type' | 'stages' | 'provisions' | 'unique_users' | 'experiences'
+  | 'total_provisions' | 'retirement_target_date' | 'first_activity' | 'last_activity'
+
+const stageBadgeClass: Record<string, string> = {
+  prod: 'ca-env-prod', event: 'ca-env-event', dev: 'ca-env-dev', test: 'ca-env-test',
+}
 
 const statusLabels: Record<string, string> = {
   recommended: 'Recommended',
@@ -27,6 +32,10 @@ function fmtDate(d: string | null) {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function fmtRatio(r: number | null) {
+  return r != null ? `${(r * 100).toFixed(1)}%` : '—'
+}
+
 function fmtEmail(email: string | null) {
   if (!email) return '—'
   return email.replace(/@.*/, '')
@@ -38,7 +47,7 @@ export function RetirementPage() {
 
   const [search, setSearch] = useState(searchParams.get('search') || '')
   const [searchDisplay, setSearchDisplay] = useState(search)
-  const [window_, setWindow] = useState<TimeWindow>((searchParams.get('window') as TimeWindow) || '12m')
+  const [window_, setWindow] = useState<TimeWindow>((searchParams.get('window') as TimeWindow) || '9m')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get('status') as StatusFilter) || 'all')
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
@@ -76,7 +85,7 @@ export function RetirementPage() {
   useEffect(() => {
     const params: Record<string, string> = {}
     if (search) params.search = search
-    if (window_ !== '12m') params.window = window_
+    if (window_ !== '9m') params.window = window_
     if (statusFilter !== 'all') params.status = statusFilter
     if (sortBy !== 'display_name') params.sort = sortBy
     if (sortDir !== 'asc') params.order = sortDir
@@ -103,6 +112,8 @@ export function RetirementPage() {
     else { setSortBy(field); setSortDir(field === 'display_name' ? 'asc' : 'desc') }
   }
 
+  const sortArrow = (field: SortField) => sortBy === field && (sortDir === 'desc' ? '↓' : '↑')
+
   const extractNs = (name: string) => name.split('.')[0]
 
   // Client-side filters
@@ -116,17 +127,15 @@ export function RetirementPage() {
   const sortedItems = [...filteredItems].sort((a, b) => {
     const mul = sortDir === 'asc' ? 1 : -1
     if (sortBy === 'display_name') return mul * (a.display_name || '').localeCompare(b.display_name || '')
-    if (sortBy === 'effective_status' || sortBy === 'content_type') {
-      const as = (a[sortBy] || '') as string, bs = (b[sortBy] || '') as string
+    if (sortBy === 'effective_status' || sortBy === 'content_type' || sortBy === 'stages'
+      || sortBy === 'retirement_target_date' || sortBy === 'first_activity' || sortBy === 'last_activity') {
+      const key = (i: RetirementItem) => sortBy === 'stages'
+        ? i.stages.map(s => s.stage).sort().join(', ')
+        : (i[sortBy] || '') as string
+      const as = key(a), bs = key(b)
+      // Empty values always sort last
       if (!as || !bs) return (as ? 0 : 1) - (bs ? 0 : 1)
       return mul * as.localeCompare(bs)
-    }
-    if (sortBy === 'retirement_target_date') {
-      // Items without a scheduled date always sort last
-      if (!a.retirement_target_date || !b.retirement_target_date) {
-        return (a.retirement_target_date ? 0 : 1) - (b.retirement_target_date ? 0 : 1)
-      }
-      return mul * a.retirement_target_date.localeCompare(b.retirement_target_date)
     }
     const av = (a[sortBy as keyof RetirementItem] as number) ?? 0
     const bv = (b[sortBy as keyof RetirementItem] as number) ?? 0
@@ -222,7 +231,7 @@ export function RetirementPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0 }}>Retirement Report</h3>
           <div style={{ display: 'flex', gap: '4px' }}>
-            {([['6m', '6 Mo'], ['12m', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
+            {([['3m', '3 Mo'], ['6m', '6 Mo'], ['9m', '9 Mo'], ['12m', '1 Yr']] as [TimeWindow, string][]).map(([w, label]) => (
               <button key={w} onClick={() => setWindow(w)}
                 className={`ca-filter-btn${window_ === w ? ' active' : ''}`}>
                 {label}
@@ -260,7 +269,7 @@ export function RetirementPage() {
             value={searchDisplay} onChange={e => handleSearchChange(e.target.value)}
             className="ca-search" />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {sortedItems.length} of {allItems.length} items
+            Usage columns show the selected period · {sortedItems.length} of {allItems.length} items
           </span>
         </div>
 
@@ -268,29 +277,44 @@ export function RetirementPage() {
           <div style={{ padding: '48px', textAlign: 'center', color: 'var(--text-muted)' }}>Loading...</div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
-            <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '900px' }}>
+            <table className="ca-table" style={{ tableLayout: 'auto', minWidth: '1000px' }}>
               <thead>
                 <tr>
-                  <th className="clickable" style={{ maxWidth: '280px' }} onClick={() => toggleSort('display_name')}>
-                    Name {sortBy === 'display_name' && (sortDir === 'desc' ? '↓' : '↑')}
-                  </th>
-                  <th className="clickable" onClick={() => toggleSort('effective_status')}>
-                    Status {sortBy === 'effective_status' && (sortDir === 'desc' ? '↓' : '↑')}
-                  </th>
-                  <th className="clickable" onClick={() => toggleSort('retirement_target_date')}>
-                    Scheduled {sortBy === 'retirement_target_date' && (sortDir === 'desc' ? '↓' : '↑')}
+                  <th className="clickable" style={{ maxWidth: '300px' }} onClick={() => toggleSort('display_name')}>
+                    Name {sortArrow('display_name')}
                   </th>
                   <th className="clickable" onClick={() => toggleSort('content_type')}>
-                    Type {sortBy === 'content_type' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Type {sortArrow('content_type')}
                   </th>
-                  <th className="clickable num" onClick={() => toggleSort('provisions')}>
-                    Provisions {sortBy === 'provisions' && (sortDir === 'desc' ? '↓' : '↑')}
+                  <th className="clickable" onClick={() => toggleSort('stages')}>
+                    Stages {sortArrow('stages')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('effective_status')}>
+                    Status {sortArrow('effective_status')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('retirement_target_date')}>
+                    Scheduled {sortArrow('retirement_target_date')}
+                  </th>
+                  <th className="clickable num" onClick={() => toggleSort('provisions')}
+                    title="Provisions by users outside RHDP. Matches Superset.">
+                    User Provisions {sortArrow('provisions')}
+                  </th>
+                  <th className="clickable num" onClick={() => toggleSort('experiences')}
+                    title="Experiences by users outside RHDP.">
+                    User Experiences {sortArrow('experiences')}
                   </th>
                   <th className="clickable num" onClick={() => toggleSort('unique_users')}>
-                    Unique Users {sortBy === 'unique_users' && (sortDir === 'desc' ? '↓' : '↑')}
+                    Unique Users {sortArrow('unique_users')}
                   </th>
-                  <th className="clickable num" onClick={() => toggleSort('experiences')}>
-                    Experiences {sortBy === 'experiences' && (sortDir === 'desc' ? '↓' : '↑')}
+                  <th className="clickable num" onClick={() => toggleSort('total_provisions')}
+                    title="All provisions, including RHDP staff. Unclaimed pool instances are not counted. Only tracked for non-prod items.">
+                    Total Provisions {sortArrow('total_provisions')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('first_activity')}>
+                    First Prov {sortArrow('first_activity')}
+                  </th>
+                  <th className="clickable" onClick={() => toggleSort('last_activity')}>
+                    Last Prov {sortArrow('last_activity')}
                   </th>
                 </tr>
               </thead>
@@ -301,7 +325,7 @@ export function RetirementPage() {
                     <Fragment key={item.catalog_base_name}>
                       <tr className="clickable" onClick={() => toggleExpand(item.catalog_base_name)}
                         style={item.effective_status === 'retired' ? { opacity: 0.65 } : undefined}>
-                        <td className="name" title={item.display_name} style={{ maxWidth: '280px' }}>
+                        <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
                           <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.display_name}
                           </div>
@@ -309,20 +333,30 @@ export function RetirementPage() {
                             {item.catalog_base_name}
                           </div>
                         </td>
+                        <td><span className="ca-env-tag ca-env-test">{item.content_type || '—'}</span></td>
+                        <td>
+                          {item.stages.map(s => (
+                            <span key={s.ci_name} className={`ca-env-tag ${stageBadgeClass[s.stage] || 'ca-env-test'}`}>
+                              {s.stage}
+                            </span>
+                          ))}
+                        </td>
                         <td>
                           <span className={statusBadgeClass[item.effective_status] || 'ret-inline-badge'}>
                             {statusLabels[item.effective_status] || item.effective_status}
                           </span>
                         </td>
-                        <td>{fmtDate(item.retirement_target_date)}</td>
-                        <td><span className="ca-env-tag ca-env-test">{item.content_type || '—'}</span></td>
+                        <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(item.retirement_target_date)}</td>
                         <td className="num">{item.provisions.toLocaleString()}</td>
-                        <td className="num">{item.unique_users.toLocaleString()}</td>
                         <td className="num">{item.experiences.toLocaleString()}</td>
+                        <td className="num">{item.unique_users.toLocaleString()}</td>
+                        <td className="num">{item.total_provisions != null ? item.total_provisions.toLocaleString() : '—'}</td>
+                        <td style={{ fontSize: '11px' }}>{item.first_activity || '—'}</td>
+                        <td style={{ fontSize: '11px' }}>{item.last_activity || '—'}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="ca-expanded-row">
-                          <td colSpan={7}>
+                          <td colSpan={11}>
                             <div className="ca-detail">
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Jira</span>
@@ -347,17 +381,11 @@ export function RetirementPage() {
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Success Rate</span>
-                                <span className="ca-detail-value">
-                                  {item.success_ratio != null ? `${(item.success_ratio * 100).toFixed(1)}%` : '—'}
-                                </span>
+                                <span className="ca-detail-value">{fmtRatio(item.success_ratio)}</span>
                               </div>
                               <div className="ca-detail-item">
-                                <span className="ca-detail-label">First Provision</span>
-                                <span className="ca-detail-value">{fmtDate(item.first_activity)}</span>
-                              </div>
-                              <div className="ca-detail-item">
-                                <span className="ca-detail-label">Last Provision</span>
-                                <span className="ca-detail-value">{fmtDate(item.last_activity)}</span>
+                                <span className="ca-detail-label">Failure Rate</span>
+                                <span className="ca-detail-value">{fmtRatio(item.failure_ratio)}</span>
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Requested By</span>
@@ -377,7 +405,7 @@ export function RetirementPage() {
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Retired</span>
-                                <span className="ca-detail-value">{fmtDate(item.retired_at)}</span>
+                                <span className="ca-detail-value">{fmtDate(item.step_retired_at || item.retired_at)}</span>
                               </div>
                               <div className="ca-detail-item">
                                 <span className="ca-detail-label">Replacement</span>

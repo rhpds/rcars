@@ -963,7 +963,7 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
     return {"status": "ok"}
 
 
-RETIREMENT_WINDOWS = {"6m", "12m"}
+RETIREMENT_WINDOWS = WINDOWS
 
 
 @router.get(
@@ -977,7 +977,7 @@ async def retirement_dashboard(
     request: Request,
     user: str = Depends(require_curator),
     search: str | None = Query(None),
-    window: str = Query("12m"),
+    window: str = Query(RETIREMENT_METRICS_WINDOW),
 ):
     if window not in RETIREMENT_WINDOWS:
         raise HTTPException(400, f"window must be one of {sorted(RETIREMENT_WINDOWS)}")
@@ -1024,12 +1024,15 @@ async def retirement_dashboard(
         item["unique_users"] = w.get("unique_users", _pref(item.get("unique_users"), item.get("np_unique_users")))
         item["experiences"] = w.get("experiences", _pref(item.get("experiences"), item.get("np_experiences")))
         item["success_ratio"] = w.get("success_ratio", _pref(item.get("success_ratio"), item.get("np_success_ratio")))
+        item["failure_ratio"] = w.get("failure_ratio", item.get("np_failure_ratio"))
+        # Only the non-prod sync counts RHDP staff, so prod items have no total
+        item["total_provisions"] = w.get("total_provisions") if wm else item.get("np_total_provisions")
         item["first_activity"] = item.get("first_activity") or item.get("first_provision")
         item["last_activity"] = item.get("last_activity") or item.get("last_provision")
 
         # Clean up intermediate fields
         for k in ("np_provisions", "np_unique_users", "np_experiences", "np_success_ratio",
-                   "first_provision", "last_provision"):
+                   "np_failure_ratio", "np_total_provisions", "first_provision", "last_provision"):
             item.pop(k, None)
 
         # Score breakdown from windowed metrics if available

@@ -194,3 +194,47 @@ class TestNonprodWindows:
         assert _nonprod_retirement_metrics(wm) == {"provisions": 4, "unique_users": 2}
         assert _nonprod_retirement_metrics({"3m": {"provisions": 1}}) is None
         assert _nonprod_retirement_metrics(None) is None
+
+
+class TestRetirementDashboardMetrics:
+    def _run(self, row):
+        import asyncio
+        from unittest.mock import MagicMock
+        from rcars.api.routes.analysis import retirement_dashboard
+
+        db = MagicMock()
+        db.list_retirement_items.return_value = [row]
+        db.get_stages_for_base_names.return_value = {}
+        db.get_earliest_retired_at.return_value = None
+        request = MagicMock()
+        request.app.state.db = db
+        return asyncio.run(retirement_dashboard(request, user="dev@redhat.com", search=None, window="12m"))["items"][0]
+
+    def test_nonprod_item_gets_total_provisions_and_failure_ratio(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.dev", "workflow_raw_status": "approved",
+            "np_provisions": 3, "np_total_provisions": 99, "np_failure_ratio": 0.9,
+            "np_windowed_metrics": {"12m": {"provisions": 5, "total_provisions": 12, "failure_ratio": 0.2}},
+        })
+
+        assert item["provisions"] == 5
+        assert item["total_provisions"] == 12
+        assert item["failure_ratio"] == 0.2
+        assert "np_total_provisions" not in item and "np_failure_ratio" not in item
+
+    def test_prod_item_has_no_total_provisions(self):
+        item = self._run({
+            "content_id": "babylon:ns.item.prod", "workflow_raw_status": "approved",
+            "provisions": 40,
+            "perf_windowed_metrics": {"12m": {"provisions": 40, "failure_ratio": 0.1}},
+        })
+
+        assert item["total_provisions"] is None
+        assert item["failure_ratio"] == 0.1
+
+    def test_retirement_uses_all_windows_and_defaults_to_drawer_window(self):
+        import inspect
+        from rcars.api.routes.analysis import RETIREMENT_METRICS_WINDOW, RETIREMENT_WINDOWS, WINDOWS, retirement_dashboard
+
+        assert RETIREMENT_WINDOWS == WINDOWS
+        assert inspect.signature(retirement_dashboard).parameters["window"].default.default == RETIREMENT_METRICS_WINDOW
