@@ -420,9 +420,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/components/WorkloadMultiSelect.tsx": {
-    "mtime": 1793182573.7115803,
-    "seen": 1793182826.175829,
-    "ast_hash": "c049a296f1d920d6f9f4602e337515d2",
+    "mtime": 1793184546.7134864,
+    "seen": 1793184629.0509388,
+    "ast_hash": "fa190046f7a2233d778cd09c47a114dd",
     "semantic_hash": ""
   },
   "src/frontend/src/components/admin/ApiKeysPanel.tsx": {
@@ -486,9 +486,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/BrowsePage.tsx": {
-    "mtime": 1793182595.846318,
-    "seen": 1793182826.1758442,
-    "ast_hash": "0e7d21013739362d1a12afa6e66ecb2c",
+    "mtime": 1793184535.6414354,
+    "seen": 1793184629.0509539,
+    "ast_hash": "b11113121917866c0167129d46806dfd",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/ContentAnalysisPage.tsx": {
@@ -1290,9 +1290,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/PerformancePage.tsx": {
-    "mtime": 1793181240.3615706,
-    "seen": 1793182826.1758468,
-    "ast_hash": "32d6f94be7f7dfab7217c756073184f1",
+    "mtime": 1793184453.613235,
+    "seen": 1793184629.050956,
+    "ast_hash": "1d08145670d385d04d5cc90be6863a0f",
     "semantic_hash": ""
   },
   "docs/architecture/performance-analysis.md": {
@@ -1464,9 +1464,9 @@
     "semantic_hash": "44ef86722b4d0008741e2abf601b7698"
   },
   "src/frontend/src/pages/NonProdItemsPage.tsx": {
-    "mtime": 1793181295.1176991,
-    "seen": 1793182826.1758468,
-    "ast_hash": "6f5a14f5e9d2a1707939ea9203f37585",
+    "mtime": 1793184490.5315332,
+    "seen": 1793184629.050956,
+    "ast_hash": "1feff2f60cda18e6eecf3195e96e11d3",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/VocabularyPage.tsx": {
@@ -1626,15 +1626,15 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/browse/helpers.test.ts": {
-    "mtime": 1792742753.7648337,
-    "seen": 1792747228.876884,
-    "ast_hash": "d7a0e22ff8581aabc4436747b9650f64",
+    "mtime": 1793184531.226995,
+    "seen": 1793184629.0509598,
+    "ast_hash": "c6789f23ee7bf5ecba45b2b4eda1f27c",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/browse/helpers.ts": {
-    "mtime": 1792742753.764995,
-    "seen": 1792747228.876884,
-    "ast_hash": "973b9a77f094326839e30d261de08e23",
+    "mtime": 1793184535.619333,
+    "seen": 1793184629.0509598,
+    "ast_hash": "7e1abef1ae8669e2340d09a7f875e97b",
     "semantic_hash": ""
   },
   "docs/architecture/portfolio-architectures.md": {
@@ -1710,9 +1710,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/RetirementPage.tsx": {
-    "mtime": 1793181338.0402246,
-    "seen": 1793182826.175849,
-    "ast_hash": "04b3da84e05f98b7692e507432bd7474",
+    "mtime": 1793184468.5077524,
+    "seen": 1793184629.050957,
+    "ast_hash": "a3f8abd7bd1a67072c56f26759fcc8c8",
     "semantic_hash": ""
   },
   "src/frontend/src/utils/renderMarkdown.tsx": {
@@ -1938,9 +1938,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/components/LabelFilterGroup.tsx": {
-    "mtime": 1793180906.1662786,
-    "seen": 1793182826.1758258,
-    "ast_hash": "cbfe52bd18420930d1e553065452d341",
+    "mtime": 1793184430.4111793,
+    "seen": 1793184629.050936,
+    "ast_hash": "bf18ecff8e30b745c44536968a0e2395",
     "semantic_hash": ""
   },
   "src/frontend/src/components/StageBrowseLink.tsx": {
@@ -1968,9 +1968,21 @@
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-28-platform-tdp-filters-design.md": {
-    "mtime": 1793176996.7541935,
-    "seen": 1793182826.175912,
-    "ast_hash": "fd96b774096163d106b50669a4cbcea4",
+    "mtime": 1793184616.6111717,
+    "seen": 1793184629.051021,
+    "ast_hash": "2ec62b5b2860af94848b3d8dab394f48",
+    "semantic_hash": ""
+  },
+  "src/frontend/src/components/CollapsibleFilterGroup.test.tsx": {
+    "mtime": 1793184410.951865,
+    "seen": 1793184629.050935,
+    "ast_hash": "99c2f01dbb91ab25bd96680eaed5896c",
+    "semantic_hash": ""
+  },
+  "src/frontend/src/components/CollapsibleFilterGroup.tsx": {
+    "mtime": 1793184418.7675683,
+    "seen": 1793184629.050936,
+    "ast_hash": "067e489a14953042886f8ec5c3ec15a2",
     "semantic_hash": ""
   }
 }
