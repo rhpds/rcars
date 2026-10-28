@@ -8,6 +8,7 @@ import { useAuth } from '../hooks/useAuth'
 import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
+import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
 import { LabelFilterGroup } from '../components/LabelFilterGroup'
 import { countLabelValues, matchesLabels } from '../utils/labelFilters'
 
@@ -350,8 +351,7 @@ export function PerformancePage() {
           </div>
         </div>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Metrics</div>
+        <CollapsibleFilterGroup title="Metrics" activeCount={Object.values(rangeInputs).filter(v => v !== '').length}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
             {([
               ['Provisions', 'provMin', 'provMax'],
@@ -377,34 +377,10 @@ export function PerformancePage() {
               </div>
             ))}
           </div>
-        </div>
+        </CollapsibleFilterGroup>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Namespace
-            {selectedNamespaces.size > 0 && (
-              <button onClick={() => setSelectedNamespaces(new Set())}
-                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
-                Clear ({selectedNamespaces.size})
-              </button>
-            )}
-          </div>
-          <div style={{
-            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
-            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
-          }}>
-            {availableNamespaces.map(([ns, count]) => (
-              <label key={ns} style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
-                cursor: 'pointer', fontSize: '11px',
-              }}>
-                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleNamespace(ns)} />
-                <span>{ns}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <LabelFilterGroup title="Namespace" options={availableNamespaces} selected={selectedNamespaces}
+          onToggle={toggleNamespace} onClear={() => setSelectedNamespaces(new Set())} formatValue={ns => ns} />
 
         <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
           onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
@@ -412,15 +388,13 @@ export function PerformancePage() {
         <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
           onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Retirement</div>
+        <CollapsibleFilterGroup title="Retirement" activeCount={retirementFilter !== 'all' ? 1 : 0}>
           <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
             counts={{ retiring: activeItems.filter(i => isRetiring(i.workflow_status)).length }} />
-        </div>
+        </CollapsibleFilterGroup>
 
         {isAdmin && (
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Status</div>
+          <CollapsibleFilterGroup title="Status" activeCount={statusFilter !== 'all' ? 1 : 0}>
             <div className="ret-filter-group">
               {([['all', 'All'], ['muted', 'Muted']] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
@@ -429,7 +403,7 @@ export function PerformancePage() {
                 </button>
               ))}
             </div>
-          </div>
+          </CollapsibleFilterGroup>
         )}
 
         <div style={{ marginTop: '16px' }}>

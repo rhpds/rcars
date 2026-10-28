@@ -4,11 +4,13 @@ import { api } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
+import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
 import { WorkflowDrawer, type WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { fmtTargetDate, isInProgress, isRecommended } from '../components/performance/RetirementBadge'
 import {
   contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel, retirementBaseName,
-  architectureDetailUrl, architectureSubline,
+  architectureDetailUrl, architectureSubline, toggleValue,
   type ContentFormat,
 } from './browse/helpers'
 import { NONE_LABEL, labelDisplay } from '../utils/labelFilters'
@@ -739,9 +741,6 @@ export function BrowsePage() {
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
         />
-        <div className="browse-toolbar-divider" />
-        {(auth.isCurator || auth.isAdmin) && <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
-        {(auth.isCurator || auth.isAdmin) && <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />}
 
         {/* Active filter chips */}
         {activeFilters.length > 0 && (
@@ -772,10 +771,33 @@ export function BrowsePage() {
             <StageToggle label="Architectures" active={formats.has('architecture')} onToggle={() => toggleFormat('architecture')} />
           </div>
 
+          {/* Stage — curator/admin only; prod is always shown */}
+          {(auth.isCurator || auth.isAdmin) && (
+            <CollapsibleFilterGroup title="Stage" activeCount={(showDev ? 1 : 0) + (showEvent ? 1 : 0)}>
+              <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
+              <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+            </CollapsibleFilterGroup>
+          )}
+
+          {/* Platform / Technical Decision Point — Babylon catalog labels */}
+          <LabelFilterGroup
+            title="Platform"
+            options={[...facets?.platforms || [], NONE_LABEL].map(v => [v] as [string])}
+            selected={new Set(selectedPlatforms)}
+            onToggle={v => setSelectedPlatforms(toggleValue(selectedPlatforms, v))}
+            onClear={() => setSelectedPlatforms([])}
+          />
+          <LabelFilterGroup
+            title="Technical Decision Point"
+            options={[...facets?.tdps || [], NONE_LABEL].map(v => [v] as [string])}
+            selected={new Set(selectedTdps)}
+            onToggle={v => setSelectedTdps(toggleValue(selectedTdps, v))}
+            onClear={() => setSelectedTdps([])}
+          />
+
           {/* Audience & Difficulty — AI-derived, shared across both content types */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Audience & Difficulty</div>
-            <div className="browse-filter-group-note">AI-derived from content analysis</div>
+          <CollapsibleFilterGroup title="Audience & Difficulty" note="AI-derived from content analysis"
+            activeCount={selectedAudience.length + (selectedDifficulty ? 1 : 0)}>
             <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '8px 0 4px' }}>Difficulty</div>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -789,44 +811,18 @@ export function BrowsePage() {
                 </button>
               ))}
             </div>
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Architecture Filters */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Architecture Filters</div>
-            <div className="browse-filter-group-note">Architecture items only</div>
+          <CollapsibleFilterGroup title="Architecture Filters" note="Architecture items only"
+            activeCount={selectedSolutions.length + selectedVerticals.length}>
             <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
-          </div>
-
-          {/* Platform */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Platform</div>
-            <WorkloadMultiSelect
-              options={[...facets?.platforms || [], NONE_LABEL]}
-              selected={selectedPlatforms}
-              onChange={setSelectedPlatforms}
-              placeholder="Select platform..."
-              formatOption={labelDisplay}
-            />
-          </div>
-
-          {/* Technical Decision Point */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Technical Decision Point</div>
-            <WorkloadMultiSelect
-              options={[...facets?.tdps || [], NONE_LABEL]}
-              selected={selectedTdps}
-              onChange={setSelectedTdps}
-              placeholder="Select TDP..."
-              formatOption={labelDisplay}
-            />
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Lab Infrastructure — AgnosticD v2 only */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Hands-on Labs</div>
-            <div className="browse-filter-group-note">AgnosticD v2 hands-on lab items only</div>
+          <CollapsibleFilterGroup title="Hands-on Labs" note="AgnosticD v2 hands-on lab items only"
+            activeCount={(cloudProvider ? 1 : 0) + selectedWorkloads.length + (agdConfig ? 1 : 0)}>
             <select
               className="browse-filter-select"
               value={cloudProvider}
@@ -852,12 +848,11 @@ export function BrowsePage() {
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Curator filters — curator/admin only */}
           {(auth.isCurator || auth.isAdmin) && (
-            <div className="browse-filter-group">
-              <div className="browse-filter-group-label">Curator Tools</div>
+            <CollapsibleFilterGroup title="Curator Tools" activeCount={contentFilter ? 1 : 0}>
               <div className="browse-curator-pills">
                 {(['unanalyzed', 'scan_failures', 'stale', 'needs_review', 'retired'] as ContentFilter[]).map(cf => (
                   <button
@@ -869,7 +864,7 @@ export function BrowsePage() {
                   </button>
                 ))}
               </div>
-            </div>
+            </CollapsibleFilterGroup>
           )}
         </div>
 

@@ -68,3 +68,8 @@ export function architectureSubline(
   const primary = item.solutions?.[0] || 'Architecture'
   return `${item.pa_name || ''} · ${primary}`
 }
+
+/** Returns a new list with `value` added, or removed if it is already present. */
+export function toggleValue(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter(v => v !== value) : [...list, value]
+}
