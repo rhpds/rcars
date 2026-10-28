@@ -524,8 +524,8 @@ export function BrowsePage() {
       if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
       if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
       if (selectedDifficulty) params.difficulty = selectedDifficulty
-      if (selectedPlatforms.length > 0) params.platform = selectedPlatforms.join(',')
-      if (selectedTdps.length > 0) params.tdp = selectedTdps.join(',')
+      if (selectedPlatforms.length > 0) params.platform = [...selectedPlatforms].sort().join(',')
+      if (selectedTdps.length > 0) params.tdp = [...selectedTdps].sort().join(',')
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
@@ -551,8 +551,8 @@ export function BrowsePage() {
     if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
     if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
     if (selectedDifficulty) params.difficulty = selectedDifficulty
-    if (selectedPlatforms.length > 0) params.platform = selectedPlatforms.join(',')
-    if (selectedTdps.length > 0) params.tdp = selectedTdps.join(',')
+    if (selectedPlatforms.length > 0) params.platform = [...selectedPlatforms].sort().join(',')
+    if (selectedTdps.length > 0) params.tdp = [...selectedTdps].sort().join(',')
     const showsArchitecture = formats.has('architecture')
     const showsHandsOn = formats.has('hands_on')
     if (showsArchitecture) params.format = showsHandsOn ? 'all' : 'architecture'
@@ -603,10 +603,10 @@ export function BrowsePage() {
     activeFilters.push({ label: selectedDifficulty, onRemove: () => setSelectedDifficulty('') })
   }
   selectedPlatforms.forEach(p => {
-    activeFilters.push({ label: labelDisplay(p), onRemove: () => setSelectedPlatforms(prev => prev.filter(x => x !== p)) })
+    activeFilters.push({ label: `Platform: ${labelDisplay(p)}`, onRemove: () => setSelectedPlatforms(prev => prev.filter(x => x !== p)) })
   })
   selectedTdps.forEach(t => {
-    activeFilters.push({ label: labelDisplay(t), onRemove: () => setSelectedTdps(prev => prev.filter(x => x !== t)) })
+    activeFilters.push({ label: `TDP: ${labelDisplay(t)}`, onRemove: () => setSelectedTdps(prev => prev.filter(x => x !== t)) })
   })
   if (formats.has('architecture')) {
     activeFilters.push({ label: 'Architectures', onRemove: () => toggleFormat('architecture') })
@@ -799,21 +799,26 @@ export function BrowsePage() {
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
           </div>
 
-          {/* Catalog Labels */}
+          {/* Platform */}
           <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Catalog Labels</div>
+            <div className="browse-filter-group-label">Platform</div>
             <WorkloadMultiSelect
               options={[...facets?.platforms || [], NONE_LABEL]}
               selected={selectedPlatforms}
               onChange={setSelectedPlatforms}
-              placeholder="Platform..."
+              placeholder="Select platform..."
               formatOption={labelDisplay}
             />
+          </div>
+
+          {/* Technical Decision Point */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Technical Decision Point</div>
             <WorkloadMultiSelect
               options={[...facets?.tdps || [], NONE_LABEL]}
               selected={selectedTdps}
               onChange={setSelectedTdps}
-              placeholder="Technical Decision Point..."
+              placeholder="Select TDP..."
               formatOption={labelDisplay}
             />
           </div>
