@@ -1215,6 +1215,8 @@ class Database:
         verticals: list[str] | None = None,
         audience: list[str] | None = None,
         difficulty: str | None = None,
+        platforms: list[str] | None = None,
+        tdps: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: str | bool = False,
@@ -1237,7 +1239,44 @@ class Database:
             conditions.append("bi.category = %(category)s")
             params["category"] = category
 
-        babylon_specific = any([stages, cloud_provider, agd_config, workloads, category])
+        # Platform and TDP filters
+        if platforms:
+            platform_none = "__none__" in platforms
+            platform_values = [p for p in platforms if p != "__none__"]
+            if platform_values and platform_none:
+                conditions.append(
+                    "(bi.platform = ANY(%(platforms)s) OR "
+                    "(%(platform_none)s AND bi.content_id IS NOT NULL AND bi.platform IS NULL))"
+                )
+                params["platforms"] = platform_values
+                params["platform_none"] = True
+            elif platform_values:
+                conditions.append("bi.platform = ANY(%(platforms)s)")
+                params["platforms"] = platform_values
+            elif platform_none:
+                conditions.append("bi.content_id IS NOT NULL AND bi.platform IS NULL")
+                params["platform_none"] = True
+
+        if tdps:
+            tdp_none = "__none__" in tdps
+            tdp_values = [t for t in tdps if t != "__none__"]
+            if tdp_values and tdp_none:
+                conditions.append(
+                    "(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s) OR "
+                    "(%(tdp_none)s AND bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL))"
+                )
+                params["tdps"] = tdp_values
+                params["tdp_none"] = True
+            elif tdp_values:
+                conditions.append("(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s))")
+                params["tdps"] = tdp_values
+            elif tdp_none:
+                conditions.append(
+                    "bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL"
+                )
+                params["tdp_none"] = True
+
+        babylon_specific = any([stages, cloud_provider, agd_config, workloads, category, platforms, tdps])
 
         # Universal default-visibility gate. ce.status is written from bi.stage
         # for Babylon and from derive_osspa_status for OSSPA, so one predicate
@@ -2272,6 +2311,32 @@ class Database:
             """)
             audience_list = [row["value"] for row in cur.fetchall() if row["value"]]
 
+            cur = conn.execute("""
+                SELECT DISTINCT bi.platform AS value
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id
+                WHERE bi.platform IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                ORDER BY value
+            """)
+            platforms_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT value
+                FROM (
+                    SELECT bi.tdp1 AS value
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id
+                    WHERE bi.tdp1 IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                    UNION
+                    SELECT bi.tdp2 AS value
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id
+                    WHERE bi.tdp2 IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                ) AS tdp_union
+                ORDER BY value
+            """)
+            tdps_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
         return {
             "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
@@ -2280,6 +2345,8 @@ class Database:
             "solutions": solutions_list,
             "verticals": verticals_list,
             "audience": audience_list,
+            "platforms": platforms_list,
+            "tdps": tdps_list,
         }
 
     # ── Infrastructure catalog ──

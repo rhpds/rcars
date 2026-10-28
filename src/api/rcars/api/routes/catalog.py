@@ -68,6 +68,8 @@ async def list_catalog(
     verticals: str | None = Query(None, description="Comma-separated industry verticals (architecture items only)"),
     audience: str | None = Query(None, description="Comma-separated target audiences"),
     difficulty: str | None = Query(None, description="Filter by difficulty (beginner/intermediate/advanced)"),
+    platform: str | None = Query(None, description="Comma-separated platforms (__none__ for unlabeled)"),
+    tdp: str | None = Query(None, description="Comma-separated TDPs (__none__ for unlabeled)"),
     include_retired: str = Query("false", description="Retired items: false (exclude), true (include), only (retired only)"),
     limit: int = Query(50, le=2000),
     offset: int = Query(0, ge=0),
@@ -88,6 +90,8 @@ async def list_catalog(
     verticals_list = [v.strip() for v in verticals.split(",")] if verticals else None
     audience_list = [a.strip() for a in audience.split(",")] if audience else None
     difficulty_val = difficulty.strip() if difficulty else None
+    platform_list = [p.strip() for p in platform.split(",")] if platform else None
+    tdp_list = [t.strip() for t in tdp.split(",")] if tdp else None
 
     return db.list_content_entities_filtered(
         search=search,
@@ -102,7 +106,8 @@ async def list_catalog(
         verticals=verticals_list,
         audience=audience_list,
         difficulty=difficulty_val,
-
+        platforms=platform_list,
+        tdps=tdp_list,
         limit=limit,
         offset=offset,
         include_retired=include_retired,
