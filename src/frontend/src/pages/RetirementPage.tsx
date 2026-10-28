@@ -4,6 +4,8 @@ import { api, RetirementItem } from '../services/api'
 import { StageBrowseLink } from '../components/StageBrowseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
+import { applyFilters } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
@@ -116,12 +118,12 @@ export function RetirementPage() {
 
   const extractNs = (name: string) => name.split('.')[0]
 
-  // Client-side filters
-  const filteredItems = allItems.filter(i => {
-    if (statusFilter !== 'all' && i.effective_status !== statusFilter) return false
-    if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
-    return true
-  })
+  // Client-side filters, keyed so each sidebar group can count against the other
+  const filters: Record<string, (i: RetirementItem) => boolean> = {
+    status: i => statusFilter === 'all' || i.effective_status === statusFilter,
+    namespace: i => selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name)),
+  }
+  const filteredItems = applyFilters(allItems, filters)
 
   // Client-side sort
   const sortedItems = [...filteredItems].sort((a, b) => {
@@ -144,15 +146,16 @@ export function RetirementPage() {
     return mul * (av - bv)
   })
 
-  // Counts
-  const recommendedCount = allItems.filter(i => i.effective_status === 'recommended').length
-  const inProgressCount = allItems.filter(i => i.effective_status === 'in_progress').length
-  const retiredCount = allItems.filter(i => i.effective_status === 'retired').length
+  // Counts — Status counts honor the Namespace filter, and Namespace counts honor Status
+  const statusBaseItems = applyFilters(allItems, filters, 'status')
+  const recommendedCount = statusBaseItems.filter(i => i.effective_status === 'recommended').length
+  const inProgressCount = statusBaseItems.filter(i => i.effective_status === 'in_progress').length
+  const retiredCount = statusBaseItems.filter(i => i.effective_status === 'retired').length
 
   // Namespace facets
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
-    for (const i of allItems) {
+    for (const i of applyFilters(allItems, filters, 'namespace')) {
       const ns = extractNs(i.catalog_base_name)
       counts[ns] = (counts[ns] || 0) + 1
     }
@@ -188,7 +191,7 @@ export function RetirementPage() {
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Status</div>
           <div className="ret-filter-group">
-            {([['all', `All (${allItems.length})`], ['recommended', `Recommended (${recommendedCount})`], ['in_progress', `In Progress (${inProgressCount})`], ['retired', `Retired (${retiredCount})`]] as [StatusFilter, string][]).map(([f, label]) => (
+            {([['all', `All (${statusBaseItems.length})`], ['recommended', `Recommended (${recommendedCount})`], ['in_progress', `In Progress (${inProgressCount})`], ['retired', `Retired (${retiredCount})`]] as [StatusFilter, string][]).map(([f, label]) => (
               <button key={f} onClick={() => setStatusFilter(f)}
                 className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                 {label}
@@ -197,29 +200,8 @@ export function RetirementPage() {
           </div>
         </div>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Namespace
-            {selectedNamespaces.size > 0 && (
-              <button onClick={() => setSelectedNamespaces(new Set())}
-                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
-                Clear ({selectedNamespaces.size})
-              </button>
-            )}
-          </div>
-          <div style={{
-            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
-            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
-          }}>
-            {availableNamespaces.map(([ns, count]) => (
-              <label key={ns} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>
-                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleNamespace(ns)} />
-                <span>{ns}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <LabelFilterGroup title="Namespace" options={availableNamespaces} selected={selectedNamespaces}
+          onToggle={toggleNamespace} onClear={() => setSelectedNamespaces(new Set())} formatValue={ns => ns} />
 
         <div style={{ marginTop: '16px' }}>
           <button onClick={clearFilters}
@@ -245,7 +227,7 @@ export function RetirementPage() {
         <div className="ca-stats-grid">
           <div className="ret-stat-card ret-stat-card--blue">
             <div className="ret-stat-label">Total</div>
-            <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+            <div className="ret-stat-value ca-color-blue">{statusBaseItems.length}</div>
           </div>
           <div className="ret-stat-card ret-stat-card--amber">
             <div className="ret-stat-label">Recommended</div>

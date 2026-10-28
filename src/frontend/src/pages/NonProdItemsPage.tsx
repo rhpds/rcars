@@ -7,6 +7,9 @@ import { useAuth } from '../hooks/useAuth'
 import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
+import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
+import { applyFilters, countLabelValues, matchesLabels, withSelected } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'muted'
@@ -34,6 +37,10 @@ export function NonProdItemsPage() {
     new Set(searchParams.get('content_types')?.split(',').filter(Boolean) || []))
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
+    new Set(searchParams.get('platform')?.split(',').filter(Boolean) || []))
+  const [selectedTdps, setSelectedTdps] = useState<Set<string>>(
+    new Set(searchParams.get('tdp')?.split(',').filter(Boolean) || []))
   const [provFilter, setProvFilter] = useState<string>(searchParams.get('provs') || 'all')
   const [retirementFilter, setRetirementFilter] = useState<RetirementFilter>(
     (searchParams.get('retirement') as RetirementFilter) || 'all')
@@ -79,10 +86,12 @@ export function NonProdItemsPage() {
     if (selectedStages.size > 0) params.stages = Array.from(selectedStages).sort().join(',')
     if (selectedContentTypes.size > 0) params.content_types = Array.from(selectedContentTypes).sort().join(',')
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
+    if (selectedPlatforms.size > 0) params.platform = Array.from(selectedPlatforms).sort().join(',')
+    if (selectedTdps.size > 0) params.tdp = Array.from(selectedTdps).sort().join(',')
     if (provFilter !== 'all') params.provs = provFilter
     if (retirementFilter !== 'all') params.retirement = retirementFilter
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, retirementFilter, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, selectedPlatforms, selectedTdps, provFilter, retirementFilter, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -122,6 +131,8 @@ export function NonProdItemsPage() {
     setSelectedStages(new Set())
     setSelectedContentTypes(new Set())
     setSelectedNamespaces(new Set())
+    setSelectedPlatforms(new Set())
+    setSelectedTdps(new Set())
     setProvFilter('all')
     setRetirementFilter('all')
   }
@@ -129,48 +140,37 @@ export function NonProdItemsPage() {
   const isIgnored = (i: NonProdItem) => !!i.ignored_until
   const extractNs = (name: string) => name.split('.')[0]
 
-  // Client-side filters
-  const filteredItems = allItems.filter(i => {
-    if (selectedStages.size > 0) {
-      const itemStages = i.stages.map(s => s.stage)
-      if (!itemStages.some(s => selectedStages.has(s))) return false
-    }
-    if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
-    if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
-    if (provFilter === '0' && i.provisions !== 0) return false
-    if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
-    if (provFilter === '10+' && i.provisions <= 10) return false
-    if (!matchesRetirementFilter(i.workflow_status, retirementFilter)) return false
-    return true
-  })
+  // Client-side filters, keyed so each sidebar group can count against all the others
+  const filters: Record<string, (i: NonProdItem) => boolean> = {
+    stage: i => selectedStages.size === 0 || i.stages.some(s => selectedStages.has(s.stage)),
+    contentType: i => selectedContentTypes.size === 0 || (!!i.content_type && selectedContentTypes.has(i.content_type)),
+    namespace: i => selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name)),
+    platform: i => matchesLabels(i.platforms ?? [], selectedPlatforms),
+    tdp: i => matchesLabels(i.tdps ?? [], selectedTdps),
+    provisions: i => provFilter === 'all'
+      || (provFilter === '0' && i.provisions === 0)
+      || (provFilter === '1-10' && i.provisions >= 1 && i.provisions <= 10)
+      || (provFilter === '10+' && i.provisions > 10),
+    retirement: i => matchesRetirementFilter(i.workflow_status, retirementFilter),
+  }
+  const filteredItems = applyFilters(allItems, filters)
 
-  // Derive facet values from data
-  const availableStages = (() => {
+  // Derive facet values from data. Each group counts items that pass every other filter.
+  const countBy = (items: NonProdItem[], keys: (i: NonProdItem) => string[]) => {
     const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      for (const s of i.stages) {
-        counts[s.stage] = (counts[s.stage] || 0) + 1
-      }
+    for (const i of items) {
+      for (const k of new Set(keys(i))) counts[k] = (counts[k] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-
-  const availableContentTypes = (() => {
-    const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      if (i.content_type) counts[i.content_type] = (counts[i.content_type] || 0) + 1
-    }
-    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-
-  const availableNamespaces = (() => {
-    const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      const ns = extractNs(i.catalog_base_name)
-      counts[ns] = (counts[ns] || 0) + 1
-    }
-    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
+  }
+  const availableStages = countBy(applyFilters(allItems, filters, 'stage'), i => i.stages.map(s => s.stage))
+  const availableContentTypes = countBy(applyFilters(allItems, filters, 'contentType'),
+    i => i.content_type ? [i.content_type] : [])
+  const availableNamespaces = countBy(applyFilters(allItems, filters, 'namespace'), i => [extractNs(i.catalog_base_name)])
+  const availablePlatforms = countLabelValues(applyFilters(allItems, filters, 'platform'), i => i.platforms ?? [])
+  const availableTdps = countLabelValues(applyFilters(allItems, filters, 'tdp'), i => i.tdps ?? [])
+  const retiringCount = applyFilters(allItems, filters, 'retirement').filter(i => isRetiring(i.workflow_status)).length
+  const allContentTypes = new Set(allItems.map(i => i.content_type).filter(Boolean))
 
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter(prev => {
@@ -179,6 +179,8 @@ export function NonProdItemsPage() {
       return next
     })
   }
+  const togglePlatform = (v: string) => toggleSet(setSelectedPlatforms, v)
+  const toggleTdp = (v: string) => toggleSet(setSelectedTdps, v)
 
   const syncAge = syncedAt
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
@@ -200,7 +202,7 @@ export function NonProdItemsPage() {
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Stage</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {availableStages.map(([stage, count]) => (
+            {withSelected(availableStages, selectedStages).map(([stage, count]) => (
               <label key={stage} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0', cursor: 'pointer', fontSize: '11px' }}>
                 <input type="checkbox" checked={selectedStages.has(stage)} onChange={() => toggleSet(setSelectedStages, stage)} />
                 <span className={`ca-env-tag ${stageBadgeClass[stage] || 'ca-env-test'}`}>{stage}</span>
@@ -210,53 +212,28 @@ export function NonProdItemsPage() {
           </div>
         </div>
 
-        {availableContentTypes.length > 1 && (
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Content Type</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              {availableContentTypes.map(([ct, count]) => (
-                <label key={ct} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0', cursor: 'pointer', fontSize: '11px' }}>
-                  <input type="checkbox" checked={selectedContentTypes.has(ct)} onChange={() => toggleSet(setSelectedContentTypes, ct)} />
-                  <span>{ct}</span>
-                  <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-                </label>
-              ))}
-            </div>
-          </div>
+        {allContentTypes.size > 1 && (
+          <LabelFilterGroup title="Content Type" options={availableContentTypes} selected={selectedContentTypes}
+            onToggle={ct => toggleSet(setSelectedContentTypes, ct)} onClear={() => setSelectedContentTypes(new Set())}
+            formatValue={ct => ct} />
         )}
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Namespace
-            {selectedNamespaces.size > 0 && (
-              <button onClick={() => setSelectedNamespaces(new Set())}
-                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
-                Clear ({selectedNamespaces.size})
-              </button>
-            )}
-          </div>
-          <div style={{
-            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
-            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
-          }}>
-            {availableNamespaces.map(([ns, count]) => (
-              <label key={ns} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>
-                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleSet(setSelectedNamespaces, ns)} />
-                <span>{ns}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <LabelFilterGroup title="Namespace" options={availableNamespaces} selected={selectedNamespaces}
+          onToggle={ns => toggleSet(setSelectedNamespaces, ns)} onClear={() => setSelectedNamespaces(new Set())}
+          formatValue={ns => ns} />
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Retirement</div>
+        <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
+          onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
+
+        <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
+          onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
+
+        <CollapsibleFilterGroup title="Retirement" activeCount={retirementFilter !== 'all' ? 1 : 0}>
           <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
-            counts={{ retiring: allItems.filter(i => isRetiring(i.workflow_status)).length }} />
-        </div>
+            counts={{ retiring: retiringCount }} />
+        </CollapsibleFilterGroup>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Provisions</div>
+        <CollapsibleFilterGroup title="Provisions" activeCount={provFilter !== 'all' ? 1 : 0}>
           <div className="ret-filter-group">
             {(['all', '0', '1-10', '10+'] as const).map(f => (
               <button key={f} onClick={() => setProvFilter(f)}
@@ -265,10 +242,9 @@ export function NonProdItemsPage() {
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleFilterGroup>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Status</div>
+        <CollapsibleFilterGroup title="Status" activeCount={statusFilter !== 'all' ? 1 : 0}>
           <div className="ret-filter-group">
             {(['all', 'muted'] as StatusFilter[]).map(f => (
               <button key={f} onClick={() => setStatusFilter(f)}
@@ -277,7 +253,7 @@ export function NonProdItemsPage() {
               </button>
             ))}
           </div>
-        </div>
+        </CollapsibleFilterGroup>
 
         <div style={{ marginTop: '16px' }}>
           <button onClick={clearFilters}

@@ -1,5 +1,4 @@
 {
-  "1": "Database",
   "2": "registry.ts",
   "5": "devDependencies",
   "8": "routes/catalog.py",
@@ -25,8 +24,6 @@
   "62": "test_catalog_osspa_routes.py",
   "65": "test_osspa_db.py",
   "67": "test_reporting.py",
-  "68": "ContentAnalysisPage.tsx",
-  "70": "api.ts",
   "71": "ECA Production Redesign Spec",
   "75": "Reporting MCP Data Sync",
   "76": "test_status_visibility.py",

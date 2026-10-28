@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { contentTypeParam, isArchitecture, isZtItem, itemKey, retirementBaseName } from './helpers'
+import { contentTypeParam, isArchitecture, isZtItem, itemKey, retirementBaseName, toggleValue } from './helpers'
 
 describe('contentTypeParam', () => {
   it('sends the explicit hands-on set by default', () => {
@@ -106,5 +106,21 @@ describe('retirementBaseName', () => {
 
   it('returns null for a CI name without a stage suffix', () => {
     expect(retirementBaseName({ ci_name: 'nostage' })).toBeNull()
+  })
+})
+
+describe('toggleValue', () => {
+  it('adds a value that is not in the list', () => {
+    expect(toggleValue(['AI'], 'RHEL')).toEqual(['AI', 'RHEL'])
+  })
+
+  it('removes a value that is already in the list', () => {
+    expect(toggleValue(['AI', 'RHEL'], 'AI')).toEqual(['RHEL'])
+  })
+
+  it('does not change the input list', () => {
+    const list = ['AI']
+    toggleValue(list, 'RHEL')
+    expect(list).toEqual(['AI'])
   })
 })

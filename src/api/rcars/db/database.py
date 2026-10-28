@@ -639,6 +639,9 @@ ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS showroom_source_json JSONB;
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS analysis_provenance_json JSONB;
 ALTER TABLE nonprod_usage DROP COLUMN IF EXISTS team_seats;
 ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFAULT 0;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS platform TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp1 TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp2 TEXT;
 
 """
 
@@ -879,6 +882,7 @@ class Database:
             "is_agd_v2", "agd_config", "cloud_provider", "ocp_version",
             "os_image", "worker_instance_count", "control_plane_instance_count",
             "instances_json",
+            "platform", "tdp1", "tdp2",
         ]
         bi_data = {"content_id": content_id}
         if source is not None:
@@ -1211,6 +1215,8 @@ class Database:
         verticals: list[str] | None = None,
         audience: list[str] | None = None,
         difficulty: str | None = None,
+        platforms: list[str] | None = None,
+        tdps: list[str] | None = None,
         limit: int = 50,
         offset: int = 0,
         include_retired: str | bool = False,
@@ -1233,7 +1239,43 @@ class Database:
             conditions.append("bi.category = %(category)s")
             params["category"] = category
 
-        babylon_specific = any([stages, cloud_provider, agd_config, workloads, category])
+        # Platform and TDP filters. Kept out of `conditions` so label_counts can
+        # count each group against every filter except its own.
+        platform_conditions: list[str] = []
+        tdp_conditions: list[str] = []
+        if platforms:
+            platform_none = "__none__" in platforms
+            platform_values = [p for p in platforms if p != "__none__"]
+            if platform_values and platform_none:
+                platform_conditions.append(
+                    "(bi.platform = ANY(%(platforms)s) OR "
+                    "(bi.content_id IS NOT NULL AND bi.platform IS NULL))"
+                )
+                params["platforms"] = platform_values
+            elif platform_values:
+                platform_conditions.append("bi.platform = ANY(%(platforms)s)")
+                params["platforms"] = platform_values
+            elif platform_none:
+                platform_conditions.append("bi.content_id IS NOT NULL AND bi.platform IS NULL")
+
+        if tdps:
+            tdp_none = "__none__" in tdps
+            tdp_values = [t for t in tdps if t != "__none__"]
+            if tdp_values and tdp_none:
+                tdp_conditions.append(
+                    "(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s) OR "
+                    "(bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL))"
+                )
+                params["tdps"] = tdp_values
+            elif tdp_values:
+                tdp_conditions.append("(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s))")
+                params["tdps"] = tdp_values
+            elif tdp_none:
+                tdp_conditions.append(
+                    "bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL"
+                )
+
+        babylon_specific = any([stages, cloud_provider, agd_config, workloads, category, platforms, tdps])
 
         # Universal default-visibility gate. ce.status is written from bi.stage
         # for Babylon and from derive_osspa_status for OSSPA, so one predicate
@@ -1325,7 +1367,8 @@ class Database:
             )
 
         join_sql = "\n".join(joins)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        all_conditions = conditions + platform_conditions + tdp_conditions
+        where = f"WHERE {' AND '.join(all_conditions)}" if all_conditions else ""
 
         count_sql = f"""
             SELECT COUNT(DISTINCT ce.content_id)
@@ -1374,9 +1417,61 @@ class Database:
                 cur.execute(data_sql, params)
                 items = cur.fetchall()
 
+            label_counts = self._catalog_label_counts(
+                conn, join_sql, conditions, platform_conditions, tdp_conditions, params,
+            )
+
         for item in items:
             item["retirement_label"] = retirement_label(item["workflow_status"])
-        return {"items": items, "total": total}
+        return {"items": items, "total": total, "label_counts": label_counts}
+
+    @staticmethod
+    def _catalog_label_counts(
+        conn, join_sql: str, conditions: list[str],
+        platform_conditions: list[str], tdp_conditions: list[str], params: dict[str, Any],
+    ) -> dict[str, list[list]]:
+        """Count Browse items per Platform and per TDP value.
+
+        Each group is counted against every active filter except its own, so a
+        count shows how many items checking that value would add. Babylon items
+        with no label count under ``__none__``, listed last; non-Babylon items are
+        skipped.
+        """
+        from_sql = f"""
+            FROM content_entities ce
+            JOIN babylon_items bi ON bi.content_id = ce.content_id
+            LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
+            {join_sql}
+        """
+
+        def where(extra: list[str]) -> str:
+            conds = conditions + extra
+            return f"WHERE {' AND '.join(conds)}" if conds else ""
+
+        platform_sql = f"""
+            SELECT COALESCE(bi.platform, '__none__') AS value, COUNT(DISTINCT ce.content_id) AS n
+            {from_sql}
+            {where(tdp_conditions)}
+            GROUP BY 1 ORDER BY COALESCE(bi.platform, '__none__') = '__none__', n DESC, value
+        """
+        tdp_sql = f"""
+            SELECT t.value, COUNT(DISTINCT ce.content_id) AS n
+            {from_sql}
+            CROSS JOIN LATERAL unnest(
+                CASE WHEN bi.tdp1 IS NULL AND bi.tdp2 IS NULL THEN ARRAY['__none__']
+                     ELSE array_remove(ARRAY[bi.tdp1, bi.tdp2], NULL) END
+            ) AS t(value)
+            {where(platform_conditions)}
+            GROUP BY 1 ORDER BY t.value = '__none__', n DESC, t.value
+        """
+        with conn.cursor() as cur:
+            cur.execute(platform_sql, params)
+            platform_counts = [[r["value"], r["n"]] for r in cur.fetchall()]
+            cur.execute(tdp_sql, params)
+            tdp_counts = [[r["value"], r["n"]] for r in cur.fetchall()]
+        return {"platforms": platform_counts, "tdps": tdp_counts}
 
     def retire_missing_babylon(self, current_content_ids: set[str]) -> list[dict]:
         """Mark Babylon content entities not in the current CRD scan as retired.
@@ -2268,6 +2363,32 @@ class Database:
             """)
             audience_list = [row["value"] for row in cur.fetchall() if row["value"]]
 
+            cur = conn.execute("""
+                SELECT DISTINCT bi.platform AS value
+                FROM babylon_items bi
+                JOIN content_entities ce ON ce.content_id = bi.content_id
+                WHERE bi.platform IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                ORDER BY value
+            """)
+            platforms_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
+            cur = conn.execute("""
+                SELECT DISTINCT value
+                FROM (
+                    SELECT bi.tdp1 AS value
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id
+                    WHERE bi.tdp1 IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                    UNION
+                    SELECT bi.tdp2 AS value
+                    FROM babylon_items bi
+                    JOIN content_entities ce ON ce.content_id = bi.content_id
+                    WHERE bi.tdp2 IS NOT NULL AND bi.is_prod = TRUE AND ce.retired_at IS NULL
+                ) AS tdp_union
+                ORDER BY value
+            """)
+            tdps_list = [row["value"] for row in cur.fetchall() if row["value"]]
+
         return {
             "workloads": product_names,
             "agd_configs": [row["agd_config"] for row in configs],
@@ -2276,6 +2397,8 @@ class Database:
             "solutions": solutions_list,
             "verticals": verticals_list,
             "audience": audience_list,
+            "platforms": platforms_list,
+            "tdps": tdps_list,
         }
 
     # ── Infrastructure catalog ──
@@ -3362,6 +3485,46 @@ class Database:
                         "has_showroom": row["has_showroom"],
                     }
                     result.setdefault(base, []).append(stage_info)
+        return result
+
+    def get_labels_for_base_names(self, base_names: list[str]) -> dict[str, dict[str, list[str]]]:
+        if not base_names:
+            return {}
+        from rcars.services.reporting_sync import extract_base_name
+        placeholders = ",".join(["%s"] * len(base_names))
+        sql = f"""
+            SELECT bi.ci_name, bi.platform, bi.tdp1, bi.tdp2
+            FROM babylon_items bi
+            JOIN content_entities ce ON ce.content_id = bi.content_id
+            WHERE substring(bi.ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+            ORDER BY bi.ci_name
+        """
+        result: dict[str, dict[str, list[str]]] = {}
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, base_names)
+                for row in cur.fetchall():
+                    base = extract_base_name(row["ci_name"])
+                    if base not in result:
+                        result[base] = {"platforms": set(), "tdps": set()}
+
+                    # Add platform if not NULL
+                    if row["platform"]:
+                        result[base]["platforms"].add(row["platform"])
+
+                    # Add tdp1 if not NULL
+                    if row["tdp1"]:
+                        result[base]["tdps"].add(row["tdp1"])
+
+                    # Add tdp2 if not NULL
+                    if row["tdp2"]:
+                        result[base]["tdps"].add(row["tdp2"])
+
+        # Convert sets to sorted lists
+        for base in result:
+            result[base]["platforms"] = sorted(result[base]["platforms"])
+            result[base]["tdps"] = sorted(result[base]["tdps"])
+
         return result
 
     def get_owners_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:

@@ -16,6 +16,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
+/** Browse Platform/TDP counts; each group follows every active filter except its own. */
+export interface CatalogLabelCounts {
+  platforms: [string, number][]
+  tdps: [string, number][]
+}
+
 export const api = {
   // Auth
   getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
@@ -57,6 +63,8 @@ export const api = {
     verticals?: string;
     audience?: string;
     difficulty?: string;
+    platform?: string;
+    tdp?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
@@ -74,7 +82,9 @@ export const api = {
     if (params?.verticals) qs.set('verticals', params.verticals);
     if (params?.audience) qs.set('audience', params.audience);
     if (params?.difficulty) qs.set('difficulty', params.difficulty);
-    return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.tdp) qs.set('tdp', params.tdp);
+    return request<{ items: unknown[]; total: number; label_counts: CatalogLabelCounts }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),
   getCatalogStats: () => request<unknown>('/catalog/stats'),
@@ -175,6 +185,8 @@ export const api = {
     agd_configs: string[];
     cloud_providers: string[];
     os_images: string[];
+    platforms: string[];
+    tdps: string[];
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;
@@ -509,6 +521,8 @@ export interface PerformanceItem {
   ignored_until?: string | null
   extrapolated?: boolean
   active_months?: number | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface PerformanceDashboardResponse {
@@ -552,6 +566,8 @@ export interface NonProdItem {
   jira_key?: string | null
   retirement_target_date?: string | null
   ignored_until?: string | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface RetirementItem {
@@ -592,6 +608,8 @@ export interface RetirementItem {
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
   stage: string | null
   catalog_namespace: string | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface RetirementDashboardResponse {

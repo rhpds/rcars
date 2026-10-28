@@ -1,16 +1,19 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
-import { api } from '../services/api'
+import { api, type CatalogLabelCounts } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
+import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
 import { WorkflowDrawer, type WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { fmtTargetDate, isInProgress, isRecommended } from '../components/performance/RetirementBadge'
 import {
   contentTypeParam, isArchitecture, isZtItem, itemKey, assetTypeLabel, retirementBaseName,
-  architectureDetailUrl, architectureSubline,
+  architectureDetailUrl, architectureSubline, toggleValue,
   type ContentFormat,
 } from './browse/helpers'
+import { labelDisplay } from '../utils/labelFilters'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -123,6 +126,8 @@ interface Facets {
   solutions: string[]
   verticals: string[]
   audience: string[]
+  platforms: string[]
+  tdps: string[]
 }
 
 type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
@@ -435,6 +440,10 @@ export function BrowsePage() {
     searchParams.get('audience')?.split(',').filter(Boolean) || [])
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>(
     searchParams.get('difficulty') || '')
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(
+    searchParams.get('platform')?.split(',').filter(Boolean) || [])
+  const [selectedTdps, setSelectedTdps] = useState<string[]>(
+    searchParams.get('tdp')?.split(',').filter(Boolean) || [])
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   useEffect(() => {
@@ -451,6 +460,8 @@ export function BrowsePage() {
       setSelectedVerticals([])
       setSelectedAudience([])
       setSelectedDifficulty('')
+      setSelectedPlatforms([])
+      setSelectedTdps([])
       setPage(1)
     }
   }, [location.state, searchParams])
@@ -460,6 +471,7 @@ export function BrowsePage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [facets, setFacets] = useState<Facets | null>(null)
+  const [labelCounts, setLabelCounts] = useState<CatalogLabelCounts | null>(null)
 
   // Expanded card state
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
@@ -481,6 +493,7 @@ export function BrowsePage() {
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRef = useRef(search)
+  const requestRef = useRef(0)
   searchRef.current = search
 
   // Load facets
@@ -496,6 +509,9 @@ export function BrowsePage() {
   }, [showDev, showEvent])
 
   const fetchItems = useCallback(async (targetPage: number, searchOverride?: string) => {
+    // Only the latest request may update state, so a slow earlier response
+    // can't overwrite results for the current filters.
+    const reqId = ++requestRef.current
     setLoading(true)
     try {
       const searchVal = searchOverride !== undefined ? searchOverride : searchRef.current
@@ -515,17 +531,22 @@ export function BrowsePage() {
       if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
       if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
       if (selectedDifficulty) params.difficulty = selectedDifficulty
+      if (selectedPlatforms.length > 0) params.platform = [...selectedPlatforms].sort().join(',')
+      if (selectedTdps.length > 0) params.tdp = [...selectedTdps].sort().join(',')
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
+      if (reqId !== requestRef.current) return
       setItems(data.items as CatalogItem[])
       setTotal(data.total)
+      setLabelCounts(data.label_counts)
     } catch (err) {
+      if (reqId !== requestRef.current) return
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, contentFilter, formats])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, contentFilter, formats])
 
   // Sync URL params
   useEffect(() => {
@@ -540,13 +561,15 @@ export function BrowsePage() {
     if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
     if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
     if (selectedDifficulty) params.difficulty = selectedDifficulty
+    if (selectedPlatforms.length > 0) params.platform = [...selectedPlatforms].sort().join(',')
+    if (selectedTdps.length > 0) params.tdp = [...selectedTdps].sort().join(',')
     const showsArchitecture = formats.has('architecture')
     const showsHandsOn = formats.has('hands_on')
     if (showsArchitecture) params.format = showsHandsOn ? 'all' : 'architecture'
     if (contentFilter) params.content_filter = contentFilter
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, formats, contentFilter, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, formats, contentFilter, page, setSearchParams])
 
   // Fetch on filter change
   useEffect(() => {
@@ -589,6 +612,12 @@ export function BrowsePage() {
   if (selectedDifficulty) {
     activeFilters.push({ label: selectedDifficulty, onRemove: () => setSelectedDifficulty('') })
   }
+  selectedPlatforms.forEach(p => {
+    activeFilters.push({ label: `Platform: ${labelDisplay(p)}`, onRemove: () => setSelectedPlatforms(prev => prev.filter(x => x !== p)) })
+  })
+  selectedTdps.forEach(t => {
+    activeFilters.push({ label: `TDP: ${labelDisplay(t)}`, onRemove: () => setSelectedTdps(prev => prev.filter(x => x !== t)) })
+  })
   if (formats.has('architecture')) {
     activeFilters.push({ label: 'Architectures', onRemove: () => toggleFormat('architecture') })
   }
@@ -604,6 +633,8 @@ export function BrowsePage() {
     setSelectedVerticals([])
     setSelectedAudience([])
     setSelectedDifficulty('')
+    setSelectedPlatforms([])
+    setSelectedTdps([])
     setFormats(new Set<ContentFormat>(['hands_on']))
     setContentFilter('')
   }
@@ -718,9 +749,6 @@ export function BrowsePage() {
           value={search}
           onChange={(e) => handleSearchChange(e.target.value)}
         />
-        <div className="browse-toolbar-divider" />
-        {(auth.isCurator || auth.isAdmin) && <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />}
-        {(auth.isCurator || auth.isAdmin) && <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />}
 
         {/* Active filter chips */}
         {activeFilters.length > 0 && (
@@ -751,10 +779,33 @@ export function BrowsePage() {
             <StageToggle label="Architectures" active={formats.has('architecture')} onToggle={() => toggleFormat('architecture')} />
           </div>
 
+          {/* Stage — curator/admin only; prod is always shown */}
+          {(auth.isCurator || auth.isAdmin) && (
+            <CollapsibleFilterGroup title="Stage" activeCount={(showDev ? 1 : 0) + (showEvent ? 1 : 0)}>
+              <StageToggle label="dev" active={showDev} onToggle={() => setShowDev(!showDev)} />
+              <StageToggle label="event" active={showEvent} onToggle={() => setShowEvent(!showEvent)} />
+            </CollapsibleFilterGroup>
+          )}
+
+          {/* Platform / Technical Decision Point — Babylon catalog labels */}
+          <LabelFilterGroup
+            title="Platform"
+            options={labelCounts?.platforms ?? []}
+            selected={new Set(selectedPlatforms)}
+            onToggle={v => setSelectedPlatforms(toggleValue(selectedPlatforms, v))}
+            onClear={() => setSelectedPlatforms([])}
+          />
+          <LabelFilterGroup
+            title="Technical Decision Point"
+            options={labelCounts?.tdps ?? []}
+            selected={new Set(selectedTdps)}
+            onToggle={v => setSelectedTdps(toggleValue(selectedTdps, v))}
+            onClear={() => setSelectedTdps([])}
+          />
+
           {/* Audience & Difficulty — AI-derived, shared across both content types */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Audience & Difficulty</div>
-            <div className="browse-filter-group-note">AI-derived from content analysis</div>
+          <CollapsibleFilterGroup title="Audience & Difficulty" note="AI-derived from content analysis"
+            activeCount={selectedAudience.length + (selectedDifficulty ? 1 : 0)}>
             <WorkloadMultiSelect options={facets?.audience || []} selected={selectedAudience} onChange={setSelectedAudience} placeholder="Select audience..." />
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', margin: '8px 0 4px' }}>Difficulty</div>
             <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -768,20 +819,18 @@ export function BrowsePage() {
                 </button>
               ))}
             </div>
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Architecture Filters */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Architecture Filters</div>
-            <div className="browse-filter-group-note">Architecture items only</div>
+          <CollapsibleFilterGroup title="Architectures" note="Architecture items only"
+            activeCount={selectedSolutions.length + selectedVerticals.length}>
             <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Lab Infrastructure — AgnosticD v2 only */}
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Hands-on Labs</div>
-            <div className="browse-filter-group-note">AgnosticD v2 hands-on lab items only</div>
+          <CollapsibleFilterGroup title="Hands-on Labs" note="AgnosticD v2 hands-on lab items only"
+            activeCount={(cloudProvider ? 1 : 0) + selectedWorkloads.length + (agdConfig ? 1 : 0)}>
             <select
               className="browse-filter-select"
               value={cloudProvider}
@@ -807,12 +856,11 @@ export function BrowsePage() {
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
-          </div>
+          </CollapsibleFilterGroup>
 
           {/* Curator filters — curator/admin only */}
           {(auth.isCurator || auth.isAdmin) && (
-            <div className="browse-filter-group">
-              <div className="browse-filter-group-label">Curator Tools</div>
+            <CollapsibleFilterGroup title="Curator Tools" activeCount={contentFilter ? 1 : 0}>
               <div className="browse-curator-pills">
                 {(['unanalyzed', 'scan_failures', 'stale', 'needs_review', 'retired'] as ContentFilter[]).map(cf => (
                   <button
@@ -824,7 +872,7 @@ export function BrowsePage() {
                   </button>
                 ))}
               </div>
-            </div>
+            </CollapsibleFilterGroup>
           )}
         </div>
 

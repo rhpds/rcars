@@ -8,6 +8,9 @@ import { useAuth } from '../hooks/useAuth'
 import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
+import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
+import { applyFilters, countLabelValues, matchesLabels } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
@@ -28,6 +31,10 @@ export function PerformancePage() {
     (searchParams.get('retirement') as RetirementFilter) || 'all')
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
+    new Set(searchParams.get('platform')?.split(',').filter(Boolean) || []))
+  const [selectedTdps, setSelectedTdps] = useState<Set<string>>(
+    new Set(searchParams.get('tdp')?.split(',').filter(Boolean) || []))
   const [sortBy, setSortBy] = useState<SortField>((searchParams.get('sort') as SortField) || 'performance_score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(searchParams.get('order') === 'asc' ? 'asc' : 'desc')
 
@@ -86,6 +93,8 @@ export function PerformancePage() {
       setStatusFilter('all')
       setRetirementFilter('all')
       setSelectedNamespaces(new Set())
+      setSelectedPlatforms(new Set())
+      setSelectedTdps(new Set())
       setSortBy('performance_score')
       setSortDir('desc')
       setRangeInputs(emptyRanges)
@@ -103,6 +112,8 @@ export function PerformancePage() {
     if (statusFilter !== 'all') params.status = statusFilter
     if (retirementFilter !== 'all') params.retirement = retirementFilter
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
+    if (selectedPlatforms.size > 0) params.platform = Array.from(selectedPlatforms).sort().join(',')
+    if (selectedTdps.size > 0) params.tdp = Array.from(selectedTdps).sort().join(',')
     if (sortBy !== 'performance_score') params.sort = sortBy
     if (sortDir !== 'desc') params.order = sortDir
     const rangeUrlMap: Record<keyof RangeFilters, string> = {
@@ -117,7 +128,7 @@ export function PerformancePage() {
       if (appliedRanges[stateKey as keyof RangeFilters]) params[urlKey] = appliedRanges[stateKey as keyof RangeFilters]
     })
     setSearchParams(params, { replace: true })
-  }, [search, channel, window_, perfFilter, statusFilter, retirementFilter, selectedNamespaces, sortBy, sortDir, appliedRanges, setSearchParams])
+  }, [search, channel, window_, perfFilter, statusFilter, retirementFilter, selectedNamespaces, selectedPlatforms, selectedTdps, sortBy, sortDir, appliedRanges, setSearchParams])
 
   // Debounced range application
   useEffect(() => {
@@ -184,70 +195,81 @@ export function PerformancePage() {
     setStatusFilter('all')
     setRetirementFilter('all')
     setSelectedNamespaces(new Set())
+    setSelectedPlatforms(new Set())
+    setSelectedTdps(new Set())
     setRangeInputs(emptyRanges)
     setAppliedRanges(emptyRanges)
   }
 
   const isIgnored = (i: PerformanceItem) => !!i.ignored_until
-  const activeItems = allItems.filter(i => !isIgnored(i))
+  const canCurate = isCurator || isAdmin
   const extractNs = (name: string) => name.split('.')[0]
-  const statusBaseItems = statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems
+  const toggleIn = (setter: React.Dispatch<React.SetStateAction<Set<string>>>) => (value: string) => {
+    setter(prev => {
+      const next = new Set(prev)
+      if (next.has(value)) next.delete(value); else next.add(value)
+      return next
+    })
+  }
+  const toggleNamespace = toggleIn(setSelectedNamespaces)
+  const togglePlatform = toggleIn(setSelectedPlatforms)
+  const toggleTdp = toggleIn(setSelectedTdps)
+
+  const hasActiveRanges = Object.values(appliedRanges).some(v => v !== '')
+  const matchesRanges = (i: PerformanceItem) => {
+    if (!hasActiveRanges) return true
+    const n = (s: string) => Number(s)
+    const r = appliedRanges
+    if (r.provMin && i.provisions < n(r.provMin)) return false
+    if (r.provMax && i.provisions > n(r.provMax)) return false
+    if (r.touchedMin && i.pipeline_touched < n(r.touchedMin)) return false
+    if (r.touchedMax && i.pipeline_touched > n(r.touchedMax)) return false
+    if (r.closedMin && i.closed_amount < n(r.closedMin)) return false
+    if (r.closedMax && i.closed_amount > n(r.closedMax)) return false
+    if (r.costMin && i.total_cost < n(r.costMin)) return false
+    if (r.costMax && i.total_cost > n(r.costMax)) return false
+    if (r.expMin && (i.experiences || 0) < n(r.expMin)) return false
+    if (r.expMax && (i.experiences || 0) > n(r.expMax)) return false
+    if (r.usersMin && (i.unique_users || 0) < n(r.usersMin)) return false
+    if (r.usersMax && (i.unique_users || 0) > n(r.usersMax)) return false
+    return true
+  }
+
+  // Keyed so each sidebar group can count against all the others. Namespace,
+  // Retirement and Status are curator/admin groups, so they never filter for regular users.
+  const filters: Record<string, (i: PerformanceItem) => boolean> = {
+    status: i => (isAdmin && statusFilter === 'muted') ? isIgnored(i) : !isIgnored(i),
+    performance: i => perfFilter === 'all'
+      || (perfFilter === 'strong' && i.performance_score >= 55)
+      || (perfFilter === 'moderate' && i.performance_score >= 35 && i.performance_score < 55)
+      || (perfFilter === 'low' && i.performance_score < 35),
+    ranges: matchesRanges,
+    namespace: i => !canCurate || selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name)),
+    platform: i => matchesLabels(i.platforms ?? [], selectedPlatforms),
+    tdp: i => matchesLabels(i.tdps ?? [], selectedTdps),
+    retirement: i => !canCurate || matchesRetirementFilter(i.workflow_status, retirementFilter),
+  }
+  const visibleItems = applyFilters(allItems, filters)
+  // Items before the Performance band: drives the band buttons, stat cards and "N of M".
+  const bandBaseItems = applyFilters(allItems, filters, 'performance')
+
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
-    for (const i of statusBaseItems) {
+    for (const i of applyFilters(allItems, filters, 'namespace')) {
       const ns = extractNs(i.catalog_base_name)
       counts[ns] = (counts[ns] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
-  const toggleNamespace = (ns: string) => {
-    setSelectedNamespaces(prev => {
-      const next = new Set(prev)
-      if (next.has(ns)) next.delete(ns); else next.add(ns)
-      return next
-    })
-  }
-  const nsMatch = (i: PerformanceItem) =>
-    selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name))
-  const nsActiveItems = activeItems.filter(nsMatch)
+  const availablePlatforms = countLabelValues(applyFilters(allItems, filters, 'platform'), i => i.platforms ?? [])
+  const availableTdps = countLabelValues(applyFilters(allItems, filters, 'tdp'), i => i.tdps ?? [])
+  const retiringCount = applyFilters(allItems, filters, 'retirement').filter(i => isRetiring(i.workflow_status)).length
 
-  const perfBandFiltered = (() => {
-    const base = (statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems)
-      .filter(i => matchesRetirementFilter(i.workflow_status, retirementFilter))
-    if (perfFilter === 'all') return base.filter(nsMatch)
-    if (perfFilter === 'strong') return base.filter(i => i.performance_score >= 55 && nsMatch(i))
-    if (perfFilter === 'moderate') return base.filter(i => i.performance_score >= 35 && i.performance_score < 55 && nsMatch(i))
-    return base.filter(i => i.performance_score < 35 && nsMatch(i))
-  })()
-
-  const hasActiveRanges = Object.values(appliedRanges).some(v => v !== '')
-  const rangeFiltered = (() => {
-    if (!hasActiveRanges) return perfBandFiltered
-    const n = (s: string) => Number(s)
-    return perfBandFiltered.filter(i => {
-      const r = appliedRanges
-      if (r.provMin && i.provisions < n(r.provMin)) return false
-      if (r.provMax && i.provisions > n(r.provMax)) return false
-      if (r.touchedMin && i.pipeline_touched < n(r.touchedMin)) return false
-      if (r.touchedMax && i.pipeline_touched > n(r.touchedMax)) return false
-      if (r.closedMin && i.closed_amount < n(r.closedMin)) return false
-      if (r.closedMax && i.closed_amount > n(r.closedMax)) return false
-      if (r.costMin && i.total_cost < n(r.costMin)) return false
-      if (r.costMax && i.total_cost > n(r.costMax)) return false
-      if (r.expMin && (i.experiences || 0) < n(r.expMin)) return false
-      if (r.expMax && (i.experiences || 0) > n(r.expMax)) return false
-      if (r.usersMin && (i.unique_users || 0) < n(r.usersMin)) return false
-      if (r.usersMax && (i.unique_users || 0) > n(r.usersMax)) return false
-      return true
-    })
-  })()
-  const visibleItems = rangeFiltered
-
-  const totalCost = nsActiveItems.reduce((s, i) => s + i.total_cost, 0)
-  const totalClosed = nsActiveItems.reduce((s, i) => s + i.closed_amount, 0)
-  const strongCount = nsActiveItems.filter(i => i.performance_score >= 55).length
-  const moderateCount = nsActiveItems.filter(i => i.performance_score >= 35 && i.performance_score < 55).length
-  const lowCount = nsActiveItems.filter(i => i.performance_score < 35).length
+  const totalCost = bandBaseItems.reduce((s, i) => s + i.total_cost, 0)
+  const totalClosed = bandBaseItems.reduce((s, i) => s + i.closed_amount, 0)
+  const strongCount = bandBaseItems.filter(i => i.performance_score >= 55).length
+  const moderateCount = bandBaseItems.filter(i => i.performance_score >= 35 && i.performance_score < 55).length
+  const lowCount = bandBaseItems.filter(i => i.performance_score < 35).length
 
   const syncAge = syncedAt
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
@@ -302,7 +324,7 @@ export function PerformancePage() {
           <div className="ret-filter-group">
             <button onClick={() => setPerfFilter('all')}
               className={`ret-filter-group__btn${perfFilter === 'all' ? ' active' : ''}`}>
-              All ({nsActiveItems.length})
+              All ({bandBaseItems.length})
             </button>
             <button onClick={() => setPerfFilter('strong')}
               className={`ret-filter-group__btn${perfFilter === 'strong' ? ' active' : ''}`}>
@@ -319,8 +341,7 @@ export function PerformancePage() {
           </div>
         </div>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Metrics</div>
+        <CollapsibleFilterGroup title="Metrics" activeCount={Object.values(appliedRanges).filter(v => v !== '').length}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
             {([
               ['Provisions', 'provMin', 'provMax'],
@@ -346,44 +367,28 @@ export function PerformancePage() {
               </div>
             ))}
           </div>
-        </div>
+        </CollapsibleFilterGroup>
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            Namespace
-            {selectedNamespaces.size > 0 && (
-              <button onClick={() => setSelectedNamespaces(new Set())}
-                style={{ background: 'none', border: 'none', color: 'var(--score-amber)', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
-                Clear ({selectedNamespaces.size})
-              </button>
-            )}
-          </div>
-          <div style={{
-            maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
-            border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
-          }}>
-            {availableNamespaces.map(([ns, count]) => (
-              <label key={ns} style={{
-                display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
-                cursor: 'pointer', fontSize: '11px',
-              }}>
-                <input type="checkbox" checked={selectedNamespaces.has(ns)} onChange={() => toggleNamespace(ns)} />
-                <span>{ns}</span>
-                <span style={{ marginLeft: 'auto', color: 'var(--text-muted)' }}>({count})</span>
-              </label>
-            ))}
-          </div>
-        </div>
+        <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
+          onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
 
-        <div className="browse-filter-group">
-          <div className="browse-filter-group-label">Retirement</div>
-          <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
-            counts={{ retiring: activeItems.filter(i => isRetiring(i.workflow_status)).length }} />
-        </div>
+        <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
+          onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
+
+        {canCurate && (
+          <LabelFilterGroup title="Namespace" options={availableNamespaces} selected={selectedNamespaces}
+            onToggle={toggleNamespace} onClear={() => setSelectedNamespaces(new Set())} formatValue={ns => ns} />
+        )}
+
+        {canCurate && (
+          <CollapsibleFilterGroup title="Retirement" activeCount={retirementFilter !== 'all' ? 1 : 0}>
+            <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
+              counts={{ retiring: retiringCount }} />
+          </CollapsibleFilterGroup>
+        )}
 
         {isAdmin && (
-          <div className="browse-filter-group">
-            <div className="browse-filter-group-label">Status</div>
+          <CollapsibleFilterGroup title="Status" activeCount={statusFilter !== 'all' ? 1 : 0}>
             <div className="ret-filter-group">
               {([['all', 'All'], ['muted', 'Muted']] as [StatusFilter, string][]).map(([f, label]) => (
                 <button key={f} onClick={() => setStatusFilter(f)}
@@ -392,7 +397,7 @@ export function PerformancePage() {
                 </button>
               ))}
             </div>
-          </div>
+          </CollapsibleFilterGroup>
         )}
 
         <div style={{ marginTop: '16px' }}>
@@ -431,7 +436,7 @@ export function PerformancePage() {
         <div className="ca-stats-grid">
           <div className="ret-stat-card ret-stat-card--blue">
             <div className="ret-stat-label">Total Items</div>
-            <div className="ret-stat-value ca-color-blue">{nsActiveItems.length}</div>
+            <div className="ret-stat-value ca-color-blue">{bandBaseItems.length}</div>
           </div>
           <div className="ret-stat-card ret-stat-card--green">
             <div className="ret-stat-label">Strong (≥55)</div>
@@ -462,7 +467,7 @@ export function PerformancePage() {
             className="ca-search"
           />
           <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-            {visibleItems.length} of {nsActiveItems.length} items
+            {visibleItems.length} of {bandBaseItems.length} items
           </span>
           <button onClick={exportCsv}
             style={{ background: 'var(--bg-control)', border: '1px solid var(--border-section)',
@@ -525,7 +530,7 @@ export function PerformancePage() {
                         <td className="name" title={item.display_name} style={{ maxWidth: '300px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', whiteSpace: 'nowrap' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{item.display_name}</span>
-                            <RetirementInlineBadge status={item.workflow_status} targetDate={item.retirement_target_date} />
+                            {canCurate && <RetirementInlineBadge status={item.workflow_status} targetDate={item.retirement_target_date} />}
                             {muted && <span className="ret-inline-badge ret-inline-badge--muted">muted</span>}
                           </div>
                           <div style={{ fontSize: '10px', color: 'var(--text-muted)', fontFamily: 'var(--ff-mono)', marginTop: '1px' }}>{item.catalog_base_name}</div>
