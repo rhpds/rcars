@@ -1246,16 +1246,14 @@ class Database:
             if platform_values and platform_none:
                 conditions.append(
                     "(bi.platform = ANY(%(platforms)s) OR "
-                    "(%(platform_none)s AND bi.content_id IS NOT NULL AND bi.platform IS NULL))"
+                    "(bi.content_id IS NOT NULL AND bi.platform IS NULL))"
                 )
                 params["platforms"] = platform_values
-                params["platform_none"] = True
             elif platform_values:
                 conditions.append("bi.platform = ANY(%(platforms)s)")
                 params["platforms"] = platform_values
             elif platform_none:
                 conditions.append("bi.content_id IS NOT NULL AND bi.platform IS NULL")
-                params["platform_none"] = True
 
         if tdps:
             tdp_none = "__none__" in tdps
@@ -1263,10 +1261,9 @@ class Database:
             if tdp_values and tdp_none:
                 conditions.append(
                     "(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s) OR "
-                    "(%(tdp_none)s AND bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL))"
+                    "(bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL))"
                 )
                 params["tdps"] = tdp_values
-                params["tdp_none"] = True
             elif tdp_values:
                 conditions.append("(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s))")
                 params["tdps"] = tdp_values
@@ -1274,7 +1271,6 @@ class Database:
                 conditions.append(
                     "bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL"
                 )
-                params["tdp_none"] = True
 
         babylon_specific = any([stages, cloud_provider, agd_config, workloads, category, platforms, tdps])
 
