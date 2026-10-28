@@ -227,7 +227,7 @@ export function RetirementPage() {
         <div className="ca-stats-grid">
           <div className="ret-stat-card ret-stat-card--blue">
             <div className="ret-stat-label">Total</div>
-            <div className="ret-stat-value ca-color-blue">{allItems.length}</div>
+            <div className="ret-stat-value ca-color-blue">{statusBaseItems.length}</div>
           </div>
           <div className="ret-stat-card ret-stat-card--amber">
             <div className="ret-stat-label">Recommended</div>

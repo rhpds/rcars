@@ -493,6 +493,7 @@ export function BrowsePage() {
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const searchRef = useRef(search)
+  const requestRef = useRef(0)
   searchRef.current = search
 
   // Load facets
@@ -508,6 +509,9 @@ export function BrowsePage() {
   }, [showDev, showEvent])
 
   const fetchItems = useCallback(async (targetPage: number, searchOverride?: string) => {
+    // Only the latest request may update state, so a slow earlier response
+    // can't overwrite results for the current filters.
+    const reqId = ++requestRef.current
     setLoading(true)
     try {
       const searchVal = searchOverride !== undefined ? searchOverride : searchRef.current
@@ -533,10 +537,12 @@ export function BrowsePage() {
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
+      if (reqId !== requestRef.current) return
       setItems(data.items as CatalogItem[])
       setTotal(data.total)
       setLabelCounts(data.label_counts)
     } catch (err) {
+      if (reqId !== requestRef.current) return
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
