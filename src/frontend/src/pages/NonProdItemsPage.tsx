@@ -7,6 +7,8 @@ import { useAuth } from '../hooks/useAuth'
 import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
+import { countLabelValues, matchesLabels } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'muted'
@@ -34,6 +36,10 @@ export function NonProdItemsPage() {
     new Set(searchParams.get('content_types')?.split(',').filter(Boolean) || []))
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
+    new Set(searchParams.get('platform')?.split(',').filter(Boolean) || []))
+  const [selectedTdps, setSelectedTdps] = useState<Set<string>>(
+    new Set(searchParams.get('tdp')?.split(',').filter(Boolean) || []))
   const [provFilter, setProvFilter] = useState<string>(searchParams.get('provs') || 'all')
   const [retirementFilter, setRetirementFilter] = useState<RetirementFilter>(
     (searchParams.get('retirement') as RetirementFilter) || 'all')
@@ -79,10 +85,12 @@ export function NonProdItemsPage() {
     if (selectedStages.size > 0) params.stages = Array.from(selectedStages).sort().join(',')
     if (selectedContentTypes.size > 0) params.content_types = Array.from(selectedContentTypes).sort().join(',')
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
+    if (selectedPlatforms.size > 0) params.platform = Array.from(selectedPlatforms).sort().join(',')
+    if (selectedTdps.size > 0) params.tdp = Array.from(selectedTdps).sort().join(',')
     if (provFilter !== 'all') params.provs = provFilter
     if (retirementFilter !== 'all') params.retirement = retirementFilter
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, provFilter, retirementFilter, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedStages, selectedContentTypes, selectedNamespaces, selectedPlatforms, selectedTdps, provFilter, retirementFilter, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -122,6 +130,8 @@ export function NonProdItemsPage() {
     setSelectedStages(new Set())
     setSelectedContentTypes(new Set())
     setSelectedNamespaces(new Set())
+    setSelectedPlatforms(new Set())
+    setSelectedTdps(new Set())
     setProvFilter('all')
     setRetirementFilter('all')
   }
@@ -137,6 +147,8 @@ export function NonProdItemsPage() {
     }
     if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
     if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
+    if (!matchesLabels(i.platforms ?? [], selectedPlatforms)) return false
+    if (!matchesLabels(i.tdps ?? [], selectedTdps)) return false
     if (provFilter === '0' && i.provisions !== 0) return false
     if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
     if (provFilter === '10+' && i.provisions <= 10) return false
@@ -171,6 +183,8 @@ export function NonProdItemsPage() {
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
+  const availablePlatforms = countLabelValues(allItems, i => i.platforms ?? [])
+  const availableTdps = countLabelValues(allItems, i => i.tdps ?? [])
 
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter(prev => {
@@ -179,6 +193,8 @@ export function NonProdItemsPage() {
       return next
     })
   }
+  const togglePlatform = (v: string) => toggleSet(setSelectedPlatforms, v)
+  const toggleTdp = (v: string) => toggleSet(setSelectedTdps, v)
 
   const syncAge = syncedAt
     ? `${Math.round((Date.now() - new Date(syncedAt).getTime()) / 3600000)}h ago`
@@ -248,6 +264,12 @@ export function NonProdItemsPage() {
             ))}
           </div>
         </div>
+
+        <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
+          onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
+
+        <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
+          onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
 
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Retirement</div>

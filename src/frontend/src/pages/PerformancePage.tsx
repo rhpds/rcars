@@ -8,6 +8,8 @@ import { useAuth } from '../hooks/useAuth'
 import {
   RetirementFilter, RetirementFilterGroup, RetirementInlineBadge, isRetiring, matchesRetirementFilter,
 } from '../components/performance/RetirementBadge'
+import { LabelFilterGroup } from '../components/LabelFilterGroup'
+import { countLabelValues, matchesLabels } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type PerfFilter = 'all' | 'strong' | 'moderate' | 'low'
@@ -28,6 +30,10 @@ export function PerformancePage() {
     (searchParams.get('retirement') as RetirementFilter) || 'all')
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
+  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
+    new Set(searchParams.get('platform')?.split(',').filter(Boolean) || []))
+  const [selectedTdps, setSelectedTdps] = useState<Set<string>>(
+    new Set(searchParams.get('tdp')?.split(',').filter(Boolean) || []))
   const [sortBy, setSortBy] = useState<SortField>((searchParams.get('sort') as SortField) || 'performance_score')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(searchParams.get('order') === 'asc' ? 'asc' : 'desc')
 
@@ -86,6 +92,8 @@ export function PerformancePage() {
       setStatusFilter('all')
       setRetirementFilter('all')
       setSelectedNamespaces(new Set())
+      setSelectedPlatforms(new Set())
+      setSelectedTdps(new Set())
       setSortBy('performance_score')
       setSortDir('desc')
       setRangeInputs(emptyRanges)
@@ -103,6 +111,8 @@ export function PerformancePage() {
     if (statusFilter !== 'all') params.status = statusFilter
     if (retirementFilter !== 'all') params.retirement = retirementFilter
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
+    if (selectedPlatforms.size > 0) params.platform = Array.from(selectedPlatforms).sort().join(',')
+    if (selectedTdps.size > 0) params.tdp = Array.from(selectedTdps).sort().join(',')
     if (sortBy !== 'performance_score') params.sort = sortBy
     if (sortDir !== 'desc') params.order = sortDir
     const rangeUrlMap: Record<keyof RangeFilters, string> = {
@@ -117,7 +127,7 @@ export function PerformancePage() {
       if (appliedRanges[stateKey as keyof RangeFilters]) params[urlKey] = appliedRanges[stateKey as keyof RangeFilters]
     })
     setSearchParams(params, { replace: true })
-  }, [search, channel, window_, perfFilter, statusFilter, retirementFilter, selectedNamespaces, sortBy, sortDir, appliedRanges, setSearchParams])
+  }, [search, channel, window_, perfFilter, statusFilter, retirementFilter, selectedNamespaces, selectedPlatforms, selectedTdps, sortBy, sortDir, appliedRanges, setSearchParams])
 
   // Debounced range application
   useEffect(() => {
@@ -184,6 +194,8 @@ export function PerformancePage() {
     setStatusFilter('all')
     setRetirementFilter('all')
     setSelectedNamespaces(new Set())
+    setSelectedPlatforms(new Set())
+    setSelectedTdps(new Set())
     setRangeInputs(emptyRanges)
     setAppliedRanges(emptyRanges)
   }
@@ -200,6 +212,8 @@ export function PerformancePage() {
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
+  const availablePlatforms = countLabelValues(statusBaseItems, i => i.platforms ?? [])
+  const availableTdps = countLabelValues(statusBaseItems, i => i.tdps ?? [])
   const toggleNamespace = (ns: string) => {
     setSelectedNamespaces(prev => {
       const next = new Set(prev)
@@ -207,17 +221,34 @@ export function PerformancePage() {
       return next
     })
   }
+  const togglePlatform = (v: string) => {
+    setSelectedPlatforms(prev => {
+      const next = new Set(prev)
+      if (next.has(v)) next.delete(v); else next.add(v)
+      return next
+    })
+  }
+  const toggleTdp = (v: string) => {
+    setSelectedTdps(prev => {
+      const next = new Set(prev)
+      if (next.has(v)) next.delete(v); else next.add(v)
+      return next
+    })
+  }
   const nsMatch = (i: PerformanceItem) =>
     selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name))
-  const nsActiveItems = activeItems.filter(nsMatch)
+  const labelMatch = (i: PerformanceItem) =>
+    matchesLabels(i.platforms ?? [], selectedPlatforms) && matchesLabels(i.tdps ?? [], selectedTdps)
+  const nsActiveItems = activeItems.filter(i => nsMatch(i) && labelMatch(i))
 
   const perfBandFiltered = (() => {
     const base = (statusFilter === 'muted' ? allItems.filter(isIgnored) : activeItems)
       .filter(i => matchesRetirementFilter(i.workflow_status, retirementFilter))
-    if (perfFilter === 'all') return base.filter(nsMatch)
-    if (perfFilter === 'strong') return base.filter(i => i.performance_score >= 55 && nsMatch(i))
-    if (perfFilter === 'moderate') return base.filter(i => i.performance_score >= 35 && i.performance_score < 55 && nsMatch(i))
-    return base.filter(i => i.performance_score < 35 && nsMatch(i))
+    const match = (i: PerformanceItem) => nsMatch(i) && labelMatch(i)
+    if (perfFilter === 'all') return base.filter(match)
+    if (perfFilter === 'strong') return base.filter(i => i.performance_score >= 55 && match(i))
+    if (perfFilter === 'moderate') return base.filter(i => i.performance_score >= 35 && i.performance_score < 55 && match(i))
+    return base.filter(i => i.performance_score < 35 && match(i))
   })()
 
   const hasActiveRanges = Object.values(appliedRanges).some(v => v !== '')
@@ -374,6 +405,12 @@ export function PerformancePage() {
             ))}
           </div>
         </div>
+
+        <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
+          onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
+
+        <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
+          onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
 
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Retirement</div>

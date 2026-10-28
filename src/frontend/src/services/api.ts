@@ -509,6 +509,8 @@ export interface PerformanceItem {
   ignored_until?: string | null
   extrapolated?: boolean
   active_months?: number | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface PerformanceDashboardResponse {
@@ -552,6 +554,8 @@ export interface NonProdItem {
   jira_key?: string | null
   retirement_target_date?: string | null
   ignored_until?: string | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface RetirementItem {
@@ -592,6 +596,8 @@ export interface RetirementItem {
   stages: Array<{ stage: string; ci_name: string; catalog_url: string }>
   stage: string | null
   catalog_namespace: string | null
+  platforms: string[]
+  tdps: string[]
 }
 
 export interface RetirementDashboardResponse {
