@@ -3368,6 +3368,46 @@ class Database:
                     result.setdefault(base, []).append(stage_info)
         return result
 
+    def get_labels_for_base_names(self, base_names: list[str]) -> dict[str, dict[str, list[str]]]:
+        if not base_names:
+            return {}
+        from rcars.services.reporting_sync import extract_base_name
+        placeholders = ",".join(["%s"] * len(base_names))
+        sql = f"""
+            SELECT bi.ci_name, bi.platform, bi.tdp1, bi.tdp2
+            FROM babylon_items bi
+            JOIN content_entities ce ON ce.content_id = bi.content_id
+            WHERE substring(bi.ci_name FROM '^(.+)\\.[^.]+$') IN ({placeholders})
+            ORDER BY bi.ci_name
+        """
+        result: dict[str, dict[str, list[str]]] = {}
+        with self._pool.connection() as conn:
+            with conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(sql, base_names)
+                for row in cur.fetchall():
+                    base = extract_base_name(row["ci_name"])
+                    if base not in result:
+                        result[base] = {"platforms": set(), "tdps": set()}
+
+                    # Add platform if not NULL
+                    if row["platform"]:
+                        result[base]["platforms"].add(row["platform"])
+
+                    # Add tdp1 if not NULL
+                    if row["tdp1"]:
+                        result[base]["tdps"].add(row["tdp1"])
+
+                    # Add tdp2 if not NULL
+                    if row["tdp2"]:
+                        result[base]["tdps"].add(row["tdp2"])
+
+        # Convert sets to sorted lists
+        for base in result:
+            result[base]["platforms"] = sorted(result[base]["platforms"])
+            result[base]["tdps"] = sorted(result[base]["tdps"])
+
+        return result
+
     def get_owners_for_base_names(self, base_names: list[str]) -> dict[str, list[dict]]:
         if not base_names:
             return {}
