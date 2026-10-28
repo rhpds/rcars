@@ -220,12 +220,16 @@ async def performance_dashboard(
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names, include_retired=include_retired in ("true", "only", True))
     owners_map = db.get_owners_for_base_names(base_names)
+    labels_map = db.get_labels_for_base_names(base_names)
 
     from rcars.services.reporting_sync import compute_sales_impact
     for item in items:
-        stages = stages_map.get(item["catalog_base_name"], [])
+        bn = item["catalog_base_name"]
+        stages = stages_map.get(bn, [])
         item["stages"] = stages
-        item["owners"] = owners_map.get(item["catalog_base_name"], [])
+        item["owners"] = owners_map.get(bn, [])
+        item["platforms"] = labels_map.get(bn, {}).get("platforms", [])
+        item["tdps"] = labels_map.get(bn, {}).get("tdps", [])
         if "sales_impact" not in item:
             item["sales_impact"] = compute_sales_impact(float(item.get("closed_amount", 0) or 0))
 
@@ -1062,11 +1066,15 @@ async def retirement_dashboard(
             except (ValueError, TypeError):
                 pass
 
-    # Enrich with stages
+    # Enrich with stages and labels
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names, include_retired=True)
+    labels_map = db.get_labels_for_base_names(base_names)
     for item in items:
-        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+        bn = item["catalog_base_name"]
+        item["stages"] = stages_map.get(bn, [])
+        item["platforms"] = labels_map.get(bn, {}).get("platforms", [])
+        item["tdps"] = labels_map.get(bn, {}).get("tdps", [])
 
     earliest = db.get_earliest_retired_at()
 
@@ -1113,9 +1121,10 @@ async def nonprod_dashboard(
     from datetime import date as _date
     today = _date.today()
 
-    # Collect all base_names for stage lookup
+    # Collect all base_names for stage and label lookup
     base_names = [i["catalog_base_name"] for i in items]
     stages_map = db.get_stages_for_base_names(base_names, include_retired=False)
+    labels_map = db.get_labels_for_base_names(base_names)
 
     for item in items:
         # Apply windowed metrics overlay
@@ -1137,8 +1146,11 @@ async def nonprod_dashboard(
         item["extrapolated"] = w.get("extrapolated", False)
         item["active_months"] = w.get("active_months")
 
-        # Enrich with stages from all variants of this base name
-        item["stages"] = stages_map.get(item["catalog_base_name"], [])
+        # Enrich with stages and labels from all variants of this base name
+        bn = item["catalog_base_name"]
+        item["stages"] = stages_map.get(bn, [])
+        item["platforms"] = labels_map.get(bn, {}).get("platforms", [])
+        item["tdps"] = labels_map.get(bn, {}).get("tdps", [])
 
         # Handle ignored_until
         iu = item.get("ignored_until")
