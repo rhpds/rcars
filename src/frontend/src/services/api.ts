@@ -57,6 +57,8 @@ export const api = {
     verticals?: string;
     audience?: string;
     difficulty?: string;
+    platform?: string;
+    tdp?: string;
   }) => {
     const qs = new URLSearchParams();
     if (params?.search) qs.set('search', params.search);
@@ -74,6 +76,8 @@ export const api = {
     if (params?.verticals) qs.set('verticals', params.verticals);
     if (params?.audience) qs.set('audience', params.audience);
     if (params?.difficulty) qs.set('difficulty', params.difficulty);
+    if (params?.platform) qs.set('platform', params.platform);
+    if (params?.tdp) qs.set('tdp', params.tdp);
     return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),
@@ -175,6 +179,8 @@ export const api = {
     agd_configs: string[];
     cloud_providers: string[];
     os_images: string[];
+    platforms: string[];
+    tdps: string[];
   }>('/catalog/facets'),
   getInfraStats: () => request<{
     v2_items: number; with_workloads: number;

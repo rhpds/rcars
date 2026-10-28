@@ -11,6 +11,7 @@ import {
   architectureDetailUrl, architectureSubline,
   type ContentFormat,
 } from './browse/helpers'
+import { NONE_LABEL, labelDisplay } from '../utils/labelFilters'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -123,6 +124,8 @@ interface Facets {
   solutions: string[]
   verticals: string[]
   audience: string[]
+  platforms: string[]
+  tdps: string[]
 }
 
 type ContentFilter = 'unanalyzed' | 'scan_failures' | 'stale' | 'needs_review' | 'retired'
@@ -435,6 +438,10 @@ export function BrowsePage() {
     searchParams.get('audience')?.split(',').filter(Boolean) || [])
   const [selectedDifficulty, setSelectedDifficulty] = useState<string>(
     searchParams.get('difficulty') || '')
+  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(
+    searchParams.get('platform')?.split(',').filter(Boolean) || [])
+  const [selectedTdps, setSelectedTdps] = useState<string[]>(
+    searchParams.get('tdp')?.split(',').filter(Boolean) || [])
   const [page, setPage] = useState(Number(searchParams.get('page')) || 1)
 
   useEffect(() => {
@@ -451,6 +458,8 @@ export function BrowsePage() {
       setSelectedVerticals([])
       setSelectedAudience([])
       setSelectedDifficulty('')
+      setSelectedPlatforms([])
+      setSelectedTdps([])
       setPage(1)
     }
   }, [location.state, searchParams])
@@ -515,6 +524,8 @@ export function BrowsePage() {
       if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
       if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
       if (selectedDifficulty) params.difficulty = selectedDifficulty
+      if (selectedPlatforms.length > 0) params.platform = selectedPlatforms.join(',')
+      if (selectedTdps.length > 0) params.tdp = selectedTdps.join(',')
       if (contentFilter && contentFilter !== 'retired') params.content_filter = contentFilter
       if (contentFilter === 'retired') (params as Record<string, unknown>).include_retired = 'only'
 
@@ -525,7 +536,7 @@ export function BrowsePage() {
       console.error('Failed to load catalog:', err)
     }
     setLoading(false)
-  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, contentFilter, formats])
+  }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, contentFilter, formats])
 
   // Sync URL params
   useEffect(() => {
@@ -540,13 +551,15 @@ export function BrowsePage() {
     if (selectedVerticals.length > 0) params.verticals = selectedVerticals.join(',')
     if (selectedAudience.length > 0) params.audience = selectedAudience.join(',')
     if (selectedDifficulty) params.difficulty = selectedDifficulty
+    if (selectedPlatforms.length > 0) params.platform = selectedPlatforms.join(',')
+    if (selectedTdps.length > 0) params.tdp = selectedTdps.join(',')
     const showsArchitecture = formats.has('architecture')
     const showsHandsOn = formats.has('hands_on')
     if (showsArchitecture) params.format = showsHandsOn ? 'all' : 'architecture'
     if (contentFilter) params.content_filter = contentFilter
     if (page > 1) params.page = String(page)
     setSearchParams(params, { replace: true })
-  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, formats, contentFilter, page, setSearchParams])
+  }, [search, buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, formats, contentFilter, page, setSearchParams])
 
   // Fetch on filter change
   useEffect(() => {
@@ -589,6 +602,12 @@ export function BrowsePage() {
   if (selectedDifficulty) {
     activeFilters.push({ label: selectedDifficulty, onRemove: () => setSelectedDifficulty('') })
   }
+  selectedPlatforms.forEach(p => {
+    activeFilters.push({ label: labelDisplay(p), onRemove: () => setSelectedPlatforms(prev => prev.filter(x => x !== p)) })
+  })
+  selectedTdps.forEach(t => {
+    activeFilters.push({ label: labelDisplay(t), onRemove: () => setSelectedTdps(prev => prev.filter(x => x !== t)) })
+  })
   if (formats.has('architecture')) {
     activeFilters.push({ label: 'Architectures', onRemove: () => toggleFormat('architecture') })
   }
@@ -604,6 +623,8 @@ export function BrowsePage() {
     setSelectedVerticals([])
     setSelectedAudience([])
     setSelectedDifficulty('')
+    setSelectedPlatforms([])
+    setSelectedTdps([])
     setFormats(new Set<ContentFormat>(['hands_on']))
     setContentFilter('')
   }
@@ -776,6 +797,25 @@ export function BrowsePage() {
             <div className="browse-filter-group-note">Architecture items only</div>
             <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />
+          </div>
+
+          {/* Catalog Labels */}
+          <div className="browse-filter-group">
+            <div className="browse-filter-group-label">Catalog Labels</div>
+            <WorkloadMultiSelect
+              options={[...facets?.platforms || [], NONE_LABEL]}
+              selected={selectedPlatforms}
+              onChange={setSelectedPlatforms}
+              placeholder="Platform..."
+              formatOption={labelDisplay}
+            />
+            <WorkloadMultiSelect
+              options={[...facets?.tdps || [], NONE_LABEL]}
+              selected={selectedTdps}
+              onChange={setSelectedTdps}
+              placeholder="Technical Decision Point..."
+              formatOption={labelDisplay}
+            />
           </div>
 
           {/* Lab Infrastructure — AgnosticD v2 only */}

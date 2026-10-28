@@ -5,9 +5,10 @@ interface WorkloadMultiSelectProps {
   selected: string[]
   onChange: (selected: string[]) => void
   placeholder?: string
+  formatOption?: (v: string) => string
 }
 
-export function WorkloadMultiSelect({ options, selected, onChange, placeholder = 'Select workloads...' }: WorkloadMultiSelectProps) {
+export function WorkloadMultiSelect({ options, selected, onChange, placeholder = 'Select workloads...', formatOption }: WorkloadMultiSelectProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [filterText, setFilterText] = useState('')
   const ref = useRef<HTMLDivElement>(null)
@@ -67,7 +68,7 @@ export function WorkloadMultiSelect({ options, selected, onChange, placeholder =
                 checked={selected.includes(opt)}
                 onChange={() => toggle(opt)}
               />
-              <span>{opt}</span>
+              <span>{formatOption ? formatOption(opt) : opt}</span>
             </label>
           ))}
           {sorted.length === 0 && (
