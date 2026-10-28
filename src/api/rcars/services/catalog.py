@@ -90,6 +90,9 @@ def extract_catalog_item(crd: dict[str, Any]) -> dict[str, Any]:
         "is_published": metadata.get("name", "").startswith("published."),
         "published_ci_name": None,
         "base_ci_name": None,
+        "platform": _get_label(metadata, "Platform") or None,
+        "tdp1": _get_label(metadata, "TDP1") or None,
+        "tdp2": _get_label(metadata, "TDP2") or None,
     }
 
 

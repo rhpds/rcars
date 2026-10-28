@@ -639,6 +639,9 @@ ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS showroom_source_json JSONB;
 ALTER TABLE showroom_analysis ADD COLUMN IF NOT EXISTS analysis_provenance_json JSONB;
 ALTER TABLE nonprod_usage DROP COLUMN IF EXISTS team_seats;
 ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFAULT 0;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS platform TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp1 TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp2 TEXT;
 
 """
 
@@ -879,6 +882,7 @@ class Database:
             "is_agd_v2", "agd_config", "cloud_provider", "ocp_version",
             "os_image", "worker_instance_count", "control_plane_instance_count",
             "instances_json",
+            "platform", "tdp1", "tdp2",
         ]
         bi_data = {"content_id": content_id}
         if source is not None:
