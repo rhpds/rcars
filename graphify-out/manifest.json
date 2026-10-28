@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1793182635.754459,
-    "seen": 1793182826.175748,
-    "ast_hash": "c25829f661210dcdc1c4a1882d9ed3d7",
+    "mtime": 1793185969.0092542,
+    "seen": 1793186461.5533938,
+    "ast_hash": "46463553c7d0b5379568dba2406bd755",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -486,9 +486,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/BrowsePage.tsx": {
-    "mtime": 1793184535.6414354,
-    "seen": 1793184629.0509539,
-    "ast_hash": "b11113121917866c0167129d46806dfd",
+    "mtime": 1793185987.9254947,
+    "seen": 1793186461.553497,
+    "ast_hash": "16d2ed51c693183703fd6435aa71fc9f",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/ContentAnalysisPage.tsx": {
@@ -528,9 +528,9 @@
     "semantic_hash": "57cb7f9e812b124b1f4135531d5b81de"
   },
   "src/frontend/src/services/api.ts": {
-    "mtime": 1793181588.8394363,
-    "seen": 1793182826.175853,
-    "ast_hash": "4ff7a6f16b7d4c3c33b99f616eb3afff",
+    "mtime": 1793185984.3528335,
+    "seen": 1793186461.5535061,
+    "ast_hash": "c0156b3c1d8bd06e74f98cc60f213f8e",
     "semantic_hash": ""
   },
   "src/frontend/src/vite-env.d.ts": {
@@ -1290,9 +1290,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/PerformancePage.tsx": {
-    "mtime": 1793184453.613235,
-    "seen": 1793184629.050956,
-    "ast_hash": "1d08145670d385d04d5cc90be6863a0f",
+    "mtime": 1793186451.389004,
+    "seen": 1793186461.5535,
+    "ast_hash": "8965e90c2abb9de2bfa2a7250422ca4f",
     "semantic_hash": ""
   },
   "docs/architecture/performance-analysis.md": {
@@ -1464,9 +1464,9 @@
     "semantic_hash": "44ef86722b4d0008741e2abf601b7698"
   },
   "src/frontend/src/pages/NonProdItemsPage.tsx": {
-    "mtime": 1793184490.5315332,
-    "seen": 1793184629.050956,
-    "ast_hash": "1feff2f60cda18e6eecf3195e96e11d3",
+    "mtime": 1793185869.5530686,
+    "seen": 1793186461.553499,
+    "ast_hash": "7dec18fb85ee647ccaf8e55e76d57476",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/VocabularyPage.tsx": {
@@ -1710,9 +1710,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/RetirementPage.tsx": {
-    "mtime": 1793184468.5077524,
-    "seen": 1793184629.050957,
-    "ast_hash": "a3f8abd7bd1a67072c56f26759fcc8c8",
+    "mtime": 1793185915.3785932,
+    "seen": 1793186461.553501,
+    "ast_hash": "9253bb105f6f7cc2b3c89573158a47c9",
     "semantic_hash": ""
   },
   "src/frontend/src/utils/renderMarkdown.tsx": {
@@ -1932,15 +1932,15 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_catalog_labels.py": {
-    "mtime": 1793180539.217605,
-    "seen": 1793182826.1757922,
-    "ast_hash": "e8ba8fe5b20b01a8e20702f7d44f780c",
+    "mtime": 1793185946.190393,
+    "seen": 1793186461.553437,
+    "ast_hash": "1e4033a1fc0d48f8c8fad620db2ec351",
     "semantic_hash": ""
   },
   "src/frontend/src/components/LabelFilterGroup.tsx": {
-    "mtime": 1793184430.4111793,
-    "seen": 1793184629.050936,
-    "ast_hash": "bf18ecff8e30b745c44536968a0e2395",
+    "mtime": 1793185854.781317,
+    "seen": 1793186461.553476,
+    "ast_hash": "fdca30cf48b084cf76f848f560905209",
     "semantic_hash": ""
   },
   "src/frontend/src/components/StageBrowseLink.tsx": {
@@ -1950,15 +1950,15 @@
     "semantic_hash": ""
   },
   "src/frontend/src/utils/labelFilters.test.ts": {
-    "mtime": 1793180914.407596,
-    "seen": 1793182826.175853,
-    "ast_hash": "b77ad6669e3dd353873a9fc43512666b",
+    "mtime": 1793185851.3677514,
+    "seen": 1793186461.5535061,
+    "ast_hash": "54e3980373a1c10da6c55c383ecefff1",
     "semantic_hash": ""
   },
   "src/frontend/src/utils/labelFilters.ts": {
-    "mtime": 1793180883.303131,
-    "seen": 1793182826.175854,
-    "ast_hash": "91bfc2256ae3600a28069e51236b9fc9",
+    "mtime": 1793185845.5482895,
+    "seen": 1793186461.553507,
+    "ast_hash": "06a64502fa33bc23adf5dbd1cf3195a8",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-10-28-platform-tdp-filters.md": {
@@ -1968,9 +1968,9 @@
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-10-28-platform-tdp-filters-design.md": {
-    "mtime": 1793184616.6111717,
-    "seen": 1793184629.051021,
-    "ast_hash": "2ec62b5b2860af94848b3d8dab394f48",
+    "mtime": 1793186076.7865238,
+    "seen": 1793186461.5535731,
+    "ast_hash": "e2b8f8eb38da329d110f66f9c4a4d71b",
     "semantic_hash": ""
   },
   "src/frontend/src/components/CollapsibleFilterGroup.test.tsx": {
