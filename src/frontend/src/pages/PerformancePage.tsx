@@ -341,7 +341,7 @@ export function PerformancePage() {
           </div>
         </div>
 
-        <CollapsibleFilterGroup title="Metrics" activeCount={Object.values(rangeInputs).filter(v => v !== '').length}>
+        <CollapsibleFilterGroup title="Metrics" activeCount={Object.values(appliedRanges).filter(v => v !== '').length}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '11px' }}>
             {([
               ['Provisions', 'provMin', 'provMax'],
