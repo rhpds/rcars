@@ -147,17 +147,27 @@ def test_retirement_rows_have_labels(client, db):
         """)
         conn.commit()
 
-    resp = client.get("/api/v1/analysis/retirement")
-    assert resp.status_code == 200
-    data = resp.json()
+    try:
+        resp = client.get("/api/v1/analysis/retirement")
+        assert resp.status_code == 200
+        data = resp.json()
 
-    items = data["items"]
-    acct_item = next((i for i in items if i["catalog_base_name"] == "acct.x"), None)
-    assert acct_item is not None
-    assert "platforms" in acct_item
-    assert "tdps" in acct_item
-    assert acct_item["platforms"] == ["OpenShift"]
-    assert acct_item["tdps"] == ["Virtualization"]
+        items = data["items"]
+        acct_item = next((i for i in items if i["catalog_base_name"] == "acct.x"), None)
+        assert acct_item is not None
+        assert "platforms" in acct_item
+        assert "tdps" in acct_item
+        assert acct_item["platforms"] == ["OpenShift"]
+        assert acct_item["tdps"] == ["Virtualization"]
+    finally:
+        # Restore state to prevent test isolation violations
+        with db.pool.connection() as conn:
+            conn.execute("""
+                UPDATE content_entities
+                SET retired_at = NULL
+                WHERE content_id = 'babylon:acct.x.prod'
+            """)
+            conn.commit()
 
 
 def test_rows_without_labels_get_empty_lists(client):
