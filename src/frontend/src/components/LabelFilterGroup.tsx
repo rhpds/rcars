@@ -1,4 +1,4 @@
-import { labelDisplay } from '../utils/labelFilters'
+import { labelDisplay, withSelected } from '../utils/labelFilters'
 import { CollapsibleFilterGroup } from './CollapsibleFilterGroup'
 
 interface LabelFilterGroupProps {
@@ -19,7 +19,7 @@ export function LabelFilterGroup({ title, options, selected, onToggle, onClear, 
         maxHeight: '200px', overflowY: 'auto', paddingRight: '8px',
         border: '1px solid var(--border-section)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-page)',
       }}>
-        {options.map(([value, count]) => (
+        {withSelected(options, selected).map(([value, count]) => (
           <label key={value} style={{
             display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 8px',
             cursor: 'pointer', fontSize: '11px',

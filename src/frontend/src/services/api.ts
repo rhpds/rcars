@@ -16,6 +16,12 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return resp.json();
 }
 
+/** Browse Platform/TDP counts; each group follows every active filter except its own. */
+export interface CatalogLabelCounts {
+  platforms: [string, number][]
+  tdps: [string, number][]
+}
+
 export const api = {
   // Auth
   getMe: () => request<{ email: string; roles: string[]; performance_public: boolean }>('/auth/me'),
@@ -78,7 +84,7 @@ export const api = {
     if (params?.difficulty) qs.set('difficulty', params.difficulty);
     if (params?.platform) qs.set('platform', params.platform);
     if (params?.tdp) qs.set('tdp', params.tdp);
-    return request<{ items: unknown[]; total: number }>(`/catalog?${qs}`);
+    return request<{ items: unknown[]; total: number; label_counts: CatalogLabelCounts }>(`/catalog?${qs}`);
   },
   getCatalogItem: (ciName: string) => request<unknown>(`/catalog/${encodeURIComponent(ciName)}`),
   getCatalogStats: () => request<unknown>('/catalog/stats'),

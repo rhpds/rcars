@@ -17,8 +17,8 @@ Current values (git, 2026-10-28): Platform — `OpenShift`, `RHEL`, `AI`, `Ansib
 
 ## Goals
 
-- Two new filters, **Platform** and **Technical Decision Point**, on four pages: Performance, Non-Prod Items, Retirement, Browse Catalog.
-- On Performance, Non-Prod and Retirement they sit next to the existing Namespace filter (which stays).
+- Two new filters, **Platform** and **Technical Decision Point**, on three pages: Performance, Non-Prod Items, Browse Catalog. *User decision (second review):* Retirement does not get them. Its rows are mostly retired before deploy and have no labels (no backfill), so the filter is useless there. The endpoint still returns `platforms`/`tdps`.
+- On Performance and Non-Prod they sit next to the existing Namespace filter (which stays).
 - Technical Decision Point is one filter: an item matches if TDP1 **or** TDP2 matches a selected value.
 - Same look and behavior as each page's existing filters: multi-select (OR within a group, AND across groups), synced to the URL search params. Analysis pages use the checkbox list with per-value counts (like Namespace); Browse uses its sidebar dropdown style (see Per page).
 
@@ -50,23 +50,24 @@ Current values (git, 2026-10-28): Platform — `OpenShift`, `RHEL`, `AI`, `Ansib
 - These pages show one row per catalog base name, merging stages. Rule: **union** — a row's `platforms` is the distinct set of `platform` across all stages of that base name; `tdps` is the distinct set of `tdp1` ∪ `tdp2` across all stages. A row matches if any value matches. (Usually stages agree; union avoids hiding a row when they don't.)
 - Note: the three list queries (`list_performance_data`, `list_nonprod_items`, `list_retirement_items`) `LEFT JOIN babylon_items` on a single `content_id`, which may be one stage or none. Compute the union by base name (`substring(ci_name FROM '^(.+)\.[^.]+$')`) across all `babylon_items` rows, not only the joined one. Include retired stages too, so rows retired after deploy keep their labels.
 - **Going forward only (user decision):** stages retired before deploy are never refreshed again, so they keep NULL labels and show under "None". No backfill of any kind. (AgnosticV only gained these labels on 2026-09-15, so most past retirements never had them.)
-- **Browse** (`BrowsePage.tsx`, `list_content_entities_filtered()` + `get_catalog_facets()`, routes in `src/api/rcars/api/routes/catalog.py`): filtering is server-side like the other sidebar filters. New query params `platform` and `tdp` (comma-separated, same style as `workloads`/`solutions`), including a sentinel for None. *User decision (after the local run):* Browse uses the same checkbox lists as the analysis pages, without counts (`get_catalog_facets()` returns plain string lists for `platforms` and `tdps`; the UI adds None as the last choice).
+- **Browse** (`BrowsePage.tsx`, `list_content_entities_filtered()` + `get_catalog_facets()`, routes in `src/api/rcars/api/routes/catalog.py`): filtering is server-side like the other sidebar filters. New query params `platform` and `tdp` (comma-separated, same style as `workloads`/`solutions`), including a sentinel for None. *User decision (after the local run):* Browse uses the same checkbox lists as the analysis pages. *User decision (second review):* Browse shows counts too, for consistency. `list_content_entities_filtered()` returns `label_counts` (`platforms`/`tdps` as `[value, count]` pairs, None last).
 - **Collapsible sidebar groups (user decision, all four pages):** every sidebar filter group folds behind its title, except the top group on each page (Performance: the score bands; Non-Prod: Stage; Retirement: Status; Browse: Content Type). Groups start closed, open on load when a filter in them is active, and show the active count in the header ("Clear (n)" or "(n)").
-- **Browse sidebar order (user decision):** Content Type, Stage (dev/event toggles moved from the top bar; curator/admin only), Platform, Technical Decision Point, Audience & Difficulty (builder's call: not named by the user), Architecture Filters, Hands-on Labs, Curator Tools.
+- **Browse sidebar order (user decision):** Content Type, Stage (dev/event toggles moved from the top bar; curator/admin only), Platform, Technical Decision Point, Audience & Difficulty (builder's call: not named by the user), Architectures (renamed from "Architecture Filters"), Hands-on Labs, Curator Tools.
 - Browse also lists portfolio architectures, which have no Platform/TDP. When either filter is active, architectures drop out. "None" means a Babylon item with no value; architectures never match any choice, including None.
 
 ## Constraints
 
 - Follow existing filter-group markup and CSS (`browse-filter-group`, checkbox list with counts) and the per-page URL-sync pattern.
 - Every visible table column stays sortable (existing rule; nothing new to sort).
-- Role gates unchanged: Performance is public by default; Non-Prod and Retirement are curator-only.
+- **Counts follow the other filters (user decision, second review):** every count in a sidebar group shows how many items that option gives with all the *other* active filters applied (a group never narrows its own counts). Example: Non-Prod with Namespace = agd-v2 (21 items) shows Platform counts inside those 21. This covers Performance (bands, stat cards, Namespace, Platform, TDP, Retirement), Non-Prod (Stage, Content Type, Namespace, Platform, TDP, Retirement), Retirement (Status, Namespace) and Browse (Platform, TDP, server-side). A checked value whose count drops to 0 stays visible with (0) so it can be unchecked.
+- Role gates: Performance is public by default; Non-Prod and Retirement are curator-only. *User decision (second review):* on Performance, regular users see only the score bands, Metrics, Platform and TDP. Namespace and Retirement (filter group and row badge) are curator/admin only and sit below TDP; Status stays admin-only. Hidden filters never apply, even from a URL. Browse Stage stays curator/admin only.
 - Structured logs (`component`, `action`) on any new backend path, per project convention.
 - Tests: pytest for extraction, upsert, union-by-base-name, and Browse server-side filtering (including TDP1-or-TDP2 and None). Vitest for the client-side filter logic if it is factored into a helper.
 
 ## Left to the builder
 
 - Helper placement for client-side filtering (shared helper vs per page) and the exact None sentinel string in URLs.
-- Facet count scope on Browse (match existing facets: prod, non-retired).
+- Facet count scope on Browse: follows the active filters (see Counts follow the other filters).
 - Sort order of filter values (suggest by count desc, None last).
 - Whether to share one FilterGroup component across the three analysis pages.
 

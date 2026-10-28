@@ -5,7 +5,7 @@ import { StageBrowseLink } from '../components/StageBrowseLink'
 import { WorkflowDrawer, WorkflowItem } from '../components/performance/WorkflowDrawer'
 import { useAuth } from '../hooks/useAuth'
 import { LabelFilterGroup } from '../components/LabelFilterGroup'
-import { countLabelValues, matchesLabels } from '../utils/labelFilters'
+import { applyFilters } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'recommended' | 'in_progress' | 'retired'
@@ -53,10 +53,6 @@ export function RetirementPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>((searchParams.get('status') as StatusFilter) || 'all')
   const [selectedNamespaces, setSelectedNamespaces] = useState<Set<string>>(
     new Set(searchParams.get('namespace')?.split(',').filter(Boolean) || []))
-  const [selectedPlatforms, setSelectedPlatforms] = useState<Set<string>>(
-    new Set(searchParams.get('platform')?.split(',').filter(Boolean) || []))
-  const [selectedTdps, setSelectedTdps] = useState<Set<string>>(
-    new Set(searchParams.get('tdp')?.split(',').filter(Boolean) || []))
   const [sortBy, setSortBy] = useState<SortField>((searchParams.get('sort') as SortField) || 'display_name')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(searchParams.get('order') === 'desc' ? 'desc' : 'asc')
 
@@ -96,10 +92,8 @@ export function RetirementPage() {
     if (sortBy !== 'display_name') params.sort = sortBy
     if (sortDir !== 'asc') params.order = sortDir
     if (selectedNamespaces.size > 0) params.namespace = Array.from(selectedNamespaces).sort().join(',')
-    if (selectedPlatforms.size > 0) params.platform = Array.from(selectedPlatforms).sort().join(',')
-    if (selectedTdps.size > 0) params.tdp = Array.from(selectedTdps).sort().join(',')
     setSearchParams(params, { replace: true })
-  }, [search, window_, statusFilter, sortBy, sortDir, selectedNamespaces, selectedPlatforms, selectedTdps, setSearchParams])
+  }, [search, window_, statusFilter, sortBy, sortDir, selectedNamespaces, setSearchParams])
 
   const handleSearchChange = (value: string) => {
     setSearchDisplay(value)
@@ -124,14 +118,12 @@ export function RetirementPage() {
 
   const extractNs = (name: string) => name.split('.')[0]
 
-  // Client-side filters
-  const filteredItems = allItems.filter(i => {
-    if (statusFilter !== 'all' && i.effective_status !== statusFilter) return false
-    if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
-    if (!matchesLabels(i.platforms ?? [], selectedPlatforms)) return false
-    if (!matchesLabels(i.tdps ?? [], selectedTdps)) return false
-    return true
-  })
+  // Client-side filters, keyed so each sidebar group can count against the other
+  const filters: Record<string, (i: RetirementItem) => boolean> = {
+    status: i => statusFilter === 'all' || i.effective_status === statusFilter,
+    namespace: i => selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name)),
+  }
+  const filteredItems = applyFilters(allItems, filters)
 
   // Client-side sort
   const sortedItems = [...filteredItems].sort((a, b) => {
@@ -154,22 +146,21 @@ export function RetirementPage() {
     return mul * (av - bv)
   })
 
-  // Counts
-  const recommendedCount = allItems.filter(i => i.effective_status === 'recommended').length
-  const inProgressCount = allItems.filter(i => i.effective_status === 'in_progress').length
-  const retiredCount = allItems.filter(i => i.effective_status === 'retired').length
+  // Counts — Status counts honor the Namespace filter, and Namespace counts honor Status
+  const statusBaseItems = applyFilters(allItems, filters, 'status')
+  const recommendedCount = statusBaseItems.filter(i => i.effective_status === 'recommended').length
+  const inProgressCount = statusBaseItems.filter(i => i.effective_status === 'in_progress').length
+  const retiredCount = statusBaseItems.filter(i => i.effective_status === 'retired').length
 
   // Namespace facets
   const availableNamespaces = (() => {
     const counts: Record<string, number> = {}
-    for (const i of allItems) {
+    for (const i of applyFilters(allItems, filters, 'namespace')) {
       const ns = extractNs(i.catalog_base_name)
       counts[ns] = (counts[ns] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
   })()
-  const availablePlatforms = countLabelValues(allItems, i => i.platforms ?? [])
-  const availableTdps = countLabelValues(allItems, i => i.tdps ?? [])
 
   const toggleNamespace = (ns: string) => {
     setSelectedNamespaces(prev => {
@@ -178,26 +169,10 @@ export function RetirementPage() {
       return next
     })
   }
-  const togglePlatform = (v: string) => {
-    setSelectedPlatforms(prev => {
-      const next = new Set(prev)
-      next.has(v) ? next.delete(v) : next.add(v)
-      return next
-    })
-  }
-  const toggleTdp = (v: string) => {
-    setSelectedTdps(prev => {
-      const next = new Set(prev)
-      next.has(v) ? next.delete(v) : next.add(v)
-      return next
-    })
-  }
 
   const clearFilters = () => {
     setStatusFilter('all')
     setSelectedNamespaces(new Set())
-    setSelectedPlatforms(new Set())
-    setSelectedTdps(new Set())
   }
 
   if (!isCurator && !isAdmin) {
@@ -216,7 +191,7 @@ export function RetirementPage() {
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Status</div>
           <div className="ret-filter-group">
-            {([['all', `All (${allItems.length})`], ['recommended', `Recommended (${recommendedCount})`], ['in_progress', `In Progress (${inProgressCount})`], ['retired', `Retired (${retiredCount})`]] as [StatusFilter, string][]).map(([f, label]) => (
+            {([['all', `All (${statusBaseItems.length})`], ['recommended', `Recommended (${recommendedCount})`], ['in_progress', `In Progress (${inProgressCount})`], ['retired', `Retired (${retiredCount})`]] as [StatusFilter, string][]).map(([f, label]) => (
               <button key={f} onClick={() => setStatusFilter(f)}
                 className={`ret-filter-group__btn${statusFilter === f ? ' active' : ''}`}>
                 {label}
@@ -227,12 +202,6 @@ export function RetirementPage() {
 
         <LabelFilterGroup title="Namespace" options={availableNamespaces} selected={selectedNamespaces}
           onToggle={toggleNamespace} onClear={() => setSelectedNamespaces(new Set())} formatValue={ns => ns} />
-
-        <LabelFilterGroup title="Platform" options={availablePlatforms} selected={selectedPlatforms}
-          onToggle={togglePlatform} onClear={() => setSelectedPlatforms(new Set())} />
-
-        <LabelFilterGroup title="Technical Decision Point" options={availableTdps} selected={selectedTdps}
-          onToggle={toggleTdp} onClear={() => setSelectedTdps(new Set())} />
 
         <div style={{ marginTop: '16px' }}>
           <button onClick={clearFilters}

@@ -467,3 +467,49 @@ def test_facets_platforms_and_tdps(db):
     # Should be sorted and not include __none__
     assert result["platforms"] == ["AI", "OpenShift"]
     assert result["tdps"] == ["Automation", "Virtualization"]
+
+
+def _seed_label_count_items(db):
+    for ci_name, platform, tdp1, tdp2 in [
+        ("count.a.prod", "OpenShift", "Virtualization", None),
+        ("count.b.prod", "OpenShift", "Automation", "Automation"),
+        ("count.c.prod", "AI", None, "Automation"),
+        ("count.d.prod", None, None, None),
+    ]:
+        db.upsert_babylon_catalog_item({
+            "ci_name": ci_name, "display_name": ci_name, "stage": "prod",
+            "platform": platform, "tdp1": tdp1, "tdp2": tdp2,
+        })
+    with db.pool.connection() as conn:
+        conn.execute("""
+            INSERT INTO content_entities (content_id, source, content_type, display_name, status)
+            VALUES ('pa:456', 'portfolio_arch', 'architecture', 'Count Arch', 'prod')
+        """)
+        conn.commit()
+
+
+def test_label_counts_unfiltered(db):
+    """label_counts counts each Babylon item once per value; unlabeled items count as __none__."""
+    _seed_label_count_items(db)
+    counts = db.list_content_entities_filtered()["label_counts"]
+    assert counts["platforms"] == [["OpenShift", 2], ["AI", 1], ["__none__", 1]]
+    # count.b has Automation as tdp1 and tdp2 but counts once; the architecture is skipped
+    assert counts["tdps"] == [["Automation", 2], ["Virtualization", 1], ["__none__", 1]]
+
+
+def test_label_counts_follow_other_filters(db):
+    """Each group is counted against every filter except its own."""
+    _seed_label_count_items(db)
+    counts = db.list_content_entities_filtered(platforms=["OpenShift"], tdps=["Automation"])["label_counts"]
+    # Platform counts honor the TDP filter only
+    assert counts["platforms"] == [["AI", 1], ["OpenShift", 1]]
+    # TDP counts honor the Platform filter only
+    assert counts["tdps"] == [["Automation", 1], ["Virtualization", 1]]
+
+
+def test_label_counts_follow_search(db):
+    """Non-label filters narrow both groups."""
+    _seed_label_count_items(db)
+    counts = db.list_content_entities_filtered(search="count.c")["label_counts"]
+    assert counts["platforms"] == [["AI", 1]]
+    assert counts["tdps"] == [["Automation", 1]]

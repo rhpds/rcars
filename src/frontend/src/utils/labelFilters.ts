@@ -71,3 +71,23 @@ export function countLabelValues<T>(items: T[], get: (i: T) => string[]): [strin
 
   return otherEntries
 }
+
+/**
+ * Items that pass every filter except the one named `skip`.
+ * Feed this to a filter group's counts, so each count shows how many items
+ * that option would give with the other active filters applied.
+ */
+export function applyFilters<T>(items: T[], filters: Record<string, (i: T) => boolean>, skip?: string): T[] {
+  const active = Object.entries(filters).filter(([key]) => key !== skip).map(([, f]) => f)
+  return items.filter(i => active.every(f => f(i)))
+}
+
+/**
+ * Add selected values that have no count to the end of an option list, with a count of 0,
+ * so a checked box never disappears when other filters remove all of its items.
+ */
+export function withSelected(options: [string, number?][], selected: Set<string>): [string, number?][] {
+  const present = new Set(options.map(([value]) => value))
+  const missing = [...selected].filter(v => !present.has(v)).sort().map(v => [v, 0] as [string, number])
+  return [...options, ...missing]
+}

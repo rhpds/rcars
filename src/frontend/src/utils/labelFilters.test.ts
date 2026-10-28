@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { NONE_LABEL, labelDisplay, matchesLabels, countLabelValues } from './labelFilters'
+import { NONE_LABEL, labelDisplay, matchesLabels, countLabelValues, applyFilters, withSelected } from './labelFilters'
 
 describe('labelDisplay', () => {
   it('replaces underscores with spaces', () => {
@@ -50,5 +50,35 @@ describe('countLabelValues', () => {
       ['B', 1],
       [NONE_LABEL, 1]
     ])
+  })
+})
+
+describe('applyFilters', () => {
+  const items = [
+    { type: 'agd_v2', platform: 'OpenShift' },
+    { type: 'agd_v2', platform: 'RHEL' },
+    { type: 'other', platform: 'OpenShift' },
+  ]
+  const filters = {
+    type: (i: typeof items[number]) => i.type === 'agd_v2',
+    platform: (i: typeof items[number]) => i.platform === 'OpenShift',
+  }
+
+  it('applies every filter', () => {
+    expect(applyFilters(items, filters)).toEqual([items[0]])
+  })
+
+  it('skips the named filter so its own options keep their counts', () => {
+    expect(applyFilters(items, filters, 'platform')).toEqual([items[0], items[1]])
+  })
+})
+
+describe('withSelected', () => {
+  it('appends a selected value with no items as a zero count', () => {
+    expect(withSelected([['OpenShift', 3]], new Set(['OpenShift', 'RHEL']))).toEqual([['OpenShift', 3], ['RHEL', 0]])
+  })
+
+  it('leaves the options alone when every selected value is present', () => {
+    expect(withSelected([['OpenShift', 3]], new Set(['OpenShift']))).toEqual([['OpenShift', 3]])
   })
 })

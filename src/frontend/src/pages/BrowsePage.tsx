@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSearchParams, useLocation } from 'react-router-dom'
-import { api } from '../services/api'
+import { api, type CatalogLabelCounts } from '../services/api'
 import { useAuth } from '../hooks/useAuth'
 import { Pagination } from '../components/Pagination'
 import { WorkloadMultiSelect } from '../components/WorkloadMultiSelect'
@@ -13,7 +13,7 @@ import {
   architectureDetailUrl, architectureSubline, toggleValue,
   type ContentFormat,
 } from './browse/helpers'
-import { NONE_LABEL, labelDisplay } from '../utils/labelFilters'
+import { labelDisplay } from '../utils/labelFilters'
 
 function safeHref(url: string | null): string {
   if (!url) return '#'
@@ -471,6 +471,7 @@ export function BrowsePage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [facets, setFacets] = useState<Facets | null>(null)
+  const [labelCounts, setLabelCounts] = useState<CatalogLabelCounts | null>(null)
 
   // Expanded card state
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
@@ -534,6 +535,7 @@ export function BrowsePage() {
       const data = await api.listCatalog(params as Parameters<typeof api.listCatalog>[0])
       setItems(data.items as CatalogItem[])
       setTotal(data.total)
+      setLabelCounts(data.label_counts)
     } catch (err) {
       console.error('Failed to load catalog:', err)
     }
@@ -782,14 +784,14 @@ export function BrowsePage() {
           {/* Platform / Technical Decision Point — Babylon catalog labels */}
           <LabelFilterGroup
             title="Platform"
-            options={[...facets?.platforms || [], NONE_LABEL].map(v => [v] as [string])}
+            options={labelCounts?.platforms ?? []}
             selected={new Set(selectedPlatforms)}
             onToggle={v => setSelectedPlatforms(toggleValue(selectedPlatforms, v))}
             onClear={() => setSelectedPlatforms([])}
           />
           <LabelFilterGroup
             title="Technical Decision Point"
-            options={[...facets?.tdps || [], NONE_LABEL].map(v => [v] as [string])}
+            options={labelCounts?.tdps ?? []}
             selected={new Set(selectedTdps)}
             onToggle={v => setSelectedTdps(toggleValue(selectedTdps, v))}
             onClear={() => setSelectedTdps([])}
@@ -814,7 +816,7 @@ export function BrowsePage() {
           </CollapsibleFilterGroup>
 
           {/* Architecture Filters */}
-          <CollapsibleFilterGroup title="Architecture Filters" note="Architecture items only"
+          <CollapsibleFilterGroup title="Architectures" note="Architecture items only"
             activeCount={selectedSolutions.length + selectedVerticals.length}>
             <WorkloadMultiSelect options={facets?.solutions || []} selected={selectedSolutions} onChange={setSelectedSolutions} placeholder="Select solutions..." />
             <WorkloadMultiSelect options={facets?.verticals || []} selected={selectedVerticals} onChange={setSelectedVerticals} placeholder="Select verticals..." />

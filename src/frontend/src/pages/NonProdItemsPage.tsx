@@ -9,7 +9,7 @@ import {
 } from '../components/performance/RetirementBadge'
 import { CollapsibleFilterGroup } from '../components/CollapsibleFilterGroup'
 import { LabelFilterGroup } from '../components/LabelFilterGroup'
-import { countLabelValues, matchesLabels } from '../utils/labelFilters'
+import { applyFilters, countLabelValues, matchesLabels, withSelected } from '../utils/labelFilters'
 
 type TimeWindow = '3m' | '6m' | '9m' | '12m'
 type StatusFilter = 'all' | 'muted'
@@ -140,52 +140,37 @@ export function NonProdItemsPage() {
   const isIgnored = (i: NonProdItem) => !!i.ignored_until
   const extractNs = (name: string) => name.split('.')[0]
 
-  // Client-side filters
-  const filteredItems = allItems.filter(i => {
-    if (selectedStages.size > 0) {
-      const itemStages = i.stages.map(s => s.stage)
-      if (!itemStages.some(s => selectedStages.has(s))) return false
-    }
-    if (selectedContentTypes.size > 0 && (!i.content_type || !selectedContentTypes.has(i.content_type))) return false
-    if (selectedNamespaces.size > 0 && !selectedNamespaces.has(extractNs(i.catalog_base_name))) return false
-    if (!matchesLabels(i.platforms ?? [], selectedPlatforms)) return false
-    if (!matchesLabels(i.tdps ?? [], selectedTdps)) return false
-    if (provFilter === '0' && i.provisions !== 0) return false
-    if (provFilter === '1-10' && (i.provisions < 1 || i.provisions > 10)) return false
-    if (provFilter === '10+' && i.provisions <= 10) return false
-    if (!matchesRetirementFilter(i.workflow_status, retirementFilter)) return false
-    return true
-  })
+  // Client-side filters, keyed so each sidebar group can count against all the others
+  const filters: Record<string, (i: NonProdItem) => boolean> = {
+    stage: i => selectedStages.size === 0 || i.stages.some(s => selectedStages.has(s.stage)),
+    contentType: i => selectedContentTypes.size === 0 || (!!i.content_type && selectedContentTypes.has(i.content_type)),
+    namespace: i => selectedNamespaces.size === 0 || selectedNamespaces.has(extractNs(i.catalog_base_name)),
+    platform: i => matchesLabels(i.platforms ?? [], selectedPlatforms),
+    tdp: i => matchesLabels(i.tdps ?? [], selectedTdps),
+    provisions: i => provFilter === 'all'
+      || (provFilter === '0' && i.provisions === 0)
+      || (provFilter === '1-10' && i.provisions >= 1 && i.provisions <= 10)
+      || (provFilter === '10+' && i.provisions > 10),
+    retirement: i => matchesRetirementFilter(i.workflow_status, retirementFilter),
+  }
+  const filteredItems = applyFilters(allItems, filters)
 
-  // Derive facet values from data
-  const availableStages = (() => {
+  // Derive facet values from data. Each group counts items that pass every other filter.
+  const countBy = (items: NonProdItem[], keys: (i: NonProdItem) => string[]) => {
     const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      for (const s of i.stages) {
-        counts[s.stage] = (counts[s.stage] || 0) + 1
-      }
+    for (const i of items) {
+      for (const k of new Set(keys(i))) counts[k] = (counts[k] || 0) + 1
     }
     return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-
-  const availableContentTypes = (() => {
-    const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      if (i.content_type) counts[i.content_type] = (counts[i.content_type] || 0) + 1
-    }
-    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-
-  const availableNamespaces = (() => {
-    const counts: Record<string, number> = {}
-    for (const i of allItems) {
-      const ns = extractNs(i.catalog_base_name)
-      counts[ns] = (counts[ns] || 0) + 1
-    }
-    return Object.entries(counts).sort((a, b) => a[0].localeCompare(b[0]))
-  })()
-  const availablePlatforms = countLabelValues(allItems, i => i.platforms ?? [])
-  const availableTdps = countLabelValues(allItems, i => i.tdps ?? [])
+  }
+  const availableStages = countBy(applyFilters(allItems, filters, 'stage'), i => i.stages.map(s => s.stage))
+  const availableContentTypes = countBy(applyFilters(allItems, filters, 'contentType'),
+    i => i.content_type ? [i.content_type] : [])
+  const availableNamespaces = countBy(applyFilters(allItems, filters, 'namespace'), i => [extractNs(i.catalog_base_name)])
+  const availablePlatforms = countLabelValues(applyFilters(allItems, filters, 'platform'), i => i.platforms ?? [])
+  const availableTdps = countLabelValues(applyFilters(allItems, filters, 'tdp'), i => i.tdps ?? [])
+  const retiringCount = applyFilters(allItems, filters, 'retirement').filter(i => isRetiring(i.workflow_status)).length
+  const allContentTypes = new Set(allItems.map(i => i.content_type).filter(Boolean))
 
   const toggleSet = (setter: React.Dispatch<React.SetStateAction<Set<string>>>, value: string) => {
     setter(prev => {
@@ -217,7 +202,7 @@ export function NonProdItemsPage() {
         <div className="browse-filter-group">
           <div className="browse-filter-group-label">Stage</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-            {availableStages.map(([stage, count]) => (
+            {withSelected(availableStages, selectedStages).map(([stage, count]) => (
               <label key={stage} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0', cursor: 'pointer', fontSize: '11px' }}>
                 <input type="checkbox" checked={selectedStages.has(stage)} onChange={() => toggleSet(setSelectedStages, stage)} />
                 <span className={`ca-env-tag ${stageBadgeClass[stage] || 'ca-env-test'}`}>{stage}</span>
@@ -227,7 +212,7 @@ export function NonProdItemsPage() {
           </div>
         </div>
 
-        {availableContentTypes.length > 1 && (
+        {allContentTypes.size > 1 && (
           <LabelFilterGroup title="Content Type" options={availableContentTypes} selected={selectedContentTypes}
             onToggle={ct => toggleSet(setSelectedContentTypes, ct)} onClear={() => setSelectedContentTypes(new Set())}
             formatValue={ct => ct} />
@@ -245,7 +230,7 @@ export function NonProdItemsPage() {
 
         <CollapsibleFilterGroup title="Retirement" activeCount={retirementFilter !== 'all' ? 1 : 0}>
           <RetirementFilterGroup value={retirementFilter} onChange={setRetirementFilter}
-            counts={{ retiring: allItems.filter(i => isRetiring(i.workflow_status)).length }} />
+            counts={{ retiring: retiringCount }} />
         </CollapsibleFilterGroup>
 
         <CollapsibleFilterGroup title="Provisions" activeCount={provFilter !== 'all' ? 1 : 0}>

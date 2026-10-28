@@ -1239,36 +1239,39 @@ class Database:
             conditions.append("bi.category = %(category)s")
             params["category"] = category
 
-        # Platform and TDP filters
+        # Platform and TDP filters. Kept out of `conditions` so label_counts can
+        # count each group against every filter except its own.
+        platform_conditions: list[str] = []
+        tdp_conditions: list[str] = []
         if platforms:
             platform_none = "__none__" in platforms
             platform_values = [p for p in platforms if p != "__none__"]
             if platform_values and platform_none:
-                conditions.append(
+                platform_conditions.append(
                     "(bi.platform = ANY(%(platforms)s) OR "
                     "(bi.content_id IS NOT NULL AND bi.platform IS NULL))"
                 )
                 params["platforms"] = platform_values
             elif platform_values:
-                conditions.append("bi.platform = ANY(%(platforms)s)")
+                platform_conditions.append("bi.platform = ANY(%(platforms)s)")
                 params["platforms"] = platform_values
             elif platform_none:
-                conditions.append("bi.content_id IS NOT NULL AND bi.platform IS NULL")
+                platform_conditions.append("bi.content_id IS NOT NULL AND bi.platform IS NULL")
 
         if tdps:
             tdp_none = "__none__" in tdps
             tdp_values = [t for t in tdps if t != "__none__"]
             if tdp_values and tdp_none:
-                conditions.append(
+                tdp_conditions.append(
                     "(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s) OR "
                     "(bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL))"
                 )
                 params["tdps"] = tdp_values
             elif tdp_values:
-                conditions.append("(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s))")
+                tdp_conditions.append("(bi.tdp1 = ANY(%(tdps)s) OR bi.tdp2 = ANY(%(tdps)s))")
                 params["tdps"] = tdp_values
             elif tdp_none:
-                conditions.append(
+                tdp_conditions.append(
                     "bi.content_id IS NOT NULL AND bi.tdp1 IS NULL AND bi.tdp2 IS NULL"
                 )
 
@@ -1364,7 +1367,8 @@ class Database:
             )
 
         join_sql = "\n".join(joins)
-        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        all_conditions = conditions + platform_conditions + tdp_conditions
+        where = f"WHERE {' AND '.join(all_conditions)}" if all_conditions else ""
 
         count_sql = f"""
             SELECT COUNT(DISTINCT ce.content_id)
@@ -1413,9 +1417,61 @@ class Database:
                 cur.execute(data_sql, params)
                 items = cur.fetchall()
 
+            label_counts = self._catalog_label_counts(
+                conn, join_sql, conditions, platform_conditions, tdp_conditions, params,
+            )
+
         for item in items:
             item["retirement_label"] = retirement_label(item["workflow_status"])
-        return {"items": items, "total": total}
+        return {"items": items, "total": total, "label_counts": label_counts}
+
+    @staticmethod
+    def _catalog_label_counts(
+        conn, join_sql: str, conditions: list[str],
+        platform_conditions: list[str], tdp_conditions: list[str], params: dict[str, Any],
+    ) -> dict[str, list[list]]:
+        """Count Browse items per Platform and per TDP value.
+
+        Each group is counted against every active filter except its own, so a
+        count shows how many items checking that value would add. Babylon items
+        with no label count under ``__none__``, listed last; non-Babylon items are
+        skipped.
+        """
+        from_sql = f"""
+            FROM content_entities ce
+            JOIN babylon_items bi ON bi.content_id = ce.content_id
+            LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
+            LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
+            {join_sql}
+        """
+
+        def where(extra: list[str]) -> str:
+            conds = conditions + extra
+            return f"WHERE {' AND '.join(conds)}" if conds else ""
+
+        platform_sql = f"""
+            SELECT COALESCE(bi.platform, '__none__') AS value, COUNT(DISTINCT ce.content_id) AS n
+            {from_sql}
+            {where(tdp_conditions)}
+            GROUP BY 1 ORDER BY COALESCE(bi.platform, '__none__') = '__none__', n DESC, value
+        """
+        tdp_sql = f"""
+            SELECT t.value, COUNT(DISTINCT ce.content_id) AS n
+            {from_sql}
+            CROSS JOIN LATERAL unnest(
+                CASE WHEN bi.tdp1 IS NULL AND bi.tdp2 IS NULL THEN ARRAY['__none__']
+                     ELSE array_remove(ARRAY[bi.tdp1, bi.tdp2], NULL) END
+            ) AS t(value)
+            {where(platform_conditions)}
+            GROUP BY 1 ORDER BY t.value = '__none__', n DESC, t.value
+        """
+        with conn.cursor() as cur:
+            cur.execute(platform_sql, params)
+            platform_counts = [[r["value"], r["n"]] for r in cur.fetchall()]
+            cur.execute(tdp_sql, params)
+            tdp_counts = [[r["value"], r["n"]] for r in cur.fetchall()]
+        return {"platforms": platform_counts, "tdps": tdp_counts}
 
     def retire_missing_babylon(self, current_content_ids: set[str]) -> list[dict]:
         """Mark Babylon content entities not in the current CRD scan as retired.
