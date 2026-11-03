@@ -150,9 +150,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "src/api/rcars/services/analyzer.py": {
-    "mtime": 1793710639.761635,
-    "seen": 1793711304.0739598,
-    "ast_hash": "b67d7626c7a8215edf5620ac1aa3ff0a",
+    "mtime": 1793713115.9631994,
+    "seen": 1793713173.884507,
+    "ast_hash": "ef1e81323c729341f6d123fa4a4e91c9",
     "semantic_hash": ""
   },
   "src/api/rcars/services/catalog.py": {
@@ -660,8 +660,8 @@
     "semantic_hash": ""
   },
   "docs/admin/cli-guide.md": {
-    "mtime": 1793710688.2964776,
-    "seen": 1793711304.074087,
+    "mtime": 1793712335.8602185,
+    "seen": 1793713173.884644,
     "ast_hash": "7299ed807c177f2de6fc870c2ea9291c",
     "semantic_hash": ""
   },
@@ -708,8 +708,8 @@
     "semantic_hash": ""
   },
   "docs/architecture/scan-pipeline.md": {
-    "mtime": 1793710690.0054214,
-    "seen": 1793711304.0740962,
+    "mtime": 1793712335.8603842,
+    "seen": 1793713173.884653,
     "ast_hash": "a9c38009333ca78f696c68e8263c6c44",
     "semantic_hash": ""
   },
@@ -1374,9 +1374,9 @@
     "semantic_hash": "ee75812267303050d17c15dc98c6bc43"
   },
   "src/api/tests/test_analyzer.py": {
-    "mtime": 1793710615.856164,
-    "seen": 1793711304.073996,
-    "ast_hash": "cf5ec473bdf4cd214ba45e4515e45d66",
+    "mtime": 1793713117.232005,
+    "seen": 1793713173.884547,
+    "ast_hash": "0951e1ea450078f8d1f83c19357555b3",
     "semantic_hash": ""
   },
   "src/api/tests/test_api_infrastructure.py": {
