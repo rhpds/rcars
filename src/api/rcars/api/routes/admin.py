@@ -374,7 +374,7 @@ async def llm_provider_status(request: Request, user: str = Depends(require_admi
             {"use": "analysis", "model": settings.model},
             {"use": "triage", "model": settings.triage_model},
             {"use": "rationale", "model": settings.rationale_model},
-            {"use": "scanning", "model": settings.triage_model},
+            {"use": "scanning", "model": settings.model},
             {"use": "chat_router", "model": settings.chat_router_model},
             {"use": "chat_answer", "model": settings.chat_answer_model},
             {"use": "overlap", "model": settings.overlap_model},

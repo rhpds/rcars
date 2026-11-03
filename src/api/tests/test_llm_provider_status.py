@@ -62,7 +62,7 @@ def test_lists_model_for_every_llm_use():
     assert uses["chat_answer"] == sonnet
     assert uses["osspa_analysis"] == sonnet
     assert uses["triage"] == haiku
-    assert uses["scanning"] == haiku
+    assert uses["scanning"] == sonnet
     assert uses["chat_router"] == haiku
     assert uses["overlap"] == haiku
 
