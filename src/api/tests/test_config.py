@@ -75,6 +75,49 @@ def test_call_llm_propagates_litemaas_error(monkeypatch):
         )
 
 
+class _FakeModels:
+    def __init__(self, outcomes):
+        self._outcomes = list(outcomes)
+        self.calls = 0
+
+    def list(self):
+        self.calls += 1
+        outcome = self._outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return type("Resp", (), {"data": [type("M", (), {"id": m})() for m in outcome]})()
+
+
+def _patch_litemaas_client(monkeypatch, outcomes):
+    models = _FakeModels(outcomes)
+    client = type("Client", (), {"models": models})()
+    monkeypatch.setattr(Settings, "get_litemaas_client", lambda self: client)
+    monkeypatch.setattr(cfg, "_litemaas_models", None)
+    return models
+
+
+def test_fetch_litemaas_models_retries_after_failure(monkeypatch):
+    """A failed /v1/models call must not be cached; the next call retries discovery."""
+    models = _patch_litemaas_client(
+        monkeypatch, [ConnectionError("LiteMaaS down"), ["claude-haiku-5-5-a8b"]]
+    )
+    settings = _litemaas_settings()
+
+    assert cfg.fetch_litemaas_models(settings) == set()
+    assert cfg.fetch_litemaas_models(settings) == {"claude-haiku-5-5-a8b"}
+    assert models.calls == 2
+
+
+def test_fetch_litemaas_models_caches_success(monkeypatch):
+    """A successful discovery is cached, even when the list is empty."""
+    models = _patch_litemaas_client(monkeypatch, [[]])
+    settings = _litemaas_settings()
+
+    assert cfg.fetch_litemaas_models(settings) == set()
+    assert cfg.fetch_litemaas_models(settings) == set()
+    assert models.calls == 1
+
+
 def test_chat_model_defaults_follow_triage_and_rationale():
     s = Settings(database_url="postgresql://x/x",
                  triage_model="m-triage", rationale_model="m-rationale")

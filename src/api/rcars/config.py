@@ -233,7 +233,12 @@ class LLMResult:
 
 
 def fetch_litemaas_models(settings: Settings) -> set[str]:
-    """Query LiteMaaS /v1/models endpoint once and cache the result."""
+    """Query LiteMaaS /v1/models and cache a successful result.
+
+    A failed request is not cached, so a transient outage (for example at
+    worker startup) does not disable every model for the process lifetime.
+    The next call retries discovery.
+    """
     global _litemaas_models
     if _litemaas_models is not None:
         return _litemaas_models
@@ -247,7 +252,7 @@ def fetch_litemaas_models(settings: Settings) -> set[str]:
         logger.info("litemaas_models_loaded", models=sorted(_litemaas_models))
     except Exception as e:
         logger.warning("litemaas_models_fetch_failed", error=str(e))
-        _litemaas_models = set()
+        return set()
     return _litemaas_models
 
 
