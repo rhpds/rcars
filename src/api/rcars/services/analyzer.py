@@ -334,14 +334,15 @@ def _parse_nav_includes(nav_text: str) -> set[str]:
     included = set()
     block_delimiter: str | None = None
     for line in nav_text.splitlines():
-        stripped = line.lstrip(" *").rstrip()
+        raw = line.strip()
         if block_delimiter is not None:
-            if stripped == block_delimiter:
+            if raw == block_delimiter:
                 block_delimiter = None
             continue
-        if re.fullmatch(r"/{4,}", stripped):
-            block_delimiter = stripped
+        if re.fullmatch(r"/{4,}", raw):
+            block_delimiter = raw
             continue
+        stripped = line.lstrip(" *").rstrip()
         if stripped.startswith("//"):
             continue
         match = re.search(r'xref:([^\[]+)', stripped)
