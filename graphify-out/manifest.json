@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/rationale.py": {
-    "mtime": 1793716495.9876673,
-    "seen": 1793716516.013356,
-    "ast_hash": "52a7d6d5f07409fede11f8118ea4f108",
+    "mtime": 1793717449.554295,
+    "seen": 1793717621.353844,
+    "ast_hash": "fc11b6e7b100ad87d5228c031ea96c15",
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/triage.py": {
@@ -228,10 +228,10 @@
     "semantic_hash": "1c678163e02c1a94b330a1b3a325dec0"
   },
   "src/api/rcars/services/workload_scanner.py": {
-    "mtime": 1787311504.7764237,
-    "seen": 1793716516.013366,
-    "ast_hash": "38db0ea3ce0dabe50c57c259554b073f",
-    "semantic_hash": "38db0ea3ce0dabe50c57c259554b073f"
+    "mtime": 1793717448.6913698,
+    "seen": 1793717621.353853,
+    "ast_hash": "0a2a539f13431023dd4f1bb276e29a88",
+    "semantic_hash": ""
   },
   "src/api/rcars/workers/__init__.py": {
     "mtime": 1777188365.5887399,
@@ -1068,9 +1068,9 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "src/api/rcars/services/chat/answer.py": {
-    "mtime": 1792065574.4620285,
-    "seen": 1793716516.013344,
-    "ast_hash": "fe855b8b16a6bd517e36786f383f46f5",
+    "mtime": 1793717445.8230846,
+    "seen": 1793717621.353834,
+    "ast_hash": "8731dcadfe85f059876d1adb45365f3b",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/evidence.py": {
@@ -1080,9 +1080,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/handlers.py": {
-    "mtime": 1792065574.4621663,
-    "seen": 1793716516.013346,
-    "ast_hash": "49116efca3e827e74576fbe3e8204806",
+    "mtime": 1793717446.4620726,
+    "seen": 1793717621.353835,
+    "ast_hash": "21cfc75cfbb86a4b00ce8528afad93e0",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/models.py": {
@@ -1104,9 +1104,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/router.py": {
-    "mtime": 1792065574.463142,
-    "seen": 1793716516.013348,
-    "ast_hash": "186f985e3752838aa561edf4e2d33b12",
+    "mtime": 1793717445.173657,
+    "seen": 1793717621.353837,
+    "ast_hash": "8fe52f0d3d4ab25a0f6c8dbe25532c26",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/chat.py": {
@@ -1332,9 +1332,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/overlap_assessment.py": {
-    "mtime": 1792663307.3641849,
-    "seen": 1793716516.013351,
-    "ast_hash": "400ea40780f3c5a933c8dd956ac8bf77",
+    "mtime": 1793717447.0917666,
+    "seen": 1793717621.35384,
+    "ast_hash": "8273ad5a864824330e48f9d489e2b77c",
     "semantic_hash": ""
   },
   "src/api/rcars/services/vocabulary/__init__.py": {

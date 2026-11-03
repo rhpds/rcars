@@ -352,7 +352,7 @@ async def handle_item_chat(res: Resolution, db: Database, settings: Settings,
             result = await asyncio.to_thread(
                 call_llm, settings, settings.chat_answer_model,
                 [{"role": "user", "content": prompt}],
-                max_tokens=400, temperature=0)
+                max_tokens=2048, temperature=0)
             answer_text = result.text.strip()
             db.log_token_usage("chat_item_chat", settings.chat_answer_model,
                                result.input_tokens, result.output_tokens,
