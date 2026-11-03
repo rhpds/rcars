@@ -332,13 +332,17 @@ def _parse_nav_includes(nav_text: str) -> set[str]:
     (basename only, no subdirectories) that nav.adoc includes.
     """
     included = set()
-    in_block_comment = False
+    block_delimiter: str | None = None
     for line in nav_text.splitlines():
-        stripped = line.lstrip(" *")
-        if stripped.startswith("////"):
-            in_block_comment = not in_block_comment
+        stripped = line.lstrip(" *").rstrip()
+        if block_delimiter is not None:
+            if stripped == block_delimiter:
+                block_delimiter = None
             continue
-        if in_block_comment or stripped.startswith("//"):
+        if re.fullmatch(r"/{4,}", stripped):
+            block_delimiter = stripped
+            continue
+        if stripped.startswith("//"):
             continue
         match = re.search(r'xref:([^\[]+)', stripped)
         if match:

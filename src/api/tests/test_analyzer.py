@@ -132,6 +132,10 @@ def test_nav_block_comments_are_ignored():
         "* xref:hidden.adoc[Hidden]\n"
         "** xref:also-hidden.adoc[Also hidden]\n"
         "////\n"
+        "/////\n"
+        "////\n"
+        "* xref:nested.adoc[Nested]\n"
+        "/////\n"
         "* xref:shown.adoc[Shown]\n"
         "// xref:line-comment.adoc[Line comment]\n"
     )
