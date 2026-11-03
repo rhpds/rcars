@@ -177,7 +177,7 @@ def test_database_workflow_and_event_write_roll_back_together(db):
 
 @pytest.fixture
 def settings():
-    return SimpleNamespace(jira_api_email="test@example.com", jira_api_token="synthetic-token", github_app_id="123", github_app_private_key="synthetic-key", github_app_installation_id="456")
+    return SimpleNamespace(jira_client_id="client-id", jira_client_secret="client-secret", jira_cloud_id="cloud-123", github_app_id="123", github_app_private_key="synthetic-key", github_app_installation_id="456")
 
 
 def test_comment_uses_adf_and_event_property(settings, monkeypatch):
@@ -195,11 +195,19 @@ def test_comment_uses_adf_and_event_property(settings, monkeypatch):
 
 def test_comment_http_payload_accepts_object_marker_and_recovers_lost_response(settings, monkeypatch):
     """Exercise serialization: Jira rejects scalar entity properties (HTTP 400)."""
-    settings.jira_base_url = "https://jira.example.com"
+    jira._reset_token_cache()
     remote = []
     posts = []
 
     def urlopen(request, **kwargs):
+        if request.full_url == "https://auth.atlassian.com/oauth/token":
+            response = Mock(status=200)
+            response.read.return_value = json.dumps(
+                {"access_token": "synthetic-token", "expires_in": 3600}).encode()
+            context = Mock()
+            context.__enter__ = Mock(return_value=response)
+            context.__exit__ = Mock(return_value=False)
+            return context
         if request.method == "GET":
             payload = {"comments": remote, "startAt": 0, "total": len(remote)}
             response = Mock(status=200)
@@ -272,7 +280,7 @@ def test_comment_unknown_post_outcome_recovers_remote_event(settings, monkeypatc
     assert len(posts) == 1
 
 
-@pytest.mark.parametrize("missing", ["jira_api_email", "jira_api_token"])
+@pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
 def test_comment_missing_credentials_does_not_call_http(settings, monkeypatch, missing):
     setattr(settings, missing, "")
     def unexpected(*args, **kwargs):
@@ -332,7 +340,7 @@ async def test_delivery_failure_defers_later_events_but_not_another_incarnation(
 @pytest.mark.asyncio
 async def test_delivery_missing_credentials_retains_queue_without_http(db, settings, monkeypatch):
     db.finalize_retirement_cancellation(CID)
-    settings.jira_api_token = ""
+    settings.jira_client_id = ""
     def unexpected(*args, **kwargs):
         pytest.fail("No HTTP while Jira is unavailable")
     monkeypatch.setattr(jira, "_jira_request", unexpected)

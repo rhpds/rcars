@@ -114,10 +114,12 @@ rcars_reporting_mcp_url: https://reporting-mcp.apps.your-cluster.example.com/mcp
 rcars_reporting_mcp_token: CHANGEME
 
 # ── Jira ───────────────────────────────────────────────────────────────────────
-# Jira credentials for creating retirement tickets via the bot account.
+# Jira OAuth2 client credentials for creating retirement tickets (RHDPCD-2227).
+# The only supported Jira auth method — no API-token Basic auth fallback.
 
-rcars_jira_api_email: jira-service-account@example.com
-rcars_jira_api_token: CHANGEME
+rcars_jira_client_id: CHANGEME
+rcars_jira_client_secret: CHANGEME
+rcars_jira_cloud_id: CHANGEME
 
 # ── GitHub App (agv-retire integration, RHDPCD-2103) ──────────────────────────
 # Credentials for automated retirement PR creation on agnosticv repos.

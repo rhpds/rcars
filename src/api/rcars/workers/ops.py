@@ -722,6 +722,7 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
     Callable standalone (CLI/API) or as a nightly pipeline step.
     """
     from rcars.services.agv_access import create_retire_pr, get_pr_state
+    from rcars.services.jira import jira_auth_configured
     from rcars.services.retirement_cleanup import CleanupError, cancel_retirement, complete_retirement, workflow_lock_id
     from rcars.services.retirement_jira_events import deliver_pending_events, observe_pr_events
 
@@ -734,7 +735,7 @@ async def run_retirement_sweep(ctx: dict, job_id: str | None = None) -> dict:
         and wctx.settings.github_app_private_key
         and wctx.settings.github_app_installation_id
     )
-    jira_available = bool(wctx.settings.jira_api_email and wctx.settings.jira_api_token)
+    jira_available = jira_auth_configured(wctx.settings)
 
     ready = db.list_retirement_ready_for_removal()
     if not ready:
@@ -890,6 +891,8 @@ async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
 
 async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     """Nightly maintenance orchestrator: Babylon, OSSPA, retirement sweep."""
+    from rcars.services.jira import jira_auth_configured
+
     wctx: WorkerContext = ctx["worker_ctx"]
     if not job_id:
         job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
@@ -928,7 +931,7 @@ async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
 
     retirement_result: dict = {"status": "skipped"}
     try:
-        if wctx.settings.github_app_id or wctx.settings.jira_api_token:
+        if wctx.settings.github_app_id or jira_auth_configured(wctx.settings):
             retirement_result = await run_retirement_sweep(ctx, job_id)
             warnings.extend(retirement_result.get("errors") or [])
         else:

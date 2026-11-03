@@ -90,7 +90,7 @@ async def observe_pr_events(db, settings, wf: dict) -> dict[str, dict]:
 
 async def _deliver_pending_events(db, settings, *, content_id: str | None = None) -> list[str]:
     """Best-effort delivery, durable retries, and independent per-incarnation ordering."""
-    from rcars.services.jira import ensure_issue_event_comment
+    from rcars.services.jira import ensure_issue_event_comment, jira_auth_configured
 
     pending = db.list_pending_retirement_jira_events(content_id=content_id)
     streams = dict.fromkeys((event["content_id"], event["workflow_created_at"]) for event in pending)
@@ -111,7 +111,7 @@ async def _deliver_pending_events(db, settings, *, content_id: str | None = None
                     db.update_retirement_jira_event(event["event_key"], comment_id=comment_id)
                     logger.info("retirement_jira_comment_delivered", event_key=event["event_key"], jira_key=event["jira_key"], comment_id=comment_id)
                 except Exception as exc:
-                    configured = bool(settings.jira_api_email and settings.jira_api_token)
+                    configured = jira_auth_configured(settings)
                     message = "Jira comment delivery failed; retry pending" if configured else "Jira comment delivery pending: integration not configured"
                     db.update_retirement_jira_event(event["event_key"], error=message)
                     errors.append(f"{event['jira_key']}: {message}")

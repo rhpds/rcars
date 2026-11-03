@@ -140,16 +140,16 @@ spec:
                   name: {{ app_name }}-reporting-mcp
                   key: token
 {% endif %}
-{% if rcars_jira_api_token is defined and rcars_jira_api_token != '' %}
-            - name: RCARS_JIRA_BASE_URL
-              value: "{{ rcars_jira_base_url | default('https://redhat.atlassian.net') }}"
-            - name: RCARS_JIRA_API_EMAIL
-              value: "{{ rcars_jira_api_email }}"
-            - name: RCARS_JIRA_API_TOKEN
+{% if rcars_jira_client_id is defined and rcars_jira_client_id != '' %}
+            - name: RCARS_JIRA_CLIENT_ID
+              value: "{{ rcars_jira_client_id }}"
+            - name: RCARS_JIRA_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: {{ app_name }}-jira
-                  key: token
+                  name: {{ app_name }}-jira-oauth
+                  key: client-secret
+            - name: RCARS_JIRA_CLOUD_ID
+              value: "{{ rcars_jira_cloud_id }}"
 {% endif %}
 {% if github_app_id is defined and github_app_id != '' %}
             - name: RCARS_GITHUB_APP_ID
@@ -362,6 +362,17 @@ spec:
                 secretKeyRef:
                   name: {{ app_name }}-github-app
                   key: installation-id-zt-ansiblebu
+{% endif %}
+{% if rcars_jira_client_id is defined and rcars_jira_client_id != '' %}
+            - name: RCARS_JIRA_CLIENT_ID
+              value: "{{ rcars_jira_client_id }}"
+            - name: RCARS_JIRA_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ app_name }}-jira-oauth
+                  key: client-secret
+            - name: RCARS_JIRA_CLOUD_ID
+              value: "{{ rcars_jira_cloud_id }}"
 {% endif %}
             - name: RCARS_EMBEDDING_URL
               value: "http://{{ app_name }}-embedding:{{ embedding_port }}/v1"

@@ -1,6 +1,13 @@
 """Tests for the Jira retirement ticket service."""
+import json
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from urllib.parse import parse_qs
 
+import pytest
+
+from rcars.services import jira
 from rcars.services.jira import build_retirement_description, create_retirement_ticket
 
 
@@ -217,3 +224,171 @@ def test_failed_in_progress_transition_still_returns_key(mock_request):
     mock_request.side_effect = fake
 
     assert create_retirement_ticket(_settings(), _make_workflow(jira_project="RHDPCD"), _make_metrics()) == "RHDPCD-999"
+
+
+# --- OAuth2 client credentials vs Basic auth fallback ---
+
+TOKEN_URL = "https://auth.atlassian.com/oauth/token"
+
+
+class _FakeResponse:
+    """Minimal context-manager response for mocked urlopen calls."""
+
+    def __init__(self, payload):
+        self.status = 200
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _oauth_settings(**overrides):
+    base = {
+        "jira_client_id": "client-id",
+        "jira_client_secret": "client-secret",
+        "jira_cloud_id": "cloud-123",
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _token_payload(token="oauth-token", expires_in=3600):
+    return {"access_token": token, "expires_in": expires_in, "token_type": "bearer", "scope": "read:jira"}
+
+
+def _header(req, name):
+    """Case-insensitive header lookup (urllib normalizes header case)."""
+    for key, value in req.headers.items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
+
+@pytest.fixture(autouse=True)
+def _clean_token_cache():
+    jira._reset_token_cache()
+    yield
+    jira._reset_token_cache()
+
+
+def test_oauth_token_fetched_on_first_call_and_cached():
+    """Second call within the token lifetime must not re-fetch the token."""
+    requests_seen = []
+
+    def fake_urlopen(req, **kwargs):
+        requests_seen.append(req)
+        if req.full_url == TOKEN_URL:
+            return _FakeResponse(_token_payload())
+        return _FakeResponse({"key": "EXAMPLE-1"})
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
+        first = jira._jira_request(_oauth_settings(), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+        second = jira._jira_request(_oauth_settings(), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+    assert first == {"key": "EXAMPLE-1"}
+    assert second == {"key": "EXAMPLE-1"}
+    assert len([r for r in requests_seen if r.full_url == TOKEN_URL]) == 1
+    api_calls = [r for r in requests_seen if r.full_url != TOKEN_URL]
+    assert [r.full_url for r in api_calls] == [
+        "https://api.atlassian.com/ex/jira/cloud-123/rest/api/2/issue/EXAMPLE-1",
+    ] * 2
+    assert all(_header(r, "Authorization") == "Bearer oauth-token" for r in api_calls)
+
+
+def test_oauth_token_request_format():
+    """Token fetch must be a form-urlencoded client_credentials grant."""
+    captured = []
+
+    def fake_urlopen(req, **kwargs):
+        captured.append(req)
+        if req.full_url == TOKEN_URL:
+            return _FakeResponse(_token_payload())
+        return _FakeResponse({"key": "EXAMPLE-1"})
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
+        jira._jira_request(_oauth_settings(), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+    token_req = captured[0]
+    assert token_req.full_url == TOKEN_URL
+    assert token_req.method == "POST"
+    assert _header(token_req, "Content-Type") == "application/x-www-form-urlencoded"
+    assert parse_qs(token_req.data.decode("utf-8")) == {
+        "client_id": ["client-id"],
+        "client_secret": ["client-secret"],
+        "grant_type": ["client_credentials"],
+    }
+
+
+@pytest.mark.parametrize("remaining_seconds", [30, 0, -60])
+def test_oauth_token_refreshed_near_or_past_expiry(remaining_seconds):
+    """A cached token within the 60s expiry margin must be re-fetched."""
+    jira._token_cache["token"] = "stale-token"
+    jira._token_cache["expires_at"] = time.monotonic() + remaining_seconds
+
+    captured = []
+
+    def fake_urlopen(req, **kwargs):
+        captured.append(req)
+        if req.full_url == TOKEN_URL:
+            return _FakeResponse(_token_payload(token="fresh-token"))
+        return _FakeResponse({"key": "EXAMPLE-1"})
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
+        jira._jira_request(_oauth_settings(), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+    token_calls = [r for r in captured if r.full_url == TOKEN_URL]
+    assert len(token_calls) == 1
+    api_call = next(r for r in captured if r.full_url != TOKEN_URL)
+    assert _header(api_call, "Authorization") == "Bearer fresh-token"
+
+
+def test_valid_cached_token_survives_settings_change():
+    """The token cache is keyed on nothing; a valid token is reused as-is."""
+    jira._token_cache["token"] = "cached-token"
+    jira._token_cache["expires_at"] = time.monotonic() + 3600
+
+    captured = []
+
+    def fake_urlopen(req, **kwargs):
+        captured.append(req)
+        return _FakeResponse({"key": "EXAMPLE-1"})
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
+        jira._jira_request(_oauth_settings(), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+    assert len(captured) == 1
+    assert _header(captured[0], "Authorization") == "Bearer cached-token"
+
+
+@pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
+def test_request_without_full_oauth_config_raises(missing):
+    """OAuth2 is the only auth method; any missing field must fail fast without HTTP."""
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unconfigured Jira must not be invoked")
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=unexpected):
+        with pytest.raises(RuntimeError, match="not configured"):
+            jira._jira_request(_oauth_settings(**{missing: ""}), "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+
+def test_request_with_no_jira_config_raises():
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unconfigured Jira must not be invoked")
+
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=unexpected):
+        with pytest.raises(RuntimeError, match="not configured"):
+            jira._jira_request(_oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id=""),
+                               "/rest/api/2/issue/EXAMPLE-1", method="GET")
+
+
+@pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
+def test_jira_auth_configured_requires_all_oauth_fields(missing):
+    assert jira.jira_auth_configured(_oauth_settings())
+    assert not jira.jira_auth_configured(_oauth_settings(**{missing: ""}))
+    assert not jira.jira_auth_configured(_oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id=""))

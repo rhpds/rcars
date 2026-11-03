@@ -264,8 +264,8 @@ The lifecycle and permissions above apply equally to the UI and programmatic cli
 | `RCARS_GITHUB_APP_ID` | GitHub App identifier; also gates the nightly retirement step |
 | `RCARS_GITHUB_APP_PRIVATE_KEY` | PEM signing key, supplied through a Secret |
 | `RCARS_GITHUB_APP_INSTALLATION_ID` | Shared organization installation with access to supported repositories |
-| `RCARS_JIRA_BASE_URL` | Jira service address |
-| `RCARS_JIRA_API_EMAIL`, `RCARS_JIRA_API_TOKEN` | Jira service-account credentials |
+| `RCARS_JIRA_CLIENT_ID`, `RCARS_JIRA_CLIENT_SECRET` | Jira OAuth2 client credentials; the secret is supplied through a Secret |
+| `RCARS_JIRA_CLOUD_ID` | Atlassian cloud ID routing requests to the redhat.atlassian.net site |
 | `RCARS_PIPELINE_ENABLED`, `RCARS_PIPELINE_HOUR`, `RCARS_PIPELINE_MINUTE` | Nightly scheduling; see [Operations](../admin/operations.md#changing-the-schedule) |
 
 Supply GitHub App settings to **both the API and scan-worker deployments**: individual actions run on the API, while automatic and queued sweeps run on the scan worker. A successful interactive PR action does not prove that the worker has credentials. The direct CLI path needs its own configured environment. Keep environment-specific values in the approved secret store and gitignored deployment vars, not shared examples.

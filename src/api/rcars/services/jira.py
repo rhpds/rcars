@@ -2,20 +2,120 @@
 
 Uses urllib (consistent with RCARS HTTP patterns in reporting_sync.py)
 to create retirement tickets.
+
+Authentication: OAuth2 client credentials (Bearer token against
+api.atlassian.com) — the only supported method. Requires
+jira_client_id, jira_client_secret, and jira_cloud_id to be configured.
 """
 from __future__ import annotations
 
-import base64
 import json
 import re
 import ssl
+import threading
+import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import date
 
 import structlog
 
 logger = structlog.get_logger(component="jira")
+
+_ATLASSIAN_TOKEN_URL = "https://auth.atlassian.com/oauth/token"
+_ATLASSIAN_API_BASE = "https://api.atlassian.com/ex/jira"
+_TOKEN_EXPIRY_MARGIN_SECONDS = 60.0
+
+# Module-level OAuth2 token cache. Refreshed lazily on demand only — Jira is
+# idle most of the time, so nothing runs while no Jira call is being made.
+_token_cache: dict = {"token": "", "expires_at": 0.0}
+_token_lock = threading.Lock()
+
+
+def _reset_token_cache() -> None:
+    """Drop the cached access token so the next call fetches a fresh one."""
+    with _token_lock:
+        _token_cache["token"] = ""
+        _token_cache["expires_at"] = 0.0
+
+
+def _oauth_config(settings) -> tuple[str, str, str] | None:
+    """Return (client_id, client_secret, cloud_id) when OAuth2 is fully configured."""
+    client_id = settings.jira_client_id
+    client_secret = settings.jira_client_secret
+    cloud_id = settings.jira_cloud_id
+    if client_id and client_secret and cloud_id:
+        return client_id, client_secret, cloud_id
+    return None
+
+
+def jira_auth_configured(settings) -> bool:
+    """True when OAuth2 client credentials are fully configured."""
+    return _oauth_config(settings) is not None
+
+
+def _fetch_oauth_token(client_id: str, client_secret: str) -> None:
+    """Fetch a new access token from auth.atlassian.com into the module cache."""
+    form = urllib.parse.urlencode({
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "grant_type": "client_credentials",
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        _ATLASSIAN_TOKEN_URL,
+        data=form,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+
+    ctx = ssl.create_default_context()
+
+    try:
+        with urllib.request.urlopen(req, timeout=30, context=ctx) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        error_body = ""
+        try:
+            error_body = exc.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        logger.error(
+            "jira_oauth_token_fetch_failed",
+            url=_ATLASSIAN_TOKEN_URL,
+            status=exc.code,
+            error=error_body[:500],
+        )
+        raise
+    except urllib.error.URLError as exc:
+        logger.error("jira_oauth_token_fetch_error", url=_ATLASSIAN_TOKEN_URL, error=str(exc))
+        raise
+
+    token = payload.get("access_token")
+    expires_in = payload.get("expires_in")
+    if not token or not isinstance(expires_in, (int, float)):
+        raise RuntimeError("Invalid OAuth2 token response from auth.atlassian.com")
+
+    _token_cache["token"] = token
+    _token_cache["expires_at"] = time.monotonic() + float(expires_in)
+    logger.info("jira_oauth_token_fetched", expires_in=expires_in)
+
+
+def _get_access_token(client_id: str, client_secret: str) -> str:
+    """Return a valid access token, lazily fetching one when missing or near expiry.
+
+    The lock covers the fetch so concurrent senders share a single token request.
+    """
+    with _token_lock:
+        now = time.monotonic()
+        if _token_cache["token"] and now < _token_cache["expires_at"] - _TOKEN_EXPIRY_MARGIN_SECONDS:
+            return _token_cache["token"]
+        _fetch_oauth_token(client_id, client_secret)
+        return _token_cache["token"]
 
 
 def _jira_request(
@@ -24,24 +124,32 @@ def _jira_request(
     method: str = "POST",
     body: dict | None = None,
 ) -> dict | None:
-    """Make an HTTP request to the Jira REST API v3 with Basic auth.
+    """Make an HTTP request to the Jira REST API with an OAuth2 Bearer token.
+
+    Calls go to api.atlassian.com/ex/jira/{cloud_id}. Raises RuntimeError when
+    OAuth2 client credentials are not configured, so unconfigured environments
+    fail fast instead of sending authenticated-less traffic.
 
     Returns parsed JSON for responses with a body, None for 204 No Content.
     """
-    url = f"{settings.jira_base_url}{path}"
-    credentials = f"{settings.jira_api_email}:{settings.jira_api_token}"
-    auth = base64.b64encode(credentials.encode("utf-8")).decode("ascii")
+    oauth = _oauth_config(settings)
+    if not oauth:
+        raise RuntimeError("Jira integration not configured: OAuth2 client credentials required")
+    client_id, client_secret, cloud_id = oauth
 
     data = json.dumps(body).encode("utf-8") if body else None
+    token = _get_access_token(client_id, client_secret)
+    url = f"{_ATLASSIAN_API_BASE}/{cloud_id}{path}"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
 
     req = urllib.request.Request(
         url,
         data=data,
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Basic {auth}",
-        },
+        headers=headers,
         method=method,
     )
 
@@ -84,7 +192,7 @@ def _base_name_from_content_id(content_id: str) -> str:
 
 def ensure_issue_event_comment(settings, jira_key: str, event_key: str, message: str) -> str:
     """Recover an existing event comment before posting, including ambiguous retries."""
-    if not settings.jira_api_email or not settings.jira_api_token:
+    if not jira_auth_configured(settings):
         raise RuntimeError("Jira comment delivery pending: integration not configured")
     property_key = "rcars.retirement.event"
     start = 0
