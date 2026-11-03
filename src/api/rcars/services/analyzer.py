@@ -327,13 +327,18 @@ def clone_showroom(
 def _parse_nav_includes(nav_text: str) -> set[str]:
     """Extract active page filenames from nav.adoc.
 
-    Parses xref: references on uncommented lines. Returns a set of
-    filenames (basename only, no subdirectories) that nav.adoc includes.
+    Parses xref: references on uncommented lines. Skips both line
+    comments (//) and block comments (////). Returns a set of filenames
+    (basename only, no subdirectories) that nav.adoc includes.
     """
     included = set()
+    in_block_comment = False
     for line in nav_text.splitlines():
         stripped = line.lstrip(" *")
-        if stripped.startswith("//"):
+        if stripped.startswith("////"):
+            in_block_comment = not in_block_comment
+            continue
+        if in_block_comment or stripped.startswith("//"):
             continue
         match = re.search(r'xref:([^\[]+)', stripped)
         if match:
@@ -345,6 +350,15 @@ def _parse_nav_includes(nav_text: str) -> set[str]:
 def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_name: str | None = None) -> dict[str, str]:
     """Read .adoc files from a cloned Showroom repo.
 
+    With no content_path, reads the standard Antora layout:
+    content/modules/ROOT/pages.
+
+    content_path may be either an Antora start path (for example
+    documentation) or a directory that holds .adoc pages directly. When
+    <content_path>/modules/ROOT/pages exists, that is the pages
+    directory and nav.adoc is read from <content_path>/modules/ROOT/.
+    This matches the standard layout, whose start path is content.
+
     Uses nav.adoc as the source of truth for which pages to include.
     Only pages referenced in active (uncommented) nav entries are read.
     Falls back to reading all pages if nav.adoc doesn't exist or
@@ -355,7 +369,9 @@ def read_showroom_content(clone_path: Path, content_path: str | None = None, ci_
     if content_path:
         if Path(content_path).is_absolute() or ".." in Path(content_path).parts:
             raise ValueError("content_path must remain inside the clone")
-        pages_dir = clone_path / content_path
+        start_dir = clone_path / content_path
+        antora_pages = start_dir / "modules" / "ROOT" / "pages"
+        pages_dir = antora_pages if antora_pages.is_dir() else start_dir
     else:
         pages_dir = clone_path / "content" / "modules" / "ROOT" / "pages"
 

@@ -176,7 +176,13 @@ rcars override-url openshift-cnv.ocp4-getting-started.prod https://github.com/rh
 
 Sets a custom content path within the Showroom repository. By default, RCARS reads from `content/modules/ROOT/pages/`. Use this when a repository uses a non-standard layout.
 
+The path can be either an Antora start path or a directory that holds the pages. If `<path>/modules/ROOT/pages` exists, RCARS reads that directory and finds `nav.adoc` in `<path>/modules/ROOT/`. This is how the default `content` start path works. Otherwise RCARS reads `.adoc` files directly from `<path>`.
+
 ```bash
+# Antora start path (the value of start_path in the playbook)
+rcars set-content-path openshift-cnv.advanced-automation-bootcamp.prod documentation
+
+# Directory that holds the pages directly
 rcars set-content-path openshift-cnv.ocp4-getting-started.prod content/modules/CUSTOM/pages/
 ```
 

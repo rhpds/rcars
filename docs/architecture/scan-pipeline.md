@@ -33,7 +33,7 @@ Resolve the requested branch, tag (including annotated tags), full commit ID, or
 
 ## Step 2 — Read
 
-AsciiDoc files are read from the standard Antora content layout: `content/modules/ROOT/pages/*.adoc`. If a `nav.adoc` navigation file exists, RCARS parses it to identify which pages are actively linked — only pages referenced in `nav.adoc` xref lines are included. This prevents reading orphaned or draft pages that are present in the repo but not part of the live content. A custom content path can be set via the `content_path` field to handle non-standard repository layouts. Files are read with error-replacement for encoding issues. The repository HEAD commit SHA and timestamp are recorded for staleness tracking.
+AsciiDoc files are read from the standard Antora content layout: `content/modules/ROOT/pages/*.adoc`. If a `nav.adoc` navigation file exists, RCARS parses it to identify which pages are actively linked — only pages referenced in active `nav.adoc` xref lines are included. Line comments (`//`) and block comments (`////`) are ignored. This prevents reading orphaned or draft pages that are present in the repo but not part of the live content. A custom content path can be set via the `content_path` field to handle non-standard repository layouts. The custom path is an Antora start path when `<content_path>/modules/ROOT/pages` exists; RCARS then uses that pages directory and reads `nav.adoc` from `<content_path>/modules/ROOT/`. Otherwise the custom path is used as the pages directory itself. Files are read with error-replacement for encoding issues. The repository HEAD commit SHA and timestamp are recorded for staleness tracking.
 
 ## Step 3 — Filter Boilerplate
 
