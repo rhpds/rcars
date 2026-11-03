@@ -1,7 +1,7 @@
 """Tests for the admin LLM provider status endpoint (RHDPCD-2226).
 
-Covers the reworked status payload: the active provider (LiteMaaS), the
-dormant fallback, and the model used for every LLM use in RCARS.
+Covers the status payload: the active provider (LiteMaaS) and the model
+used for every LLM use in RCARS.
 """
 
 from __future__ import annotations
@@ -41,11 +41,8 @@ def _make_client(**settings_kwargs) -> TestClient:
 
 @pytest.fixture(autouse=True)
 def no_litemaas_fetch(monkeypatch):
-    """Never hit the real LiteMaaS /v1/models endpoint from tests, and keep
-    developer-machine Anthropic env vars from waking the dormant fallback."""
+    """Never hit the real LiteMaaS /v1/models endpoint from tests."""
     monkeypatch.setattr(config_module, "fetch_litemaas_models", lambda settings: set())
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
 
 
 def test_lists_model_for_every_llm_use():
@@ -67,13 +64,6 @@ def test_lists_model_for_every_llm_use():
     assert uses["overlap"] == haiku
 
 
-def test_fallback_reported_not_active_by_default():
-    with _make_client() as client:
-        body = client.get("/api/v1/admin/llm-provider").json()
-    assert body["litemaas_enabled"] is False
-    assert body["fallback_enabled"] is False
-
-
 def test_litemaas_active_with_models(monkeypatch):
     monkeypatch.setattr(
         config_module,
@@ -86,9 +76,3 @@ def test_litemaas_active_with_models(monkeypatch):
         body = client.get("/api/v1/admin/llm-provider").json()
     assert body["litemaas_enabled"] is True
     assert body["litemaas_models"] == ["claude-haiku-5-5-a8b", "claude-sonnet-5-5-a46b"]
-
-
-def test_fallback_active_when_vertex_configured():
-    with _make_client(vertex_project_id="some-project") as client:
-        body = client.get("/api/v1/admin/llm-provider").json()
-    assert body["fallback_enabled"] is True

@@ -6,7 +6,6 @@ const status: LlmProviderStatus = {
   litemaas_enabled: true,
   litemaas_url: 'https://maas.example.com/v1',
   litemaas_models: ['claude-haiku-5-5-a8b', 'claude-sonnet-5-5-a46b'],
-  fallback_enabled: false,
   uses: [
     { use: 'analysis', model: 'claude-sonnet-5-5-a46b' },
     { use: 'triage', model: 'claude-haiku-5-5-a8b' },
@@ -24,18 +23,9 @@ describe('LlmProviderCard', () => {
     expect(html).toContain('claude-haiku-5-5-a8b')
   })
 
-  it('shows the fallback as not active when dormant', () => {
+  it('renders no fallback row — the fallback provider was removed', () => {
     const html = renderToStaticMarkup(<LlmProviderCard status={status} />)
-    expect(html).toContain('Fallback')
-    expect(html).toContain('Not active')
-    expect(html).not.toContain('Vertex AI')
-  })
-
-  it('shows the fallback as configured when it is enabled', () => {
-    const html = renderToStaticMarkup(
-      <LlmProviderCard status={{ ...status, fallback_enabled: true }} />,
-    )
-    expect(html).toContain('Configured')
+    expect(html).not.toContain('Fallback')
     expect(html).not.toContain('Not active')
   })
 

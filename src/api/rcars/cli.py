@@ -350,12 +350,11 @@ def workload_scan(collection: str | None, force: bool):
     db = get_db()
 
     from rcars.config import fetch_litemaas_models
-    if settings.use_litemaas:
-        fetch_litemaas_models(settings)
-    elif not settings.get_anthropic_client():
-        console.print("[red]Error:[/red] No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID)")
+    if not settings.use_litemaas:
+        console.print("[red]Error:[/red] No LLM provider configured (set RCARS_LITEMAAS_URL and RCARS_LITEMAAS_API_KEY)")
         db.close()
         sys.exit(1)
+    fetch_litemaas_models(settings)
 
     model = settings.triage_model
     _print(f"Scanning workload repos (model={model}, force={force})")

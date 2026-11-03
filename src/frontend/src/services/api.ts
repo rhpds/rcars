@@ -170,7 +170,7 @@ export const api = {
   // LLM provider
   getLlmProviderStatus: () => request<{
     litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[];
-    fallback_enabled: boolean; uses: { use: string; model: string }[];
+    uses: { use: string; model: string }[];
   }>('/admin/llm-provider'),
 
   // Reporting status

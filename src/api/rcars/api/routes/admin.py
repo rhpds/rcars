@@ -364,12 +364,10 @@ async def llm_provider_status(request: Request, user: str = Depends(require_admi
     settings: Settings = request.app.state.settings
     from rcars.config import fetch_litemaas_models
     litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
-    fallback_enabled = bool(settings.use_vertex or settings.anthropic_api_key)
     return {
         "litemaas_enabled": settings.use_litemaas,
         "litemaas_url": settings.litemaas_url or None,
         "litemaas_models": litemaas_models,
-        "fallback_enabled": fallback_enabled,
         "uses": [
             {"use": "analysis", "model": settings.model},
             {"use": "triage", "model": settings.triage_model},

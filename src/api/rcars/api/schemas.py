@@ -354,9 +354,6 @@ class LlmProviderResponse(BaseModel):
     litemaas_enabled: bool
     litemaas_url: str | None = None
     litemaas_models: list[str] = []
-    # Fallback provider (Vertex AI / direct Anthropic key) — dormant since
-    # 2026-11-03, kept for future reactivation (RHDPCD-2226).
-    fallback_enabled: bool = False
     uses: list[LlmModelUse]
 
 

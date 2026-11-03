@@ -1,6 +1,8 @@
 import pytest
 from rcars.config import Settings
 
+import rcars.config as cfg
+
 
 def test_defaults():
     s = Settings(database_url="postgresql://test:test@localhost/test", redis_url="redis://localhost:6379")
@@ -34,19 +36,43 @@ def test_admin_check():
     assert not s.is_admin("user@redhat.com")
 
 
-def test_use_vertex():
-    s = Settings(
-        database_url="postgresql://test:test@localhost/test",
-        redis_url="redis://localhost:6379",
-        vertex_project_id="my-project",
+def _litemaas_settings() -> Settings:
+    return Settings(
+        database_url="postgresql://x/x",
+        litemaas_url="https://maas.example.com/v1",
+        litemaas_api_key="test-key",
     )
-    assert s.use_vertex is True
 
-    s2 = Settings(
-        database_url="postgresql://test:test@localhost/test",
-        redis_url="redis://localhost:6379",
-    )
-    assert s2.use_vertex is False
+
+def test_call_llm_raises_when_model_not_on_litemaas(monkeypatch):
+    """No fallback provider exists: a model missing from LiteMaaS must fail loudly."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "fetch_litemaas_models", lambda settings: {"claude-haiku-5-5-a8b"})
+    with pytest.raises(RuntimeError, match="not available on LiteMaaS"):
+        cfg.call_llm(
+            _litemaas_settings(),
+            "claude-not-real",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10,
+        )
+
+
+def test_call_llm_propagates_litemaas_error(monkeypatch):
+    """A LiteMaaS failure must surface, not be swallowed into a fallback attempt."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(cfg, "fetch_litemaas_models", lambda settings: {"claude-haiku-5-5-a8b"})
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("LiteMaaS is down")
+
+    monkeypatch.setattr(cfg, "_call_litemaas", boom)
+    with pytest.raises(RuntimeError, match="LiteMaaS is down"):
+        cfg.call_llm(
+            _litemaas_settings(),
+            "claude-haiku-5-5-a8b",
+            [{"role": "user", "content": "hi"}],
+            max_tokens=10,
+        )
 
 
 def test_chat_model_defaults_follow_triage_and_rationale():
@@ -116,13 +142,3 @@ def test_osspa_shrink_guard_must_be_a_fraction():
         Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=1.5)
     with pytest.raises(ValueError):
         Settings(database_url="postgresql://x/y", osspa_retire_shrink_guard_pct=0)
-
-
-def test_cloud_ml_region_env_fallback(monkeypatch):
-    monkeypatch.delenv("RCARS_CLOUD_ML_REGION", raising=False)
-    monkeypatch.setenv("CLOUD_ML_REGION", "europe-west1")
-    url = "postgresql://test:test@localhost/test"
-    assert Settings(database_url=url).cloud_ml_region == "europe-west1"
-    assert Settings(database_url=url, cloud_ml_region="us-east5").cloud_ml_region == "us-east5"
-    monkeypatch.delenv("CLOUD_ML_REGION")
-    assert Settings(database_url=url).cloud_ml_region == "global"

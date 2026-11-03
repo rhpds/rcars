@@ -100,15 +100,11 @@ sa_allowlist:
   - "system:serviceaccount:your-namespace:default"
 
 # ── LLM providers ─────────────────────────────────────────────────────────────
-# LiteMaaS is preferred when enabled — falls back to Vertex AI if the model
-# isn't available on LiteMaaS, or Vertex fails.
+# LiteMaaS is the only LLM provider.
 
 litemaas_enabled: true
 litemaas_url: https://maas-rhdp.apps.maas.redhatworkshops.io/v1
 litemaas_api_key: CHANGEME
-
-vertex_enabled: false
-vertex_credentials_path: ~/secrets/gcp-vertex-key.json
 
 # ── Reporting MCP ──────────────────────────────────────────────────────────────
 # MCP server for RHDP provisioning and cost data (used by performance analysis).
