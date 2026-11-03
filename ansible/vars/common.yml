@@ -26,7 +26,12 @@ pg_storage_class: ocs-storagecluster-ceph-rbd
 redis_pvc_size: 1Gi
 # redis_password: set in dev.yml / prod.yml (required)
 
-# Vertex AI
+# Vertex AI — NOT USED SINCE 2026-11-03 (RHDPCD-2226).
+# We lost direct Vertex AI access and the service account key no longer works.
+# vertex_enabled is false in dev.yml / prod.yml, so the env vars and secret
+# mounts below the `vertex_enabled` guards are never rendered. The template
+# blocks and this var stay for a future reactivation (for example a second
+# LiteMaaS-like provider). Do not set vertex_enabled: true unless reactivating.
 vertex_region: global  # override per env in dev.yml / prod.yml if needed
 
 # Cluster — must be set in env vars file (e.g. apps.ocpv-infra01.dal12.infra.demo.redhat.com)

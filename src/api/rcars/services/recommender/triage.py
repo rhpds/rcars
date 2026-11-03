@@ -45,7 +45,7 @@ def format_triage_candidates(candidates: list[Candidate]) -> str:
 def triage(
     state: QueryState,
     settings,
-    model: str = "claude-haiku-4-5",
+    model: str = "claude-haiku-5-5-a8b",
     triage_cutoff: int = 30,
     guidance: str = "",
 ) -> QueryState:

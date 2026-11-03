@@ -25,13 +25,19 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379"
 
-    # LLM
-    model: str = "claude-sonnet-4-6"
+    # LLM — LiteMaaS is the only active provider (RHDPCD-2226)
+    model: str = "claude-sonnet-5-5-a46b"
+    litemaas_url: str = ""
+    litemaas_api_key: str = ""
+    # Fallback provider — NOT USED SINCE 2026-11-03 (RHDPCD-2226).
+    # We lost direct Vertex AI access and the service account key no longer
+    # works, so nothing sets these values anymore. The fallback code path is
+    # kept on purpose so a future provider (for example a second LiteMaaS
+    # endpoint) can be reactivated without new plumbing. Do not set these
+    # unless reactivating the fallback.
     vertex_project_id: str = ""
     cloud_ml_region: str = "global"
     anthropic_api_key: str = ""
-    litemaas_url: str = ""
-    litemaas_api_key: str = ""
 
     # Scanning
     max_parallel: int = 5
@@ -45,9 +51,9 @@ class Settings(BaseSettings):
 
     # Recommender pipeline
     vector_cutoff: float = 0.55
-    triage_model: str = "claude-haiku-4-5"
+    triage_model: str = "claude-haiku-5-5-a8b"
     triage_cutoff: int = 30
-    rationale_model: str = "claude-sonnet-4-6"
+    rationale_model: str = "claude-sonnet-5-5-a46b"
     rationale_top_n: int = 5
 
     # Advisor chat (multi-intent)
@@ -102,7 +108,7 @@ class Settings(BaseSettings):
     # Content overlap
     overlap_min_products: int = 1
     overlap_min_topics: int = 2
-    overlap_model: str = "claude-haiku-4-5"
+    overlap_model: str = "claude-haiku-5-5-a8b"
 
     # Ops
     stale_days: int = 3

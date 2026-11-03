@@ -192,7 +192,7 @@ def generate_rationale(
     db: Database,
     settings,
     driver=None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5-5-a46b",
     top_n: int = 5,
 ) -> QueryState:
     """Generate per-candidate Sonnet rationale + Haiku content gap synthesis.

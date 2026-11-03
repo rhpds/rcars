@@ -171,7 +171,7 @@ def fetch_event_content(url: str, max_chars: int = 80000) -> str | None:
 def parse_event_url(
     url: str,
     settings,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5-5-a46b",
 ) -> dict[str, Any] | None:
     """Parse an event URL into a structured profile.
 

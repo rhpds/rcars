@@ -97,6 +97,9 @@ spec:
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
 {% endif %}
+{# Vertex AI fallback — NOT USED SINCE 2026-11-03 (RHDPCD-2226). Kept for
+   future reactivation; guarded by vertex_enabled, which is false in
+   dev.yml / prod.yml. #}
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
               value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
@@ -327,6 +330,9 @@ spec:
             - name: RCARS_KUBECONFIG_PATH
               value: /etc/rcars/kubeconfig
 {% endif %}
+{# Vertex AI fallback — NOT USED SINCE 2026-11-03 (RHDPCD-2226). Kept for
+   future reactivation; guarded by vertex_enabled, which is false in
+   dev.yml / prod.yml. #}
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
               value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"
@@ -523,6 +529,9 @@ spec:
                 secretKeyRef:
                   name: {{ app_name }}-redis
                   key: REDIS_URL
+{# Vertex AI fallback — NOT USED SINCE 2026-11-03 (RHDPCD-2226). Kept for
+   future reactivation; guarded by vertex_enabled, which is false in
+   dev.yml / prod.yml. #}
 {% if vertex_enabled | default(false) %}
             - name: ANTHROPIC_VERTEX_PROJECT_ID
               value: "{{ lookup('file', vertex_credentials_path | expanduser) | from_json | json_query('project_id') }}"

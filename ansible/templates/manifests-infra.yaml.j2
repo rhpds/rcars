@@ -274,7 +274,9 @@ stringData:
 {% endif %}
 {% if vertex_enabled | default(false) %}
 ---
-# Vertex AI credentials
+# Vertex AI credentials — NOT USED SINCE 2026-11-03 (RHDPCD-2226).
+# vertex_enabled is false in dev.yml / prod.yml, so this secret is never
+# rendered. Kept for future reactivation of the fallback provider.
 apiVersion: v1
 kind: Secret
 metadata:

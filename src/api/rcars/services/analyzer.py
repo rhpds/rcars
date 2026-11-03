@@ -795,7 +795,7 @@ def analyze_showroom(
     showroom_url: str,
     showroom_ref: str | None,
     settings,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5-5-a46b",
     clone_dir: str = "/tmp",
     db=None,
     content_path: str | None = None,

@@ -270,14 +270,15 @@ The sub-pipelines and retirement sweep can also be triggered independently from 
 
 ### LLM Provider Routing
 
-RCARS supports two LLM providers with automatic failover:
+LiteMaaS is the only active LLM provider:
 
-- **LiteMaaS** (preferred) — OpenAI-compatible API hosted internally. Models are discovered at startup from `/v1/models`.
-- **Vertex AI** (fallback) — Google Cloud Vertex AI with Anthropic SDK. Used when LiteMaaS is unavailable or doesn't have the requested model.
+- **LiteMaaS** — OpenAI-compatible API hosted internally. Models are discovered at startup from `/v1/models`.
 
-The unified `call_llm()` function routes each call to the appropriate provider. If LiteMaaS is available and has the requested model, it is used; otherwise the call falls back to Vertex AI automatically. Provider is tracked per LLM call in the `token_usage` table.
+The unified `call_llm()` function routes each call to LiteMaaS when it has the requested model. Provider is tracked per LLM call in the `token_usage` table.
 
-Two models are used: Sonnet for content analysis, rationale generation, and chat answers; Haiku for triage, workload scanning, and chat routing.
+A **Vertex AI / direct Anthropic fallback** exists in the code but is **not used since 2026-11-03** (RHDPCD-2226): we lost direct Vertex access and the service account key no longer works, so `vertex_enabled` is false in the Ansible vars and the fallback env vars are never rendered. The code path is kept so a future provider (for example a second LiteMaaS-like endpoint) can be reactivated without new plumbing.
+
+Two models are used: Sonnet (`claude-sonnet-5-5-a46b`) for content analysis, rationale generation, OSSPA analysis, and chat answers; Haiku (`claude-haiku-5-5-a8b`) for triage, workload scanning, overlap assessment, and chat routing.
 
 ---
 
