@@ -45,7 +45,7 @@ export function LlmProviderCard({ status }: { status: LlmProviderStatus }) {
       <div className="admin-stat-row">
         <span className="admin-stat-row-label">Fallback</span>
         <span style={{ color: status.fallback_enabled ? 'var(--score-green)' : 'var(--text-muted)' }}>
-          {status.fallback_enabled ? 'Vertex AI' : 'Not active'}
+          {status.fallback_enabled ? 'Configured' : 'Not active'}
         </span>
       </div>
       <div className="admin-stat-row-divider" />

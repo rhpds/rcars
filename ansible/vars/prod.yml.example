@@ -108,7 +108,7 @@ litemaas_enabled: true
 litemaas_url: https://maas-rhdp.apps.maas.redhatworkshops.io/v1
 litemaas_api_key: CHANGEME
 
-vertex_enabled: true
+vertex_enabled: false
 vertex_credentials_path: ~/secrets/gcp-vertex-key.json
 
 # ── Reporting MCP ──────────────────────────────────────────────────────────────

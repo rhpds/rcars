@@ -31,11 +31,11 @@ describe('LlmProviderCard', () => {
     expect(html).not.toContain('Vertex AI')
   })
 
-  it('shows the fallback provider name when it is enabled', () => {
+  it('shows the fallback as configured when it is enabled', () => {
     const html = renderToStaticMarkup(
       <LlmProviderCard status={{ ...status, fallback_enabled: true }} />,
     )
-    expect(html).toContain('Vertex AI')
+    expect(html).toContain('Configured')
     expect(html).not.toContain('Not active')
   })
 
