@@ -303,8 +303,13 @@ def call_llm(
 
 
 # Models that reject the temperature parameter (Bedrock-backed Claude 5.5
-# returns "temperature is deprecated for this model").
-_models_without_temperature: set[str] = set()
+# returns "temperature is deprecated for this model"). Seeded with the known
+# 5.5 names so the first call is clean; any other model is added on first
+# rejection.
+_models_without_temperature: set[str] = {
+    "claude-haiku-5-5-a8b",
+    "claude-sonnet-5-5-a46b",
+}
 
 
 def _call_litemaas(settings, model, messages, max_tokens, temperature, system=None):

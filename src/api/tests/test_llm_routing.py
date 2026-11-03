@@ -14,7 +14,9 @@ import rcars.config as config_module
 from rcars.config import Settings
 
 TEST_DB_URL = "postgresql://rcars:dev@localhost:5432/rcars_test"
-MODEL = "claude-sonnet-5-5-a46b"
+SEEDED_MODEL = "claude-sonnet-5-5-a46b"
+UNSEEDED_MODEL = "claude-test-model"
+SEEDED = set(config_module._models_without_temperature)
 
 
 class FakeCompletions:
@@ -43,14 +45,27 @@ def _settings(monkeypatch, completions) -> Settings:
 @pytest.fixture(autouse=True)
 def reset_temperature_cache():
     config_module._models_without_temperature.clear()
+    config_module._models_without_temperature.update(SEEDED)
     yield
     config_module._models_without_temperature.clear()
+    config_module._models_without_temperature.update(SEEDED)
+
+
+def test_seeded_model_skips_temperature_on_first_call(monkeypatch):
+    completions = FakeCompletions()
+    config_module._call_litemaas(
+        _settings(monkeypatch, completions), SEEDED_MODEL,
+        [{"role": "user", "content": "hi"}], 8, 0,
+    )
+    assert len(completions.calls) == 1
+    assert "temperature" not in completions.calls[0]
 
 
 def test_retries_without_temperature_when_model_rejects_it(monkeypatch):
     completions = FakeCompletions()
     result = config_module._call_litemaas(
-        _settings(monkeypatch, completions), MODEL, [{"role": "user", "content": "hi"}], 8, 0
+        _settings(monkeypatch, completions), UNSEEDED_MODEL,
+        [{"role": "user", "content": "hi"}], 8, 0,
     )
     assert result.text == "ok"
     assert result.provider == "litemaas"
@@ -62,9 +77,13 @@ def test_retries_without_temperature_when_model_rejects_it(monkeypatch):
 def test_skips_temperature_on_later_calls_for_same_model(monkeypatch):
     completions = FakeCompletions()
     settings = _settings(monkeypatch, completions)
-    config_module._call_litemaas(settings, MODEL, [{"role": "user", "content": "hi"}], 8, 0)
+    config_module._call_litemaas(
+        settings, UNSEEDED_MODEL, [{"role": "user", "content": "hi"}], 8, 0
+    )
     completions.calls.clear()
-    config_module._call_litemaas(settings, MODEL, [{"role": "user", "content": "hi"}], 8, 0)
+    config_module._call_litemaas(
+        settings, UNSEEDED_MODEL, [{"role": "user", "content": "hi"}], 8, 0
+    )
     assert len(completions.calls) == 1
     assert "temperature" not in completions.calls[0]
 
@@ -77,5 +96,5 @@ def test_reraises_unrelated_errors(monkeypatch):
     settings = _settings(monkeypatch, BrokenCompletions())
     with pytest.raises(RuntimeError, match="model not found"):
         config_module._call_litemaas(
-            settings, MODEL, [{"role": "user", "content": "hi"}], 8, 0
+            settings, UNSEEDED_MODEL, [{"role": "user", "content": "hi"}], 8, 0
         )
