@@ -115,11 +115,7 @@ class Settings(BaseSettings):
     reporting_provisions_days: int = 90
     reporting_sales_days: int = 365
 
-    # Jira integration (retirement tickets)
-    jira_base_url: str = "https://redhat.atlassian.net"
-    jira_api_email: str = ""
-    jira_api_token: str = ""
-    # OAuth2 client credentials — preferred over the API token when all three are set
+    # Jira integration (retirement tickets) — OAuth2 client credentials
     jira_client_id: str = ""
     jira_client_secret: str = ""
     jira_cloud_id: str = ""

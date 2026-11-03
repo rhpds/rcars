@@ -1,5 +1,4 @@
 """Tests for the Jira retirement ticket service."""
-import base64
 import json
 import time
 from types import SimpleNamespace
@@ -251,9 +250,6 @@ class _FakeResponse:
 
 def _oauth_settings(**overrides):
     base = {
-        "jira_base_url": "https://jira.example.com",
-        "jira_api_email": "user@example.com",
-        "jira_api_token": "basic-token",
         "jira_client_id": "client-id",
         "jira_client_secret": "client-secret",
         "jira_cloud_id": "cloud-123",
@@ -371,44 +367,28 @@ def test_valid_cached_token_survives_settings_change():
 
 
 @pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
-def test_partial_oauth_config_falls_back_to_basic(missing):
-    """Any missing OAuth2 field must keep the Basic auth path intact."""
-    captured = []
+def test_request_without_full_oauth_config_raises(missing):
+    """OAuth2 is the only auth method; any missing field must fail fast without HTTP."""
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unconfigured Jira must not be invoked")
 
-    def fake_urlopen(req, **kwargs):
-        captured.append(req)
-        return _FakeResponse({"key": "EXAMPLE-1"})
-
-    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
-        jira._jira_request(_oauth_settings(**{missing: ""}), "/rest/api/2/issue/EXAMPLE-1", method="GET")
-
-    assert len(captured) == 1
-    assert captured[0].full_url == "https://jira.example.com/rest/api/2/issue/EXAMPLE-1"
-    expected = base64.b64encode(b"user@example.com:basic-token").decode("ascii")
-    assert _header(captured[0], "Authorization") == f"Basic {expected}"
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=unexpected):
+        with pytest.raises(RuntimeError, match="not configured"):
+            jira._jira_request(_oauth_settings(**{missing: ""}), "/rest/api/2/issue/EXAMPLE-1", method="GET")
 
 
-def test_basic_auth_used_when_oauth_not_configured():
-    """Without OAuth2 config, requests hit jira_base_url with Basic auth."""
-    captured = []
+def test_request_with_no_jira_config_raises():
+    def unexpected(*args, **kwargs):
+        pytest.fail("Unconfigured Jira must not be invoked")
 
-    def fake_urlopen(req, **kwargs):
-        captured.append(req)
-        return _FakeResponse({"key": "EXAMPLE-1"})
-
-    settings = _oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id="")
-    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=fake_urlopen):
-        jira._jira_request(settings, "/rest/api/2/issue/EXAMPLE-1", method="GET")
-
-    assert len(captured) == 1
-    assert captured[0].full_url == "https://jira.example.com/rest/api/2/issue/EXAMPLE-1"
-    expected = base64.b64encode(b"user@example.com:basic-token").decode("ascii")
-    assert _header(captured[0], "Authorization") == f"Basic {expected}"
+    with patch("rcars.services.jira.urllib.request.urlopen", side_effect=unexpected):
+        with pytest.raises(RuntimeError, match="not configured"):
+            jira._jira_request(_oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id=""),
+                               "/rest/api/2/issue/EXAMPLE-1", method="GET")
 
 
-def test_jira_auth_configured_accepts_either_auth():
+@pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
+def test_jira_auth_configured_requires_all_oauth_fields(missing):
     assert jira.jira_auth_configured(_oauth_settings())
-    assert jira.jira_auth_configured(_oauth_settings(jira_api_email="", jira_api_token=""))
-    assert not jira.jira_auth_configured(
-        _oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id="",
-                        jira_api_email="", jira_api_token=""))
+    assert not jira.jira_auth_configured(_oauth_settings(**{missing: ""}))
+    assert not jira.jira_auth_configured(_oauth_settings(jira_client_id="", jira_client_secret="", jira_cloud_id=""))

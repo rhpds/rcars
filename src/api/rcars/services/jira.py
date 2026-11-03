@@ -4,12 +4,11 @@ Uses urllib (consistent with RCARS HTTP patterns in reporting_sync.py)
 to create retirement tickets.
 
 Authentication: OAuth2 client credentials (Bearer token against
-api.atlassian.com) when jira_client_id/jira_client_secret/jira_cloud_id are
-all configured; Basic auth with an API token against jira_base_url otherwise.
+api.atlassian.com) — the only supported method. Requires
+jira_client_id, jira_client_secret, and jira_cloud_id to be configured.
 """
 from __future__ import annotations
 
-import base64
 import json
 import re
 import ssl
@@ -52,10 +51,8 @@ def _oauth_config(settings) -> tuple[str, str, str] | None:
 
 
 def jira_auth_configured(settings) -> bool:
-    """True when either OAuth2 client credentials or API-token Basic auth is set."""
-    if _oauth_config(settings):
-        return True
-    return bool(settings.jira_api_email and settings.jira_api_token)
+    """True when OAuth2 client credentials are fully configured."""
+    return _oauth_config(settings) is not None
 
 
 def _fetch_oauth_token(client_id: str, client_secret: str) -> None:
@@ -127,35 +124,27 @@ def _jira_request(
     method: str = "POST",
     body: dict | None = None,
 ) -> dict | None:
-    """Make an HTTP request to the Jira REST API.
+    """Make an HTTP request to the Jira REST API with an OAuth2 Bearer token.
 
-    Uses OAuth2 (Bearer token against api.atlassian.com/ex/jira/{cloud_id})
-    when client credentials are configured, Basic auth against jira_base_url
-    otherwise. REST paths and bodies are identical on both paths.
+    Calls go to api.atlassian.com/ex/jira/{cloud_id}. Raises RuntimeError when
+    OAuth2 client credentials are not configured, so unconfigured environments
+    fail fast instead of sending authenticated-less traffic.
 
     Returns parsed JSON for responses with a body, None for 204 No Content.
     """
-    data = json.dumps(body).encode("utf-8") if body else None
-
     oauth = _oauth_config(settings)
-    if oauth:
-        client_id, client_secret, cloud_id = oauth
-        token = _get_access_token(client_id, client_secret)
-        url = f"{_ATLASSIAN_API_BASE}/{cloud_id}{path}"
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-        }
-    else:
-        url = f"{settings.jira_base_url}{path}"
-        credentials = f"{settings.jira_api_email}:{settings.jira_api_token}"
-        auth = base64.b64encode(credentials.encode("utf-8")).decode("ascii")
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "Authorization": f"Basic {auth}",
-        }
+    if not oauth:
+        raise RuntimeError("Jira integration not configured: OAuth2 client credentials required")
+    client_id, client_secret, cloud_id = oauth
+
+    data = json.dumps(body).encode("utf-8") if body else None
+    token = _get_access_token(client_id, client_secret)
+    url = f"{_ATLASSIAN_API_BASE}/{cloud_id}{path}"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+    }
 
     req = urllib.request.Request(
         url,

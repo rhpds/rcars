@@ -68,8 +68,9 @@ def _sweep_context(db, **credentials):
         "github_app_id": "12345",
         "github_app_private_key": "synthetic-key",
         "github_app_installation_id": "99999",
-        "jira_api_email": "admin@example.com",
-        "jira_api_token": "synthetic-token",
+        "jira_client_id": "client-id",
+        "jira_client_secret": "synthetic-secret",
+        "jira_cloud_id": "cloud-123",
     }
     configured.update(credentials)
     return {"worker_ctx": SimpleNamespace(db=db, settings=Settings(
@@ -580,7 +581,7 @@ async def test_sweep_github_only_opens_due_removal(db, monkeypatch):
     monkeypatch.setattr(agv_access, "create_retire_pr", AsyncMock(return_value={"pr_url": REMOVAL_URL}))
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "open", "merged": False}))
 
-    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+    result = await run_retirement_sweep(_sweep_context(db, jira_client_id="", jira_client_secret="", jira_cloud_id=""))
 
     assert result["prs_opened"] == 1
     assert result["errors"] == []
@@ -674,7 +675,7 @@ async def test_sweep_lock_loser_does_not_overwrite_concurrent_completion(db, mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("missing", ["jira_api_email", "jira_api_token"])
+@pytest.mark.parametrize("missing", ["jira_client_id", "jira_client_secret", "jira_cloud_id"])
 async def test_sweep_partial_jira_records_retirement_and_retries_cleanup(db, monkeypatch, missing):
     db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": "EXAMPLE-1"})
     monkeypatch.setattr(agv_access, "get_pr_state", AsyncMock(return_value={"state": "closed", "merged": True}))
@@ -717,7 +718,7 @@ async def test_sweep_github_only_completes_when_no_jira_work_remains(db, monkeyp
         pytest.fail("No Jira closure should be attempted")
     monkeypatch.setattr(jira, "close_issue_done", unexpected)
 
-    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+    result = await run_retirement_sweep(_sweep_context(db, jira_client_id="", jira_client_secret="", jira_cloud_id=""))
 
     assert result["errors"] == []
     assert result["retirements_completed"] == 1
@@ -737,7 +738,7 @@ async def test_sweep_github_only_cancels_when_no_jira_work_remains(db, monkeypat
         pytest.fail("No Jira closure should be attempted")
     monkeypatch.setattr(jira, "close_issue_wont_do", unexpected)
 
-    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+    result = await run_retirement_sweep(_sweep_context(db, jira_client_id="", jira_client_secret="", jira_cloud_id=""))
 
     assert result["errors"] == []
     assert result["reverts_completed"] == 1
@@ -762,7 +763,7 @@ async def test_sweep_github_only_cancellation_preserves_revert_until_jira_availa
         pytest.fail("Missing Jira credentials must not trigger Jira closure")
     monkeypatch.setattr(jira, "close_issue_wont_do", unexpected)
 
-    result = await run_retirement_sweep(_sweep_context(db, jira_api_email="", jira_api_token=""))
+    result = await run_retirement_sweep(_sweep_context(db, jira_client_id="", jira_client_secret="", jira_cloud_id=""))
 
     wf = db.get_retirement_workflow(CONTENT_ID)
     assert events == [("rhpds/agnosticv", 42)]
