@@ -94,6 +94,59 @@ def test_scan_and_stale_check_use_identical_content_path(git_repo):
     assert check_showroom_stale(repo, expected, content_path=path)["is_stale"] is False
 
 
+def test_content_path_antora_start_path_resolves_pages_and_nav(git_repo):
+    from rcars.services.analyzer import read_showroom_content
+    repo = git_repo[0]
+    pages = repo / "documentation/modules/ROOT/pages"
+    pages.mkdir(parents=True)
+    (pages / "index.adoc").write_text("= Intro\n\nEnable TLS 1.3 for clients.")
+    (pages / "hidden.adoc").write_text("= Hidden\n\nNot part of the live nav.")
+    (pages / "orphan.adoc").write_text("= Orphan\n\nNot linked from nav.")
+    (repo / "documentation/modules/ROOT/nav.adoc").write_text(
+        "////\n* xref:hidden.adoc[Hidden]\n////\n* xref:index.adoc[Intro]\n"
+    )
+
+    files = read_showroom_content(repo, content_path="documentation")
+
+    assert "index.adoc" in files
+    assert "hidden.adoc" not in files
+    assert "orphan.adoc" not in files
+
+
+def test_content_path_direct_pages_directory_still_supported(git_repo):
+    from rcars.services.analyzer import read_showroom_content
+    repo = git_repo[0]
+    pages = repo / "docs/labs"
+    pages.mkdir(parents=True)
+    (pages / "lab.adoc").write_text("= Lab\n\nConfigure GitOps pipelines.")
+
+    files = read_showroom_content(repo, content_path="docs/labs")
+
+    assert "lab.adoc" in files
+
+
+def test_nav_block_comments_are_ignored():
+    from rcars.services.analyzer import _parse_nav_includes
+    nav = (
+        "////\n"
+        "* xref:hidden.adoc[Hidden]\n"
+        "** xref:also-hidden.adoc[Also hidden]\n"
+        "////\n"
+        "/////\n"
+        "////\n"
+        "* xref:nested.adoc[Nested]\n"
+        "/////\n"
+        "////\n"
+        "* ////\n"
+        "* xref:inside-list-marker.adoc[Inside]\n"
+        "////\n"
+        "* xref:shown.adoc[Shown]\n"
+        "// xref:line-comment.adoc[Line comment]\n"
+    )
+
+    assert _parse_nav_includes(nav) == {"shown.adoc"}
+
+
 def test_dict():
     assert parse_analysis_response('{"key": "val"}') == {"key": "val"}
 
