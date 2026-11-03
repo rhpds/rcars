@@ -98,3 +98,41 @@ def test_reraises_unrelated_errors(monkeypatch):
         config_module._call_litemaas(
             settings, UNSEEDED_MODEL, [{"role": "user", "content": "hi"}], 8, 0
         )
+
+
+def test_logs_model_and_usage_on_success(monkeypatch):
+    from structlog.testing import capture_logs
+
+    completions = FakeCompletions()
+    with capture_logs() as logs:
+        config_module._call_litemaas(
+            _settings(monkeypatch, completions), SEEDED_MODEL,
+            [{"role": "user", "content": "hi"}], 8, 0,
+        )
+    events = [e for e in logs if e["event"] == "llm_call_complete"]
+    assert len(events) == 1
+    event = events[0]
+    assert event["model"] == SEEDED_MODEL
+    assert event["provider"] == "litemaas"
+    assert event["input_tokens"] == 1
+    assert event["output_tokens"] == 1
+    assert event["elapsed_ms"] >= 0
+
+
+def test_logs_model_on_failure(monkeypatch):
+    from structlog.testing import capture_logs
+
+    class BrokenCompletions:
+        def create(self, **kwargs):
+            raise RuntimeError("model not found")
+
+    settings = _settings(monkeypatch, BrokenCompletions())
+    with capture_logs() as logs, pytest.raises(RuntimeError):
+        config_module._call_litemaas(
+            settings, UNSEEDED_MODEL, [{"role": "user", "content": "hi"}], 8, 0
+        )
+    events = [e for e in logs if e["event"] == "llm_call_failed"]
+    assert len(events) == 1
+    assert events[0]["model"] == UNSEEDED_MODEL
+    assert events[0]["log_level"] == "warning"
+    assert "model not found" in events[0]["error"]
