@@ -1,5 +1,4 @@
 import asyncio
-import functools
 import json
 import os
 import pytest
@@ -48,8 +47,14 @@ def test_three_turn_session_scope_resolution(db, monkeypatch):
     ids = seed_chat_fixtures(db)
     monkeypatch.setattr("rcars.services.recommender.vector_search.generate_embedding",
                         lambda text, prefix="": fake_embedding(text))
-    monkeypatch.setattr(handlers, "run_query",
-                        functools.partial(pipeline.run_query, depth="low"))
+    async def _run_query_low_depth(query, db, settings, **kwargs):
+        # The handler passes its own depth, so a partial would be overridden.
+        # Force depth="low" to skip triage/rationale: this test must not need
+        # a live LLM provider.
+        kwargs["depth"] = "low"
+        return await pipeline.run_query(query, db, settings, **kwargs)
+
+    monkeypatch.setattr(handlers, "run_query", _run_query_low_depth)
     s = _settings()
 
     # Turn 0: recommend (fake router + fake answer)

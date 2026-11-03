@@ -17,7 +17,6 @@
   "45": "test_osspa_csv.py",
   "48": "normalize_analysis",
   "49": "dev-services.sh",
-  "53": "test_chat_sessions_db.py",
   "57": "run_osspa_sync",
   "60": "parse_analysis_response",
   "61": "analyze_architecture_item",
