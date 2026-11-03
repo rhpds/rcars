@@ -53,7 +53,7 @@ graph TB
         GH[GitHub<br/>Showroom repos and catalog PRs]
         Jira[Jira<br/>retirement tickets]
         GL[GitLab<br/>OSSPA portfolio architectures]
-        LLM[LiteMaaS / Vertex AI<br/>Claude Sonnet + Haiku]
+        LLM[LiteMaaS<br/>Claude Sonnet + Haiku]
         RPT[Reporting MCP Server<br/>provisions + sales + cost]
     end
     
@@ -270,14 +270,15 @@ The sub-pipelines and retirement sweep can also be triggered independently from 
 
 ### LLM Provider Routing
 
-RCARS supports two LLM providers with automatic failover:
+LiteMaaS is the only LLM provider:
 
-- **LiteMaaS** (preferred) — OpenAI-compatible API hosted internally. Models are discovered at startup from `/v1/models`.
-- **Vertex AI** (fallback) — Google Cloud Vertex AI with Anthropic SDK. Used when LiteMaaS is unavailable or doesn't have the requested model.
+- **LiteMaaS** — OpenAI-compatible API hosted internally. Models are discovered at startup from `/v1/models`.
 
-The unified `call_llm()` function routes each call to the appropriate provider. If LiteMaaS is available and has the requested model, it is used; otherwise the call falls back to Vertex AI automatically. Provider is tracked per LLM call in the `token_usage` table.
+The unified `call_llm()` function routes every call to LiteMaaS. A model that is not served by LiteMaaS fails loudly instead of falling back, and LiteMaaS errors propagate to the caller. Provider is tracked per LLM call in the `token_usage` table.
 
-Two models are used: Sonnet for content analysis, rationale generation, and chat answers; Haiku for triage, workload scanning, and chat routing.
+The former Vertex AI / direct Anthropic fallback was removed on 2026-11-03 (RHDPCD-2226): we lost direct Vertex access and will not use it again. If a fallback provider is ever needed, it will be built fresh.
+
+Two models are used: Sonnet (`claude-sonnet-5-5-a46b`) for content analysis, rationale generation, OSSPA analysis, and chat answers; Haiku (`claude-haiku-5-5-a8b`) for triage, workload scanning, overlap assessment, and chat routing.
 
 ---
 

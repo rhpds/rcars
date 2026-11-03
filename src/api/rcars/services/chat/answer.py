@@ -109,7 +109,7 @@ def compose_answer(intent: str, facts: dict, evidence_pack: list[dict], question
     try:
         result = llm_call(settings, settings.chat_answer_model,
                           [{"role": "user", "content": prompt}],
-                          max_tokens=600, temperature=0)
+                          max_tokens=2048, temperature=0)
         usage = {"input": result.input_tokens, "output": result.output_tokens,
                  "provider": result.provider}
         answer = f"{scaffold}\n\n{_strip_formatting(result.text.strip())}"

@@ -344,17 +344,17 @@ class ScheduleResponse(BaseModel):
     last_pipeline: dict | None = None
 
 
+class LlmModelUse(BaseModel):
+    """One LLM use in RCARS and the model that serves it."""
+    use: str
+    model: str
+
+
 class LlmProviderResponse(BaseModel):
     litemaas_enabled: bool
     litemaas_url: str | None = None
     litemaas_models: list[str] = []
-    vertex_enabled: bool
-    vertex_region: str | None = None
-    vertex_models: list[str] = []
-    analysis_model: str
-    triage_model: str
-    rationale_model: str
-    scanning_model: str
+    uses: list[LlmModelUse]
 
 
 class ReportingStatusResponse(BaseModel):

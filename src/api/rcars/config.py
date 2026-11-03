@@ -25,11 +25,11 @@ class Settings(BaseSettings):
     # Redis
     redis_url: str = "redis://localhost:6379"
 
-    # LLM
-    model: str = "claude-sonnet-4-6"
-    vertex_project_id: str = ""
-    cloud_ml_region: str = "global"
-    anthropic_api_key: str = ""
+    # LLM — LiteMaaS is the only provider (RHDPCD-2226).
+    # The former Vertex/Anthropic fallback was removed on 2026-11-03: we lost
+    # direct Vertex access and will not use it again. If a fallback provider
+    # is ever needed, build it then.
+    model: str = "claude-sonnet-5-5-a46b"
     litemaas_url: str = ""
     litemaas_api_key: str = ""
 
@@ -45,9 +45,9 @@ class Settings(BaseSettings):
 
     # Recommender pipeline
     vector_cutoff: float = 0.55
-    triage_model: str = "claude-haiku-4-5"
+    triage_model: str = "claude-haiku-5-5-a8b"
     triage_cutoff: int = 30
-    rationale_model: str = "claude-sonnet-4-6"
+    rationale_model: str = "claude-sonnet-5-5-a46b"
     rationale_top_n: int = 5
 
     # Advisor chat (multi-intent)
@@ -102,7 +102,7 @@ class Settings(BaseSettings):
     # Content overlap
     overlap_min_products: int = 1
     overlap_min_topics: int = 2
-    overlap_model: str = "claude-haiku-4-5"
+    overlap_model: str = "claude-haiku-5-5-a8b"
 
     # Ops
     stale_days: int = 3
@@ -150,13 +150,6 @@ class Settings(BaseSettings):
     osspa_analysis_model: str = ""        # empty → falls back to settings.model
 
     def model_post_init(self, __context) -> None:
-        if not self.vertex_project_id:
-            self.vertex_project_id = os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID", "")
-        if "cloud_ml_region" not in self.model_fields_set or not self.cloud_ml_region:
-            self.cloud_ml_region = os.environ.get("CLOUD_ML_REGION", self.cloud_ml_region)
-        if not self.anthropic_api_key:
-            self.anthropic_api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-
         if self.overlap_min_products < 0:
             raise ValueError(f"overlap_min_products must be >= 0, got {self.overlap_min_products}")
         if self.overlap_min_topics < 0:
@@ -209,10 +202,6 @@ class Settings(BaseSettings):
         return roles
 
     @property
-    def use_vertex(self) -> bool:
-        return bool(self.vertex_project_id)
-
-    @property
     def use_litemaas(self) -> bool:
         return bool(self.litemaas_url and self.litemaas_api_key)
 
@@ -227,15 +216,6 @@ class Settings(BaseSettings):
 
     def is_admin(self, email: str) -> bool:
         return email.lower() in [e.lower() for e in self.admin_emails]
-
-    def get_anthropic_client(self):
-        if self.vertex_project_id:
-            from anthropic import AnthropicVertex
-            return AnthropicVertex(project_id=self.vertex_project_id, region=self.cloud_ml_region)
-        if self.anthropic_api_key:
-            from anthropic import Anthropic
-            return Anthropic(api_key=self.anthropic_api_key)
-        return None
 
 
 # ── LLM provider routing ──
@@ -253,7 +233,12 @@ class LLMResult:
 
 
 def fetch_litemaas_models(settings: Settings) -> set[str]:
-    """Query LiteMaaS /v1/models endpoint once and cache the result."""
+    """Query LiteMaaS /v1/models and cache a successful result.
+
+    A failed request is not cached, so a transient outage (for example at
+    worker startup) does not disable every model for the process lifetime.
+    The next call retries discovery.
+    """
     global _litemaas_models
     if _litemaas_models is not None:
         return _litemaas_models
@@ -267,7 +252,7 @@ def fetch_litemaas_models(settings: Settings) -> set[str]:
         logger.info("litemaas_models_loaded", models=sorted(_litemaas_models))
     except Exception as e:
         logger.warning("litemaas_models_fetch_failed", error=str(e))
-        _litemaas_models = set()
+        return set()
     return _litemaas_models
 
 
@@ -279,21 +264,31 @@ def call_llm(
     temperature: float = 0,
     system: str | None = None,
 ) -> LLMResult:
-    """Unified LLM call with automatic provider routing.
+    """Single-provider LLM call: LiteMaaS only (RHDPCD-2226).
 
-    LiteMaaS preferred if configured and has the model; Vertex/Anthropic as fallback.
-    When system is provided, it is passed as the system prompt (Anthropic API system
-    parameter, or OpenAI-style system role message for LiteMaaS).
+    The former Vertex/Anthropic fallback was removed on 2026-11-03 — we no
+    longer have direct Vertex access and will not use it again. A model that
+    is not served by LiteMaaS fails loudly instead of falling back, and
+    LiteMaaS errors propagate to the caller. When system is provided, it is
+    passed as an OpenAI-style system role message.
     """
     litemaas_models = fetch_litemaas_models(settings)
 
-    if model in litemaas_models:
-        try:
-            return _call_litemaas(settings, model, messages, max_tokens, temperature, system)
-        except Exception as e:
-            logger.warning("litemaas_call_failed, falling back to anthropic/vertex", model=model, error=str(e))
+    if model not in litemaas_models:
+        raise RuntimeError(
+            f"Model {model} is not available on LiteMaaS (available: {sorted(litemaas_models)})"
+        )
+    return _call_litemaas(settings, model, messages, max_tokens, temperature, system)
 
-    return _call_anthropic(settings, model, messages, max_tokens, temperature, system)
+
+# Models that reject the temperature parameter (Bedrock-backed Claude 5.5
+# returns "temperature is deprecated for this model"). Seeded with the known
+# 5.5 names so the first call is clean; any other model is added on first
+# rejection.
+_models_without_temperature: set[str] = {
+    "claude-haiku-5-5-a8b",
+    "claude-sonnet-5-5-a46b",
+}
 
 
 def _call_litemaas(settings, model, messages, max_tokens, temperature, system=None):
@@ -301,12 +296,19 @@ def _call_litemaas(settings, model, messages, max_tokens, temperature, system=No
     llm_messages = messages
     if system:
         llm_messages = [{"role": "system", "content": system}] + messages
-    response = client.chat.completions.create(
-        model=model,
-        messages=llm_messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+    kwargs = dict(model=model, messages=llm_messages, max_tokens=max_tokens)
+    if model not in _models_without_temperature:
+        kwargs["temperature"] = temperature
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except Exception as e:
+        if "temperature" not in str(e).lower() or "temperature" not in kwargs:
+            raise
+        # The model rejects temperature outright. Remember that and retry
+        # once without it so later calls skip the parameter.
+        _models_without_temperature.add(model)
+        kwargs.pop("temperature")
+        response = client.chat.completions.create(**kwargs)
     if not response.choices:
         raise RuntimeError(f"LiteMaaS returned empty choices for model {model}")
     return LLMResult(
@@ -314,28 +316,4 @@ def _call_litemaas(settings, model, messages, max_tokens, temperature, system=No
         input_tokens=response.usage.prompt_tokens if response.usage else 0,
         output_tokens=response.usage.completion_tokens if response.usage else 0,
         provider="litemaas",
-    )
-
-
-def _call_anthropic(settings, model, messages, max_tokens, temperature, system=None):
-    client = settings.get_anthropic_client()
-    if client is None:
-        raise RuntimeError("No LLM provider configured (set RCARS_LITEMAAS_URL or ANTHROPIC_VERTEX_PROJECT_ID or ANTHROPIC_API_KEY)")
-    kwargs = dict(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        messages=messages,
-    )
-    if system:
-        kwargs["system"] = system
-    response = client.messages.create(**kwargs)
-    if not response.content:
-        raise RuntimeError(f"Anthropic returned empty content for model {model}")
-    provider = "vertex" if settings.use_vertex else "anthropic"
-    return LLMResult(
-        text=response.content[0].text,
-        input_tokens=getattr(response.usage, "input_tokens", 0),
-        output_tokens=getattr(response.usage, "output_tokens", 0),
-        provider=provider,
     )

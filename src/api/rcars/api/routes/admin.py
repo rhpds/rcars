@@ -357,25 +357,27 @@ async def schedule_status(request: Request, user: str = Depends(require_admin)):
 @router.get(
     "/llm-provider",
     summary="LLM provider configuration",
-    description="Returns active LLM provider configuration (LiteMaaS/Vertex AI) and available models. Admin-only.",
+    description="Returns the active LLM provider (LiteMaaS), the dormant fallback, and the model used for every LLM use. Admin-only.",
     response_model=LlmProviderResponse,
 )
 async def llm_provider_status(request: Request, user: str = Depends(require_admin)):
-    settings = Settings()
+    settings: Settings = request.app.state.settings
     from rcars.config import fetch_litemaas_models
     litemaas_models = sorted(fetch_litemaas_models(settings)) if settings.use_litemaas else []
-    vertex_models = sorted({settings.model, settings.triage_model, settings.rationale_model}) if settings.use_vertex else []
     return {
         "litemaas_enabled": settings.use_litemaas,
         "litemaas_url": settings.litemaas_url or None,
         "litemaas_models": litemaas_models,
-        "vertex_enabled": settings.use_vertex,
-        "vertex_region": settings.cloud_ml_region if settings.use_vertex else None,
-        "vertex_models": vertex_models,
-        "analysis_model": settings.model,
-        "triage_model": settings.triage_model,
-        "rationale_model": settings.rationale_model,
-        "scanning_model": settings.triage_model,
+        "uses": [
+            {"use": "analysis", "model": settings.model},
+            {"use": "triage", "model": settings.triage_model},
+            {"use": "rationale", "model": settings.rationale_model},
+            {"use": "scanning", "model": settings.model},
+            {"use": "chat_router", "model": settings.chat_router_model},
+            {"use": "chat_answer", "model": settings.chat_answer_model},
+            {"use": "overlap", "model": settings.overlap_model},
+            {"use": "osspa_analysis", "model": settings.osspa_analysis_model},
+        ],
     }
 
 

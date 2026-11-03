@@ -307,7 +307,6 @@ def test_cli_scans_virtual_and_independent_stages(db, scan, monkeypatch):
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.prod", "isolation-test.virtual.dev")]
     scan.settings.max_parallel = 1
     scan.settings.use_litemaas = False
-    scan.settings.get_anthropic_client = lambda: True
     monkeypatch.setattr(cli_module, "Settings", lambda: scan.settings)
     monkeypatch.setattr(cli_module, "get_db", lambda: db)
     monkeypatch.setattr(db, "close", lambda: None)

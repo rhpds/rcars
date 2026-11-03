@@ -153,7 +153,7 @@ def _call_synthesis(
     system_prompt = template[:data_start].strip() + "\n\n" + template[instructions_start:].strip()
     user_message = f"## Request\n\n{query}\n\n## Recommendations (in score order, highest first)\n\n{recs_text}"
 
-    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=system_prompt)
+    llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=2048, system=system_prompt)
 
     result = parse_analysis_response(llm_result.text)
     if isinstance(result, list):
@@ -192,7 +192,7 @@ def generate_rationale(
     db: Database,
     settings,
     driver=None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-sonnet-5-5-a46b",
     top_n: int = 5,
 ) -> QueryState:
     """Generate per-candidate Sonnet rationale + Haiku content gap synthesis.

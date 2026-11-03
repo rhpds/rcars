@@ -17,7 +17,6 @@ dependencies = [
     "rich>=13.0",
     "structlog>=24.0",
     "uvicorn>=0.30.0",
-    "anthropic[vertex]>=0.40.0",
     "openai>=1.30.0",
     "slowapi>=0.1.9",
 ]

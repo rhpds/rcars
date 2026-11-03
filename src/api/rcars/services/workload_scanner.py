@@ -178,7 +178,7 @@ def analyze_role(
 
     try:
         from rcars.config import call_llm
-        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=1024, system=WORKLOAD_SYSTEM_PROMPT + _vocabulary_product_hint())
+        llm_result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=2048, system=WORKLOAD_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         input_tokens = llm_result.input_tokens
         output_tokens = llm_result.output_tokens
@@ -413,7 +413,7 @@ def analyze_config(
         from rcars.config import call_llm
         llm_result = call_llm(settings, model=model,
                               messages=[{"role": "user", "content": user_message}],
-                              max_tokens=1024, system=CONFIG_SYSTEM_PROMPT + _vocabulary_product_hint())
+                              max_tokens=2048, system=CONFIG_SYSTEM_PROMPT + _vocabulary_product_hint())
 
         if db is not None:
             db.log_token_usage(

@@ -269,7 +269,7 @@ def route(message: str, context: list[dict], settings: Settings,
         try:
             result = llm_call(settings, settings.chat_router_model,
                               [{"role": "user", "content": user_template.format(message=message)}],
-                              max_tokens=500, temperature=0, system=system)
+                              max_tokens=2048, temperature=0, system=system)
             usage = {"input": result.input_tokens, "output": result.output_tokens,
                      "provider": result.provider}
             return RouterOutput.model_validate(_extract_json(result.text)), False, usage

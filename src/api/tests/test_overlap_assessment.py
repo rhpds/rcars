@@ -58,13 +58,13 @@ def test_overlap_candidates_has_assessment_columns(db):
 
 def test_overlap_model_default():
     s = Settings(database_url="postgresql://test:test@localhost/test")
-    assert s.overlap_model == "claude-haiku-4-5"
+    assert s.overlap_model == "claude-haiku-5-5-a8b"
 
 
 def test_overlap_model_from_env(monkeypatch):
-    monkeypatch.setenv("RCARS_OVERLAP_MODEL", "claude-haiku-4-5")
+    monkeypatch.setenv("RCARS_OVERLAP_MODEL", "claude-haiku-5-5-a8b")
     s = Settings(database_url="postgresql://test:test@localhost/test")
-    assert s.overlap_model == "claude-haiku-4-5"
+    assert s.overlap_model == "claude-haiku-5-5-a8b"
 
 
 # --- Helper functions for Task 4 tests ---

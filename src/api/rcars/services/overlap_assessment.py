@@ -175,7 +175,7 @@ def assess_overlap(
             settings=settings,
             model=settings.overlap_model,
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=1024,
+            max_tokens=2048,
             temperature=0,
         )
     except RuntimeError as e:

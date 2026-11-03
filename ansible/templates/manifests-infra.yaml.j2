@@ -272,19 +272,6 @@ type: Opaque
 stringData:
   kubeconfig: {{ babylon_kubeconfig_content | to_json }}
 {% endif %}
-{% if vertex_enabled | default(false) %}
----
-# Vertex AI credentials
-apiVersion: v1
-kind: Secret
-metadata:
-  name: {{ app_name }}-vertex-credentials
-  labels:
-    app: {{ app_name }}
-type: Opaque
-stringData:
-  credentials.json: {{ lookup('file', vertex_credentials_path | expanduser) | to_json }}
-{% endif %}
 {% if litemaas_enabled | default(false) %}
 ---
 # LiteMaaS API credentials

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../services/api'
+import { LlmProviderCard, type LlmProviderStatus } from '../components/admin/LlmProviderCard'
 
 // ── Interfaces ──
 
@@ -35,7 +36,7 @@ export function StatusPage() {
   const navigate = useNavigate()
   const [status, setStatus] = useState<CatalogStatus | null>(null)
   const [infraStats, setInfraStats] = useState<InfraStats | null>(null)
-  const [llmProvider, setLlmProvider] = useState<{ litemaas_enabled: boolean; litemaas_url: string | null; litemaas_models: string[]; vertex_enabled: boolean; vertex_region: string | null; vertex_models: string[]; analysis_model: string; triage_model: string; rationale_model: string; scanning_model: string } | null>(null)
+  const [llmProvider, setLlmProvider] = useState<LlmProviderStatus | null>(null)
   const [reportingStatus, setReportingStatus] = useState<{ configured: boolean; total: number; with_provisions: number; with_cost: number; with_sales: number; last_synced: string | null } | null>(null)
 
   const loadStatus = useCallback(() => {
@@ -132,20 +133,7 @@ export function StatusPage() {
           <div className="admin-stat-card">
             <div className="admin-stat-card-title">LLM Provider</div>
             {llmProvider ? (
-              <>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">LiteMaaS</span><span style={{ color: llmProvider.litemaas_enabled ? 'var(--score-green)' : 'var(--text-muted)' }}>{llmProvider.litemaas_enabled ? 'Active' : 'Off'}</span></div>
-                {llmProvider.litemaas_enabled && (
-                  <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.litemaas_models.join(', ')}</span></div>
-                )}
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Vertex AI</span><span style={{ color: llmProvider.vertex_enabled ? 'var(--score-green)' : 'var(--text-muted)' }}>{llmProvider.vertex_enabled ? (llmProvider.litemaas_enabled ? 'Fallback' : 'Active') : 'Off'}</span></div>
-                {llmProvider.vertex_enabled && llmProvider.vertex_models.length > 0 && (
-                  <div className="admin-stat-row"><span className="admin-stat-row-indent">Models</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.vertex_models.join(', ')}</span></div>
-                )}
-                <div className="admin-stat-row-divider" />
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Analysis</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.analysis_model}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Triage</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.triage_model}</span></div>
-                <div className="admin-stat-row"><span className="admin-stat-row-label">Rationale</span><span className="admin-stat-row-value" style={{ fontSize: '11px' }}>{llmProvider.rationale_model}</span></div>
-              </>
+              <LlmProviderCard status={llmProvider} />
             ) : (
               <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Loading...</div>
             )}
