@@ -311,6 +311,19 @@ type: Opaque
 stringData:
   token: "{{ rcars_jira_api_token }}"
 {% endif %}
+{% if rcars_jira_client_id is defined and rcars_jira_client_id != '' %}
+---
+# Jira OAuth2 client credentials (for retirement ticket creation)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ app_name }}-jira-oauth
+  labels:
+    app: {{ app_name }}
+type: Opaque
+stringData:
+  client-secret: "{{ rcars_jira_client_secret }}"
+{% endif %}
 {% if github_app_id is defined and github_app_id != '' %}
 ---
 # GitHub App credentials (for agv-retire automated PR creation)

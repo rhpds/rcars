@@ -177,7 +177,7 @@ def test_database_workflow_and_event_write_roll_back_together(db):
 
 @pytest.fixture
 def settings():
-    return SimpleNamespace(jira_api_email="test@example.com", jira_api_token="synthetic-token", github_app_id="123", github_app_private_key="synthetic-key", github_app_installation_id="456")
+    return SimpleNamespace(jira_api_email="test@example.com", jira_api_token="synthetic-token", jira_client_id="", jira_client_secret="", jira_cloud_id="", github_app_id="123", github_app_private_key="synthetic-key", github_app_installation_id="456")
 
 
 def test_comment_uses_adf_and_event_property(settings, monkeypatch):

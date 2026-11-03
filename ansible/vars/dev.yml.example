@@ -114,6 +114,12 @@ rcars_reporting_mcp_token: CHANGEME
 
 # ── Jira ───────────────────────────────────────────────────────────────────────
 # Jira credentials for creating retirement tickets via the bot account.
+# OAuth2 client credentials are preferred (RHDPCD-2227); the API token is the
+# fallback when OAuth2 is not configured.
+
+rcars_jira_client_id: CHANGEME
+rcars_jira_client_secret: CHANGEME
+rcars_jira_cloud_id: CHANGEME
 
 rcars_jira_api_email: jira-service-account@example.com
 rcars_jira_api_token: CHANGEME
