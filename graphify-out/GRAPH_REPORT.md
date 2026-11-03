@@ -1,17 +1,17 @@
-# Graph Report - llm-updates  (2026-11-03)
+# Graph Report - rcars-advisory  (2026-11-03)
 
 ## Corpus Check
-- 305 files · ~528,724 words
+- 306 files · ~529,002 words
 - Verdict: corpus is large enough that graph structure adds value.
-- Unclassified: 13 file(s) not represented in the graph (top: (none) 5, .css 5, .example 2)
+- Unclassified: 12 file(s) not represented in the graph (top: .css 5, (none) 4, .example 2)
 
 ## Summary
-- 3690 nodes · 8982 edges · 194 communities (135 shown, 59 thin omitted)
+- 3702 nodes · 9006 edges · 200 communities (138 shown, 62 thin omitted)
 - Extraction: 90% EXTRACTED · 10% INFERRED · 0% AMBIGUOUS · INFERRED: 893 edges (avg confidence: 0.9)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `255df563`
+- Built from commit: `be240dee`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -71,7 +71,7 @@
 - test_auth_security.py
 - test_chat_sessions_db.py
 - generate_vocabulary_yaml
-- Task 3: Return labels from the three analysis endpoints
+- retirement_dashboard
 - Path
 - run_osspa_sync
 - loader.py
@@ -88,7 +88,7 @@
 - test_sweep_github_only_cancellation_preserves_revert_until_jira_available
 - api.ts
 - ECA Production Redesign Spec
-- test_vocabulary_admin.py
+- TestVocabularyEndpoints
 - migrate_to_content_model.py
 - analyzer.py
 - Reporting MCP Data Sync
@@ -97,7 +97,7 @@
 - SyncPage.tsx
 - command
 - extract_base_name
-- build_retirement_description
+- AdvisorPage.tsx
 - pipeline.py
 - test_nonprod.py
 - test_retirement_pr_status.py
@@ -106,7 +106,7 @@
 - CatalogReader
 - advisor.py
 - build_retirement_description
-- rationale.py
+- call_llm
 - System Design Architecture Doc
 - AdocRead
 - test_showroom_scan.py
@@ -118,7 +118,7 @@
 - API Authentication Design
 - test_showroom_source.py
 - deliver_pending_events
-- patch
+- run_category
 - rcars-login.sh
 - ._set_showroom_override
 - test_field_source_sync.py
@@ -142,20 +142,20 @@
 - workload_scan
 - test_orphan_cleanup.py
 - retirement_cleanup.py
-- test_llm_provider_status.py
-- Decisions
+- .pool
+- Task 3: Return labels from the three analysis endpoints
 - orchestrator.py
 - test_vocabulary.py
-- _print
-- .list_content_entities_filtered
-- TestRecordUnknownTerm
-- app.py
+- scan_configs
+- Review Focus
+- test_vocabulary_db.py
+- extract_catalog_item
 - test_chat_handlers.py
 - File map and verification conventions
-- test_auth_routes.py
+- Task 1: Read and store Platform/TDP labels
 - docker-entrypoint.sh
 - Webhook Configuration Task
-- test_field_source_api.py
+- test_chat_live.py
 - OpenShift OAuth Proxy (Red Hat SSO)
 - Follow-up Chips
 - Item Facts Intent
@@ -188,27 +188,32 @@
 - TestGetNonprodBaseNames
 - test_infrastructure.py
 - test_showroom_reuse.py
-- dedup_topics
+- test_vocabulary.py
 - Python Requirements Entry Point
 - structlog
-- hashlib
+- showroom_scan.py
 - _parse_sa_allowlist
 - _window_start
 - OsspaSyncError
 - test_start_retirement_holds_lock_while_creating_ticket
 - Task 1: Database Schema and Methods
 - mcp_query
-- TestNonprodSchema
-- TestResolveUnknownTerm
-- overlap_candidates_cmd
+- build_embedding_text
+- Field Source Content
+- .test_ignored_term_creates_no_row
+- TestStepOrder
+- build_infrastructure_embedding_text
 - Controlled Vocabulary Design
+- test_already_closed_issue_needs_no_transition
+- TestTokenExchange
 - ensure_issue_event_comment
-- test_analysis_labels.py
+- db
+- observe_pr_events
 - test_refresh_merged_notice_does_not_complete_open_removal
 
 ## God Nodes (most connected - your core abstractions)
 1. `Database` - 298 edges
-2. `Settings` - 174 edges
+2. `Settings` - 176 edges
 3. `load_vocabulary()` - 71 edges
 4. `Candidate` - 53 edges
 5. `run_retirement_sweep()` - 39 edges
@@ -223,8 +228,8 @@
   docs/superpowers/plans/2026-09-21-field-source-content-report.md → src/api/rcars/api/schemas.py
 - `Global Constraints` --references--> `parse_analysis_response()`  [INFERRED]
   docs/superpowers/plans/2026-09-25-content-type-drivers.md → src/api/rcars/services/analyzer.py
-- `Non-goals` --references--> `extract_catalog_item()`  [INFERRED]
-  docs/superpowers/specs/2026-10-28-platform-tdp-filters-design.md → src/api/rcars/services/catalog.py
+- `Global Constraints` --references--> `_get_label()`  [INFERRED]
+  docs/superpowers/plans/2026-10-28-platform-tdp-filters.md → src/api/rcars/services/catalog.py
 - `Create` --references--> `ContentTypeDriver`  [INFERRED]
   docs/superpowers/plans/2026-09-25-content-type-drivers.md → src/api/rcars/services/recommender/drivers/base.py
 - `Task 1: Candidate Model Refactor` --references--> `Candidate`  [INFERRED]
@@ -250,11 +255,11 @@
 - **Authentication and Access Control System** — docs_superpowers_specs_2026_07_03_api_authentication_design_api_keys, docs_superpowers_specs_2026_07_03_api_authentication_design_oauth_login, docs_superpowers_specs_2026_07_03_api_authentication_design_proxy_verification, docs_superpowers_specs_2026_08_05_role_assignments_design_role_assignments_table [INFERRED 0.95]
 - **Recommendation Pipeline LLM Prompts** — src_api_rcars_prompts_triage, src_api_rcars_prompts_rationale, src_api_rcars_prompts_rationale_single, src_api_rcars_prompts_rationale_synthesis [INFERRED 0.95]
 
-## Communities (194 total, 59 thin omitted)
+## Communities (200 total, 62 thin omitted)
 
 ### Community 0 - "HandsOnDriver"
 Cohesion: 0.14
-Nodes (13): Modify, Task 3: Hands-on Driver, What Moves Into Drivers, _extract_duration_target(), HandsOnDriver, format_triage_candidates(), _make_hands_on_candidate(), test_format_triage_candidates_with_type_data() (+5 more)
+Nodes (13): HandsOnDriver, format_triage_candidates(), _make_hands_on_candidate(), test_candidate_universal_fields(), test_candidate_with_type_data(), test_format_triage_candidates_architecture(), test_format_triage_candidates_with_type_data(), test_hands_on_display_config() (+5 more)
 
 ### Community 2 - "registry.ts"
 Cohesion: 0.14
@@ -265,32 +270,32 @@ Cohesion: 0.21
 Nodes (17): OSSPA Asset Type Vocabulary (PA/VP/SP), Babylon CRD Catalog Pipeline, Browse Catalog Integration for Architecture Items, nomic-embed-text-v1.5 Embedding Model, Jira RHDPCD-28 Portfolio Architecture Ingest, LLM Architecture Analysis, Nightly Maintenance Pipeline, OSSPA GitLab Repositories (+9 more)
 
 ### Community 4 - "middleware/auth.py"
-Cohesion: 0.09
-Nodes (18): _check_api_key_role_ceiling(), _get_cached_role_assignments(), get_current_user(), _log_auth_decision(), require_admin(), require_auth(), require_curator(), require_performance_view() (+10 more)
+Cohesion: 0.06
+Nodes (27): _check_api_key_role_ceiling(), _fetch_group_members(), _get_cached_role_assignments(), get_current_user(), _log_auth_decision(), require_admin(), require_auth(), require_curator() (+19 more)
 
 ### Community 5 - "devDependencies"
 Cohesion: 0.05
 Nodes (43): eslint, @eslint/js, eslint-plugin-react-hooks, eslint-plugin-react-refresh, globals, @patternfly/react-icons, @patternfly/react-table, @types/react (+35 more)
 
 ### Community 6 - "test_test_content_exclusion.py"
-Cohesion: 0.11
-Nodes (18): ContentDeclaration, resolve_showroom_source(), unresolved(), walk(), SourceNode, legacy_test_item(), node(), test_already_queued_or_forced_test_scan_is_excluded_without_artifact_changes() (+10 more)
+Cohesion: 0.13
+Nodes (16): analyze_single(), resolve_showroom_source(), unresolved(), walk(), node(), test_already_queued_or_forced_test_scan_is_excluded_without_artifact_changes(), test_cached_overlap_cannot_bypass_test_content_exclusion(), test_existing_test_vectors_never_enter_content_retrieval() (+8 more)
 
 ### Community 7 - "db/__init__.py"
-Cohesion: 0.10
-Nodes (15): generate_overlap_candidates(), get_overlap_items(), get_overlap_stats(), prune_stale_candidates(), db(), db(), seed_items(), test_generates_candidates_above_threshold() (+7 more)
+Cohesion: 0.14
+Nodes (13): overlap_report(), generate_overlap_candidates(), get_overlap_items(), get_overlap_stats(), prune_stale_candidates(), test_generates_candidates_above_threshold(), test_get_overlap_items_groups_by_item(), test_get_overlap_stats() (+5 more)
 
 ### Community 8 - "routes/catalog.py"
 Cohesion: 0.13
 Nodes (23): add_tag(), catalog_facets(), catalog_stats(), ContentPathRequest, DurationRequest, flag_item(), get_analysis(), get_catalog_item() (+15 more)
 
 ### Community 9 - "admin.py"
-Cohesion: 0.13
-Nodes (24): invalidate_role_assignments_cache(), add_role_assignment(), delete_role_assignment(), generate_vocabulary(), get_job(), get_vocabulary(), get_vocabulary_unknowns(), list_jobs() (+16 more)
+Cohesion: 0.11
+Nodes (27): invalidate_role_assignments_cache(), add_role_assignment(), delete_role_assignment(), generate_vocabulary(), get_job(), get_vocabulary(), get_vocabulary_unknowns(), list_jobs() (+19 more)
 
 ### Community 10 - "test_retirement_jira_events.py"
 Cohesion: 0.07
-Nodes (25): client(), comments(), event_time(), settings(), test_comment_missing_credentials_does_not_call_http(), unexpected(), test_database_no_jira_and_deleted_workflow_do_not_queue(), test_database_open_event_is_atomic_and_deduplicated() (+17 more)
+Nodes (28): client(), comments(), event_time(), settings(), test_comment_existing_event_on_later_page_prevents_post(), request(), test_comment_malformed_page_does_not_prove_absence(), test_comment_missing_credentials_does_not_call_http() (+20 more)
 
 ### Community 11 - "Infrastructure Catalog"
 Cohesion: 0.15
@@ -298,15 +303,15 @@ Nodes (14): Evidence Pack, Infrastructure Intent, Overlap Intent, Performance In
 
 ### Community 12 - "BrowsePage.tsx"
 Cohesion: 0.11
-Nodes (35): getPageNumbers(), Pagination(), PaginationProps, WorkflowItem, WorkloadMultiSelect(), WorkloadMultiSelectProps, architectureDetailUrl(), architectureSubline() (+27 more)
+Nodes (34): getPageNumbers(), Pagination(), PaginationProps, WorkloadMultiSelect(), WorkloadMultiSelectProps, architectureDetailUrl(), architectureSubline(), ASSET_TYPE_LABELS (+26 more)
 
 ### Community 13 - "test_overlap_assessment.py"
-Cohesion: 0.09
-Nodes (21): assess_overlap(), batch_assess_overlaps(), _build_assessment_prompt(), _coerce_list(), _fmt_json_field(), _load_analysis_pair(), _validate_assessment(), _make_vector() (+13 more)
+Cohesion: 0.06
+Nodes (30): _call_litemaas(), assess_overlap(), batch_assess_overlaps(), _build_assessment_prompt(), _coerce_list(), _fmt_json_field(), _load_analysis_pair(), _validate_assessment() (+22 more)
 
 ### Community 14 - "derive_status"
-Cohesion: 0.07
-Nodes (3): derive_status(), TestDeriveStatus, TestStepOrder
+Cohesion: 0.08
+Nodes (3): derive_status(), retirement_label(), TestDeriveStatus
 
 ### Community 15 - "Generalized Content Model Design"
 Cohesion: 0.08
@@ -317,56 +322,56 @@ Cohesion: 0.06
 Nodes (69): AgVPathAbsent, _branch_name(), close_pr(), _create_branch(), create_notice_pr(), _create_pr(), create_retire_pr(), _delete_directory_tree() (+61 more)
 
 ### Community 17 - "services/catalog.py"
-Cohesion: 0.12
-Nodes (9): _apply_component_inheritance(), _collect_bases(), component_item_to_ci_name(), _content_fields(), extract_showroom_url(), parse_workload_fqcn(), _resolve_template_var(), _source_node() (+1 more)
+Cohesion: 0.13
+Nodes (11): _apply_component_inheritance(), _collect_bases(), component_item_to_ci_name(), _content_fields(), extract_showroom_url(), _get_label(), _resolve_template_var(), _source_node() (+3 more)
 
 ### Community 18 - "workload_scanner.py"
-Cohesion: 0.07
-Nodes (17): build_infrastructure_embedding_text(), regenerate_embeddings(), analyze_config(), analyze_role(), discover_roles(), _follow_task_includes(), _normalize_products(), read_config_code() (+9 more)
+Cohesion: 0.09
+Nodes (13): generate_embedding(), _get_embedding_client(), analyze_config(), analyze_role(), discover_roles(), _follow_task_includes(), _normalize_products(), read_config_code() (+5 more)
 
 ### Community 19 - "test_catalog_labels.py"
-Cohesion: 0.07
-Nodes (23): Review Focus, Task 2: Union labels per base name, Task 4: Browse server-side filters and facets, Task 5: Shared frontend helpers and checkbox filter group, Task 7: Browse UI (provisional style), Task 8: Run locally, check, and prepare the PR, _seed_label_count_items(), test_facets_platforms_and_tdps() (+15 more)
+Cohesion: 0.11
+Nodes (13): Task 4: Browse server-side filters and facets, _seed_label_count_items(), test_facets_platforms_and_tdps(), test_filter_groups_and(), test_filter_platform_none_excludes_architectures(), test_filter_platform_none_or_value(), test_filter_platform_value(), test_filter_tdp_matches_tdp2() (+5 more)
 
 ### Community 20 - "routes/auth.py"
-Cohesion: 0.17
-Nodes (15): invalidate_api_key_cache(), auth_me(), create_api_key(), exchange_token(), _generate_api_key(), list_api_keys(), revoke_api_key(), revoke_own_token() (+7 more)
+Cohesion: 0.18
+Nodes (16): invalidate_api_key_cache(), auth_me(), create_api_key(), exchange_token(), _generate_api_key(), list_api_keys(), revoke_api_key(), revoke_own_token() (+8 more)
 
 ### Community 21 - "test_db.py"
 Cohesion: 0.08
 Nodes (12): db(), db_with_perf_data(), _seed_items(), test_filtered_catalog_agd_config(), test_filtered_catalog_cloud_provider(), test_filtered_catalog_content_filter_failures(), test_filtered_catalog_content_filter_stale(), test_filtered_catalog_default() (+4 more)
 
 ### Community 22 - "database.py"
-Cohesion: 0.15
-Nodes (13): classify_scan_error(), _authorized_promotion(), eligible(), _verified_signature(), reuse_lock_id(), _scan_babylon_item(), _snapshot(), analysis_generation() (+5 more)
+Cohesion: 0.14
+Nodes (11): _authorized_promotion(), eligible(), _strip_embedding_filler(), _verified_signature(), analysis_artifacts_complete(), AnalysisSignature, effective_showroom_source(), is_content_excluded() (+3 more)
 
 ### Community 23 - "test_osspa_adoc.py"
 Cohesion: 0.11
 Nodes (23): compute_content_hash(), expand_includes(), _expand(), is_tracked_at_head(), read_detail_adoc(), resolve_repo_path(), strip_passthrough(), _git() (+15 more)
 
 ### Community 24 - "react"
-Cohesion: 0.06
-Nodes (43): Task 8: Frontend Refactor, 5. Frontend Card Rendering, Display Config Structure, BlockErrorBoundary, Props, State, CATEGORY_LABELS, RecCardsBlock() (+35 more)
+Cohesion: 0.10
+Nodes (29): Content-Type Drivers Implementation Plan, Execution Notes, Global Constraints, Review Focus, Task 8: Frontend Refactor, 5. Frontend Card Rendering, Display Config Structure, CATEGORY_LABELS (+21 more)
 
 ### Community 25 - "Settings"
-Cohesion: 0.12
-Nodes (21): list_role_assignments(), llm_provider_status(), fetch_litemaas_models(), _parse_csv(), Settings, test_admin_check(), test_chat_intent_roles_invalid_role_rejected(), test_chat_intent_roles_parse() (+13 more)
+Cohesion: 0.05
+Nodes (27): _parse_csv(), Settings, client(), TestCreateApiKey, TestListApiKeys, TestRevokeApiKey, client(), settings() (+19 more)
 
 ### Community 26 - "route"
-Cohesion: 0.16
-Nodes (11): _extract_json(), route(), _fake(), llm_call(), test_call_error_falls_back(), test_hallucinated_intent_falls_back_to_recommend(), test_malformed_then_valid_retries_once(), test_pattern_check_skips_llm() (+3 more)
+Cohesion: 0.18
+Nodes (13): _call_anthropic(), LLMResult, _extract_json(), route(), llm(), _fake(), llm_call(), test_call_error_falls_back() (+5 more)
 
 ### Community 27 - "router.py"
 Cohesion: 0.14
-Nodes (17): Chip, Clarify, Envelope, HelpArgs, InfrastructureArgs, ItemChatArgs, ItemFactsArgs, OverlapArgs (+9 more)
+Nodes (17): Clarify, Envelope, HelpArgs, InfrastructureArgs, ItemChatArgs, ItemFactsArgs, OverlapArgs, PerformanceArgs (+9 more)
 
 ### Community 28 - "schemas.py"
 Cohesion: 0.06
-Nodes (57): AgvPrResponse, AuthMeResponse, CancelWorkflowResponse, CatalogItemResponse, CatalogItemWorkload, CatalogListResponse, CatalogStatsResponse, ChatSubmitResponse (+49 more)
+Nodes (57): field_source_report(), AgvPrResponse, AuthMeResponse, CancelWorkflowResponse, CatalogItemResponse, CatalogItemWorkload, CatalogListResponse, CatalogStatsResponse (+49 more)
 
 ### Community 29 - "seed"
-Cohesion: 0.08
-Nodes (36): Task 2: Persist source provenance and enforce scoped analysis reuse, Task 6: Add a narrowly scoped reset and verify the full rebuild contract, compute_analysis_context_hash(), compute_embedding_fingerprint(), _fingerprint(), ResolvedShowroom, main(), snapshots() (+28 more)
+Cohesion: 0.09
+Nodes (32): Task 2: Persist source provenance and enforce scoped analysis reuse, Task 6: Add a narrowly scoped reset and verify the full rebuild contract, ResolvedShowroom, snapshots(), test_dry_run_performs_no_writes(), test_execute_requires_scans_paused_confirmation(), test_full_reset_preserves_non_showroom_sandbox_card(), test_reset_preserves_all_curated_historical_and_architecture_data() (+24 more)
 
 ### Community 30 - "App.tsx"
 Cohesion: 0.08
@@ -377,12 +382,12 @@ Cohesion: 0.13
 Nodes (13): _add_component(), get_logger(), _reorder_keys(), setup_logging(), cleanup_orphaned_jobs(), recommend_startup(), RecommendWorkerSettings, _redis_settings_from_url() (+5 more)
 
 ### Community 32 - "ops.py"
-Cohesion: 0.11
-Nodes (18): build_sandbox_summary(), scan_all_collections(), publish_progress(), WorkerContext, _progress_bridge(), _publish(), run_babylon_pipeline(), run_catalog_refresh() (+10 more)
+Cohesion: 0.10
+Nodes (15): build_sandbox_summary(), scan_all_collections(), publish_progress(), _progress_bridge(), _publish(), run_babylon_pipeline(), run_catalog_refresh(), run_field_source_sync_job() (+7 more)
 
 ### Community 34 - "JobProgressRelay"
-Cohesion: 0.15
-Nodes (14): Frontend Progress Display, What Stays Unchanged, create_sse_response(), JobProgressRelay, sse_stream(), translate_to_user_message(), test_relay_publishes_and_receives(), test_translate_complete() (+6 more)
+Cohesion: 0.13
+Nodes (15): Frontend Progress Display, What Stays Unchanged, stream_job(), create_sse_response(), JobProgressRelay, sse_stream(), translate_to_user_message(), test_relay_publishes_and_receives() (+7 more)
 
 ### Community 35 - "test_services.py"
 Cohesion: 0.10
@@ -393,11 +398,11 @@ Cohesion: 0.10
 Nodes (21): Content Modes Mapping, Controlled Vocabulary, Difficulty Levels Taxonomy, Ignored Terms List, Platforms Taxonomy, Products Taxonomy, Solutions Taxonomy, Verticals Taxonomy (+13 more)
 
 ### Community 37 - "load_vocabulary"
-Cohesion: 0.13
-Nodes (5): load_vocabulary(), _noise_variants(), snap_term(), TestLoadPackagedDefault, TestMatchLadder
+Cohesion: 0.15
+Nodes (4): load_vocabulary(), snap_term(), TestLoadPackagedDefault, TestMatchLadder
 
 ### Community 39 - "_generate_key"
-Cohesion: 0.10
+Cohesion: 0.16
 Nodes (6): _generate_key(), TestCreateApiKey, TestGetApiKeyByHash, TestListApiKeys, TestRevokeApiKey, TestTouchApiKey
 
 ### Community 40 - "compilerOptions"
@@ -405,8 +410,8 @@ Cohesion: 0.11
 Nodes (18): compilerOptions, allowImportingTsExtensions, isolatedModules, jsx, lib, module, moduleDetection, moduleResolution (+10 more)
 
 ### Community 41 - "test_jira_service.py"
-Cohesion: 0.26
-Nodes (15): create_retirement_ticket(), _create_body(), _fake_jira(), fake(), _make_metrics(), _make_workflow(), _settings(), test_creates_ticket_and_returns_key() (+7 more)
+Cohesion: 0.18
+Nodes (19): create_retirement_ticket(), _create_body(), _fake_jira(), fake(), _make_metrics(), _make_workflow(), _settings(), test_basic_description() (+11 more)
 
 ### Community 42 - "_sync_nonprod_usage"
 Cohesion: 0.19
@@ -414,39 +419,39 @@ Nodes (5): _build_nonprod_provisions_sql(), _nonprod_metrics(), _sync_nonprod_us
 
 ### Community 43 - "Any"
 Cohesion: 0.07
-Nodes (6): Task 5: Keep recommendation identities within authorized relationships, _resolve_ci_references(), search(), _strip_embedding_filler(), test_legacy_test_sourced_wrapper_is_not_recommended(), test_test_item_cannot_seed_recommendation_neighbor_expansion()
+Nodes (3): Task 5: Keep recommendation identities within authorized relationships, _resolve_ci_references(), test_test_item_cannot_seed_recommendation_neighbor_expansion()
 
 ### Community 44 - "test_analyzer.py"
 Cohesion: 0.10
-Nodes (26): check_showroom_stale(), clone_showroom(), filter_boilerplate_files(), get_repo_head(), parse_analysis_response(), _parse_nav_includes(), read_showroom_content(), test_content_path_antora_start_path_resolves_pages_and_nav() (+18 more)
+Nodes (25): check_showroom_stale(), filter_boilerplate_files(), get_repo_head(), hash_showroom_content(), parse_analysis_response(), _parse_nav_includes(), read_showroom_content(), test_content_path_antora_start_path_resolves_pages_and_nav() (+17 more)
 
 ### Community 45 - "test_osspa_csv.py"
 Cohesion: 0.25
 Nodes (16): asset_type_tokens(), parse_palist_csv(), scope_rows(), _csv_row(), test_asset_type_tokens_splits_and_uppercases(), test_derive_osspa_status(), test_normalize_row_builds_the_upsert_payload(), test_normalize_row_dedups_topics_from_solutions_and_verticals() (+8 more)
 
 ### Community 46 - "reporting_sync.py"
-Cohesion: 0.15
-Nodes (11): _build_closed_sql(), _build_cost_sql(), _build_provisions_quarter_sql(), _build_provisions_sql(), _build_touched_sql(), _build_unique_users_window_sql(), _mcp_call(), _merge_published_base_pairs() (+3 more)
+Cohesion: 0.17
+Nodes (10): _build_closed_sql(), _build_cost_sql(), _build_provisions_quarter_sql(), _build_provisions_sql(), _build_touched_sql(), _build_unique_users_window_sql(), _merge_published_base_pairs(), _percentile_rank() (+2 more)
 
 ### Community 47 - "api.ts"
 Cohesion: 0.09
-Nodes (52): Task 6: Wire filters into Performance, Non-Prod and Retirement, CollapsibleFilterGroup(), CollapsibleFilterGroupProps, LabelFilterGroup(), LabelFilterGroupProps, fmtTargetDate(), isInProgress(), isRecommended() (+44 more)
+Nodes (54): Task 6: Wire filters into Performance, Non-Prod and Retirement, CollapsibleFilterGroup(), CollapsibleFilterGroupProps, LabelFilterGroup(), LabelFilterGroupProps, fmtTargetDate(), isInProgress(), isRecommended() (+46 more)
 
 ### Community 48 - "normalize_analysis"
-Cohesion: 0.10
-Nodes (5): normalize_analysis(), _record_unknowns(), TestReviewBadgeUntouched, TestIgnoredTermsSuppression, TestNormalizeAnalysis
+Cohesion: 0.15
+Nodes (5): _noise_variants(), normalize_analysis(), _record_unknowns(), _snap_values(), TestNormalizeAnalysis
 
 ### Community 49 - "dev-services.sh"
 Cohesion: 0.20
 Nodes (17): db_pull(), frontend_only(), init_db(), RCARS_DATABASE_URL, RCARS_DEV_USER, RCARS_EMBEDDING_URL, RCARS_REDIS_URL, dev-services.sh script (+9 more)
 
 ### Community 50 - "_expand_query_terms"
-Cohesion: 0.08
-Nodes (9): build_embedding_text(), _build_expansion_map(), _expand_query_terms(), clear_vocabulary_cache(), TestBuildEmbeddingText, TestExpansionReadsVocabulary, TestMigrationCoverage, TestOldFileGone (+1 more)
+Cohesion: 0.09
+Nodes (7): _build_expansion_map(), _expand_query_terms(), clear_vocabulary_cache(), TestExpansionReadsVocabulary, TestMigrationCoverage, TestOldFileGone, TestSearchTerms
 
 ### Community 51 - "analysis.py"
-Cohesion: 0.16
-Nodes (26): analyze_single(), approve_item(), ApproveRequest, _base_name_to_content_id(), check_stale(), ignore_item(), link_jira(), LinkJiraRequest (+18 more)
+Cohesion: 0.12
+Nodes (27): approve_item(), ApproveRequest, _base_name_to_content_id(), cancel_workflow(), check_stale(), ignore_item(), link_jira(), LinkJiraRequest (+19 more)
 
 ### Community 52 - "test_auth_security.py"
 Cohesion: 0.11
@@ -456,33 +461,29 @@ Nodes (7): app_no_auth(), client(), TestExpiredApiKey, TestRevokedApiKey, TestRo
 Cohesion: 0.17
 Nodes (9): get_session_context(), log_chat_turn(), next_turn_index(), session_owner_ok(), test_chat_append_checks_ownership(), _log(), test_context_builder_shape_and_window(), test_ownership() (+1 more)
 
-### Community 54 - "generate_vocabulary_yaml"
-Cohesion: 0.14
-Nodes (5): _entries_to_dicts(), generate_vocabulary_yaml(), _header_comment(), _resolve_path(), TestGenerator
-
-### Community 55 - "Task 3: Return labels from the three analysis endpoints"
-Cohesion: 0.16
-Nodes (10): Task 3: Return labels from the three analysis endpoints, _extract_base_name_from_content_id(), field_source_report(), nonprod_dashboard(), overlap_assessment_detail(), overlap_report(), performance_dashboard(), retirement_dashboard() (+2 more)
+### Community 55 - "retirement_dashboard"
+Cohesion: 0.33
+Nodes (3): _extract_base_name_from_content_id(), retirement_dashboard(), TestRetirementDashboardMetrics
 
 ### Community 56 - "Path"
 Cohesion: 0.39
 Nodes (4): clone_examples_repo(), file_commit_sha(), get_head_sha(), _run_git()
 
 ### Community 57 - "run_osspa_sync"
-Cohesion: 0.25
-Nodes (19): run_osspa_sync(), _csv(), db(), fake_analyze(), settings(), _stub_csv(), test_clone_failure_aborts_before_any_db_write(), test_empty_active_set_aborts_without_retiring() (+11 more)
+Cohesion: 0.37
+Nodes (16): run_osspa_sync(), _csv(), _stub_csv(), test_clone_failure_aborts_before_any_db_write(), test_empty_active_set_aborts_without_retiring(), test_empty_active_set_with_confirmation_retires_everything(), test_force_reanalyzes_unchanged_items(), test_missing_detail_page_marks_stale_and_skips() (+8 more)
 
 ### Community 58 - "loader.py"
-Cohesion: 0.13
-Nodes (11): _as_tuple(), _build_lookups(), _parse_entries(), _validate(), squash_key(), VocabEntry, Vocabulary, VocabularyError (+3 more)
+Cohesion: 0.10
+Nodes (13): _entries_to_dicts(), _header_comment(), _as_tuple(), _build_lookups(), _parse_entries(), _resolve_path(), _validate(), squash_key() (+5 more)
 
 ### Community 59 - "Retirement System"
 Cohesion: 0.08
 Nodes (24): AgV Access Layer, Architecture, Authentication and Scope, Automatic Removal Eligibility, Cancellation and Recovery, Catalog Soft-Delete, Checking Merges, Code Organization (+16 more)
 
 ### Community 60 - "parse_analysis_response"
-Cohesion: 0.13
-Nodes (8): _expand_vocab_aliases(), _extract_links(), fetch_event_content(), _fetch_html(), _find_content_pages(), parse_event_url(), _strip_html(), _validate_url()
+Cohesion: 0.15
+Nodes (7): _extract_links(), fetch_event_content(), _fetch_html(), _find_content_pages(), parse_event_url(), _strip_html(), _validate_url()
 
 ### Community 61 - "analyze_architecture_item"
 Cohesion: 0.16
@@ -513,8 +514,8 @@ Cohesion: 0.10
 Nodes (7): _build_windowed_metrics(), compute_performance_score(), compute_performance_score_breakdown(), _compute_performance_score_with_breakdown(), compute_sales_impact(), TestBuildWindowedMetrics, TestComputePerformanceScore
 
 ### Community 68 - "router.py"
-Cohesion: 0.16
-Nodes (18): _prefix_overlap(), RouterOutput, Scope, _find_keyword_ties(), _parse_catalog_url(), pattern_check(), resolve_and_verify(), _result_turns() (+10 more)
+Cohesion: 0.14
+Nodes (20): _prefix_overlap(), Chip, RouterOutput, Scope, _expand_vocab_aliases(), _find_keyword_ties(), _parse_catalog_url(), pattern_check() (+12 more)
 
 ### Community 69 - "test_sweep_github_only_cancellation_preserves_revert_until_jira_available"
 Cohesion: 0.09
@@ -522,23 +523,19 @@ Nodes (11): test_cancel_audit_reports_jira_outcome(), test_cancel_does_not_recre
 
 ### Community 70 - "api.ts"
 Cohesion: 0.07
-Nodes (30): Task 4: Frontend Page, findButton(), findLink(), hasText(), hooks, FieldSourcePage(), formatDate(), repoDisplayName() (+22 more)
+Nodes (28): findButton(), findLink(), hasText(), hooks, FieldSourcePage(), formatDate(), repoDisplayName(), SortField (+20 more)
 
 ### Community 71 - "ECA Production Redesign Spec"
 Cohesion: 0.15
 Nodes (10): ECA Production Redesign Spec, RCARS Web UI Design Spec, OpenShift Deployment Spec, Catalog Refresh Feedback Spec, Async Advisor Query Spec, Recommender Three-Phase Pipeline Spec, Token Usage Tracking Spec, Advisor List Persistence and Feedback Spec (+2 more)
-
-### Community 72 - "test_vocabulary_admin.py"
-Cohesion: 0.14
-Nodes (4): clear_vocabulary_cache(), client(), TestRoleGating, TestVocabularyEndpoints
 
 ### Community 73 - "migrate_to_content_model.py"
 Cohesion: 0.13
 Nodes (14): cmd_export(), cmd_import_notes(), cmd_import_sessions(), cmd_import_token_usage(), cmd_import_workflows(), cmd_migrate(), _column_exists(), _connect() (+6 more)
 
 ### Community 74 - "analyzer.py"
-Cohesion: 0.08
-Nodes (22): analysis_context_hash(), analysis_from_row(), analyze_showroom(), build_module_embedding_text(), _canonical_content(), compute_analysis_input_hash(), _embedding_specs(), _finish_showroom_result() (+14 more)
+Cohesion: 0.15
+Nodes (16): analysis_context_hash(), analysis_from_row(), analyze_showroom(), build_module_embedding_text(), _canonical_content(), compute_analysis_context_hash(), compute_analysis_input_hash(), compute_embedding_fingerprint() (+8 more)
 
 ### Community 75 - "Reporting MCP Data Sync"
 Cohesion: 0.20
@@ -557,48 +554,48 @@ Cohesion: 0.31
 Nodes (11): react, LogWindow(), LogWindowProps, ActionState, AdminAction(), RescanAllSection(), ScanMonitor(), ScheduledMaintenance() (+3 more)
 
 ### Community 79 - "command"
-Cohesion: 0.16
-Nodes (10): flag(), get_db(), infra_stats(), note(), override_url(), set_content_path(), tag(), untag() (+2 more)
+Cohesion: 0.15
+Nodes (11): flag(), get_db(), infra_stats(), init_db(), note(), override_url(), set_content_path(), tag() (+3 more)
 
-### Community 81 - "build_retirement_description"
-Cohesion: 0.14
-Nodes (7): Open Questions / Risks, _base_name_from_content_id(), build_retirement_description(), test_basic_description(), test_no_notes(), test_no_replacement(), test_wiki_markup_format()
+### Community 81 - "AdvisorPage.tsx"
+Cohesion: 0.12
+Nodes (18): BlockErrorBoundary, Props, State, resolveBlockRenderer(), ChatChip, ChatEnvelope, ProgressMessage, ProgressStream() (+10 more)
 
 ### Community 82 - "pipeline.py"
-Cohesion: 0.12
-Nodes (15): Task 6: Orchestrator + Pipeline Refactor, 2. Orchestrator and Pipeline, What Gets Deleted, registered_content_types(), QueryState, extract_urls(), run_category(), emit() (+7 more)
+Cohesion: 0.14
+Nodes (9): 2. Orchestrator and Pipeline, What Gets Deleted, _run_low(), registered_content_types(), QueryState, run_query(), _run_one(), triage() (+1 more)
 
 ### Community 83 - "test_nonprod.py"
-Cohesion: 0.10
-Nodes (11): get_workflow(), _nonprod_retirement_metrics(), _retirement_metrics(), _sort_empty_last(), TestListNonprodItems, TestNonprodIgnore, TestNonprodRouteExists, TestNonprodWindows (+3 more)
+Cohesion: 0.07
+Nodes (14): get_workflow(), nonprod_dashboard(), _nonprod_retirement_metrics(), overlap_assessment_detail(), _retirement_metrics(), _sort_empty_last(), TestListNonprodItems, TestNonprodIgnore (+6 more)
 
 ### Community 84 - "test_retirement_pr_status.py"
 Cohesion: 0.10
-Nodes (26): run_retirement_sweep(), _sweep_context(), test_cancel_cannot_delete_tracking_during_manual_pr_creation(), test_cancellation_does_not_mark_concurrently_retired_item(), test_manual_pr_creation_respects_cleanup_lock(), test_refresh_does_not_retire_unmerged_or_unknown_pr(), test_required_failed_cancel_is_excluded_from_removal_and_retried_by_sweep(), test_required_merged_revert_cannot_bypass_jira_failure() (+18 more)
+Nodes (25): run_retirement_sweep(), _sweep_context(), test_cancel_cannot_delete_tracking_during_manual_pr_creation(), test_cancellation_does_not_mark_concurrently_retired_item(), test_refresh_does_not_retire_unmerged_or_unknown_pr(), test_required_failed_cancel_is_excluded_from_removal_and_retried_by_sweep(), test_required_merged_revert_cannot_bypass_jira_failure(), test_required_success_retries_jira_after_retirement_without_pr() (+17 more)
 
 ### Community 85 - "jira.py"
 Cohesion: 0.12
-Nodes (12): _close_issue(), close_issue_done(), close_issue_wont_do(), _issue_is_closed(), _jira_request(), _move_to_in_progress(), test_already_closed_issue_needs_no_transition(), test_closure_requires_a_terminal_result() (+4 more)
+Nodes (10): _close_issue(), close_issue_done(), close_issue_wont_do(), get_issue_status(), _issue_is_closed(), _jira_request(), _move_to_in_progress(), test_closure_requires_a_terminal_result() (+2 more)
 
 ### Community 86 - "cli.py"
-Cohesion: 0.15
-Nodes (6): infra_group(), osspa_group(), reporting_db_group(), retirement_group(), vocab_group(), workload_group()
+Cohesion: 0.13
+Nodes (7): infra_group(), osspa_group(), overlap_candidates_cmd(), reporting_db_group(), retirement_group(), vocab_group(), workload_group()
 
 ### Community 87 - "CatalogReader"
-Cohesion: 0.10
-Nodes (14): Task 1: Read and store Platform/TDP labels, refresh(), CatalogReader, collect(), load(), extract_base_ci_refs(), extract_catalog_item(), extract_infrastructure_metadata() (+6 more)
+Cohesion: 0.14
+Nodes (10): refresh(), CatalogReader, collect(), load(), extract_base_ci_refs(), extract_infrastructure_metadata(), is_agnosticd_v2(), parse_workload_fqcn() (+2 more)
 
 ### Community 88 - "advisor.py"
-Cohesion: 0.11
+Cohesion: 0.12
 Nodes (14): ChatRequest, get_query_result(), get_session(), list_sessions(), QueryRequest, select_recommendation(), SelectRequest, stream_query() (+6 more)
 
 ### Community 89 - "build_retirement_description"
-Cohesion: 0.11
-Nodes (17): AgV access layer (Python module), Credential strategy, Current RCARS Workflow Steps, Dev Testing Requirements, Documentation Updates Required, New API endpoints, New DB fields (retirement_workflow table), Phase 1 — `started` step triggers agv-retire notice PR (+9 more)
+Cohesion: 0.08
+Nodes (20): AgV access layer (Python module), Credential strategy, Current RCARS Workflow Steps, Dev Testing Requirements, Documentation Updates Required, New API endpoints, New DB fields (retirement_workflow table), Open Questions / Risks (+12 more)
 
-### Community 90 - "rationale.py"
-Cohesion: 0.12
-Nodes (16): Content-Type Drivers Implementation Plan, Create, Delete, Execution Notes, File Map, Global Constraints, Review Focus, Task 1: Candidate Model Refactor (+8 more)
+### Community 90 - "call_llm"
+Cohesion: 0.18
+Nodes (10): Task 5: Triage + Rationale Driver Hooks, Task 7: Caller Integration + Cleanup, call_llm(), _primary_asset_type(), _build_deterministic_assessment(), _call_rationale_single(), _call_synthesis(), _format_single_candidate() (+2 more)
 
 ### Community 91 - "System Design Architecture Doc"
 Cohesion: 0.18
@@ -606,11 +603,11 @@ Nodes (18): CLAUDE.md — Project Instructions, Ansible OpenShift Deployment, AP
 
 ### Community 93 - "test_showroom_scan.py"
 Cohesion: 0.10
-Nodes (38): start_scan(), scan(), order_for_reuse(), reuse_key_from_signature(), showroom_reuse_key(), scan_babylon_item(), run_stale_check(), db() (+30 more)
+Nodes (38): start_scan(), scan(), InvalidShowroomRef, order_for_reuse(), reuse_key_from_signature(), showroom_reuse_key(), scan_babylon_item(), run_stale_check() (+30 more)
 
 ### Community 94 - "seed_chat_fixtures"
-Cohesion: 0.07
-Nodes (20): build_evidence_pack(), fake_embedding(), seed_chat_fixtures(), _settings(), test_depth_low_stops_before_triage(), test_scope_filter_restricts_pool(), test_empty_anchor_empty_pack(), test_pack_bounded_and_sorted() (+12 more)
+Cohesion: 0.14
+Nodes (15): build_evidence_pack(), fake_embedding(), seed_chat_fixtures(), _settings(), test_depth_low_stops_before_triage(), test_scope_filter_restricts_pool(), test_empty_anchor_empty_pack(), test_pack_bounded_and_sorted() (+7 more)
 
 ### Community 95 - "Showroom analysis isolation"
 Cohesion: 0.17
@@ -633,16 +630,16 @@ Cohesion: 0.38
 Nodes (5): API Authentication Design, API Key Authentication (X-API-Key Header), Role Assignments Design, Role Assignments Table (DB-Backed Role Elevation), External API Tools Documentation
 
 ### Community 100 - "test_showroom_source.py"
-Cohesion: 0.26
-Nodes (20): Task 1: Resolve content sources with explicit ownership, ComponentLink, item_family_key(), node(), resolve(), test_branch_with_two_sources_is_ambiguous(), test_component_reference_honors_explicit_stage(), test_converging_paths_to_one_owner_are_unambiguous() (+12 more)
+Cohesion: 0.28
+Nodes (19): Task 1: Resolve content sources with explicit ownership, ComponentLink, item_family_key(), node(), resolve(), test_branch_with_two_sources_is_ambiguous(), test_component_reference_honors_explicit_stage(), test_converging_paths_to_one_owner_are_unambiguous() (+11 more)
 
 ### Community 101 - "deliver_pending_events"
 Cohesion: 0.18
 Nodes (3): reporting_db_show(), reporting_db_status(), reporting_db_sync()
 
-### Community 102 - "patch"
-Cohesion: 0.14
-Nodes (9): _fetch_group_members(), _user_in_groups(), _validate_sa_token(), _mock_async_client(), _mock_async_client_get(), _mock_group_response(), _mock_token_review_response(), TestGroupLookup (+1 more)
+### Community 102 - "run_category"
+Cohesion: 0.15
+Nodes (15): Create, Delete, File Map, Modify, Task 1: Candidate Model Refactor, Task 2: Driver Base Class + Registry, Task 3: Hands-on Driver, Task 4: Architecture Driver (+7 more)
 
 ### Community 103 - "rcars-login.sh"
 Cohesion: 0.57
@@ -665,12 +662,12 @@ Cohesion: 0.67
 Nodes (3): Backlog Jira Migration, Jira Epic RHDPCD-25 (RCARS Backlog), WORKLOG (Archived)
 
 ### Community 111 - "ArchitectureDriver"
-Cohesion: 0.19
-Nodes (8): ArchitectureDriver, _make_arch_candidate(), test_arch_format_for_rationale(), test_arch_post_triage_is_passthrough(), test_arch_serialize_no_performance(), test_arch_serialize_with_performance_no_crash(), test_arch_triage_guidance(), test_format_triage_candidates_architecture()
+Cohesion: 0.21
+Nodes (7): ArchitectureDriver, _make_arch_candidate(), test_arch_format_for_rationale(), test_arch_post_triage_is_passthrough(), test_arch_serialize_no_performance(), test_arch_serialize_with_performance_no_crash(), test_arch_triage_guidance()
 
 ### Community 112 - "app.py"
-Cohesion: 0.07
-Nodes (11): create_app(), client(), seed_infrastructure(), test_sync_osspa_endpoint_enqueues_a_job(), client(), test_auth_me_unauthenticated(), client(), TestTokenExchange (+3 more)
+Cohesion: 0.04
+Nodes (20): create_app(), lifespan(), _get_user_key(), RequestLoggingMiddleware, health(), readiness(), client(), client() (+12 more)
 
 ### Community 113 - "status"
 Cohesion: 0.29
@@ -681,72 +678,80 @@ Cohesion: 0.25
 Nodes (7): babylon_items Table, content_entities Table, performance_channels Table, performance_scores Table, retirement_workflow Table, showroom_analysis Table, Retirement Workflow
 
 ### Community 115 - ".close"
-Cohesion: 0.06
-Nodes (22): migrate(), db(), db(), db(), db(), db(), db(), db() (+14 more)
+Cohesion: 0.05
+Nodes (27): migrate(), db(), seed_infrastructure(), db(), db(), db(), db(), db() (+19 more)
 
 ### Community 120 - "test_drivers.py"
 Cohesion: 0.10
-Nodes (14): ContentTypeDriver, get_driver(), get_drivers_for_types(), _init_drivers(), _register(), test_candidate_universal_fields(), test_candidate_with_type_data(), test_get_driver_architecture() (+6 more)
+Nodes (11): ContentTypeDriver, get_driver(), get_drivers_for_types(), _init_drivers(), _register(), test_get_driver_architecture(), test_get_driver_lab(), test_get_driver_unknown_raises() (+3 more)
 
 ### Community 121 - "StatusPage.tsx"
 Cohesion: 0.19
 Nodes (11): react-dom, vitest, LlmProviderCard(), LlmProviderStatus, LlmUse, status, USE_LABELS, render() (+3 more)
 
 ### Community 122 - "json"
-Cohesion: 0.21
+Cohesion: 0.22
 Nodes (7): cmd_logout(), _load_credentials(), main(), cmd_login(), cmd_status(), cmd_token(), _save_credentials()
 
 ### Community 123 - "workload_scan"
-Cohesion: 0.17
-Nodes (5): cli(), init_db(), serve(), vocab_stage_rescan(), workload_scan()
+Cohesion: 0.12
+Nodes (9): cli(), osspa_sync_cmd(), _print(), retirement_sweep_cmd(), _sweep(), serve(), vocab_stage_rescan(), vocab_unknowns() (+1 more)
 
 ### Community 124 - "test_orphan_cleanup.py"
 Cohesion: 0.44
 Nodes (7): _reconcile_queued_orphans(), _mock_db(), test_job_present_in_redis_is_not_failed(), test_no_queued_jobs_skips_redis(), test_orphan_not_in_redis_is_failed(), test_orphaned_recommend_job_is_failed(), test_recommend_job_checked_against_recommend_queue()
 
 ### Community 125 - "retirement_cleanup.py"
-Cohesion: 0.15
-Nodes (14): cancel_workflow(), check_pr_statuses(), get_issue_status(), _base_name(), cancel_retirement(), CleanupError, _close_jira(), _close_open_pr() (+6 more)
+Cohesion: 0.22
+Nodes (10): check_pr_statuses(), _base_name(), cancel_retirement(), CleanupError, _close_jira(), _close_open_pr(), complete_retirement(), _ensure_cancellable() (+2 more)
 
-### Community 126 - "test_llm_provider_status.py"
-Cohesion: 0.25
-Nodes (6): _make_client(), no_litemaas_fetch(), test_fallback_active_when_vertex_configured(), test_fallback_reported_not_active_by_default(), test_lists_model_for_every_llm_use(), test_litemaas_active_with_models()
+### Community 126 - ".pool"
+Cohesion: 0.11
+Nodes (3): main(), db(), test_script_rejects_selection_with_no_showroom_items()
 
-### Community 127 - "Decisions"
-Cohesion: 0.10
-Nodes (12): Global Constraints, Platform and TDP Filters Implementation Plan, Anti-goals, Constraints, Decisions, Goals, Left to the builder, Non-goals (+4 more)
+### Community 127 - "Task 3: Return labels from the three analysis endpoints"
+Cohesion: 0.11
+Nodes (8): Global Constraints, Platform and TDP Filters Implementation Plan, Task 3: Return labels from the three analysis endpoints, Decisions, test_nonprod_rows_have_labels(), test_performance_rows_have_labels(), test_retirement_rows_have_labels(), test_rows_without_labels_get_empty_lists()
 
 ### Community 128 - "orchestrator.py"
-Cohesion: 0.16
-Nodes (15): _call_anthropic(), _call_litemaas(), call_llm(), LLMResult, build_scaffold(), compose_answer(), _strip_formatting(), _help_answer() (+7 more)
+Cohesion: 0.22
+Nodes (10): build_scaffold(), compose_answer(), _strip_formatting(), _help_answer(), process_turn(), _scope_echo(), followup_chips(), test_answer_failure_degrades_to_scaffold() (+2 more)
 
 ### Community 129 - "test_vocabulary.py"
-Cohesion: 0.12
-Nodes (5): build_analysis_prompt(), truncate_content(), clear_vocabulary_cache(), TestPromptInjection, TestSquashKey
+Cohesion: 0.20
+Nodes (3): build_analysis_prompt(), truncate_content(), TestPromptInjection
 
-### Community 130 - "_print"
-Cohesion: 0.22
-Nodes (5): osspa_sync_cmd(), _print(), retirement_sweep_cmd(), _sweep(), vocab_unknowns()
+### Community 130 - "scan_configs"
+Cohesion: 0.15
+Nodes (7): clone_showroom(), _is_github_throttle(), ls_remote_sha(), _resolve_ref_from_lookup(), _run_git_with_retry(), scan_collection(), scan_configs()
 
-### Community 133 - "app.py"
-Cohesion: 0.11
-Nodes (5): lifespan(), _get_user_key(), RequestLoggingMiddleware, health(), readiness()
+### Community 131 - "Review Focus"
+Cohesion: 0.15
+Nodes (10): Review Focus, Task 2: Union labels per base name, Task 5: Shared frontend helpers and checkbox filter group, Task 7: Browse UI (provisional style), Task 8: Run locally, check, and prepare the PR, test_labels_empty_input(), test_labels_include_retired_stage(), test_labels_union_across_stages() (+2 more)
+
+### Community 132 - "test_vocabulary_db.py"
+Cohesion: 0.10
+Nodes (5): TestGetUnknownTerms, TestRecordUnknownTerm, TestResolveUnknownTerm, TestReviewBadgeUntouched, TestUnknownTermsSchema
+
+### Community 133 - "extract_catalog_item"
+Cohesion: 0.18
+Nodes (9): Anti-goals, Constraints, Goals, Left to the builder, Non-goals, Platform and Technical Decision Point filters — design, Rollout, Why (+1 more)
 
 ### Community 134 - "test_chat_handlers.py"
-Cohesion: 0.45
+Cohesion: 0.47
 Nodes (8): _noop(), _res(), _settings(), test_infrastructure_handler_no_match_returns_notice(), test_infrastructure_handler_uses_embedding_search(), test_item_facts_handler(), test_overlap_handler(), test_performance_handler_rows_match_scope()
 
 ### Community 135 - "File map and verification conventions"
 Cohesion: 0.25
 Nodes (7): Execution handoff, File map and verification conventions, Global Constraints, Review Focus, Self-review, Showroom Analysis Isolation Implementation Plan, Task 4: Unify scan persistence and remove cross-item fan-out
 
-### Community 136 - "test_auth_routes.py"
-Cohesion: 0.15
-Nodes (4): client(), TestCreateApiKey, TestListApiKeys, TestRevokeApiKey
+### Community 136 - "Task 1: Read and store Platform/TDP labels"
+Cohesion: 0.22
+Nodes (5): Task 1: Read and store Platform/TDP labels, test_extract_keys_are_case_sensitive(), test_extract_missing_labels_are_none(), test_extract_reads_platform_and_tdps(), test_schema_adds_label_columns()
 
-### Community 139 - "test_field_source_api.py"
-Cohesion: 0.25
-Nodes (3): client(), db(), test_field_source_route_registered()
+### Community 139 - "test_chat_live.py"
+Cohesion: 0.36
+Nodes (4): _noop(), _settings(), test_live_item_facts_turn(), test_live_out_of_scope()
 
 ### Community 143 - "retirement-system.md"
 Cohesion: 0.20
@@ -757,60 +762,72 @@ Cohesion: 0.20
 Nodes (14): AssessmentSection(), ComparisonDrawer(), ContentOverlapPage(), DrawerPair, extractSummary(), ItemSummary, NeighborItem, OverlapAssessment (+6 more)
 
 ### Community 174 - "test_showroom_reuse.py"
-Cohesion: 0.08
-Nodes (25): API, Data Import, Data Source, Field Source Content, Frontend, Task 3: Fetch the exact source and reject non-content inputs, git_repo(), git() (+17 more)
+Cohesion: 0.11
+Nodes (18): Task 3: Fetch the exact source and reject non-content inputs, MemoryArtifacts, prime(), scan(), run(), test_changed_prompt_context_invalidates_unchanged_git_revision(), test_curator_url_or_path_override_is_target_scoped(), test_embedding_only_changes_repair_only_affected_artifacts() (+10 more)
+
+### Community 175 - "test_vocabulary.py"
+Cohesion: 0.17
+Nodes (4): dedup_topics(), clear_vocabulary_cache(), TestSquashKey, TestTopicDedup
 
 ### Community 178 - "structlog"
-Cohesion: 0.15
-Nodes (3): run_chat_turn(), on_progress(), run_analysis()
+Cohesion: 0.18
+Nodes (6): WorkerContext, run_chat_turn(), on_progress(), run_recommendation(), on_progress(), run_analysis()
 
-### Community 180 - "hashlib"
-Cohesion: 0.29
-Nodes (4): build_jira_event(), _deliver_pending_events(), event_timestamp(), observe_pr_events()
+### Community 180 - "showroom_scan.py"
+Cohesion: 0.15
+Nodes (9): classify_scan_error(), regenerate_embeddings(), build_jira_event(), _deliver_pending_events(), event_timestamp(), reuse_lock_id(), _scan_babylon_item(), _snapshot() (+1 more)
 
 ### Community 183 - "OsspaSyncError"
 Cohesion: 0.33
 Nodes (3): fetch_palist_csv(), OsspaSyncError, _boom()
 
 ### Community 184 - "test_start_retirement_holds_lock_while_creating_ticket"
-Cohesion: 0.50
-Nodes (4): _approved_unstarted(), test_start_retirement_holds_lock_while_creating_ticket(), fake_create(), test_start_retirement_respects_workflow_lock()
+Cohesion: 0.47
+Nodes (6): workflow_lock_id(), _approved_unstarted(), test_manual_pr_creation_respects_cleanup_lock(), test_start_retirement_holds_lock_while_creating_ticket(), fake_create(), test_start_retirement_respects_workflow_lock()
 
 ### Community 186 - "mcp_query"
-Cohesion: 0.16
-Nodes (8): Field Source Content Report — Implementation Plan, Global Constraints, Task 3: API Endpoint, Task 5: Routing and Sidebar, Task 6: End-to-End Verification, mcp_query(), TestMcpQueryOrdering, TestMcpPagination
+Cohesion: 0.13
+Nodes (10): Field Source Content Report — Implementation Plan, Global Constraints, Task 3: API Endpoint, Task 4: Frontend Page, Task 5: Routing and Sidebar, Task 6: End-to-End Verification, _mcp_call(), mcp_query() (+2 more)
+
+### Community 188 - "Field Source Content"
+Cohesion: 0.25
+Nodes (7): API, Data Import, Data Source, Field Source Content, Frontend, git_repo(), git()
+
+### Community 192 - "build_infrastructure_embedding_text"
+Cohesion: 0.60
+Nodes (3): build_infrastructure_embedding_text(), test_build_infrastructure_embedding_text(), test_build_infrastructure_embedding_text_minimal()
 
 ### Community 193 - "Controlled Vocabulary Design"
 Cohesion: 0.67
 Nodes (3): Acronym Expansion, Controlled Vocabulary Plan, Controlled Vocabulary Design
 
-### Community 196 - "ensure_issue_event_comment"
-Cohesion: 0.18
-Nodes (8): ensure_issue_event_comment(), test_comment_existing_event_on_later_page_prevents_post(), request(), test_comment_failed_lookup_does_not_post(), test_comment_http_payload_accepts_object_marker_and_recovers_lost_response(), test_comment_malformed_page_does_not_prove_absence(), test_comment_unknown_post_outcome_recovers_remote_event(), test_comment_uses_adf_and_event_property()
+### Community 194 - "test_already_closed_issue_needs_no_transition"
+Cohesion: 0.40
+Nodes (3): test_already_closed_issue_needs_no_transition(), test_required_closure_selects_resolution_and_verifies_result(), request()
 
-### Community 197 - "test_analysis_labels.py"
-Cohesion: 0.15
-Nodes (5): client(), test_nonprod_rows_have_labels(), test_performance_rows_have_labels(), test_retirement_rows_have_labels(), test_rows_without_labels_get_empty_lists()
+### Community 196 - "ensure_issue_event_comment"
+Cohesion: 0.22
+Nodes (5): ensure_issue_event_comment(), test_comment_failed_lookup_does_not_post(), test_comment_http_payload_accepts_object_marker_and_recovers_lost_response(), test_comment_unknown_post_outcome_recovers_remote_event(), test_comment_uses_adf_and_event_property()
 
 ## Knowledge Gaps
 - **105 isolated node(s):** `RCARS_DATABASE_URL`, `RCARS_REDIS_URL`, `RCARS_DEV_USER`, `RCARS_EMBEDDING_URL`, `rcars` (+100 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1254 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **59 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 1259 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **62 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `Database` connect `Database` to `orchestrator.py`, `_print`, `.list_content_entities_filtered`, `app.py`, `db/__init__.py`, `test_retirement_jira_events.py`, `test_field_source_api.py`, `test_overlap_assessment.py`, `workload_scanner.py`, `test_catalog_labels.py`, `test_db.py`, `database.py`, `Settings`, `seed`, `settings.py`, `ops.py`, `_generate_key`, `Any`, `TestGetNonprodBaseNames`, `test_infrastructure.py`, `test_chat_sessions_db.py`, `test_start_retirement_holds_lock_while_creating_ticket`, `Task 1: Database Schema and Methods`, `run_osspa_sync`, `analyze_architecture_item`, `test_catalog_osspa_routes.py`, `test_osspa_db.py`, `handlers.py`, `router.py`, `test_analysis_labels.py`, `test_status_visibility.py`, `command`, `extract_base_name`, `pipeline.py`, `test_nonprod.py`, `test_retirement_pr_status.py`, `test_showroom_scan.py`, `seed_chat_fixtures`, `deliver_pending_events`, `._set_showroom_override`, `test_field_source_sync.py`, `app.py`, `.close`, `json`, `workload_scan`, `Decisions`?**
-  _High betweenness centrality (0.165) - this node is a cross-community bridge._
+- **Why does `Settings` connect `Settings` to `orchestrator.py`, `Database`, `middleware/auth.py`, `test_chat_handlers.py`, `test_test_content_exclusion.py`, `routes/catalog.py`, `admin.py`, `test_retirement_jira_events.py`, `test_chat_live.py`, `test_overlap_assessment.py`, `workload_scanner.py`, `routes/auth.py`, `database.py`, `route`, `schemas.py`, `seed`, `settings.py`, `Any`, `structlog`, `analysis.py`, `test_auth_security.py`, `run_osspa_sync`, `analyze_architecture_item`, `test_catalog_osspa_routes.py`, `structlog`, `handlers.py`, `router.py`, `analyzer.py`, `command`, `pipeline.py`, `test_retirement_pr_status.py`, `cli.py`, `CatalogReader`, `advisor.py`, `call_llm`, `test_showroom_scan.py`, `seed_chat_fixtures`, `deliver_pending_events`, `run_category`, `app.py`, `.close`, `json`, `workload_scan`, `.pool`?**
+  _High betweenness centrality (0.166) - this node is a cross-community bridge._
 - **Are the 52 inferred relationships involving `Database` (e.g. with `Settings` and `AnalysisSignature`) actually correct?**
   _`Database` has 52 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `RCARS_DATABASE_URL`, `RCARS_REDIS_URL`, `RCARS_DEV_USER` to the rest of the system?**
   _105 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `HandsOnDriver` be split into smaller, more focused modules?**
-  _Cohesion score 0.1396011396011396 - nodes in this community are weakly interconnected._
-- **Why does `Settings` connect `Settings` to `orchestrator.py`, `Database`, `_print`, `middleware/auth.py`, `app.py`, `test_chat_handlers.py`, `db/__init__.py`, `routes/catalog.py`, `admin.py`, `test_auth_routes.py`, `test_field_source_api.py`, `test_retirement_jira_events.py`, `test_overlap_assessment.py`, `test_test_content_exclusion.py`, `routes/auth.py`, `route`, `seed`, `settings.py`, `ops.py`, `Any`, `structlog`, `analysis.py`, `test_auth_security.py`, `Task 3: Return labels from the three analysis endpoints`, `run_osspa_sync`, `analyze_architecture_item`, `test_catalog_osspa_routes.py`, `structlog`, `handlers.py`, `router.py`, `test_analysis_labels.py`, `test_vocabulary_admin.py`, `analyzer.py`, `command`, `pipeline.py`, `test_retirement_pr_status.py`, `cli.py`, `CatalogReader`, `advisor.py`, `test_showroom_scan.py`, `seed_chat_fixtures`, `deliver_pending_events`, `app.py`, `.close`, `json`, `workload_scan`, `test_llm_provider_status.py`?**
-  _High betweenness centrality (0.149) - this node is a cross-community bridge._
+  _Cohesion score 0.14153846153846153 - nodes in this community are weakly interconnected._
+- **Why does `Database` connect `Database` to `orchestrator.py`, `scan_configs`, `Review Focus`, `test_vocabulary_db.py`, `db/__init__.py`, `test_retirement_jira_events.py`, `test_chat_live.py`, `test_overlap_assessment.py`, `derive_status`, `workload_scanner.py`, `test_catalog_labels.py`, `test_db.py`, `database.py`, `Settings`, `seed`, `settings.py`, `ops.py`, `_generate_key`, `Any`, `TestGetNonprodBaseNames`, `test_infrastructure.py`, `test_chat_sessions_db.py`, `test_start_retirement_holds_lock_while_creating_ticket`, `Task 1: Database Schema and Methods`, `run_osspa_sync`, `analyze_architecture_item`, `test_catalog_osspa_routes.py`, `test_field_source_db.py`, `test_osspa_db.py`, `handlers.py`, `router.py`, `db`, `test_status_visibility.py`, `command`, `extract_base_name`, `pipeline.py`, `test_nonprod.py`, `test_retirement_pr_status.py`, `call_llm`, `seed_chat_fixtures`, `deliver_pending_events`, `run_category`, `._set_showroom_override`, `test_field_source_sync.py`, `app.py`, `.close`, `json`, `workload_scan`, `.pool`, `Task 3: Return labels from the three analysis endpoints`?**
+  _High betweenness centrality (0.159) - this node is a cross-community bridge._
 - **Are the 68 inferred relationships involving `Settings` (e.g. with `lifespan()` and `get_current_user()`) actually correct?**
   _`Settings` has 68 INFERRED edges - model-reasoned connections that need verification._
 - **Should `Database` be split into smaller, more focused modules?**
-  _Cohesion score 0.022907900888265546 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.023443223443223443 - nodes in this community are weakly interconnected._

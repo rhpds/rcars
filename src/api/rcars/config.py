@@ -302,17 +302,29 @@ def call_llm(
     return _call_anthropic(settings, model, messages, max_tokens, temperature, system)
 
 
+# Models that reject the temperature parameter (Bedrock-backed Claude 5.5
+# returns "temperature is deprecated for this model").
+_models_without_temperature: set[str] = set()
+
+
 def _call_litemaas(settings, model, messages, max_tokens, temperature, system=None):
     client = settings.get_litemaas_client()
     llm_messages = messages
     if system:
         llm_messages = [{"role": "system", "content": system}] + messages
-    response = client.chat.completions.create(
-        model=model,
-        messages=llm_messages,
-        max_tokens=max_tokens,
-        temperature=temperature,
-    )
+    kwargs = dict(model=model, messages=llm_messages, max_tokens=max_tokens)
+    if model not in _models_without_temperature:
+        kwargs["temperature"] = temperature
+    try:
+        response = client.chat.completions.create(**kwargs)
+    except Exception as e:
+        if "temperature" not in str(e).lower() or "temperature" not in kwargs:
+            raise
+        # The model rejects temperature outright. Remember that and retry
+        # once without it so later calls skip the parameter.
+        _models_without_temperature.add(model)
+        kwargs.pop("temperature")
+        response = client.chat.completions.create(**kwargs)
     if not response.choices:
         raise RuntimeError(f"LiteMaaS returned empty choices for model {model}")
     return LLMResult(
