@@ -18,6 +18,8 @@ from rcars.config import Settings
 from rcars.db.overlap import get_overlap_items, get_overlap_stats
 from rcars.services.overlap_assessment import assess_overlap
 from rcars.services.analyzer import order_for_reuse
+from rcars.services.showroom_scan import scan_candidates
+from rcars.services.showroom_source import content_owner
 import structlog
 
 logger = structlog.get_logger(component="api")
@@ -861,10 +863,10 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
-    dedup_stats = db.get_scan_dedup_stats()
     settings = request.app.state.settings
     # Group leaders first so stage siblings reuse a finished donor instead of racing it.
-    items = order_for_reuse(db.get_items_needing_analysis(settings), settings)
+    items = order_for_reuse(scan_candidates(db, settings), settings)
+    dedup_stats = db.get_scan_dedup_stats()
 
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
 
@@ -907,7 +909,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
-    items = db.get_items_needing_analysis(force=True)
+    items = scan_candidates(db, None, force=True)
 
     parent_job_id = db.create_job(job_type="rescan_all", queue="analyze", created_by=user)
 
@@ -1375,6 +1377,11 @@ async def analyze_single(identifier: str, request: Request, force: bool = True, 
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    # A pure stub has no analysis of its own; reanalyzing it means analyzing its owner.
+    item = db.get_babylon_item(content_id)
+    owner = content_owner(item) if item else None
+    if owner:
+        content_id = f"babylon:{owner}"
     entity = db.get_content_entity(content_id)
     if not entity:
         raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")

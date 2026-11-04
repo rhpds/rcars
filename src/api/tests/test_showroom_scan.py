@@ -30,7 +30,7 @@ def test_scanning_a_never_writes_identical_unrelated_b(db, scan):
     assert db.get_babylon_item(b)["scan_status"] == "not_scanned"
 
 
-def test_explicit_four_level_virtual_materializes_own_artifacts(db, scan):
+def test_four_level_virtual_is_a_stub_with_no_artifacts_of_its_own(db, scan):
     owner = add_item(db, scan, "isolation-test.owner.prod")
     scan_babylon_item(db, scan.settings, owner)
     source = replace(scan.source, owner_ci_name="isolation-test.owner.prod", scope_key="isolation-test.owner",
@@ -40,12 +40,11 @@ def test_explicit_four_level_virtual_materializes_own_artifacts(db, scan):
         "showroom_url": source.repo, "showroom_ref": source.ref, "showroom_source": source.to_dict(), "is_published": True})
     scan.llm.reset_mock()
     result = scan_babylon_item(db, scan.settings, target)
-    assert result["reused_from"] == owner
+    assert result["outcome"] == "content_owner_stub"
     assert scan.llm.call_count == 0
-    provenance = db.get_showroom_analysis(target)["analysis_provenance_json"]
-    assert provenance["source"] == source.to_dict()
-    assert provenance["reused_from"] == owner
-    assert "target-only" in db.get_embeddings_for_content(target)[0]["content_text"]
+    assert db.get_showroom_analysis(target) is None
+    assert db.get_embeddings_for_content(target) == []
+    assert db.get_content_entity(target)["summary"] == "Configure TLS"
 
 
 def test_source_changed_during_analysis_discards_result(db, scan, monkeypatch):

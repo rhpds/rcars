@@ -9,8 +9,8 @@ from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
 from rcars.services.showroom_source import (
-    AnalysisSignature, effective_showroom_source, signature_matches_source, signatures_match,
-    is_content_excluded,
+    AnalysisSignature, content_owner, effective_showroom_source, signature_matches_source,
+    signatures_match, is_content_excluded,
 )
 
 log = structlog.get_logger()
@@ -86,8 +86,11 @@ def _resolve_ci_references(
         if (is_content_excluded(item["content_id"])
                 or effective_showroom_source(item).status == "excluded"):
             continue
-        # Virtual items own materialized artifacts too; infra links are irrelevant.
+        # A pure stub's embedding lives on its owner.
         embed_content_id = item["content_id"]
+        owner = content_owner(item)
+        if owner:
+            embed_content_id = f"babylon:{owner}"
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
         if not embedding:
             log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
@@ -99,7 +102,7 @@ def _resolve_ci_references(
             quality_threshold=0.45,
         )
         for row in neighbors:
-            if row["content_id"] != item["content_id"] and row["content_id"] not in seen:
+            if row["content_id"] != embed_content_id and row["content_id"] not in seen:
                 results.append(row)
                 seen.add(row["content_id"])
 
@@ -121,6 +124,17 @@ def _verified_signature(db, content_id):
         return AnalysisSignature(**signature)
     except (TypeError, ValueError):
         return None
+
+
+def _eligible_stub(target, stages, include_zt, scope) -> bool:
+    if not target or target.get("stage") not in stages:
+        return False
+    if scope and target["content_id"] not in scope:
+        return False
+    if not include_zt and ((target.get("ci_name") or "").startswith("zt-")
+                           or (target.get("catalog_namespace") or "").startswith("zt-")):
+        return False
+    return True
 
 
 def _authorized_promotion(db, row, stages, include_zt, scope):
@@ -147,10 +161,27 @@ def _authorized_promotion(db, row, stages, include_zt, scope):
         target = db.get_stage_counterpart(row["content_id"], "prod")
         if eligible(target):
             row = {**target, "best_similarity": row["best_similarity"]}
-    aliases = [alias for alias in db.get_virtual_content_aliases(row["content_id"]) if eligible(alias)]
-    if len(aliases) == 1:
-        row = {**aliases[0], "best_similarity": row["best_similarity"]}
+    promoted_ci_name = row.get("ci_name")
+    if not promoted_ci_name:
+        promoted = db.get_babylon_item(row["content_id"])
+        promoted_ci_name = promoted.get("ci_name") if promoted else None
+    stubs = ([stub for stub in db.get_pure_stubs_for_owner(promoted_ci_name, list(stages))
+              if _eligible_stub(stub, stages, include_zt, scope)] if promoted_ci_name else [])
+    if len(stubs) == 1:
+        row = {**stubs[0], "best_similarity": row["best_similarity"]}
     return row
+
+
+def _owner_scope_ids(db, scope_content_ids: list[str] | None) -> list[str] | None:
+    """Scope ids may name pure stubs; their embeddings live on the owner."""
+    if not scope_content_ids:
+        return scope_content_ids
+    expanded = []
+    for content_id in scope_content_ids:
+        item = db.get_babylon_item(content_id)
+        owner = content_owner(item) if item else None
+        expanded.append(f"babylon:{owner}" if owner else content_id)
+    return expanded
 
 
 def search(
@@ -183,7 +214,7 @@ def search(
         include_zt=include_zt,
         content_types=content_types,
         quality_threshold=quality_threshold,
-        scope_content_ids=scope_content_ids,
+        scope_content_ids=_owner_scope_ids(db, scope_content_ids),
     )
 
     ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
@@ -223,7 +254,7 @@ def search(
 
         type_data: dict = {}
         if content_type in ("lab", "demo"):
-            analysis = db.get_showroom_analysis(content_id)
+            analysis = db.get_display_analysis(content_id)
 
             lo = (analysis or {}).get("learning_objectives_json") or {}
             learning_objs = (lo.get("stated", []) if isinstance(lo, dict) else []) or []

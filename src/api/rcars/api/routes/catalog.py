@@ -11,6 +11,7 @@ from rcars.api.schemas import (
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
+from rcars.services.showroom_source import content_owner
 
 router = APIRouter(prefix="/catalog")
 
@@ -40,6 +41,15 @@ def _resolve_item(identifier: str, db) -> dict | None:
     if identifier.startswith("babylon:"):
         return db.get_babylon_item(identifier)
     return db.get_babylon_item_by_ci_name(identifier)
+
+
+def _curation_target(content_id: str, db) -> str:
+    """Curated fields on a pure stub belong to its owner: the content is shared."""
+    if content_id.startswith("pa:"):
+        return content_id
+    item = db.get_babylon_item(content_id)
+    owner = content_owner(item) if item else None
+    return f"babylon:{owner}" if owner else content_id
 
 
 @router.get(
@@ -262,13 +272,14 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
             "workloads": [],
             "acl_groups": [],
             "reporting": None,
+            "content_owner": None,
             "source_url": (
                 f"{repo}/-/blob/{settings.osspa_examples_ref}/{detail_page}"
                 if detail_page else None
             ),
         }
 
-    analysis = db.get_showroom_analysis(content_id)
+    analysis = db.get_display_analysis(content_id)
     tags = db.get_enrichment_tags(content_id)
     workloads = db.get_workloads(content_id) if item.get("is_agd_v2") else []
     acl_groups = db.get_acl_groups(content_id) if item.get("is_agd_v2") else []
@@ -299,7 +310,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
 
     return {**item, **retirement, "analysis": analysis, "tags": tags,
             "workloads": workloads, "acl_groups": acl_groups,
-            "reporting": reporting}
+            "reporting": reporting, "content_owner": content_owner(item)}
 
 
 @router.get(
@@ -314,7 +325,7 @@ async def get_analysis(identifier: str, request: Request, user: str = Depends(re
     if content_id.startswith("pa:"):
         analysis = db.get_architecture_analysis(content_id)
     else:
-        analysis = db.get_showroom_analysis(content_id)
+        analysis = db.get_display_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
     return analysis
@@ -377,7 +388,7 @@ class NoteRequest(BaseModel):
 )
 async def set_note(identifier: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_enrichment_note(content_id, body.note)
     return {"status": "ok"}
 
@@ -390,7 +401,7 @@ async def set_note(identifier: str, body: NoteRequest, request: Request, user: s
 )
 async def flag_item(identifier: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_enrichment_review_flag(content_id, True)
     return {"status": "ok"}
 
@@ -424,7 +435,7 @@ class DurationRequest(BaseModel):
 )
 async def set_duration(identifier: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_curated_duration(content_id, body.duration_min, updated_by=user)
     return {"status": "ok"}
 

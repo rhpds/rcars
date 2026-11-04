@@ -23,12 +23,16 @@ def db():
     # Only these fixtures' own namespace is cleaned; never drop/truncate tables.
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:isolation-test.%'")
+        conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:isolation-test.%'")
+        conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
         conn.execute("DELETE FROM advisor_sessions WHERE session_id = 'isolation-test-session'")
         conn.execute("DELETE FROM field_source_provisions WHERE provision_uuid = 'isolation-test-provision'")
     yield database
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE NOT (id = ANY(%s))", (initial_jobs,))
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:isolation-test.%'")
+        conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:isolation-test.%'")
+        conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
     database.close()

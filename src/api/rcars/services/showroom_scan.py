@@ -8,7 +8,7 @@ import hashlib
 import subprocess
 
 from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings, showroom_reuse_key
-from rcars.services.showroom_source import effective_showroom_source, analysis_generation
+from rcars.services.showroom_source import content_owner, effective_showroom_source, analysis_generation
 import structlog
 
 log = structlog.get_logger()
@@ -49,6 +49,14 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
     if source.status == "excluded":
         log.info("showroom_scan_excluded", component="scanner", content_id=content_id, action="excluded")
         return {"content_id": content_id, "success": True, "outcome": "excluded", "source": source.to_dict()}
+    owner = content_owner(item)
+    if owner is not None:
+        db.delete_stub_artifacts(content_id, owner_ci_name=owner)
+        db.mirror_content_owner(content_id, owner)
+        log.info("showroom_scan_content_owner_stub", component="scanner", content_id=content_id,
+                 action="content_owner_stub", owner=owner)
+        return {"content_id": content_id, "success": True, "outcome": "content_owner_stub",
+                "source": source.to_dict()}
     snapshot = _snapshot(item)
     observed_generation = analysis_generation(db.get_showroom_analysis(content_id))
     result = None
@@ -97,6 +105,8 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                     regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
                         result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
                 db.set_scan_status(content_id, "success", conn=conn)
+            for stub in db.get_pure_stubs_for_owner(item["ci_name"], conn=conn):
+                db.mirror_content_owner(stub["content_id"], item["ci_name"], conn=conn)
         outcome_result = {"content_id": content_id, "ci_name": item["ci_name"], "success": True, "outcome": outcome,
                           "reused_from": result.get("reused_from"), "source": source.to_dict(),
                           "signature": result["analysis_provenance"]["signature"]}
@@ -116,3 +126,27 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
             db.invalidate_babylon_scan_failure(content_id, error, message, conn=conn)
         log.exception("showroom_scan_failed", content_id=content_id, error_class=error)
         return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
+
+
+def reconcile_pure_stubs(db) -> dict[str, int]:
+    """Some CIs may have artifacts from before they became pure stubs."""
+    stubs = cleared = 0
+    for item in db.get_stub_reconciliation_candidates():
+        owner = content_owner(item)
+        if owner is None:
+            continue
+        stubs += 1
+        if db.get_showroom_analysis(item["content_id"]) or db.get_embeddings_for_content(item["content_id"]):
+            db.delete_stub_artifacts(item["content_id"], owner_ci_name=owner)
+            cleared += 1
+        db.mirror_content_owner(item["content_id"], owner)
+    if stubs:
+        log.info("showroom_stub_reconciled", component="scanner", action="reconcile_stubs",
+                 stubs=stubs, cleared=cleared)
+    return {"stubs": stubs, "cleared": cleared}
+
+
+def scan_candidates(db, settings, *, force: bool = False) -> list[dict]:
+    """The single scan front door: reconcile stubs, then select work."""
+    reconcile_pure_stubs(db)
+    return db.get_items_needing_analysis(settings, force=force)

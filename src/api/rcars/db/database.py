@@ -22,7 +22,7 @@ import structlog
 from rcars.config import STAGE_PRIORITY
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
-    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete,
+    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete, content_owner,
     effective_showroom_source, item_family_key, signature_matches_source,
 )
 
@@ -1359,7 +1359,8 @@ class Database:
             )
 
         if difficulty:
-            conditions.append("COALESCE(sa.difficulty, aa.difficulty) = %(difficulty)s")
+            # ce.difficulty covers pure stubs, whose card mirrors the owner's.
+            conditions.append("COALESCE(sa.difficulty, aa.difficulty, ce.difficulty) = %(difficulty)s")
             params["difficulty"] = difficulty
         if content_filter == "stale":
             joins.append(
@@ -1398,13 +1399,16 @@ class Database:
                    ce.scan_error, ce.scan_failed_at, bi.last_crd_update, ce.last_refreshed,
                    pa.pa_name, pa.solutions, pa.verticals, pa.detail_page, pa.image_url,
                    aa.asset_type,
-                   COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
-                   COALESCE(sa.enrichment_review_needed, aa.enrichment_review_needed)
-                       AS enrichment_review_needed,
+                   COALESCE(sa.is_stale, sa_owner.is_stale, aa.is_stale) AS is_stale,
+                   COALESCE(sa.enrichment_review_needed, sa_owner.enrichment_review_needed,
+                            aa.enrichment_review_needed) AS enrichment_review_needed,
                    rw.status AS workflow_status, rw.retirement_target_date
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            -- A pure stub has no analysis row; its badges come from its owner's.
+            LEFT JOIN showroom_analysis sa_owner ON sa.content_id IS NULL
+                AND sa_owner.content_id = 'babylon:' || (bi.showroom_source_json->>'owner_ci_name')
             LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
             LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {_SIBLING_RETIREMENT_JOIN}
@@ -1835,6 +1839,14 @@ class Database:
             )
             return cur.fetchone()
 
+    def get_display_analysis(self, content_id: str) -> dict | None:
+        """What a viewer should see: a pure stub shows its owner's analysis."""
+        item = self.get_babylon_item(content_id)
+        owner = content_owner(item) if item else None
+        if owner:
+            return self.get_showroom_analysis_by_ci_name(owner)
+        return self.get_showroom_analysis(content_id)
+
     def get_analysis(self, content_id: str) -> dict[str, Any] | None:
         """Get analysis for any content type — routes to the right table."""
         entity = self.get_content_entity(content_id)
@@ -1843,7 +1855,7 @@ class Database:
         ct = entity.get("content_type")
         if ct == "architecture":
             return self.get_architecture_analysis(content_id)
-        return self.get_showroom_analysis(content_id)
+        return self.get_display_analysis(content_id)
 
     def get_showroom_analysis_by_ci_name(self, ci_name: str) -> dict[str, Any] | None:
         content_id = f"babylon:{ci_name}"
@@ -1890,25 +1902,82 @@ class Database:
                 )
                 return cur.fetchall()
 
-    def get_virtual_content_aliases(self, content_id: str) -> list[dict]:
-        item = self.get_babylon_item(content_id)
-        if not item:
-            return []
+    def get_pure_stubs_for_owner(self, owner_ci_name: str, stages: list[str] | None = None,
+                                 conn=None) -> list[dict]:
+        """Non-retired Babylon items whose content owner is owner_ci_name."""
+        sql = """
+            SELECT ce.*, bi.*, ce.scan_status
+            FROM content_entities ce
+            JOIN babylon_items bi ON bi.content_id = ce.content_id
+            WHERE ce.retired_at IS NULL
+              AND bi.showroom_source_json->>'status' = 'resolved'
+              AND bi.showroom_source_json->>'owner_ci_name' = %(owner)s
+              AND ce.content_id != %(owner_id)s
+        """
+        params = {"owner": owner_ci_name, "owner_id": f"babylon:{owner_ci_name}"}
+        if stages is not None:
+            sql += " AND bi.stage = ANY(%(stages)s)"
+            params["stages"] = stages
+        sql += " ORDER BY bi.ci_name"
+        with self._artifact_connection(conn) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [row for row in rows if content_owner(row) == owner_ci_name]
+
+    def get_stub_reconciliation_candidates(self) -> list[dict]:
+        """Every resolved lab/demo Babylon item; Python decides which are pure stubs."""
         with self._pool.connection() as conn:
-            rows = conn.execute(
-                "SELECT ce.*, bi.*, ce.scan_status FROM content_entities ce "
-                "JOIN babylon_items bi USING (content_id) WHERE bi.stage = %s "
-                "AND ce.retired_at IS NULL AND ce.scan_status = 'success' "
-                "AND bi.showroom_source_json->>'status' = 'resolved' AND ce.content_id != %s "
-                # Raw paths are a superset of effective paths; Python below stays authoritative.
-                "AND EXISTS (SELECT 1 FROM jsonb_array_elements(bi.showroom_source_json->'paths') p, "
-                "jsonb_array_elements_text(p) WITH ORDINALITY e(name, pos) WHERE e.pos > 1 AND e.name = %s) "
-                "ORDER BY bi.ci_name",
-                (item["stage"], content_id, item["ci_name"]),
-            ).fetchall()
-        return [row for row in rows if row["content_id"] != content_id and any(
-            item["ci_name"] in path[1:] for path in effective_showroom_source(row).paths
-        )]
+            return conn.execute("""
+                SELECT ce.*, bi.*, ce.scan_status
+                FROM content_entities ce
+                JOIN babylon_items bi ON bi.content_id = ce.content_id
+                WHERE ce.content_type IN ('lab', 'demo')
+                  AND ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
+                  AND bi.showroom_source_json->>'status' = 'resolved'
+            """).fetchall()
+
+    def delete_stub_artifacts(self, content_id: str, owner_ci_name: str | None = None,
+                              conn=None) -> dict[str, int]:
+        """Delete a pure stub's own analysis, embeddings, and overlap pairs.
+
+        Curator input on the stub row is merged into the owner's row first, so a
+        curator's note or duration is not lost with the stub's analysis.
+        """
+        with self._artifact_connection(conn) as conn:
+            if owner_ci_name:
+                conn.execute("""
+                    UPDATE showroom_analysis o
+                    SET notes = COALESCE(o.notes, s.notes),
+                        curated_duration_min = COALESCE(o.curated_duration_min, s.curated_duration_min),
+                        enrichment_review_needed = COALESCE(o.enrichment_review_needed, FALSE)
+                                                   OR COALESCE(s.enrichment_review_needed, FALSE)
+                    FROM showroom_analysis s
+                    WHERE s.content_id = %s AND o.content_id = %s
+                """, (content_id, f"babylon:{owner_ci_name}"))
+            analysis = conn.execute("DELETE FROM showroom_analysis WHERE content_id = %s",
+                                    (content_id,)).rowcount
+            embeddings = conn.execute("DELETE FROM embeddings WHERE content_id = %s",
+                                      (content_id,)).rowcount
+            overlaps = conn.execute(
+                "DELETE FROM overlap_candidates WHERE content_id_a = %s OR content_id_b = %s",
+                (content_id, content_id)).rowcount
+        return {"analysis": analysis, "embeddings": embeddings, "overlaps": overlaps}
+
+    def mirror_content_owner(self, stub_content_id: str, owner_ci_name: str, conn=None) -> None:
+        """Copy the owner's card fields and scan_status onto its pure stub.
+
+        No-op while the owner has no summary: copying NULL would blank a stub
+        whose owner was never scanned.
+        """
+        with self._artifact_connection(conn) as conn:
+            conn.execute("""
+                UPDATE content_entities t
+                SET summary = o.summary, products_json = o.products_json,
+                    topics_json = o.topics_json, audience_json = o.audience_json,
+                    difficulty = o.difficulty, scan_status = o.scan_status, updated_at = NOW()
+                FROM content_entities o
+                WHERE o.content_id = %s AND t.content_id = %s AND o.summary IS NOT NULL
+            """, (f"babylon:{owner_ci_name}", stub_content_id))
 
     def mark_stale(self, content_id: str, new_commit: str | None = None) -> None:
         with self._pool.connection() as conn:
@@ -2733,6 +2802,8 @@ class Database:
             source = effective_showroom_source(item)
             if source.status != "resolved":
                 continue
+            if content_owner(item) is not None:
+                continue
             analysis = self.get_showroom_analysis(item["content_id"]) or {}
             if force or showroom_work_needed(item, analysis, self.get_embeddings_for_content(item["content_id"]), settings):
                 selected.append(item)
@@ -2750,7 +2821,8 @@ class Database:
               AND ce.content_id NOT LIKE 'babylon:tests.%%'
         """
         with self._pool.connection() as conn:
-            return conn.execute(sql).fetchall()
+            rows = conn.execute(sql).fetchall()
+        return [row for row in rows if content_owner(row) is None]
 
     def get_sandboxes_needing_summary(self) -> list[dict]:
         sql = """
