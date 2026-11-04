@@ -998,7 +998,9 @@ export function BrowsePage() {
                           <p className="browse-content-owner">
                             Content from{' '}
                             <a className="browse-content-owner-link"
-                               href={`/browse?search=${encodeURIComponent(detail.content_owner)}`}>
+                               href={`/browse?search=${encodeURIComponent(detail.content_owner)}${
+                                 detail.stage === 'dev' || detail.stage === 'event'
+                                   ? `&stage=${encodeURIComponent(detail.stage)}` : ''}`}>
                               {detail.content_owner}
                             </a>
                           </p>

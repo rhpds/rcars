@@ -51,7 +51,7 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
         return {"content_id": content_id, "success": True, "outcome": "excluded", "source": source.to_dict()}
     owner = content_owner(item)
     if owner is not None:
-        db.delete_stub_artifacts(content_id)
+        db.delete_stub_artifacts(content_id, owner_ci_name=owner)
         db.mirror_content_owner(content_id, owner)
         log.info("showroom_scan_content_owner_stub", component="scanner", content_id=content_id,
                  action="content_owner_stub", owner=owner)
@@ -137,7 +137,7 @@ def reconcile_pure_stubs(db) -> dict[str, int]:
             continue
         stubs += 1
         if db.get_showroom_analysis(item["content_id"]) or db.get_embeddings_for_content(item["content_id"]):
-            db.delete_stub_artifacts(item["content_id"])
+            db.delete_stub_artifacts(item["content_id"], owner_ci_name=owner)
             cleared += 1
         db.mirror_content_owner(item["content_id"], owner)
     if stubs:

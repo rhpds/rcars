@@ -225,3 +225,37 @@ def test_display_analysis_of_an_owner_is_its_own_analysis(db):
     owner = add_item(db, "isolation-test.owner.prod")
     seed_stub_artifacts(db, owner, summary="Owner analysis")
     assert db.get_display_analysis(owner)["summary"] == "Owner analysis"
+
+
+def test_get_analysis_of_a_stub_returns_the_owner_analysis(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner, summary="Owner analysis")
+    assert db.get_analysis(stub)["summary"] == "Owner analysis"
+
+
+def test_delete_stub_artifacts_preserves_curated_fields_on_the_owner(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner)
+    seed_stub_artifacts(db, stub)
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE showroom_analysis SET notes = %s, curated_duration_min = %s "
+                     "WHERE content_id = %s", ("Stub note", 45, stub))
+    db.delete_stub_artifacts(stub, owner_ci_name="isolation-test.owner.prod")
+    row = db.get_showroom_analysis(owner)
+    assert row["notes"] == "Stub note"
+    assert row["curated_duration_min"] == 45
+    assert db.get_showroom_analysis(stub) is None
+
+
+def test_delete_stub_artifacts_keeps_the_owner_existing_curation(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner)
+    seed_stub_artifacts(db, stub)
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE showroom_analysis SET notes = %s WHERE content_id = %s", ("Owner note", owner))
+        conn.execute("UPDATE showroom_analysis SET notes = %s WHERE content_id = %s", ("Stub note", stub))
+    db.delete_stub_artifacts(stub, owner_ci_name="isolation-test.owner.prod")
+    assert db.get_showroom_analysis(owner)["notes"] == "Owner note"

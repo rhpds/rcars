@@ -13,9 +13,8 @@ from rcars.config import Settings
 from rcars.db import Database
 from rcars.db.overlap import generate_overlap_candidates, get_overlap_stats
 from rcars.logging import setup_logging
-from rcars.services.showroom_scan import scan_babylon_item
+from rcars.services.showroom_scan import scan_babylon_item, scan_candidates
 from rcars.services.analyzer import order_for_reuse
-from rcars.services.showroom_scan import scan_candidates
 
 console = Console()
 log = structlog.get_logger()

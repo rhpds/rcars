@@ -10,12 +10,13 @@ from rcars.services.recommender import vector_search
 from rcars.services.showroom_source import ResolvedShowroom
 
 
-def search(db, monkeypatch, content_ids, *, stages=None, scope=None):
+def search(db, monkeypatch, content_ids, *, stages=None, scope=None, include_zt=True):
     rows = [{**db.get_babylon_item(cid), "content_hash": "content", "best_similarity": 0.9 - index * 0.05}
             for index, cid in enumerate(content_ids)]
     monkeypatch.setattr(db, "search_embeddings", Mock(return_value=rows))
     monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
-    return vector_search.search("TLS", db, stages=stages or ["dev", "prod"], scope_content_ids=scope).candidates
+    return vector_search.search("TLS", db, stages=stages or ["dev", "prod"], include_zt=include_zt,
+                                scope_content_ids=scope).candidates
 
 
 def test_unrelated_same_hash_prod_cannot_replace_dev(db, monkeypatch):
@@ -112,3 +113,51 @@ def test_promoted_stub_card_hydrates_the_owner_analysis(db, monkeypatch):
     assert candidate.summary == "A real lab"
     from rcars.services.recommender.drivers.hands_on import HandsOnDriver
     assert HandsOnDriver().fetch_analysis(db, candidate)["summary"] == "A real lab"
+
+
+def test_scoped_query_expands_stub_ids_to_their_owner(db, monkeypatch):
+    owner, _, _ = seed(db)
+    stub = add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    captured = {}
+    rows = [{**db.get_babylon_item(owner), "content_hash": "content", "best_similarity": 0.9}]
+
+    def fake_search_embeddings(**kwargs):
+        captured["scope"] = kwargs.get("scope_content_ids")
+        return rows
+
+    monkeypatch.setattr(db, "search_embeddings", fake_search_embeddings)
+    monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
+    candidates = vector_search.search("TLS", db, stages=["prod"], scope_content_ids=[stub]).candidates
+    assert captured["scope"] == [owner]
+    assert [c.content_id for c in candidates] == [stub]
+
+
+def test_ci_reference_to_a_stub_resolves_through_its_owner(db, monkeypatch):
+    owner, _, _ = seed(db)
+    stub = add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    stub_item = db.get_babylon_item(stub)
+    monkeypatch.setattr(db, "find_catalog_item_by_display_name_prefix", lambda *a, **k: stub_item)
+    recorded = []
+
+    def fake_get_embedding(content_id, embed_type="summary"):
+        recorded.append(content_id)
+        return [0.1] * 768 if content_id == owner else None
+
+    monkeypatch.setattr(db, "get_embedding", fake_get_embedding)
+    monkeypatch.setattr(db, "search_embeddings", lambda **kwargs: [])
+    vector_search._resolve_ci_references("similar to LB2391", db, ["prod"], True)
+    assert recorded == [owner]
+
+
+def test_dev_hit_promotes_to_the_prod_counterpart_stub(db, monkeypatch):
+    dev, _, _ = seed(db, "isolation-test.item.dev")
+    seed(db)
+    stub = add_stub(db, "isolation-test.item.prod", "isolation-test.virtual.prod")
+    assert [c.content_id for c in search(db, monkeypatch, [dev], stages=["prod"])] == [stub]
+
+
+def test_zt_stub_is_not_promoted_when_zt_is_excluded(db, monkeypatch):
+    owner, _, _ = seed(db)
+    add_stub(db, owner.removeprefix("babylon:"), "zt-isolation-test.virtual.prod")
+    candidates = search(db, monkeypatch, [owner], stages=["prod"], include_zt=False)
+    assert [c.content_id for c in candidates] == [owner]

@@ -1851,7 +1851,7 @@ class Database:
         ct = entity.get("content_type")
         if ct == "architecture":
             return self.get_architecture_analysis(content_id)
-        return self.get_showroom_analysis(content_id)
+        return self.get_display_analysis(content_id)
 
     def get_showroom_analysis_by_ci_name(self, ci_name: str) -> dict[str, Any] | None:
         content_id = f"babylon:{ci_name}"
@@ -1932,9 +1932,24 @@ class Database:
                   AND bi.showroom_source_json->>'status' = 'resolved'
             """).fetchall()
 
-    def delete_stub_artifacts(self, content_id: str, conn=None) -> dict[str, int]:
-        """Delete a pure stub's own analysis, embeddings, and overlap pairs."""
+    def delete_stub_artifacts(self, content_id: str, owner_ci_name: str | None = None,
+                              conn=None) -> dict[str, int]:
+        """Delete a pure stub's own analysis, embeddings, and overlap pairs.
+
+        Curator input on the stub row is merged into the owner's row first, so a
+        curator's note or duration is not lost with the stub's analysis.
+        """
         with self._artifact_connection(conn) as conn:
+            if owner_ci_name:
+                conn.execute("""
+                    UPDATE showroom_analysis o
+                    SET notes = COALESCE(o.notes, s.notes),
+                        curated_duration_min = COALESCE(o.curated_duration_min, s.curated_duration_min),
+                        enrichment_review_needed = COALESCE(o.enrichment_review_needed, FALSE)
+                                                   OR COALESCE(s.enrichment_review_needed, FALSE)
+                    FROM showroom_analysis s
+                    WHERE s.content_id = %s AND o.content_id = %s
+                """, (content_id, f"babylon:{owner_ci_name}"))
             analysis = conn.execute("DELETE FROM showroom_analysis WHERE content_id = %s",
                                     (content_id,)).rowcount
             embeddings = conn.execute("DELETE FROM embeddings WHERE content_id = %s",
