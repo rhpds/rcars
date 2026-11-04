@@ -81,3 +81,60 @@ def test_get_stub_reconciliation_candidates_includes_stubs(db):
     stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
     ids = {row["content_id"] for row in db.get_stub_reconciliation_candidates()}
     assert stub in ids
+
+
+from rcars.services.showroom_scan import scan_babylon_item
+from tests.test_showroom_reuse import scan, git_repo  # noqa: F401  (LLM/embedding mocks + local git)
+
+
+def test_pure_stub_is_not_selected_and_scan_makes_no_llm_call(db, scan):
+    owner = add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                    paths=(("isolation-test.virtual.prod", "isolation-test.a.prod"),),
+                    repo=scan.source.repo)
+    assert stub not in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+    seed_stub_artifacts(db, stub)
+    scan.llm.reset_mock()
+    scan.embed.reset_mock()
+    result = scan_babylon_item(db, scan.settings, stub)
+    assert result["outcome"] == "content_owner_stub"
+    assert result["success"] is True
+    assert scan.llm.call_count == scan.embed.call_count == 0
+    assert db.get_showroom_analysis(stub) is None
+    assert db.get_embeddings_for_content(stub) == []
+
+
+def test_stub_with_a_mid_chain_override_is_scanned(db, scan):
+    add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    overridden = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                          paths=(("isolation-test.virtual.prod", "isolation-test.a.prod"),),
+                          override_origins={"ref": "isolation-test.middle.prod"},
+                          repo=scan.source.repo)
+    assert overridden in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+    scan.llm.reset_mock()
+    assert scan_babylon_item(db, scan.settings, overridden)["outcome"] in ("analyzed", "reused")
+    assert scan.llm.call_count == 1
+
+
+def test_stub_with_a_curator_content_path_is_scanned(db, scan):
+    add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    overridden = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                          repo=scan.source.repo)
+    db.set_content_path(overridden, "content/modules/ROOT/pages")
+    assert overridden in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+
+
+def test_stale_check_candidates_exclude_pure_stubs(db):
+    add_item(db, "isolation-test.a.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod")
+    seed_stub_artifacts(db, stub)
+    ids = {row["content_id"] for row in db.get_stale_check_candidates()}
+    assert stub not in ids
+
+
+def test_mirror_content_owner_is_a_no_op_while_the_owner_has_no_summary(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    db.update_content_entity_card(stub, summary="Stub keeps this")
+    db.mirror_content_owner(stub, "isolation-test.owner.prod")
+    assert db.get_content_entity(stub)["summary"] == "Stub keeps this"

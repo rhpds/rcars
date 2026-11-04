@@ -8,7 +8,7 @@ import hashlib
 import subprocess
 
 from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings, showroom_reuse_key
-from rcars.services.showroom_source import effective_showroom_source, analysis_generation
+from rcars.services.showroom_source import content_owner, effective_showroom_source, analysis_generation
 import structlog
 
 log = structlog.get_logger()
@@ -49,6 +49,14 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
     if source.status == "excluded":
         log.info("showroom_scan_excluded", component="scanner", content_id=content_id, action="excluded")
         return {"content_id": content_id, "success": True, "outcome": "excluded", "source": source.to_dict()}
+    owner = content_owner(item)
+    if owner is not None:
+        db.delete_stub_artifacts(content_id)
+        db.mirror_content_owner(content_id, owner)
+        log.info("showroom_scan_content_owner_stub", component="scanner", content_id=content_id,
+                 action="content_owner_stub", owner=owner)
+        return {"content_id": content_id, "success": True, "outcome": "content_owner_stub",
+                "source": source.to_dict()}
     snapshot = _snapshot(item)
     observed_generation = analysis_generation(db.get_showroom_analysis(content_id))
     result = None

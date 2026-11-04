@@ -2795,6 +2795,8 @@ class Database:
             source = effective_showroom_source(item)
             if source.status != "resolved":
                 continue
+            if content_owner(item) is not None:
+                continue
             analysis = self.get_showroom_analysis(item["content_id"]) or {}
             if force or showroom_work_needed(item, analysis, self.get_embeddings_for_content(item["content_id"]), settings):
                 selected.append(item)
@@ -2812,7 +2814,8 @@ class Database:
               AND ce.content_id NOT LIKE 'babylon:tests.%%'
         """
         with self._pool.connection() as conn:
-            return conn.execute(sql).fetchall()
+            rows = conn.execute(sql).fetchall()
+        return [row for row in rows if content_owner(row) is None]
 
     def get_sandboxes_needing_summary(self) -> list[dict]:
         sql = """
