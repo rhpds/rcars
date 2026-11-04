@@ -191,3 +191,24 @@ def test_rescan_all_never_enqueues_a_pure_stub(db, scan):
     assert stub not in enqueued
     with db.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE created_by IN ('isolation-test@example.com', 'rescan-all')")
+
+
+def test_owner_scan_mirrors_card_fields_to_its_stub(db, scan):
+    owner = add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                    repo=scan.source.repo)
+    assert scan_babylon_item(db, scan.settings, owner)["success"]
+    card = db.get_content_entity(stub)
+    assert card["summary"] == "Configure TLS"
+    assert card["scan_status"] == "success"
+
+
+def test_unchanged_owner_scan_still_mirrors_a_newly_added_stub(db, scan):
+    owner = add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    assert scan_babylon_item(db, scan.settings, owner)["outcome"] == "analyzed"
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                    repo=scan.source.repo)
+    result = scan_babylon_item(db, scan.settings, owner)
+    assert result["outcome"] == "unchanged"
+    assert db.get_content_entity(stub)["summary"] == "Configure TLS"
+    assert db.get_content_entity(stub)["scan_status"] == "success"
