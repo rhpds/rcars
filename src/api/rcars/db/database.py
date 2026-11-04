@@ -1359,7 +1359,8 @@ class Database:
             )
 
         if difficulty:
-            conditions.append("COALESCE(sa.difficulty, aa.difficulty) = %(difficulty)s")
+            # ce.difficulty covers pure stubs, whose card mirrors the owner's.
+            conditions.append("COALESCE(sa.difficulty, aa.difficulty, ce.difficulty) = %(difficulty)s")
             params["difficulty"] = difficulty
         if content_filter == "stale":
             joins.append(
@@ -1398,13 +1399,16 @@ class Database:
                    ce.scan_error, ce.scan_failed_at, bi.last_crd_update, ce.last_refreshed,
                    pa.pa_name, pa.solutions, pa.verticals, pa.detail_page, pa.image_url,
                    aa.asset_type,
-                   COALESCE(sa.is_stale, aa.is_stale) AS is_stale,
-                   COALESCE(sa.enrichment_review_needed, aa.enrichment_review_needed)
-                       AS enrichment_review_needed,
+                   COALESCE(sa.is_stale, sa_owner.is_stale, aa.is_stale) AS is_stale,
+                   COALESCE(sa.enrichment_review_needed, sa_owner.enrichment_review_needed,
+                            aa.enrichment_review_needed) AS enrichment_review_needed,
                    rw.status AS workflow_status, rw.retirement_target_date
             FROM content_entities ce
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
+            -- A pure stub has no analysis row; its badges come from its owner's.
+            LEFT JOIN showroom_analysis sa_owner ON sa.content_id IS NULL
+                AND sa_owner.content_id = 'babylon:' || (bi.showroom_source_json->>'owner_ci_name')
             LEFT JOIN portfolio_architectures pa ON pa.content_id = ce.content_id
             LEFT JOIN architecture_analysis aa ON aa.content_id = ce.content_id
             {_SIBLING_RETIREMENT_JOIN}

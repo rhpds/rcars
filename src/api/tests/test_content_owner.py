@@ -259,3 +259,29 @@ def test_delete_stub_artifacts_keeps_the_owner_existing_curation(db):
         conn.execute("UPDATE showroom_analysis SET notes = %s WHERE content_id = %s", ("Stub note", stub))
     db.delete_stub_artifacts(stub, owner_ci_name="isolation-test.owner.prod")
     assert db.get_showroom_analysis(owner)["notes"] == "Owner note"
+
+
+def _browse_row(db, content_id, **filters):
+    rows = db.list_content_entities_filtered(search="isolation-test", limit=200, **filters)["items"]
+    return next((row for row in rows if row["content_id"] == content_id), None)
+
+
+def test_browse_shows_the_owner_review_flags_on_a_stub(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner)
+    db.mark_stale(owner)
+    db.set_enrichment_review_flag(owner, True)
+    row = _browse_row(db, stub)
+    assert row["is_stale"] is True
+    assert row["enrichment_review_needed"] is True
+
+
+def test_browse_difficulty_filter_finds_a_stub_by_its_mirrored_card(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    db.upsert_showroom_analysis({"content_id": owner, "summary": "Owner", "difficulty": "advanced",
+                                 "modules_json": [], "content_hash": "content"})
+    db.update_content_entity_card(owner, summary="Owner", difficulty="advanced")
+    db.mirror_content_owner(stub, "isolation-test.owner.prod")
+    assert _browse_row(db, stub, difficulty="advanced") is not None
