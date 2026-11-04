@@ -1064,9 +1064,15 @@ class Database:
             ).fetchone()
             return row["count"]
 
-    def retire_missing_osspa(self, active_content_ids: set[str]) -> list[dict]:
-        """Soft-retire portfolio_arch rows absent from the current in-scope set."""
-        if not active_content_ids:
+    def retire_missing_osspa(self, active_content_ids: set[str], *,
+                             allow_empty: bool = False) -> list[dict]:
+        """Soft-retire portfolio_arch rows absent from the current in-scope set.
+
+        An empty set retires every architecture at once, so it is refused
+        unless the caller passes allow_empty=True (the confirmed
+        empty-inventory path in run_osspa_sync).
+        """
+        if not active_content_ids and not allow_empty:
             logger.warning("retire_skipped_empty_scan",
                            component="rcars", action="retire_removed",
                            reason="Empty OSSPA scan result — refusing to retire all items")

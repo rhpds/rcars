@@ -631,7 +631,8 @@ def run_osspa_sync(
 
         if allowed:
             progress("pipeline:osspa:retire", "Retiring items no longer in the inventory...")
-            stats["retired"] = len(db.retire_missing_osspa(active_ids))
+            stats["retired"] = len(db.retire_missing_osspa(
+                active_ids, allow_empty=confirm_empty_inventory))
         else:
             stats["retire_skipped_reason"] = reason
             logger.warning("osspa_retire_skipped", action="run_osspa_sync", reason=reason,

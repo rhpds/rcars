@@ -15,8 +15,12 @@ CASES = yaml.safe_load(
 
 @pytest.fixture(scope="module")
 def settings():
-    return Settings(database_url=os.environ.get(
+    s = Settings(database_url=os.environ.get(
         "RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"))
+    if not s.use_litemaas:
+        pytest.skip("llm_eval needs a live LiteMaaS model: set "
+                    "RCARS_LITEMAAS_URL and RCARS_LITEMAAS_API_KEY")
+    return s
 
 
 @pytest.mark.llm_eval

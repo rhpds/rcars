@@ -142,7 +142,10 @@ def test_content_hash_covers_prompt_input_csv_fields(field, value):
 
 
 def test_content_hash_ignores_non_prompt_csv_fields():
+    # display_name is a prompt field (see build_architecture_prompt) and must
+    # change the hash. image_url and detail_page never reach the prompt.
     base = {"summary": "s", "products": ["p"], "solutions": ["a"],
-            "verticals": ["v"], "meta_keyword": "k", "image_url": "a.png"}
-    changed = {**base, "image_url": "b.png", "display_name": "Renamed"}
+            "verticals": ["v"], "meta_keyword": "k",
+            "image_url": "a.png", "detail_page": "a.md"}
+    changed = {**base, "image_url": "b.png", "detail_page": "b.md"}
     assert compute_content_hash("body", base) == compute_content_hash("body", changed)
