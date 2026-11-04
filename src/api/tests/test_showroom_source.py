@@ -211,3 +211,41 @@ def test_explicit_stage_infrastructure_chain_without_showroom_is_not_failure():
     assert source["status"] == "none"
     assert source["error"] is None
     assert source["paths"] == [["example.training.dev", "example.pools.prod"]]
+
+
+from rcars.services.showroom_source import content_owner
+
+
+def test_pure_stub_returns_its_content_owner():
+    result = resolve(node("example.virtual.prod", links=("example.content.prod",)),
+                     node("example.content.prod", repo=URL))
+    item = {"ci_name": "example.virtual.prod", "showroom_source": result.to_dict()}
+    assert content_owner(item) == "example.content.prod"
+
+
+def test_owner_is_not_its_own_stub():
+    result = resolve(node("example.content.prod", repo=URL))
+    item = {"ci_name": "example.content.prod", "showroom_source": result.to_dict()}
+    assert content_owner(item) is None
+
+
+def test_mid_chain_override_is_not_a_pure_stub():
+    result = resolve(node("example.virtual.prod", links=("example.wrapper.prod",)),
+                     node("example.wrapper.prod", ref="custom", links=("example.content.prod",)),
+                     node("example.content.prod", repo=URL, ref="main"))
+    item = {"ci_name": "example.virtual.prod", "showroom_source": result.to_dict()}
+    assert result.override_origins["ref"] == "example.wrapper.prod"
+    assert content_owner(item) is None
+
+
+def test_curator_content_path_override_is_not_a_pure_stub():
+    result = resolve(node("example.virtual.prod", links=("example.content.prod",)),
+                     node("example.content.prod", repo=URL))
+    item = {"ci_name": "example.virtual.prod", "showroom_source": result.to_dict(),
+            "content_path": "content/modules/ROOT/pages"}
+    assert content_owner(item) is None
+
+
+@pytest.mark.parametrize("source", [None, {"status": "invalid"}, {"status": "none"}, {"status": "ambiguous"}])
+def test_unresolved_source_has_no_content_owner(source):
+    assert content_owner({"ci_name": "example.virtual.prod", "showroom_source": source}) is None

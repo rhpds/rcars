@@ -121,6 +121,23 @@ def effective_showroom_source(item: dict) -> ResolvedShowroom:
     return source
 
 
+def content_owner(item: dict) -> str | None:
+    """Owner CI name when item is a pure stub, else None.
+
+    A pure stub resolves to an owner other than itself and nothing at or below
+    the stub overrode repo, ref, or content_path.
+    """
+    source = effective_showroom_source(item)
+    name = item.get("ci_name") or item.get("content_id") or ""
+    if source.status != "resolved" or not source.owner_ci_name:
+        return None
+    if source.owner_ci_name == name:
+        return None
+    if any(origin != source.owner_ci_name for origin in source.override_origins.values()):
+        return None
+    return source.owner_ci_name
+
+
 def signature_matches_source(signature: dict, source: ResolvedShowroom) -> bool:
     return (source.status == "resolved"
             and signature.get("policy_version") == SHOWROOM_ANALYSIS_POLICY_VERSION
