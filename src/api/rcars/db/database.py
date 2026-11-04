@@ -22,7 +22,7 @@ import structlog
 from rcars.config import STAGE_PRIORITY
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
-    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete,
+    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete, content_owner,
     effective_showroom_source, item_family_key, signature_matches_source,
 )
 
@@ -1909,6 +1909,68 @@ class Database:
         return [row for row in rows if row["content_id"] != content_id and any(
             item["ci_name"] in path[1:] for path in effective_showroom_source(row).paths
         )]
+
+    def get_pure_stubs_for_owner(self, owner_ci_name: str, stages: list[str] | None = None,
+                                 conn=None) -> list[dict]:
+        """Non-retired Babylon items whose content owner is owner_ci_name."""
+        sql = """
+            SELECT ce.*, bi.*, ce.scan_status
+            FROM content_entities ce
+            JOIN babylon_items bi ON bi.content_id = ce.content_id
+            WHERE ce.retired_at IS NULL
+              AND bi.showroom_source_json->>'status' = 'resolved'
+              AND bi.showroom_source_json->>'owner_ci_name' = %(owner)s
+              AND ce.content_id != %(owner_id)s
+        """
+        params = {"owner": owner_ci_name, "owner_id": f"babylon:{owner_ci_name}"}
+        if stages is not None:
+            sql += " AND bi.stage = ANY(%(stages)s)"
+            params["stages"] = stages
+        sql += " ORDER BY bi.ci_name"
+        with self._artifact_connection(conn) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [row for row in rows if content_owner(row) == owner_ci_name]
+
+    def get_stub_reconciliation_candidates(self) -> list[dict]:
+        """Every resolved lab/demo Babylon item; Python decides which are pure stubs."""
+        with self._pool.connection() as conn:
+            return conn.execute("""
+                SELECT ce.*, bi.*, ce.scan_status
+                FROM content_entities ce
+                JOIN babylon_items bi ON bi.content_id = ce.content_id
+                WHERE ce.content_type IN ('lab', 'demo')
+                  AND ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
+                  AND bi.showroom_source_json->>'status' = 'resolved'
+            """).fetchall()
+
+    def delete_stub_artifacts(self, content_id: str, conn=None) -> dict[str, int]:
+        """Delete a pure stub's own analysis, embeddings, and overlap pairs."""
+        with self._artifact_connection(conn) as conn:
+            analysis = conn.execute("DELETE FROM showroom_analysis WHERE content_id = %s",
+                                    (content_id,)).rowcount
+            embeddings = conn.execute("DELETE FROM embeddings WHERE content_id = %s",
+                                      (content_id,)).rowcount
+            overlaps = conn.execute(
+                "DELETE FROM overlap_candidates WHERE content_id_a = %s OR content_id_b = %s",
+                (content_id, content_id)).rowcount
+        return {"analysis": analysis, "embeddings": embeddings, "overlaps": overlaps}
+
+    def mirror_content_owner(self, stub_content_id: str, owner_ci_name: str, conn=None) -> None:
+        """Copy the owner's card fields and scan_status onto its pure stub.
+
+        No-op while the owner has no summary: copying NULL would blank a stub
+        whose owner was never scanned.
+        """
+        with self._artifact_connection(conn) as conn:
+            conn.execute("""
+                UPDATE content_entities t
+                SET summary = o.summary, products_json = o.products_json,
+                    topics_json = o.topics_json, audience_json = o.audience_json,
+                    difficulty = o.difficulty, scan_status = o.scan_status, updated_at = NOW()
+                FROM content_entities o
+                WHERE o.content_id = %s AND t.content_id = %s AND o.summary IS NOT NULL
+            """, (f"babylon:{owner_ci_name}", stub_content_id))
 
     def mark_stale(self, content_id: str, new_commit: str | None = None) -> None:
         with self._pool.connection() as conn:
