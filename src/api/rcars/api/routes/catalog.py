@@ -11,6 +11,7 @@ from rcars.api.schemas import (
     InfraStatsResponse, ContentPathResponse,
 )
 from rcars.config import Settings
+from rcars.services.showroom_source import content_owner
 
 router = APIRouter(prefix="/catalog")
 
@@ -262,13 +263,14 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
             "workloads": [],
             "acl_groups": [],
             "reporting": None,
+            "content_owner": None,
             "source_url": (
                 f"{repo}/-/blob/{settings.osspa_examples_ref}/{detail_page}"
                 if detail_page else None
             ),
         }
 
-    analysis = db.get_showroom_analysis(content_id)
+    analysis = db.get_display_analysis(content_id)
     tags = db.get_enrichment_tags(content_id)
     workloads = db.get_workloads(content_id) if item.get("is_agd_v2") else []
     acl_groups = db.get_acl_groups(content_id) if item.get("is_agd_v2") else []
@@ -299,7 +301,7 @@ async def get_catalog_item(identifier: str, request: Request, user: str = Depend
 
     return {**item, **retirement, "analysis": analysis, "tags": tags,
             "workloads": workloads, "acl_groups": acl_groups,
-            "reporting": reporting}
+            "reporting": reporting, "content_owner": content_owner(item)}
 
 
 @router.get(
@@ -314,7 +316,7 @@ async def get_analysis(identifier: str, request: Request, user: str = Depends(re
     if content_id.startswith("pa:"):
         analysis = db.get_architecture_analysis(content_id)
     else:
-        analysis = db.get_showroom_analysis(content_id)
+        analysis = db.get_display_analysis(content_id)
     if not analysis:
         raise HTTPException(status_code=404, detail="No analysis found")
     return analysis

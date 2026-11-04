@@ -81,6 +81,7 @@ interface ItemDetail {
   showroom_url: string | null
   showroom_ref: string | null
   scan_status: string | null
+  content_owner?: string | null
   content_path: string | null
   showroom_url_override: string | null
   scan_error_class: string | null
@@ -992,6 +993,15 @@ export function BrowsePage() {
                         )}
                         {detail.analysis?.summary && (
                           <p className="browse-description">{detail.analysis.summary}</p>
+                        )}
+                        {detail.content_owner && (
+                          <p className="browse-content-owner">
+                            Content from{' '}
+                            <a className="browse-content-owner-link"
+                               href={`/browse?search=${encodeURIComponent(detail.content_owner)}`}>
+                              {detail.content_owner}
+                            </a>
+                          </p>
                         )}
                       </div>
 
