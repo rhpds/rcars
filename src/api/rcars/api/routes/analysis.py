@@ -19,6 +19,7 @@ from rcars.db.overlap import get_overlap_items, get_overlap_stats
 from rcars.services.overlap_assessment import assess_overlap
 from rcars.services.analyzer import order_for_reuse
 from rcars.services.showroom_scan import scan_candidates
+from rcars.services.showroom_source import content_owner
 import structlog
 
 logger = structlog.get_logger(component="api")
@@ -1376,6 +1377,11 @@ async def analyze_single(identifier: str, request: Request, force: bool = True, 
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
     content_id = identifier if identifier.startswith("babylon:") else f"babylon:{identifier}"
+    # A pure stub has no analysis of its own; reanalyzing it means analyzing its owner.
+    item = db.get_babylon_item(content_id)
+    owner = content_owner(item) if item else None
+    if owner:
+        content_id = f"babylon:{owner}"
     entity = db.get_content_entity(content_id)
     if not entity:
         raise HTTPException(status_code=404, detail=f"Item not found: {identifier}")

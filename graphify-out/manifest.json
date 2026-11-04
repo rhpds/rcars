@@ -78,9 +78,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/analysis.py": {
-    "mtime": 1793792963.008199,
-    "seen": 1793794941.411993,
-    "ast_hash": "5f0632635cdcfa433c3e33da5a6d954f",
+    "mtime": 1793797864.8325722,
+    "seen": 1793798060.678752,
+    "ast_hash": "85ac8e1547eaa29ebdd36c72406cf0ed",
     "semantic_hash": ""
   },
   "src/api/rcars/api/routes/auth.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1793794735.5067647,
-    "seen": 1793794941.4120011,
-    "ast_hash": "514d29fe75ea422a3fe1f52f29d4a642",
+    "mtime": 1793797859.2836268,
+    "seen": 1793798060.67876,
+    "ast_hash": "a7f16635dfcc00363a6bbbc332a6165b",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -2016,9 +2016,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_content_owner.py": {
-    "mtime": 1793794629.3767445,
-    "seen": 1793794941.412055,
-    "ast_hash": "2268f981fd9744e43eb09a8041333e60",
+    "mtime": 1793797843.40455,
+    "seen": 1793798060.678821,
+    "ast_hash": "b8b04ac42f1efc4130fc58c269b19607",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-11-04-content-owner-model.md": {

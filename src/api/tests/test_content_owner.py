@@ -285,3 +285,17 @@ def test_browse_difficulty_filter_finds_a_stub_by_its_mirrored_card(db):
     db.update_content_entity_card(owner, summary="Owner", difficulty="advanced")
     db.mirror_content_owner(stub, "isolation-test.owner.prod")
     assert _browse_row(db, stub, difficulty="advanced") is not None
+
+
+def test_analyze_single_on_a_stub_analyzes_its_owner(db):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from rcars.api.routes.analysis import analyze_single
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    redis = SimpleNamespace(enqueue_job=AsyncMock())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis)))
+    asyncio.run(analyze_single(stub, request, user="isolation-test@example.com"))
+    assert redis.enqueue_job.call_args.kwargs["content_id"] == owner
+    with db.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE created_by = 'isolation-test@example.com'")
