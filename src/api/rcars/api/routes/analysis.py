@@ -18,6 +18,7 @@ from rcars.config import Settings
 from rcars.db.overlap import get_overlap_items, get_overlap_stats
 from rcars.services.overlap_assessment import assess_overlap
 from rcars.services.analyzer import order_for_reuse
+from rcars.services.showroom_scan import scan_candidates
 import structlog
 
 logger = structlog.get_logger(component="api")
@@ -861,10 +862,10 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
-    dedup_stats = db.get_scan_dedup_stats()
     settings = request.app.state.settings
     # Group leaders first so stage siblings reuse a finished donor instead of racing it.
-    items = order_for_reuse(db.get_items_needing_analysis(settings), settings)
+    items = order_for_reuse(scan_candidates(db, settings), settings)
+    dedup_stats = db.get_scan_dedup_stats()
 
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
 
@@ -907,7 +908,7 @@ async def rescan_all(request: Request, user: str = Depends(require_admin)):
     db = request.app.state.db
     arq_redis = request.app.state.arq_redis
 
-    items = db.get_items_needing_analysis(force=True)
+    items = scan_candidates(db, None, force=True)
 
     parent_job_id = db.create_job(job_type="rescan_all", queue="analyze", created_by=user)
 

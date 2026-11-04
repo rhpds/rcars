@@ -124,3 +124,27 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
             db.invalidate_babylon_scan_failure(content_id, error, message, conn=conn)
         log.exception("showroom_scan_failed", content_id=content_id, error_class=error)
         return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
+
+
+def reconcile_pure_stubs(db) -> dict[str, int]:
+    """Some CIs may have artifacts from before they became pure stubs."""
+    stubs = cleared = 0
+    for item in db.get_stub_reconciliation_candidates():
+        owner = content_owner(item)
+        if owner is None:
+            continue
+        stubs += 1
+        if db.get_showroom_analysis(item["content_id"]) or db.get_embeddings_for_content(item["content_id"]):
+            db.delete_stub_artifacts(item["content_id"])
+            cleared += 1
+        db.mirror_content_owner(item["content_id"], owner)
+    if stubs:
+        log.info("showroom_stub_reconciled", component="scanner", action="reconcile_stubs",
+                 stubs=stubs, cleared=cleared)
+    return {"stubs": stubs, "cleared": cleared}
+
+
+def scan_candidates(db, settings, *, force: bool = False) -> list[dict]:
+    """The single scan front door: reconcile stubs, then select work."""
+    reconcile_pure_stubs(db)
+    return db.get_items_needing_analysis(settings, force=force)

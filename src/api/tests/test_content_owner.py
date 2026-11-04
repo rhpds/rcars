@@ -138,3 +138,56 @@ def test_mirror_content_owner_is_a_no_op_while_the_owner_has_no_summary(db):
     db.update_content_entity_card(stub, summary="Stub keeps this")
     db.mirror_content_owner(stub, "isolation-test.owner.prod")
     assert db.get_content_entity(stub)["summary"] == "Stub keeps this"
+
+
+from rcars.services.showroom_scan import reconcile_pure_stubs, scan_candidates
+
+
+def test_reconcile_clears_stub_artifacts_and_mirrors_owner_card(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    db.update_content_entity_card(owner, summary="Owner summary", products_json=["OpenShift"])
+    db.set_scan_status(owner, "success")
+    seed_stub_artifacts(db, stub)
+    result = reconcile_pure_stubs(db)
+    assert result["cleared"] >= 1
+    assert db.get_showroom_analysis(stub) is None
+    assert db.get_embeddings_for_content(stub) == []
+    assert db.get_content_entity(stub)["summary"] == "Owner summary"
+    assert db.get_content_entity(stub)["scan_status"] == "success"
+
+
+def test_reconcile_leaves_the_owner_analysis_alone(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner, summary="Owner analysis")
+    reconcile_pure_stubs(db)
+    assert db.get_showroom_analysis(owner)["summary"] == "Owner analysis"
+    assert db.get_embeddings_for_content(owner)
+
+
+def test_scan_candidates_reconciles_before_selecting(db, scan):
+    owner = add_item(db, "isolation-test.owner.prod", repo=scan.source.repo)
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod",
+                    repo=scan.source.repo)
+    seed_stub_artifacts(db, stub)
+    ids = {row["content_id"] for row in scan_candidates(db, scan.settings)}
+    assert stub not in ids
+    assert db.get_showroom_analysis(stub) is None
+
+
+def test_rescan_all_never_enqueues_a_pure_stub(db, scan):
+    import asyncio
+    from unittest.mock import AsyncMock
+    from rcars.api.routes.analysis import rescan_all
+    add_item(db, "isolation-test.a.prod", repo=scan.source.repo)
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.a.prod",
+                    repo=scan.source.repo)
+    redis = SimpleNamespace(enqueue_job=AsyncMock())
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        db=db, arq_redis=redis, settings=scan.settings)))
+    asyncio.run(rescan_all(request, user="isolation-test@example.com"))
+    enqueued = {call.kwargs["content_id"] for call in redis.enqueue_job.call_args_list}
+    assert stub not in enqueued
+    with db.pool.connection() as conn:
+        conn.execute("DELETE FROM jobs WHERE created_by IN ('isolation-test@example.com', 'rescan-all')")
