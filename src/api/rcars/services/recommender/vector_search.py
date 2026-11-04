@@ -123,6 +123,17 @@ def _verified_signature(db, content_id):
         return None
 
 
+def _eligible_stub(target, stages, include_zt, scope) -> bool:
+    if not target or target.get("stage") not in stages:
+        return False
+    if scope and target["content_id"] not in scope:
+        return False
+    if not include_zt and ((target.get("ci_name") or "").startswith("zt-")
+                           or (target.get("catalog_namespace") or "").startswith("zt-")):
+        return False
+    return True
+
+
 def _authorized_promotion(db, row, stages, include_zt, scope):
     if is_content_excluded(row["content_id"]):
         return None
@@ -147,9 +158,11 @@ def _authorized_promotion(db, row, stages, include_zt, scope):
         target = db.get_stage_counterpart(row["content_id"], "prod")
         if eligible(target):
             row = {**target, "best_similarity": row["best_similarity"]}
-    aliases = [alias for alias in db.get_virtual_content_aliases(row["content_id"]) if eligible(alias)]
-    if len(aliases) == 1:
-        row = {**aliases[0], "best_similarity": row["best_similarity"]}
+    promoted = db.get_babylon_item(row["content_id"])
+    stubs = [stub for stub in db.get_pure_stubs_for_owner(promoted["ci_name"], list(stages))
+             if _eligible_stub(stub, stages, include_zt, scope)]
+    if len(stubs) == 1:
+        row = {**stubs[0], "best_similarity": row["best_similarity"]}
     return row
 
 

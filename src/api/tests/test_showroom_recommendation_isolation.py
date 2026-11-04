@@ -1,4 +1,3 @@
-from copy import deepcopy
 from dataclasses import replace
 from unittest.mock import Mock
 
@@ -46,45 +45,55 @@ def test_scoped_queries_never_promote_outside_requested_ids(db, monkeypatch):
     assert search(db, monkeypatch, [dev], stages=["dev"])[0].content_id == dev
 
 
-def add_alias(db, owner, name, provenance, *, explicit=True):
-    source = deepcopy(provenance["source"])
-    source["paths"] = [[name, "example.wrapper.prod", "example.middle.prod", owner.removeprefix("babylon:")]]
-    cid = db.upsert_babylon_catalog_item({"ci_name": name, "stage": "prod", "display_name": name,
-        "showroom_url": source["repo"], "showroom_ref": source["ref"], "base_ci_name": owner.removeprefix("babylon:"),
-        "showroom_source": source if explicit else ResolvedShowroom("none").to_dict(), "is_published": True})
-    alias_provenance = {**provenance, "source": source, "reused_from": owner}
-    db.upsert_showroom_analysis({"content_id": cid, "summary": "Own virtual analysis", "modules_json": [],
-        "content_hash": "content", "analysis_provenance_json": alias_provenance})
-    db.set_scan_status(cid, "success")
-    db.store_embedding(cid, "lab", "babylon", "summary", "Own virtual analysis", [0.1] * 768)
-    return cid
+def add_stub(db, owner_ci_name, name, *, stage="prod"):
+    source = ResolvedShowroom("resolved", owner_ci_name, owner_ci_name.rsplit(".", 1)[0],
+                              "https://github.com/example/content", "main",
+                              paths=((name, owner_ci_name),))
+    return db.upsert_babylon_catalog_item({
+        "ci_name": name, "stage": stage, "display_name": name,
+        "showroom_url": source.repo, "showroom_ref": "main",
+        "showroom_source": source.to_dict(), "is_published": True})
 
 
-def test_explicit_multihop_virtual_alias_is_recognized_and_hydrates_own_analysis(db, monkeypatch):
-    owner, _, provenance = seed(db)
-    target = add_alias(db, owner, "isolation-test.virtual.prod", provenance)
-    assert [row["content_id"] for row in db.get_virtual_content_aliases(owner)] == [target]
-    candidate = search(db, monkeypatch, [owner], stages=["prod"])[0]
-    assert candidate.content_id == target
-    assert candidate.summary == "Own virtual analysis"
-    from rcars.services.recommender.drivers.hands_on import HandsOnDriver
-    assert HandsOnDriver().fetch_analysis(db, candidate)["content_id"] == target
+def test_owner_hit_is_shown_as_its_only_stub(db, monkeypatch):
+    owner, _, _ = seed(db)
+    stub = add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    candidates = search(db, monkeypatch, [owner], stages=["prod"])
+    assert [c.content_id for c in candidates] == [stub]
+    assert candidates[0].vector_similarity_pct == 90  # the owner hit's score is kept
 
 
-def test_infrastructure_base_is_not_a_content_alias(db, monkeypatch):
-    owner, _, provenance = seed(db)
-    add_alias(db, owner, "isolation-test.virtual.prod", provenance, explicit=False)
-    assert db.get_virtual_content_aliases(owner) == []
-    assert search(db, monkeypatch, [owner])[0].content_id == owner
+def test_owner_without_a_stub_is_shown_as_the_owner(db, monkeypatch):
+    owner, _, _ = seed(db)
+    assert [c.content_id for c in search(db, monkeypatch, [owner], stages=["prod"])] == [owner]
 
 
-def test_multiple_virtual_targets_are_not_selected_arbitrarily(db, monkeypatch):
-    owner, _, provenance = seed(db)
-    first = add_alias(db, owner, "isolation-test.first.prod", provenance)
-    second = add_alias(db, owner, "isolation-test.second.prod", provenance)
-    candidates = search(db, monkeypatch, [first, second], stages=["prod"], scope=[first, second])
-    assert [c.content_id for c in candidates] == [first, second]
-    assert search(db, monkeypatch, [owner], stages=["prod"])[0].content_id == owner
+def test_owner_with_two_stubs_is_shown_as_the_owner(db, monkeypatch):
+    owner, _, _ = seed(db)
+    add_stub(db, owner.removeprefix("babylon:"), "isolation-test.first.prod")
+    add_stub(db, owner.removeprefix("babylon:"), "isolation-test.second.prod")
+    assert [c.content_id for c in search(db, monkeypatch, [owner], stages=["prod"])] == [owner]
+
+
+def test_stub_outside_the_requested_stage_is_not_shown(db, monkeypatch):
+    owner, _, _ = seed(db)
+    add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.dev", stage="dev")
+    assert [c.content_id for c in search(db, monkeypatch, [owner], stages=["prod"])] == [owner]
+
+
+def test_stub_outside_the_requested_scope_is_not_shown(db, monkeypatch):
+    owner, _, _ = seed(db)
+    add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    assert [c.content_id for c in search(db, monkeypatch, [owner], stages=["prod"], scope=[owner])] == [owner]
+
+
+def test_each_owner_promotes_to_its_own_stub(db, monkeypatch):
+    a, _, _ = seed(db)
+    b, _, _ = seed(db, "isolation-test.b.prod")
+    stub_a = add_stub(db, "isolation-test.item.prod", "isolation-test.virtual-a.prod")
+    stub_b = add_stub(db, "isolation-test.b.prod", "isolation-test.virtual-b.prod")
+    candidates = search(db, monkeypatch, [a, b], stages=["prod"])
+    assert [c.content_id for c in candidates] == [stub_a, stub_b]
 
 
 def test_independent_ids_keep_their_own_scores(db, monkeypatch):

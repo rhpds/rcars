@@ -1890,26 +1890,6 @@ class Database:
                 )
                 return cur.fetchall()
 
-    def get_virtual_content_aliases(self, content_id: str) -> list[dict]:
-        item = self.get_babylon_item(content_id)
-        if not item:
-            return []
-        with self._pool.connection() as conn:
-            rows = conn.execute(
-                "SELECT ce.*, bi.*, ce.scan_status FROM content_entities ce "
-                "JOIN babylon_items bi USING (content_id) WHERE bi.stage = %s "
-                "AND ce.retired_at IS NULL AND ce.scan_status = 'success' "
-                "AND bi.showroom_source_json->>'status' = 'resolved' AND ce.content_id != %s "
-                # Raw paths are a superset of effective paths; Python below stays authoritative.
-                "AND EXISTS (SELECT 1 FROM jsonb_array_elements(bi.showroom_source_json->'paths') p, "
-                "jsonb_array_elements_text(p) WITH ORDINALITY e(name, pos) WHERE e.pos > 1 AND e.name = %s) "
-                "ORDER BY bi.ci_name",
-                (item["stage"], content_id, item["ci_name"]),
-            ).fetchall()
-        return [row for row in rows if row["content_id"] != content_id and any(
-            item["ci_name"] in path[1:] for path in effective_showroom_source(row).paths
-        )]
-
     def get_pure_stubs_for_owner(self, owner_ci_name: str, stages: list[str] | None = None,
                                  conn=None) -> list[dict]:
         """Non-retired Babylon items whose content owner is owner_ci_name."""
