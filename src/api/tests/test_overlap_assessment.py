@@ -7,7 +7,7 @@ import psycopg
 from psycopg.rows import dict_row
 import pytest
 from unittest.mock import patch, MagicMock
-from rcars.config import Settings
+from rcars.config import LLMResult, Settings
 from rcars.db.database import Database
 from rcars.services.overlap_assessment import (
     assess_overlap,
@@ -262,8 +262,9 @@ def test_build_assessment_prompt(db):
 @patch("rcars.services.overlap_assessment.call_llm")
 def test_assess_overlap_calls_llm_and_persists(mock_llm, db):
     cid_a, cid_b = _seed_overlap_pair(db)
-    mock_llm.return_value = MagicMock(
-        text=MOCK_LLM_RESPONSE, input_tokens=500, output_tokens=200
+    mock_llm.return_value = LLMResult(
+        text=MOCK_LLM_RESPONSE, input_tokens=500, output_tokens=200,
+        provider="litemaas",
     )
     settings = Settings(database_url=TEST_DB_URL)
     result, reason = assess_overlap(db.pool, settings, cid_a, cid_b)
@@ -291,8 +292,9 @@ def test_assess_overlap_calls_llm_and_persists(mock_llm, db):
 @patch("rcars.services.overlap_assessment.call_llm")
 def test_assess_overlap_returns_cache_on_second_call(mock_llm, db):
     cid_a, cid_b = _seed_overlap_pair(db)
-    mock_llm.return_value = MagicMock(
-        text=MOCK_LLM_RESPONSE, input_tokens=500, output_tokens=200
+    mock_llm.return_value = LLMResult(
+        text=MOCK_LLM_RESPONSE, input_tokens=500, output_tokens=200,
+        provider="litemaas",
     )
     settings = Settings(database_url=TEST_DB_URL)
     assess_overlap(db.pool, settings, cid_a, cid_b)

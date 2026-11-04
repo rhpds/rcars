@@ -1,5 +1,11 @@
 """Golden routing eval — real prompt assembly, real model, real validation.
-Hard-asserts at temperature 0. ~40 calls ≈ cents. THE gate for model swaps."""
+Hard-asserts at temperature 0. ~40 calls ≈ cents. THE gate for model swaps.
+
+Ordinary test runs skip when LiteMaaS is not configured. A gate run must set
+RCARS_LLM_EVAL_REQUIRED=1 so that a missing model fails instead of skipping:
+
+    RCARS_LLM_EVAL_REQUIRED=1 python -m pytest tests/test_chat_routing_golden.py -q
+"""
 import os
 import pathlib
 
@@ -15,8 +21,15 @@ CASES = yaml.safe_load(
 
 @pytest.fixture(scope="module")
 def settings():
-    return Settings(database_url=os.environ.get(
+    s = Settings(database_url=os.environ.get(
         "RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"))
+    if not s.use_litemaas:
+        message = ("llm_eval needs a live LiteMaaS model: set "
+                   "RCARS_LITEMAAS_URL and RCARS_LITEMAAS_API_KEY")
+        if os.environ.get("RCARS_LLM_EVAL_REQUIRED") == "1":
+            pytest.fail(message)
+        pytest.skip(message)
+    return s
 
 
 @pytest.mark.llm_eval

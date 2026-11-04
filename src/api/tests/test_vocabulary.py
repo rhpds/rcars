@@ -5,6 +5,7 @@ from __future__ import annotations
 import textwrap
 
 import pytest
+from structlog.testing import capture_logs
 
 from rcars.services.vocabulary import (
     DIMENSIONS,
@@ -194,16 +195,18 @@ class TestValidation:
         with pytest.raises(VocabularyError, match="nonexistent_mode"):
             load_vocabulary()
 
-    def test_unknown_top_level_key_warns_only(self, tmp_path, monkeypatch, caplog):
+    def test_unknown_top_level_key_warns_only(self, tmp_path, monkeypatch):
         path = write_vocab(tmp_path, self._doc("""
             products: []
             mystery_section:
               - anything
         """))
         monkeypatch.setenv("RCARS_VOCABULARY_PATH", str(path))
-        vocab = load_vocabulary()
+        with capture_logs() as logs:
+            vocab = load_vocabulary()
         assert vocab is not None
-        assert "mystery_section" in caplog.text
+        assert any(e.get("event") == "vocabulary_unknown_keys"
+                   and "mystery_section" in e.get("keys", []) for e in logs)
 
 
 
@@ -409,14 +412,13 @@ class TestRenderVocabularyBlock:
         assert "understand" in block
         assert "be familiar with" in block
 
-    def test_unmapped_content_type_falls_back_with_warning(self, caplog):
-        import logging
-
+    def test_unmapped_content_type_falls_back_with_warning(self):
         vocab = load_vocabulary()
-        with caplog.at_level(logging.WARNING):
+        with capture_logs() as logs:
             block = render_vocabulary_block(vocab, "podcast")
         assert "deploy" in block  # hands_on fallback
-        assert "podcast" in caplog.text
+        assert any(e.get("event") == "vocabulary_content_mode_fallback"
+                   and e.get("content_type") == "podcast" for e in logs)
 
     def test_block_contains_no_format_braces(self):
         """The block is spliced into a template that cannot use str.format()."""

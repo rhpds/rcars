@@ -104,5 +104,15 @@ async def test_low_confidence_clarifies(db):
 async def test_role_gate_redirects(db):
     out = RouterOutput(intent="performance", confidence=0.9,
                        scope=Scope(type="prior_results", turn=0))
-    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(), "notcurator@x.com")
+    res = await chat_router.resolve_and_verify(
+        out, CTX, db, SETTINGS(chat_intent_roles_str="performance:curator"), "notcurator@x.com")
     assert res.kind == "redirect" and "curator" in res.redirect_message.lower()
+
+
+@pytest.mark.asyncio
+async def test_performance_is_public_by_default(db):
+    out = RouterOutput(intent="performance", confidence=0.9,
+                       scope=Scope(type="prior_results", turn=0))
+    res = await chat_router.resolve_and_verify(
+        out, CTX, db, SETTINGS(chat_intent_roles_str=""), "notcurator@x.com")
+    assert res.kind == "execute"

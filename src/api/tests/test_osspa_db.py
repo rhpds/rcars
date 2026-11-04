@@ -136,7 +136,7 @@ def test_upsert_osspa_item_never_overwrites_llm_owned_fields(db):
 
 def test_upsert_osspa_item_unretires_on_reappearance(db):
     db.upsert_osspa_item(_row())
-    db.retire_missing_osspa(set())
+    db.retire_missing_osspa(set(), allow_empty=True)
     assert db.get_content_entity("pa:275")["retired_at"] is not None
 
     db.upsert_osspa_item(_row())
@@ -155,6 +155,13 @@ def test_retire_missing_osspa_only_touches_portfolio_arch(db):
     assert [r["content_id"] for r in retired] == ["pa:2"]
     assert db.get_content_entity("pa:1")["retired_at"] is None
     assert db.get_content_entity("babylon:keep.prod")["retired_at"] is None
+    assert db.count_active_osspa() == 1
+
+
+def test_retire_missing_osspa_refuses_empty_set_without_override(db):
+    db.upsert_osspa_item(_row(ppid=1))
+
+    assert db.retire_missing_osspa(set()) == []
     assert db.count_active_osspa() == 1
 
 

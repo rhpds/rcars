@@ -3,18 +3,39 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
+import psycopg
 import pytest
 
 from rcars.db.database import Database
 
+TEST_DB_URL = os.environ.get(
+    "RCARS_TEST_DATABASE_URL",
+    "postgresql://rcars:dev@localhost:5432/rcars_test",
+)
+
 
 @pytest.fixture
 def db():
-    """Ephemeral test database — uses RCARS_DATABASE_URL from env (rcars_test)."""
-    database = Database("postgresql://rcars:rcars@localhost:5432/rcars_test")
+    """Ephemeral test database — uses RCARS_TEST_DATABASE_URL (rcars_test)."""
+    db_name = urlparse(TEST_DB_URL).path.lstrip("/")
+    if "test" not in db_name:
+        raise RuntimeError(
+            f"Refusing to run: database '{db_name}' does not contain 'test'. "
+            f"Set RCARS_TEST_DATABASE_URL to a test database."
+        )
+    with psycopg.connect(TEST_DB_URL, autocommit=True) as conn:
+        effective_db = conn.execute("SELECT current_database()").fetchone()[0]
+        if "test" not in effective_db:
+            raise RuntimeError(
+                f"Refusing to run: effective database '{effective_db}' does not contain 'test'."
+            )
+
+    database = Database(TEST_DB_URL)
     database.create_schema()
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM api_keys")
