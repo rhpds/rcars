@@ -218,7 +218,7 @@ def generate_rationale(
                 analyses[c.content_id] = analysis
         else:
             if c.content_type in ("lab", "demo"):
-                analysis = db.get_showroom_analysis(c.content_id)
+                analysis = db.get_display_analysis(c.content_id)
                 if analysis:
                     analyses[c.content_id] = analysis
             elif c.content_type == "architecture":

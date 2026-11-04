@@ -212,3 +212,16 @@ def test_unchanged_owner_scan_still_mirrors_a_newly_added_stub(db, scan):
     assert result["outcome"] == "unchanged"
     assert db.get_content_entity(stub)["summary"] == "Configure TLS"
     assert db.get_content_entity(stub)["scan_status"] == "success"
+
+
+def test_display_analysis_of_a_stub_is_the_owner_analysis(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    stub = add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner, summary="Owner analysis")
+    assert db.get_display_analysis(stub)["summary"] == "Owner analysis"
+
+
+def test_display_analysis_of_an_owner_is_its_own_analysis(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    seed_stub_artifacts(db, owner, summary="Owner analysis")
+    assert db.get_display_analysis(owner)["summary"] == "Owner analysis"

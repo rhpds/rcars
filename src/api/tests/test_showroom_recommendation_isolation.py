@@ -102,3 +102,13 @@ def test_independent_ids_keep_their_own_scores(db, monkeypatch):
     candidates = search(db, monkeypatch, [a, b], stages=["prod"])
     assert [c.content_id for c in candidates] == [a, b]
     assert candidates[0].vector_distance < candidates[1].vector_distance
+
+
+def test_promoted_stub_card_hydrates_the_owner_analysis(db, monkeypatch):
+    owner, _, _ = seed(db)
+    add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    candidate = search(db, monkeypatch, [owner], stages=["prod"])[0]
+    assert candidate.content_id == "babylon:isolation-test.virtual.prod"
+    assert candidate.summary == "A real lab"
+    from rcars.services.recommender.drivers.hands_on import HandsOnDriver
+    assert HandsOnDriver().fetch_analysis(db, candidate)["summary"] == "A real lab"

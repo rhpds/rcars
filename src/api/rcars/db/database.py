@@ -1835,6 +1835,14 @@ class Database:
             )
             return cur.fetchone()
 
+    def get_display_analysis(self, content_id: str) -> dict | None:
+        """What a viewer should see: a pure stub shows its owner's analysis."""
+        item = self.get_babylon_item(content_id)
+        owner = content_owner(item) if item else None
+        if owner:
+            return self.get_showroom_analysis_by_ci_name(owner)
+        return self.get_showroom_analysis(content_id)
+
     def get_analysis(self, content_id: str) -> dict[str, Any] | None:
         """Get analysis for any content type — routes to the right table."""
         entity = self.get_content_entity(content_id)

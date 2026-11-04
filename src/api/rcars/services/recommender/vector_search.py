@@ -236,9 +236,9 @@ def search(
 
         type_data: dict = {}
         if content_type in ("lab", "demo"):
-            analysis = db.get_showroom_analysis(content_id)
+            analysis = db.get_display_analysis(content_id)
 
-            lo = (analysis or {}).get("learning_objectives_json") or {}
+            lo =(analysis or {}).get("learning_objectives_json") or {}
             learning_objs = (lo.get("stated", []) if isinstance(lo, dict) else []) or []
 
             summary = (analysis or {}).get("summary", "")
