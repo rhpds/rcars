@@ -43,6 +43,15 @@ def _resolve_item(identifier: str, db) -> dict | None:
     return db.get_babylon_item_by_ci_name(identifier)
 
 
+def _curation_target(content_id: str, db) -> str:
+    """Curated fields on a pure stub belong to its owner: the content is shared."""
+    if content_id.startswith("pa:"):
+        return content_id
+    item = db.get_babylon_item(content_id)
+    owner = content_owner(item) if item else None
+    return f"babylon:{owner}" if owner else content_id
+
+
 @router.get(
     "",
     summary="List catalog items",
@@ -379,7 +388,7 @@ class NoteRequest(BaseModel):
 )
 async def set_note(identifier: str, body: NoteRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_enrichment_note(content_id, body.note)
     return {"status": "ok"}
 
@@ -392,7 +401,7 @@ async def set_note(identifier: str, body: NoteRequest, request: Request, user: s
 )
 async def flag_item(identifier: str, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_enrichment_review_flag(content_id, True)
     return {"status": "ok"}
 
@@ -426,7 +435,7 @@ class DurationRequest(BaseModel):
 )
 async def set_duration(identifier: str, body: DurationRequest, request: Request, user: str = Depends(require_curator)):
     db = request.app.state.db
-    content_id = _resolve_to_content_id(identifier, db)
+    content_id = _curation_target(_resolve_to_content_id(identifier, db), db)
     db.set_curated_duration(content_id, body.duration_min, updated_by=user)
     return {"status": "ok"}
 

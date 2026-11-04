@@ -43,3 +43,30 @@ async def test_owner_detail_has_no_content_owner(db):
     owner = add_item(db, "isolation-test.owner.prod")
     detail = await get_catalog_item("isolation-test.owner.prod", request(db), user="test@example.com")
     assert detail["content_owner"] is None
+
+
+from rcars.api.routes.catalog import NoteRequest, DurationRequest, set_note, set_duration
+
+
+@pytest.mark.asyncio
+async def test_curator_note_on_a_stub_writes_the_owner_row(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    seed = {"content_id": owner, "summary": "Owner analysis", "modules_json": [],
+            "content_hash": "content"}
+    db.upsert_showroom_analysis(seed)
+    await set_note("isolation-test.virtual.prod", NoteRequest(note="Curated note"),
+                   request(db), user="test@example.com")
+    assert db.get_showroom_analysis(owner)["notes"] == "Curated note"
+    assert db.get_showroom_analysis("babylon:isolation-test.virtual.prod") is None
+
+
+@pytest.mark.asyncio
+async def test_curator_duration_on_a_stub_writes_the_owner_row(db):
+    owner = add_item(db, "isolation-test.owner.prod")
+    add_item(db, "isolation-test.virtual.prod", owner_ci_name="isolation-test.owner.prod")
+    db.upsert_showroom_analysis({"content_id": owner, "summary": "Owner analysis",
+                                 "modules_json": [], "content_hash": "content"})
+    await set_duration("isolation-test.virtual.prod", DurationRequest(duration_min=90),
+                       request(db), user="test@example.com")
+    assert db.get_showroom_analysis(owner)["curated_duration_min"] == 90
