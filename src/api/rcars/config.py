@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pydantic_settings import BaseSettings
 
@@ -292,6 +293,31 @@ _models_without_temperature: set[str] = {
 
 
 def _call_litemaas(settings, model, messages, max_tokens, temperature, system=None):
+    """Call LiteMaaS and log one line per call with the model actually used.
+
+    Every LLM phase (chat router, triage, rationale, synthesis, scans) goes
+    through here, so this is the single place that records which model ran,
+    its token usage, and latency. Job context (job_id) comes from structlog
+    contextvars bound by the worker.
+    """
+    t0 = time.monotonic()
+    try:
+        result = _call_litemaas_inner(settings, model, messages, max_tokens, temperature, system)
+    except Exception as e:
+        logger.warning(
+            "llm_call_failed", action="llm_call", model=model, provider="litemaas",
+            elapsed_ms=round((time.monotonic() - t0) * 1000), error=str(e),
+        )
+        raise
+    logger.info(
+        "llm_call_complete", action="llm_call", model=model, provider=result.provider,
+        input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+        elapsed_ms=round((time.monotonic() - t0) * 1000),
+    )
+    return result
+
+
+def _call_litemaas_inner(settings, model, messages, max_tokens, temperature, system=None):
     client = settings.get_litemaas_client()
     llm_messages = messages
     if system:
