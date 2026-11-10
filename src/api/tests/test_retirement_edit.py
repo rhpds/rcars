@@ -158,3 +158,34 @@ def test_edit_without_change_records_no_event(client, db):
                                 "replacement_ci": current["replacement_ci"]})
     assert response.status_code == 200
     assert _jira_event_messages(db) == []
+
+
+def test_edit_update_skips_cancelled_workflows(client, db):
+    # Cancellation committed after the route's check: the conditional UPDATE must
+    # match no row, so the edit cannot land on a workflow being torn down.
+    with db.pool.connection() as conn:
+        conn.execute(
+            "UPDATE retirement_workflow SET cancellation_requested_at = NOW() WHERE content_id = %s",
+            (CONTENT_ID,),
+        )
+        conn.commit()
+
+    result = db.edit_retirement_workflow(CONTENT_ID, {"retirement_target_date": date.today()})
+
+    assert result is None
+    assert db.get_retirement_workflow(CONTENT_ID)["retirement_target_date"] != date.today()
+    assert _jira_event_messages(db) == []
+
+
+def test_edit_returns_409_when_workflow_disappears(client, db, monkeypatch):
+    # The route must not log or claim success when the update matched no row.
+    monkeypatch.setattr(db, "edit_retirement_workflow", lambda *args, **kwargs: None)
+    response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
+                          json={"retirement_target_date": (date.today() + timedelta(days=1)).isoformat()})
+    assert response.status_code == 409
+    with db.pool.connection() as conn:
+        logged = conn.execute(
+            "SELECT COUNT(*) AS n FROM analysis_log WHERE ci_name = %s AND action = 'retirement_edited'",
+            (BASE_NAME,),
+        ).fetchone()["n"]
+    assert logged == 0

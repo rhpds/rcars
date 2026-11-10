@@ -3974,13 +3974,21 @@ class Database:
         return row
 
     def edit_retirement_workflow(self, content_id: str, fields: dict, *, event_message: str | None = None) -> dict | None:
-        """Update editable workflow fields atomically; record a durable Jira edit event when given."""
+        """Update editable workflow fields atomically; record a durable Jira edit event when given.
+
+        The update is conditional on the workflow staying active, so a cancellation
+        or retirement that commits after the route's check wins the race and this
+        returns None instead of editing a row being torn down.
+        """
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 set_sql = ", ".join(f"{col} = %s" for col in fields)
                 row = cur.execute(
                     f"UPDATE retirement_workflow SET {set_sql}, updated_at = NOW() "
-                    "WHERE content_id = %s RETURNING *, CURRENT_TIMESTAMP AS event_recorded_at",
+                    "WHERE content_id = %s "
+                    "AND cancellation_requested_at IS NULL AND agv_revert_pr_url IS NULL "
+                    "AND step_retired_at IS NULL "
+                    "RETURNING *, CURRENT_TIMESTAMP AS event_recorded_at",
                     (*fields.values(), content_id),
                 ).fetchone()
                 if row and event_message:

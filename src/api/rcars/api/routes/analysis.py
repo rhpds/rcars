@@ -626,6 +626,9 @@ async def edit_retirement(base_name: str, body: EditRetirementRequest, request: 
     # The Jira comment is durable: a failed delivery is retried by the nightly sweep.
     event_message = "; ".join(changes) + f" (edited by {user})" if wf.get("jira_key") else None
     result = db.edit_retirement_workflow(content_id, fields, event_message=event_message)
+    if result is None:
+        # A concurrent cancellation or retirement won the race; nothing was edited.
+        raise HTTPException(409, "The workflow changed or was removed; reload and retry")
     db.log_action(base_name, "retirement_edited", user, "; ".join(changes))
     jira_comment_errors = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
     return {"status": "ok", "workflow": result, "jira_comment_errors": jira_comment_errors}
