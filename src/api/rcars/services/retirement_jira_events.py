@@ -22,7 +22,7 @@ def event_timestamp(value) -> datetime | None:
         return None
 
 
-def build_jira_event(wf: dict, event_type: str, event_at, pr_url: str | None = None) -> dict | None:
+def build_jira_event(wf: dict, event_type: str, event_at, pr_url: str | None = None, message: str | None = None) -> dict | None:
     """Build immutable event data; never infer historical GitHub event times."""
     if not wf.get("jira_key"):
         return None
@@ -38,7 +38,12 @@ def build_jira_event(wf: dict, event_type: str, event_at, pr_url: str | None = N
         if name.endswith(suffix):
             name = name[:-len(suffix)]
             break
-    if event_type in ("workflow_completed", "workflow_cancelled"):
+    if event_type == "workflow_edited":
+        if not message:
+            logger.warning("retirement_edit_message_missing", content_id=wf["content_id"])
+            return None
+        message = f"RCARS retirement for {name}: {message}"
+    elif event_type in ("workflow_completed", "workflow_cancelled"):
         outcome = "completed" if event_type == "workflow_completed" else "cancelled"
         lines = [f"RCARS retirement workflow {outcome} for {name}."]
         for field, label in (("agv_notice_pr_url", "Notice PR"), ("agv_retire_pr_url", "Removal PR"), ("agv_revert_pr_url", "Cancellation revert PR")):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -126,6 +127,11 @@ class NotesRequest(BaseModel):
 
 class LinkJiraRequest(BaseModel):
     jira_key: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9]+-\d+$")
+
+class EditRetirementRequest(BaseModel):
+    retirement_target_date: date | None = Field(default=None, description="New target retirement date")
+    replacement_ci: str | None = Field(default=None, description="New replacement CI base name; empty string clears it")
+    replacement_name: str | None = Field(default=None, description="Display name for the new replacement CI")
 
 
 @router.get(
@@ -565,6 +571,64 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
     result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_jira_linked", user, f"Linked existing Jira: {body.jira_key}")
     return {"status": "ok", "workflow": result}
+
+
+@router.put(
+    "/retirement/workflow/{base_name}/edit",
+    tags=["Retirement"],
+    summary="Edit an active retirement",
+    description=(
+        "Updates the target retirement date and/or replacement CI on an active workflow. "
+        "When either value changes, a durable Jira comment describing the change is recorded and "
+        "delivered best-effort; delivery failures do not fail the edit and are retried by the "
+        "nightly sweep. Rejected (409) for retired items or pending cancellations. Admin-only."
+    ),
+    response_model=WorkflowResponse,
+    responses={
+        400: {"description": "No editable field was provided or nothing changed"},
+        409: {"description": "Item is already retired or cancellation cleanup is pending"},
+    },
+)
+async def edit_retirement(base_name: str, body: EditRetirementRequest, request: Request, user: str = Depends(require_admin)):
+    from rcars.services.retirement_jira_events import deliver_pending_events
+
+    db = request.app.state.db
+    content_id = _base_name_to_content_id(base_name, db, include_retired=True)
+    if not content_id:
+        raise HTTPException(404, f"No content found for base name: {base_name}")
+    wf = db.get_retirement_workflow(content_id)
+    if not wf:
+        raise HTTPException(404, f"No retirement workflow for: {base_name}")
+    entity = db.get_content_entity(content_id)
+    if (entity and entity.get("retired_at")) or wf.get("step_retired_at") or wf.get("status") == "retired":
+        raise HTTPException(409, "This item is already retired; it can no longer be edited")
+    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+        raise HTTPException(409, "Cancellation cleanup is pending; the workflow can no longer be edited")
+
+    if body.retirement_target_date is None and body.replacement_ci is None:
+        raise HTTPException(400, "Nothing to edit: provide a target date or replacement CI")
+
+    fields: dict = {}
+    changes: list[str] = []
+    if body.retirement_target_date is not None and body.retirement_target_date != wf.get("retirement_target_date"):
+        fields["retirement_target_date"] = body.retirement_target_date
+        changes.append(f"target date moved from {wf.get('retirement_target_date') or 'unset'} to {body.retirement_target_date}")
+    if body.replacement_ci is not None:
+        new_ci = body.replacement_ci.strip()
+        if new_ci != (wf.get("replacement_ci") or ""):
+            fields["replacement_ci"] = new_ci or None
+            fields["replacement_name"] = (new_ci and (body.replacement_name or "").strip()) or None
+            changes.append(f"replacement CI changed from {wf.get('replacement_ci') or 'unset'} to {new_ci or 'unset'}")
+    if not fields:
+        # Same values submitted: a successful no-op, with no Jira comment.
+        return {"status": "ok", "workflow": wf, "jira_comment_errors": []}
+
+    # The Jira comment is durable: a failed delivery is retried by the nightly sweep.
+    event_message = "; ".join(changes) + f" (edited by {user})" if wf.get("jira_key") else None
+    result = db.edit_retirement_workflow(content_id, fields, event_message=event_message)
+    db.log_action(base_name, "retirement_edited", user, "; ".join(changes))
+    jira_comment_errors = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
+    return {"status": "ok", "workflow": result, "jira_comment_errors": jira_comment_errors}
 
 
 @router.put(
