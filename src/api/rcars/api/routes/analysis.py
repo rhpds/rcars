@@ -129,6 +129,8 @@ class LinkJiraRequest(BaseModel):
     jira_key: str = Field(min_length=1, pattern=r"^[A-Z][A-Z0-9]+-\d+$")
 
 class EditRetirementRequest(BaseModel):
+    """Editable fields of an active retirement workflow."""
+
     retirement_target_date: date | None = Field(default=None, description="New target retirement date")
     replacement_ci: str | None = Field(default=None, description="New replacement CI base name; empty string clears it")
     replacement_name: str | None = Field(default=None, description="Display name for the new replacement CI")
@@ -590,6 +592,7 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
     },
 )
 async def edit_retirement(base_name: str, body: EditRetirementRequest, request: Request, user: str = Depends(require_admin)):
+    """Update the target date or replacement CI of an active retirement."""
     from rcars.services.retirement_jira_events import deliver_pending_events
 
     db = request.app.state.db

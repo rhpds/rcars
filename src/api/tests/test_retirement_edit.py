@@ -21,6 +21,7 @@ TEST_DB_URL = os.environ.get(
 
 @pytest.fixture
 def db(monkeypatch):
+    """Provide a test database with a started, Jira-linked workflow."""
     # All integration side effects in these persistence tests remain synthetic.
     monkeypatch.setattr(jira, "ensure_issue_event_comment", lambda *args: "synthetic-comment")
     if "test" not in urlparse(TEST_DB_URL).path:
@@ -49,6 +50,7 @@ def db(monkeypatch):
 
 @pytest.fixture
 def client(db, monkeypatch):
+    """Authenticated admin API client."""
     monkeypatch.setattr(jira, "get_issue_status", lambda *args: {"status": "Open", "resolution": None})
     app = create_app(Settings(
         database_url=TEST_DB_URL, dev_user="admin@example.com",
@@ -60,6 +62,7 @@ def client(db, monkeypatch):
 
 @pytest.fixture
 def non_admin_client(db, monkeypatch):
+    """Authenticated non-admin API client."""
     monkeypatch.setattr(jira, "get_issue_status", lambda *args: {"status": "Open", "resolution": None})
     app = create_app(Settings(
         database_url=TEST_DB_URL, dev_user="user@example.com",
@@ -70,6 +73,7 @@ def non_admin_client(db, monkeypatch):
 
 
 def _jira_event_messages(db):
+    """Return recorded Jira events for the test workflow."""
     with db.pool.connection() as conn:
         rows = conn.execute(
             "SELECT message, comment_id FROM retirement_jira_events WHERE content_id = %s",
@@ -79,6 +83,7 @@ def _jira_event_messages(db):
 
 
 def test_edit_moves_target_date(client, db):
+    """A new target date is persisted and announced in a delivered Jira event."""
     new_date = date.today() + timedelta(days=12)
 
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
@@ -96,6 +101,7 @@ def test_edit_moves_target_date(client, db):
 
 
 def test_edit_changes_replacement_ci(client, db):
+    """A new replacement CI is persisted and announced in a delivered Jira event."""
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                           json={"replacement_ci": "new-replacement", "replacement_name": "New Replacement"})
 
@@ -110,6 +116,7 @@ def test_edit_changes_replacement_ci(client, db):
 
 
 def test_edit_without_jira_key_records_no_event(client, db):
+    """Workflows without a linked Jira ticket are edited silently."""
     db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": None})
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                           json={"retirement_target_date": (date.today() + timedelta(days=1)).isoformat()})
@@ -118,6 +125,7 @@ def test_edit_without_jira_key_records_no_event(client, db):
 
 
 def test_edit_rejected_for_retired_item(client, db):
+    """Retired workflows cannot be edited."""
     db.upsert_retirement_workflow(CONTENT_ID, {"step_retired_at": "NOW()"})
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                           json={"retirement_target_date": (date.today() + timedelta(days=1)).isoformat()})
@@ -126,6 +134,7 @@ def test_edit_rejected_for_retired_item(client, db):
 
 
 def test_edit_rejected_while_cancellation_pending(client, db):
+    """Workflows with a pending cancellation cannot be edited."""
     db.upsert_retirement_workflow(CONTENT_ID, {"cancellation_requested_at": "NOW()"})
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                           json={"retirement_target_date": (date.today() + timedelta(days=1)).isoformat()})
@@ -134,6 +143,7 @@ def test_edit_rejected_while_cancellation_pending(client, db):
 
 
 def test_edit_requires_admin(non_admin_client, db):
+    """Non-admin users cannot edit a retirement."""
     response = non_admin_client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                                     json={"retirement_target_date": (date.today() + timedelta(days=1)).isoformat()})
     assert response.status_code == 403
@@ -141,17 +151,20 @@ def test_edit_requires_admin(non_admin_client, db):
 
 
 def test_edit_without_fields_is_rejected(client, db):
+    """A request with no editable field is rejected."""
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit", json={})
     assert response.status_code == 400
 
 
 def test_edit_unknown_base_name_returns_404(client, db):
+    """An unknown base name is answered with 404."""
     response = client.put("/api/v1/analysis/retirement/workflow/does-not.exist/edit",
                           json={"retirement_target_date": "2026-11-22"})
     assert response.status_code == 404
 
 
 def test_edit_without_change_records_no_event(client, db):
+    """Submitting the current values is a successful no-op with no Jira event."""
     current = db.get_retirement_workflow(CONTENT_ID)
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
                           json={"retirement_target_date": current["retirement_target_date"].isoformat(),
@@ -161,6 +174,7 @@ def test_edit_without_change_records_no_event(client, db):
 
 
 def test_edit_update_skips_cancelled_workflows(client, db):
+    """The conditional UPDATE matches no row once cancellation has committed."""
     # Cancellation committed after the route's check: the conditional UPDATE must
     # match no row, so the edit cannot land on a workflow being torn down.
     with db.pool.connection() as conn:
@@ -178,6 +192,7 @@ def test_edit_update_skips_cancelled_workflows(client, db):
 
 
 def test_edit_returns_409_when_workflow_disappears(client, db, monkeypatch):
+    """The route answers 409 and logs nothing when the update matched no row."""
     # The route must not log or claim success when the update matched no row.
     monkeypatch.setattr(db, "edit_retirement_workflow", lambda *args, **kwargs: None)
     response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
