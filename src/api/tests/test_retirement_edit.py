@@ -129,6 +129,28 @@ def test_edit_clears_replacement_ci(client, db):
     assert "unset" in events[0]["message"]
 
 
+def test_edit_changes_replacement_name_only(client, db):
+    """A name-only edit updates the display name and leaves the CI untouched."""
+    response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
+                          json={"replacement_name": "Renamed Replacement"})
+
+    assert response.status_code == 200
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["replacement_ci"] == "old-replacement"
+    assert wf["replacement_name"] == "Renamed Replacement"
+    events = _jira_event_messages(db)
+    assert len(events) == 1
+    assert "Renamed Replacement" in events[0]["message"]
+
+
+def test_edit_rejects_name_without_replacement_ci(client, db):
+    """A name cannot be set when no replacement CI is stored."""
+    db.upsert_retirement_workflow(CONTENT_ID, {"replacement_ci": None, "replacement_name": None})
+    response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
+                          json={"replacement_name": "Orphan Name"})
+    assert response.status_code == 400
+
+
 def test_edit_without_jira_key_records_no_event(client, db):
     """Workflows without a linked Jira ticket are edited silently."""
     db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": None})

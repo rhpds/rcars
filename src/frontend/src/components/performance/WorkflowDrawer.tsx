@@ -205,6 +205,11 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [editDate, setEditDate] = useState(drawerWorkflow?.retirement_target_date || '')
   const [pickerReset, setPickerReset] = useState(0)
+  // Baseline the edit form was loaded with; edits are diffed against this
+  // snapshot, not the live workflow, so untouched fields never clobber
+  // changes another admin made after this drawer opened.
+  const [loadedReplacementCi, setLoadedReplacementCi] = useState(drawerWorkflow?.replacement_ci || '')
+  const [loadedReplacementName, setLoadedReplacementName] = useState(drawerWorkflow?.replacement_name || '')
   const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
   const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
   const [windowMetrics, setWindowMetrics] = useState<Partial<WorkflowItem> | null>(null)
@@ -223,6 +228,8 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
         setApprovalReason(workflow?.approval_reason || '')
         setReplacementCi(workflow?.replacement_ci || '')
         setReplacementName(workflow?.replacement_name || '')
+        setLoadedReplacementCi(workflow?.replacement_ci || '')
+        setLoadedReplacementName(workflow?.replacement_name || '')
         setNotesText(workflow?.curator_notes || '')
         setTargetDays(30)
         setJiraProject(workflow?.jira_project || 'RHDPCD')
@@ -357,21 +364,27 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const handleEdit = async () => {
     const changes: { retirement_target_date?: string; replacement_ci?: string; replacement_name?: string } = {}
     if (editDate) changes.retirement_target_date = editDate
-    // Send the CI only when it differs from the workflow's stored value, so an
-    // untouched (possibly stale) field cannot clobber a concurrent change, and
-    // an explicit clear (empty vs. stored) still goes through.
-    const currentCi = drawerWorkflow?.replacement_ci || ''
-    const currentName = drawerWorkflow?.replacement_name || ''
-    if (replacementCi.trim() !== currentCi || replacementName.trim() !== currentName) {
+    const ciChanged = replacementCi.trim() !== loadedReplacementCi
+    const nameChanged = replacementName.trim() !== loadedReplacementName
+    if (ciChanged) {
       changes.replacement_ci = replacementCi.trim()
       if (replacementName.trim()) changes.replacement_name = replacementName.trim()
+    } else if (nameChanged && replacementCi.trim()) {
+      // Name-only edit: never resubmit the CI, so a stale field cannot restore it.
+      changes.replacement_name = replacementName.trim()
     }
-    if (!changes.retirement_target_date && changes.replacement_ci === undefined) return
+    if (!changes.retirement_target_date && changes.replacement_ci === undefined && changes.replacement_name === undefined) return
     setActionLoading('edit')
     setActionError(null)
     try {
       const { workflow, jira_comment_errors } = await api.editRetirementWorkflow(item.catalog_base_name, changes)
       setDrawerWorkflow(workflow)
+      // Re-sync the form with the saved workflow so repeated saves stay consistent.
+      setEditDate(workflow?.retirement_target_date || '')
+      setReplacementCi(workflow?.replacement_ci || '')
+      setReplacementName(workflow?.replacement_name || '')
+      setLoadedReplacementCi(workflow?.replacement_ci || '')
+      setLoadedReplacementName(workflow?.replacement_name || '')
       if (jira_comment_errors?.length) setActionError(jira_comment_errors.join('; '))
       onChanged()
     } catch (e: unknown) {

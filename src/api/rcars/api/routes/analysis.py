@@ -608,7 +608,7 @@ async def edit_retirement(base_name: str, body: EditRetirementRequest, request: 
     if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
         raise HTTPException(409, "Cancellation cleanup is pending; the workflow can no longer be edited")
 
-    if body.retirement_target_date is None and body.replacement_ci is None:
+    if body.retirement_target_date is None and body.replacement_ci is None and body.replacement_name is None:
         raise HTTPException(400, "Nothing to edit: provide a target date or replacement CI")
 
     fields: dict = {}
@@ -622,6 +622,14 @@ async def edit_retirement(base_name: str, body: EditRetirementRequest, request: 
             fields["replacement_ci"] = new_ci or None
             fields["replacement_name"] = (new_ci and (body.replacement_name or "").strip()) or None
             changes.append(f"replacement CI changed from {wf.get('replacement_ci') or 'unset'} to {new_ci or 'unset'}")
+    elif body.replacement_name is not None:
+        # Name-only edit: never resubmit the CI, so a stale field cannot restore it.
+        new_name = body.replacement_name.strip()
+        if new_name != (wf.get("replacement_name") or ""):
+            if not wf.get("replacement_ci"):
+                raise HTTPException(400, "Cannot change the replacement name without a replacement CI")
+            fields["replacement_name"] = new_name or None
+            changes.append(f"replacement name changed from {wf.get('replacement_name') or 'unset'} to {new_name or 'unset'}")
     if not fields:
         # Same values submitted: a successful no-op, with no Jira comment.
         return {"status": "ok", "workflow": wf, "jira_comment_errors": []}
