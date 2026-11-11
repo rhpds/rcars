@@ -4,16 +4,21 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { WorkflowDrawer } from './WorkflowDrawer'
 import { api } from '../../services/api'
 
-const hooks = vi.hoisted(() => ({ effects: [] as Array<() => void>, setWorkflow: vi.fn(), index: 0, workflow: null as RetirementWorkflow | null }))
+const hooks = vi.hoisted(() => ({ effects: [] as Array<() => void>, setWorkflow: vi.fn(), setters: [] as Array<ReturnType<typeof vi.fn>>, index: 0, workflow: null as RetirementWorkflow | null, isAdmin: true }))
 vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
   useEffect: (effect: () => void) => { hooks.effects.push(effect) },
-  useState: (value: unknown) => { const index = hooks.index++; return [index === 0 ? hooks.workflow ?? value : value, index === 0 ? hooks.setWorkflow : vi.fn()] },
+  useState: (value: unknown) => {
+    const index = hooks.index++
+    const setter = vi.fn()
+    hooks.setters.push(setter)
+    return [index === 0 ? hooks.workflow ?? value : value, index === 0 ? hooks.setWorkflow : setter]
+  },
 }))
-vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: true }) }))
-vi.mock('../../services/api', () => ({ api: { getRetirementWorkflow: vi.fn(), checkAgvPrStatuses: vi.fn() } }))
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: hooks.isAdmin }) }))
+vi.mock('../../services/api', () => ({ api: { getRetirementWorkflow: vi.fn(), checkAgvPrStatuses: vi.fn(), editRetirementWorkflow: vi.fn() } }))
 
-afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); hooks.effects = []; hooks.index = 0; hooks.workflow = null })
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); hooks.effects = []; hooks.setters = []; hooks.index = 0; hooks.workflow = null; hooks.isAdmin = true })
 
 function findButton(node: unknown, label: string): ReactElement<{ onClick: () => void; disabled?: boolean }> | undefined {
   if (!node || typeof node !== 'object') return
@@ -107,4 +112,57 @@ it('renders without performance metrics when opened from Browse', () => {
   expect(hasText(tree, 'No performance data')).toBe(true)
   expect(hasText(tree, 'Provisions')).toBe(false)
   expect(findButton(tree, 'Recommend Retirement')).toBeDefined()
+})
+
+it('shows the edit form for an active started workflow', () => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15' } as RetirementWorkflow
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  expect(findButton(tree, 'Save Changes')).toBeDefined()
+})
+
+it.each([
+  { label: 'retired workflow', workflow: { step_retired_at: '2026-11-01', status: 'retired' }, retired_at: null },
+  { label: 'retired catalog item', workflow: {}, retired_at: '2026-11-01' },
+  { label: 'pending cancellation', workflow: { cancellation_requested_at: '2026-11-01' }, retired_at: null },
+])('hides the edit form for a $label', ({ workflow, retired_at }) => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', ...workflow } as RetirementWorkflow
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0, retired_at }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  expect(findButton(tree, 'Save Changes')).toBeUndefined()
+})
+
+it('hides the edit form for non-admins', () => {
+  hooks.isAdmin = false
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15' } as RetirementWorkflow
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  expect(findButton(tree, 'Save Changes')).toBeUndefined()
+})
+
+it('saves edits through the edit endpoint and refreshes the drawer', async () => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15', jira_key: 'EXAMPLE-1' } as RetirementWorkflow
+  const updated = { ...hooks.workflow, retirement_target_date: '2026-11-22' } as RetirementWorkflow
+  vi.mocked(api.editRetirementWorkflow).mockResolvedValue({ status: 'ok', workflow: updated, jira_comment_errors: [] })
+  const onChanged = vi.fn()
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged })
+
+  const save = findButton(tree, 'Save Changes')
+  expect(save).toBeDefined()
+  await save!.props.onClick()
+
+  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15' })
+  expect(hooks.setWorkflow).toHaveBeenLastCalledWith(updated)
+  expect(onChanged).toHaveBeenCalledOnce()
+})
+
+it('shows Jira delivery problems from an edit as an action error', async () => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15', jira_key: 'EXAMPLE-1' } as RetirementWorkflow
+  vi.mocked(api.editRetirementWorkflow).mockResolvedValue({ status: 'ok', workflow: hooks.workflow, jira_comment_errors: ['EXAMPLE-1: Jira comment delivery failed; retry pending'] })
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  const save = findButton(tree, 'Save Changes')
+  await save!.props.onClick()
+
+  expect(hooks.setters.some(setter => setter.mock.calls.some(args => JSON.stringify(args).includes('retry pending')))).toBe(true)
 })

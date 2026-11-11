@@ -216,6 +216,7 @@ class PerformanceDashboardResponse(BaseModel):
 class WorkflowResponse(BaseModel):
     status: str = Field(examples=["ok"])
     workflow: dict | None = None
+    jira_comment_errors: list[str] = Field(default_factory=list)
 
 
 class WorkflowGetResponse(BaseModel):

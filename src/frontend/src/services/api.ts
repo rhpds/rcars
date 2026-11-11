@@ -316,6 +316,12 @@ export const api = {
       body: JSON.stringify({ jira_key: jiraKey }),
     }),
 
+  editRetirementWorkflow: (baseName: string, changes: { retirement_target_date?: string; replacement_ci?: string; replacement_name?: string }) =>
+    request<{ status: string; workflow: RetirementWorkflow; jira_comment_errors?: string[] }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}/edit`, {
+      method: 'PUT',
+      body: JSON.stringify(changes),
+    }),
+
   cancelRetirementWorkflow: (baseName: string) =>
     request<{ status: string; deleted: boolean; workflow?: RetirementWorkflow; revert_pr_urls?: string[] }>(`/analysis/retirement/workflow/${encodeURIComponent(baseName)}`, { method: 'DELETE' }),
 

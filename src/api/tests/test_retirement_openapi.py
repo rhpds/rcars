@@ -5,11 +5,11 @@ from rcars.config import Settings
 def test_retirement_contract_is_discoverable_in_swagger():
     schema = create_app(Settings(database_url="postgresql://unused/unused")).openapi()
     retirement = {path: operations for path, operations in schema["paths"].items() if path.startswith("/api/v1/analysis/retirement")}
-    assert sum(len(operations) for operations in retirement.values()) == 13
+    assert sum(len(operations) for operations in retirement.values()) == 14
     for operations in retirement.values():
         for operation in operations.values():
             assert operation["tags"] == ["Retirement"]
-    for suffix in ("notify", "start", "link-jira"):
+    for suffix in ("notify", "start", "link-jira", "edit"):
         operation = retirement[f"/api/v1/analysis/retirement/workflow/{{base_name}}/{suffix}"]["put"]
         assert "Admin-only" in operation["description"]
     check = retirement["/api/v1/analysis/retirement/workflow/{base_name}/check-prs"]["post"]

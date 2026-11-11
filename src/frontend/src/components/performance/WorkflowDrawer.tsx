@@ -203,6 +203,7 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const [emailTemplate, setEmailTemplate] = useState<string | null>(null)
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
+  const [editDate, setEditDate] = useState(drawerWorkflow?.retirement_target_date || '')
   const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
   const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
   const [windowMetrics, setWindowMetrics] = useState<Partial<WorkflowItem> | null>(null)
@@ -226,6 +227,7 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
         setJiraProject(workflow?.jira_project || 'RHDPCD')
         setLinkJiraKey('')
         setNotesSaved(false)
+        setEditDate(workflow?.retirement_target_date || '')
         if (workflow && (workflow.agv_notice_pr_url || workflow.agv_retire_pr_url || workflow.agv_revert_pr_url || workflow.jira_key)) {
           try {
             const result = await api.checkAgvPrStatuses(item.catalog_base_name)
@@ -347,6 +349,27 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Failed to link Jira ticket')
+    }
+    setActionLoading(false)
+  }
+
+  const handleEdit = async () => {
+    const changes: { retirement_target_date?: string; replacement_ci?: string; replacement_name?: string } = {}
+    if (editDate) changes.retirement_target_date = editDate
+    if (replacementCi.trim()) {
+      changes.replacement_ci = replacementCi.trim()
+      if (replacementName.trim()) changes.replacement_name = replacementName.trim()
+    }
+    if (!changes.retirement_target_date && !changes.replacement_ci) return
+    setActionLoading('edit')
+    setActionError(null)
+    try {
+      const { workflow, jira_comment_errors } = await api.editRetirementWorkflow(item.catalog_base_name, changes)
+      setDrawerWorkflow(workflow)
+      if (jira_comment_errors?.length) setActionError(jira_comment_errors.join('; '))
+      onChanged()
+    } catch (e: unknown) {
+      setActionError(e instanceof Error ? e.message : 'Failed to save changes')
     }
     setActionLoading(false)
   }
@@ -747,6 +770,36 @@ RHDP Content Team`
                               {new Date(wf.retirement_target_date) <= new Date() && ' (past due)'}
                             </span>
                           </div>
+                        )}
+                        {isAdmin && !isRetired && !wf?.cancellation_requested_at && !wf?.agv_revert_pr_url && (
+                          <details>
+                            <summary style={{ fontSize: '11px', color: 'var(--text-link)', cursor: 'pointer' }}>Edit target date or replacement CI</summary>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Target date</label>
+                                <input
+                                  type="date"
+                                  className="browse-drawer-input"
+                                  value={editDate}
+                                  onChange={e => setEditDate(e.target.value)}
+                                  style={{ fontSize: '12px' }}
+                                />
+                              </div>
+                              <div>
+                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Replacement CI</label>
+                                <ReplacementPicker
+                                  value={replacementCi}
+                                  displayName={replacementName}
+                                  excludeBaseName={item.catalog_base_name}
+                                  onSelect={(ci, name) => { setReplacementCi(ci); setReplacementName(name) }}
+                                />
+                              </div>
+                              <button className="ret-action-btn ret-action-btn--start" onClick={handleEdit}
+                                disabled={!!actionLoading} style={{ fontSize: '11px', alignSelf: 'flex-start' }}>
+                                {actionLoading === 'edit' ? 'Saving...' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </details>
                         )}
                         {wf?.agv_notice_pr_url ? (
                           <a href={wf.agv_notice_pr_url} target="_blank" rel="noreferrer"
