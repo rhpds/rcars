@@ -115,6 +115,20 @@ def test_edit_changes_replacement_ci(client, db):
     assert "new-replacement" in events[0]["message"]
 
 
+def test_edit_clears_replacement_ci(client, db):
+    """An empty replacement CI clears the stored replacement and is announced."""
+    response = client.put(f"/api/v1/analysis/retirement/workflow/{BASE_NAME}/edit",
+                          json={"replacement_ci": "", "replacement_name": ""})
+
+    assert response.status_code == 200
+    wf = db.get_retirement_workflow(CONTENT_ID)
+    assert wf["replacement_ci"] is None
+    assert wf["replacement_name"] is None
+    events = _jira_event_messages(db)
+    assert len(events) == 1
+    assert "unset" in events[0]["message"]
+
+
 def test_edit_without_jira_key_records_no_event(client, db):
     """Workflows without a linked Jira ticket are edited silently."""
     db.upsert_retirement_workflow(CONTENT_ID, {"jira_key": None})

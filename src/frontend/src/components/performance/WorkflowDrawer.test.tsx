@@ -151,9 +151,21 @@ it('saves edits through the edit endpoint and refreshes the drawer', async () =>
   expect(save).toBeDefined()
   await save!.props.onClick()
 
-  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15' })
+  // The replacement CI is always sent, even empty, so it can be cleared.
+  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15', replacement_ci: '' })
   expect(hooks.setWorkflow).toHaveBeenLastCalledWith(updated)
   expect(onChanged).toHaveBeenCalledOnce()
+})
+
+it('clear button empties the replacement CI for saving', () => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15', replacement_ci: 'old-replacement', replacement_name: 'Old Replacement' } as RetirementWorkflow
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  const clear = findButton(tree, 'Clear Replacement')
+  expect(clear).toBeDefined()
+  clear!.props.onClick()
+
+  expect(hooks.setters.some(setter => setter.mock.calls.some(args => args[0] === ''))).toBe(true)
 })
 
 it('shows Jira delivery problems from an edit as an action error', async () => {

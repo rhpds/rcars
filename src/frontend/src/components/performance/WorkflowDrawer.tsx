@@ -356,10 +356,9 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const handleEdit = async () => {
     const changes: { retirement_target_date?: string; replacement_ci?: string; replacement_name?: string } = {}
     if (editDate) changes.retirement_target_date = editDate
-    if (replacementCi.trim()) {
-      changes.replacement_ci = replacementCi.trim()
-      if (replacementName.trim()) changes.replacement_name = replacementName.trim()
-    }
+    // Always send the CI, even empty: an empty string clears it server-side.
+    changes.replacement_ci = replacementCi.trim()
+    if (replacementName.trim()) changes.replacement_name = replacementName.trim()
     if (!changes.retirement_target_date && !changes.replacement_ci) return
     setActionLoading('edit')
     setActionError(null)
@@ -786,8 +785,18 @@ RHDP Content Team`
                                 />
                               </div>
                               <div>
-                                <label style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Replacement CI</label>
+                                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                  <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Replacement CI</label>
+                                  {(wf?.replacement_ci || replacementCi) && (
+                                    <button className="ret-action-btn" onClick={() => { setReplacementCi(''); setReplacementName('') }}
+                                      style={{ padding: '1px 8px', fontSize: '11px', lineHeight: 1 }}>
+                                      Clear Replacement
+                                    </button>
+                                  )}
+                                </div>
+                                {/* key remounts the picker when cleared so its search box reflects the empty value */}
                                 <ReplacementPicker
+                                  key={replacementCi}
                                   value={replacementCi}
                                   displayName={replacementName}
                                   excludeBaseName={item.catalog_base_name}
