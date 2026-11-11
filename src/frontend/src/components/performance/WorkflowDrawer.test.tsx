@@ -151,10 +151,22 @@ it('saves edits through the edit endpoint and refreshes the drawer', async () =>
   expect(save).toBeDefined()
   await save!.props.onClick()
 
-  // The replacement CI is always sent, even empty, so it can be cleared.
-  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15', replacement_ci: '' })
+  // An unchanged (empty) replacement CI is not sent, so it cannot clobber
+  // a replacement another admin set after this drawer loaded.
+  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15' })
   expect(hooks.setWorkflow).toHaveBeenLastCalledWith(updated)
   expect(onChanged).toHaveBeenCalledOnce()
+})
+
+it('sends an empty replacement CI when the workflow had one', async () => {
+  hooks.workflow = { step_started_at: '2026-10-15', step_approved_at: '2026-10-15', retirement_target_date: '2026-11-15', replacement_ci: 'old-replacement', replacement_name: 'Old Replacement', jira_key: 'EXAMPLE-1' } as RetirementWorkflow
+  vi.mocked(api.editRetirementWorkflow).mockResolvedValue({ status: 'ok', workflow: hooks.workflow, jira_comment_errors: [] })
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  // The cleared field differs from the workflow's stored CI, so it is sent as empty.
+  await findButton(tree, 'Save Changes')!.props.onClick()
+
+  expect(api.editRetirementWorkflow).toHaveBeenCalledWith('example.item', { retirement_target_date: '2026-11-15', replacement_ci: '' })
 })
 
 it('clear button empties the replacement CI for saving', () => {

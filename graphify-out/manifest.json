@@ -1284,9 +1284,9 @@
     "semantic_hash": "e42fe81c01fe4aa0ec5f0af9128b7074"
   },
   "src/frontend/src/components/performance/WorkflowDrawer.tsx": {
-    "mtime": 1794395162.0763168,
-    "seen": 1794395366.505107,
-    "ast_hash": "adaf954aa799b0f2d29d18612609d969",
+    "mtime": 1794395947.3886943,
+    "seen": 1794395967.388395,
+    "ast_hash": "e2cf1f3c19383e8b0270eea1ca5422c7",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/PerformancePage.tsx": {
@@ -1806,9 +1806,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/components/performance/WorkflowDrawer.test.tsx": {
-    "mtime": 1794395137.927923,
-    "seen": 1794395366.505107,
-    "ast_hash": "4706d163c8e6490f7a5f78ceca24234e",
+    "mtime": 1794395907.6588485,
+    "seen": 1794395967.3883939,
+    "ast_hash": "9d23c990f594c7d4b50568d3ca8f3bea",
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement_cleanup.py": {

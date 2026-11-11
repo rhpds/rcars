@@ -204,6 +204,7 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const [notesSaved, setNotesSaved] = useState(false)
   const [linkJiraKey, setLinkJiraKey] = useState('')
   const [editDate, setEditDate] = useState(drawerWorkflow?.retirement_target_date || '')
+  const [pickerReset, setPickerReset] = useState(0)
   const [prStatuses, setPrStatuses] = useState<Record<string, { state?: string; merged?: boolean }> | null>(null)
   const [jiraStatus, setJiraStatus] = useState<{ status?: string; resolution?: string } | null>(null)
   const [windowMetrics, setWindowMetrics] = useState<Partial<WorkflowItem> | null>(null)
@@ -356,10 +357,16 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
   const handleEdit = async () => {
     const changes: { retirement_target_date?: string; replacement_ci?: string; replacement_name?: string } = {}
     if (editDate) changes.retirement_target_date = editDate
-    // Always send the CI, even empty: an empty string clears it server-side.
-    changes.replacement_ci = replacementCi.trim()
-    if (replacementName.trim()) changes.replacement_name = replacementName.trim()
-    if (!changes.retirement_target_date && !changes.replacement_ci) return
+    // Send the CI only when it differs from the workflow's stored value, so an
+    // untouched (possibly stale) field cannot clobber a concurrent change, and
+    // an explicit clear (empty vs. stored) still goes through.
+    const currentCi = drawerWorkflow?.replacement_ci || ''
+    const currentName = drawerWorkflow?.replacement_name || ''
+    if (replacementCi.trim() !== currentCi || replacementName.trim() !== currentName) {
+      changes.replacement_ci = replacementCi.trim()
+      if (replacementName.trim()) changes.replacement_name = replacementName.trim()
+    }
+    if (!changes.retirement_target_date && changes.replacement_ci === undefined) return
     setActionLoading('edit')
     setActionError(null)
     try {
@@ -788,15 +795,15 @@ RHDP Content Team`
                                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: '4px' }}>
                                   <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Replacement CI</label>
                                   {(wf?.replacement_ci || replacementCi) && (
-                                    <button className="ret-action-btn" onClick={() => { setReplacementCi(''); setReplacementName('') }}
+                                    <button className="ret-action-btn" onClick={() => { setReplacementCi(''); setReplacementName(''); setPickerReset(n => n + 1) }}
                                       style={{ padding: '1px 8px', fontSize: '11px', lineHeight: 1 }}>
                                       Clear Replacement
                                     </button>
                                   )}
                                 </div>
-                                {/* key remounts the picker when cleared so its search box reflects the empty value */}
+                                {/* keyed on the clear counter only, so manual typing never remounts the picker */}
                                 <ReplacementPicker
-                                  key={replacementCi}
+                                  key={pickerReset}
                                   value={replacementCi}
                                   displayName={replacementName}
                                   excludeBaseName={item.catalog_base_name}
