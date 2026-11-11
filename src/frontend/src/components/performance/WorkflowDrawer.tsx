@@ -268,6 +268,12 @@ export function WorkflowDrawer({ item, itemWindow, onClose, onChanged }: {
         replacementCi || undefined, replacementName || undefined
       )
       setDrawerWorkflow(workflow)
+      // Sync the replacement fields and baselines, so a replacement picked at
+      // approval can still be cleared from the edit form without reloading.
+      setReplacementCi(workflow?.replacement_ci || '')
+      setReplacementName(workflow?.replacement_name || '')
+      setLoadedReplacementCi(workflow?.replacement_ci || '')
+      setLoadedReplacementName(workflow?.replacement_name || '')
       onChanged()
     } catch (e: unknown) {
       setActionError(e instanceof Error ? e.message : 'Approval failed')

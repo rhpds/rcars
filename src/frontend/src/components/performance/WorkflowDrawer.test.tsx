@@ -4,7 +4,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { WorkflowDrawer } from './WorkflowDrawer'
 import { api } from '../../services/api'
 
-const hooks = vi.hoisted(() => ({ effects: [] as Array<() => void>, setWorkflow: vi.fn(), setters: [] as Array<ReturnType<typeof vi.fn>>, index: 0, workflow: null as RetirementWorkflow | null, isAdmin: true }))
+const hooks = vi.hoisted(() => ({ effects: [] as Array<() => void>, setWorkflow: vi.fn(), setters: [] as Array<ReturnType<typeof vi.fn>>, index: 0, workflow: null as RetirementWorkflow | null, isAdmin: true, stateOverrides: {} as Record<number, unknown> }))
 vi.mock('react', async importOriginal => ({
   ...await importOriginal<typeof import('react')>(),
   useEffect: (effect: () => void) => { hooks.effects.push(effect) },
@@ -12,13 +12,14 @@ vi.mock('react', async importOriginal => ({
     const index = hooks.index++
     const setter = vi.fn()
     hooks.setters.push(setter)
-    return [index === 0 ? hooks.workflow ?? value : value, index === 0 ? hooks.setWorkflow : setter]
+    const initial = index === 0 ? hooks.workflow ?? value : index in hooks.stateOverrides ? hooks.stateOverrides[index] : value
+    return [initial, index === 0 ? hooks.setWorkflow : setter]
   },
 }))
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ isAdmin: hooks.isAdmin }) }))
-vi.mock('../../services/api', () => ({ api: { getRetirementWorkflow: vi.fn(), checkAgvPrStatuses: vi.fn(), editRetirementWorkflow: vi.fn() } }))
+vi.mock('../../services/api', () => ({ api: { getRetirementWorkflow: vi.fn(), checkAgvPrStatuses: vi.fn(), editRetirementWorkflow: vi.fn(), approveRetirementItem: vi.fn() } }))
 
-afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); hooks.effects = []; hooks.setters = []; hooks.index = 0; hooks.workflow = null; hooks.isAdmin = true })
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllGlobals(); hooks.effects = []; hooks.setters = []; hooks.index = 0; hooks.workflow = null; hooks.isAdmin = true; hooks.stateOverrides = {} })
 
 function findButton(node: unknown, label: string): ReactElement<{ onClick: () => void; disabled?: boolean }> | undefined {
   if (!node || typeof node !== 'object') return
@@ -178,6 +179,20 @@ it('clear button empties the replacement CI for saving', () => {
   clear!.props.onClick()
 
   expect(hooks.setters.some(setter => setter.mock.calls.some(args => args[0] === ''))).toBe(true)
+})
+
+it('syncs the replacement fields after approval so a later clear works', async () => {
+  // Approval reason is the third useState; without it the handler exits early.
+  hooks.stateOverrides = { 2: 'low usage' }
+  hooks.workflow = null
+  const approved = { step_approved_at: '2026-11-11', replacement_ci: 'picked-ci', replacement_name: 'Picked CI' } as RetirementWorkflow
+  vi.mocked(api.approveRetirementItem).mockResolvedValue({ status: 'ok', workflow: approved })
+  const tree = WorkflowDrawer({ item: { catalog_base_name: 'example.item', display_name: 'Example', provisions: 0, unique_users: 0, experiences: 0, success_ratio: 0 }, onClose: vi.fn(), onChanged: vi.fn() })
+
+  await findButton(tree, 'Recommend Retirement')!.props.onClick()
+
+  expect(api.approveRetirementItem).toHaveBeenCalled()
+  expect(hooks.setters.some(setter => setter.mock.calls.some(args => args[0] === 'picked-ci'))).toBe(true)
 })
 
 it('shows Jira delivery problems from an edit as an action error', async () => {
