@@ -452,8 +452,8 @@ def reporting_db_sync(ctx, field_source: bool):
     _print("Syncing field source content provisions...")
     try:
         fs_result = run_field_source_sync(db, settings)
-        _print(f"  OCP: {fs_result.get('ocp', 0)}, RHEL: {fs_result.get('rhel', 0)}, "
-               f"Total: {fs_result.get('total', 0)}")
+        per_item = ", ".join(f"{k}: {v}" for k, v in fs_result.items() if k != "total")
+        _print(f"  {per_item}, Total: {fs_result.get('total', 0)}")
     except Exception as e:
         _print(f"WARNING: Field source sync failed: {e}")
 
