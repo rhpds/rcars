@@ -63,10 +63,12 @@ def test_field_source_endpoint(client, db):
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
          "retired_at": None, "provision_uuid": "api-uuid-1",
+         "user_email": "user1@redhat.com",
          "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None},
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
          "retired_at": None, "provision_uuid": "api-uuid-2",
+         "user_email": "user2@redhat.com",
          "cloud_provider": "aws", "cluster_size": "multinode", "node_size": None},
     ])
     resp = client.get("/api/v1/analysis/field-source")
@@ -75,6 +77,32 @@ def test_field_source_endpoint(client, db):
     assert data["total_repos"] == 1
     assert data["total_provisions"] == 2
     assert data["repos"][0]["provision_count"] == 2
+    # Per-provision user email is exposed
+    emails = {p["user_email"] for p in data["repos"][0]["provisions"]}
+    assert emails == {"user1@redhat.com", "user2@redhat.com"}
+
+
+def test_field_source_filter_shared_and_cloud(client, db):
+    """The new ocp_shared and ocp_cloud catalog_item filters work."""
+    db.upsert_field_source_provisions([
+        {"catalog_item": "ocp_shared", "git_repo": "https://github.com/ex/r1",
+         "git_ref": "main", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
+         "retired_at": None, "provision_uuid": "sc-uuid-1",
+         "user_email": "user1@redhat.com",
+         "cloud_provider": "aws", "cluster_size": "multinode", "node_size": None},
+        {"catalog_item": "ocp_cloud", "git_repo": "https://github.com/ex/r2",
+         "git_ref": "main", "provisioned_at": datetime(2026, 6, 2, tzinfo=timezone.utc),
+         "retired_at": None, "provision_uuid": "sc-uuid-2",
+         "user_email": "user2@redhat.com",
+         "cloud_provider": "rosa", "cluster_size": "2", "node_size": "m6a.xlarge"},
+    ])
+    for cat_item, expected_repo in [("ocp_shared", "r1"), ("ocp_cloud", "r2")]:
+        resp = client.get(f"/api/v1/analysis/field-source?catalog_item={cat_item}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_repos"] == 1
+        assert data["repos"][0]["catalog_item"] == cat_item
+        assert expected_repo in data["repos"][0]["git_repo"]
 
 
 def test_field_source_filter(client, db):
@@ -82,10 +110,12 @@ def test_field_source_filter(client, db):
         {"catalog_item": "ocp", "git_repo": "https://github.com/ex/r1",
          "git_ref": "main", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
          "retired_at": None, "provision_uuid": "filt-uuid-1",
+         "user_email": "user1@redhat.com",
          "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None},
         {"catalog_item": "rhel", "git_repo": "https://github.com/ex/r2",
          "git_ref": "v1.0", "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
          "retired_at": None, "provision_uuid": "filt-uuid-2",
+         "user_email": "user2@redhat.com",
          "cloud_provider": "cnv", "cluster_size": "single", "node_size": "small"},
     ])
     resp = client.get("/api/v1/analysis/field-source?catalog_item=ocp")

@@ -53,7 +53,7 @@ def test_reset_preserves_all_curated_historical_and_architecture_data(db):
                      (target, other, other, architecture))
     db.upsert_field_source_provisions([{"catalog_item": "isolation-test", "git_repo": "https://github.com/example/content",
         "git_ref": "main", "provision_uuid": "isolation-test-provision", "provisioned_at": "2026-10-01T00:00:00Z",
-        "retired_at": None, "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None}])
+        "retired_at": None, "user_email": "user1@redhat.com", "cloud_provider": "cnv", "cluster_size": "sno", "node_size": None}])
     job = db.create_job(job_type="analyze", queue="analyze", created_by="isolation-test")
     db.complete_job(job, result_json={"old": "history"})
     db.log_token_usage("scan", "example-model", 12, 10, ci_name="isolation-test.item.prod")

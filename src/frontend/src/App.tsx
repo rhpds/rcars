@@ -64,7 +64,9 @@ export default function App() {
                   {(auth.isCurator || auth.isAdmin) && (
                     <Route path="/analysis/retirement" element={<RetirementPage />} />
                   )}
-                  <Route path="/analysis/field-source" element={<FieldSourcePage />} />
+                  {(auth.isCurator || auth.isAdmin) && (
+                    <Route path="/analysis/field-source" element={<FieldSourcePage />} />
+                  )}
                   {auth.isAdmin && (
                     <>
                       <Route path="/system/status" element={<StatusPage />} />

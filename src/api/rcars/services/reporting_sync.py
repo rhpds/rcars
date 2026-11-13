@@ -1044,14 +1044,33 @@ def run_reporting_sync(db, settings) -> dict:
 
 FIELD_SOURCE_ITEMS: dict[str, dict] = {
     "ocp": {
+        # published.ocp-field-asset (dedicated)
         "catalog_id": 1969802,
         "repo_param": "ocp4_workload_field_content_gitops_repo_url",
         "ref_param": "ocp4_workload_field_content_gitops_repo_revision",
         "cloud_provider_param": "ocp_cloud_provider",
         "size_param": "cluster_size",
     },
+    "ocp_shared": {
+        # published.ocp-field-asset-shared
+        "catalog_id": 1970339,
+        "repo_param": "ocp4_workload_field_content_gitops_repo_url",
+        "ref_param": "ocp4_workload_field_content_gitops_repo_revision",
+        "cloud_provider_param": "ocp_cloud_provider",
+        "size_param": "cluster_size",
+    },
+    "ocp_cloud": {
+        # published.ocp-cloud-ssa-field-asset — ROSA today, ARO later
+        "catalog_id": 1970297,
+        "repo_param": "ocp4_workload_field_content_gitops_repo_url",
+        "ref_param": "ocp4_workload_field_content_gitops_repo_revision",
+        "cloud_provider_param": "ocp_cloud_provider",
+        "size_param": "rosa_compute_replicas",
+        "node_size_param": "rosa_compute_machine_type",
+    },
     "rhel": {
-        "catalog_id": 1970262,
+        # published.rhel-field-asset
+        "catalog_id": 1970276,
         "repo_param": "vm_workload_field_content_git_repo_url",
         "ref_param": "vm_workload_field_content_git_repo_revision",
         "cloud_provider_param": "cloud_provider",
@@ -1059,6 +1078,9 @@ FIELD_SOURCE_ITEMS: dict[str, dict] = {
         "node_size_param": "node_size",
     },
 }
+# Only the published catalog items are tracked. The agd-v2 items they wrap
+# (ocp-field-asset-aws/cnv/rosa, rhel-field-asset-cnv) are ordered directly
+# only for dev or wrong-path usage; counting them would double-report.
 
 
 def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str,
@@ -1078,6 +1100,7 @@ def _build_field_source_sql(catalog_id: int, repo_param: str, ref_param: str,
           p.uuid AS provision_uuid,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ repo_param}' AS git_repo,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ ref_param}' AS git_ref,
+          p.ordered_by AS user_email,
           p.provisioned_at,
           p.retired_at,
           rcl.resource_claim_json->'spec'->'provider'->'parameterValues'->>'{ cloud_provider_param}' AS cloud_provider,
@@ -1118,6 +1141,7 @@ def run_field_source_sync(db, settings) -> dict:
         for row in rows:
             row["catalog_item"] = item_key
             row["cloud_provider"] = (row.get("cloud_provider") or "cnv").lower()
+            row.setdefault("user_email", None)
             row.setdefault("node_size", None)
             row.setdefault("cluster_size", None)
         all_rows.extend(rows)

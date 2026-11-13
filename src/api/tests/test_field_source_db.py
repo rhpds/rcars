@@ -49,6 +49,7 @@ _ROWS = [
         "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-001",
+        "user_email": "user1@redhat.com",
         "cloud_provider": "cnv",
         "cluster_size": "sno", "node_size": None,
     },
@@ -59,6 +60,7 @@ _ROWS = [
         "provisioned_at": datetime(2026, 7, 1, tzinfo=timezone.utc),
         "retired_at": datetime(2026, 7, 5, tzinfo=timezone.utc),
         "provision_uuid": "uuid-002",
+        "user_email": "user2@redhat.com",
         "cloud_provider": "aws",
         "cluster_size": "multinode", "node_size": None,
     },
@@ -69,6 +71,7 @@ _ROWS = [
         "provisioned_at": datetime(2026, 8, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-003",
+        "user_email": "user3@redhat.com",
         "cloud_provider": "cnv",
         "cluster_size": "single", "node_size": "small",
     },
@@ -92,6 +95,11 @@ def test_upsert_and_query_field_source(db):
     assert len(rhel_results) == 1
     assert rhel_results[0]["git_repo"] == "https://github.com/example/repo2"
 
+    # user_email round-trips through upsert and query
+    by_uuid = {r["provision_uuid"]: r for r in results}
+    assert by_uuid["uuid-001"]["user_email"] == "user1@redhat.com"
+    assert by_uuid["uuid-003"]["user_email"] == "user3@redhat.com"
+
     # Dedup: re-upsert same rows should not grow the table
     count2 = db.upsert_field_source_provisions(_ROWS)
     assert count2 == 3
@@ -106,6 +114,7 @@ def test_upsert_updates_retired_at(db):
         "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
         "retired_at": None,
         "provision_uuid": "uuid-retire-test",
+        "user_email": "user1@redhat.com",
         "cloud_provider": "cnv",
         "cluster_size": "sno", "node_size": None,
     }
@@ -129,6 +138,7 @@ def test_delete_field_source(db):
             "provisioned_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
             "retired_at": None,
             "provision_uuid": "uuid-del-001",
+            "user_email": "user1@redhat.com",
             "cloud_provider": "cnv",
             "cluster_size": "sno", "node_size": None,
         }

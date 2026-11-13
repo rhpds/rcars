@@ -1,8 +1,15 @@
 import { useState, useEffect, useCallback, Fragment, useRef } from 'react'
 import { api, FieldSourceData, FieldSourceRepo as FSRepo } from '../services/api'
 
-type Tab = 'ocp' | 'rhel'
+type Tab = 'ocp' | 'ocp_shared' | 'ocp_cloud' | 'rhel'
 type SortField = 'repository' | 'ref' | 'provisions' | 'cnv' | 'aws' | 'sno' | 'multinode' | 'first_seen' | 'last_seen'
+
+const TAB_LABELS: Record<Tab, string> = {
+  ocp: 'OCP Dedicated',
+  ocp_shared: 'OCP Shared',
+  ocp_cloud: 'OCP Cloud',
+  rhel: 'RHEL',
+}
 
 const formatDate = (iso: string) => new Date(iso).toLocaleDateString()
 
@@ -98,35 +105,27 @@ export function FieldSourcePage() {
   if (error) return <div className="ca-error">{error}</div>
   if (!data) return null
 
-  const ocpColumns = (
+  const showProviderCounts = tab === 'ocp' || tab === 'ocp_shared'
+  const isOcpFamily = tab !== 'rhel'
+
+  const columns = (
     <tr>
       <th style={{ width: '2rem' }}></th>
       <th className="clickable" onClick={() => toggleSort('repository')}>Repository{arrow('repository')}</th>
       <th className="clickable" style={{ width: '9rem' }} onClick={() => toggleSort('ref')}>Ref{arrow('ref')}</th>
       <th className="clickable num" style={{ width: '4.5rem' }} onClick={() => toggleSort('provisions')}>Total{arrow('provisions')}</th>
-      <th className="clickable num" style={{ width: '4rem' }} onClick={() => toggleSort('cnv')}>CNV{arrow('cnv')}</th>
-      <th className="clickable num" style={{ width: '4rem' }} onClick={() => toggleSort('aws')}>AWS{arrow('aws')}</th>
-      <th className="clickable num" style={{ width: '4rem' }} onClick={() => toggleSort('sno')}>SNO{arrow('sno')}</th>
+      {showProviderCounts && <>
+        <th className="clickable num" style={{ width: '4rem' }} onClick={() => toggleSort('cnv')}>CNV{arrow('cnv')}</th>
+        <th className="clickable num" style={{ width: '4rem' }} onClick={() => toggleSort('aws')}>AWS{arrow('aws')}</th>
+      </>}
+      <th className="clickable num" style={{ width: isOcpFamily ? '4rem' : '5rem' }} onClick={() => toggleSort('sno')}>{isOcpFamily ? 'SNO' : 'Single'}{arrow('sno')}</th>
       <th className="clickable num" style={{ width: '5rem' }} onClick={() => toggleSort('multinode')}>Multi{arrow('multinode')}</th>
       <th className="clickable" style={{ width: '7rem' }} onClick={() => toggleSort('first_seen')}>First Used{arrow('first_seen')}</th>
       <th className="clickable" style={{ width: '7rem' }} onClick={() => toggleSort('last_seen')}>Last Used{arrow('last_seen')}</th>
     </tr>
   )
 
-  const rhelColumns = (
-    <tr>
-      <th style={{ width: '2rem' }}></th>
-      <th className="clickable" onClick={() => toggleSort('repository')}>Repository{arrow('repository')}</th>
-      <th className="clickable" style={{ width: '9rem' }} onClick={() => toggleSort('ref')}>Ref{arrow('ref')}</th>
-      <th className="clickable num" style={{ width: '4.5rem' }} onClick={() => toggleSort('provisions')}>Total{arrow('provisions')}</th>
-      <th className="clickable num" style={{ width: '5rem' }} onClick={() => toggleSort('sno')}>Single{arrow('sno')}</th>
-      <th className="clickable num" style={{ width: '5rem' }} onClick={() => toggleSort('multinode')}>Multi{arrow('multinode')}</th>
-      <th className="clickable" style={{ width: '7rem' }} onClick={() => toggleSort('first_seen')}>First Used{arrow('first_seen')}</th>
-      <th className="clickable" style={{ width: '7rem' }} onClick={() => toggleSort('last_seen')}>Last Used{arrow('last_seen')}</th>
-    </tr>
-  )
-
-  const colCount = tab === 'ocp' ? 10 : 8
+  const colCount = showProviderCounts ? 10 : 8
 
   const renderRow = (repo: FSRepo) => {
     const key = `${repo.git_repo}|${repo.git_ref}|${repo.catalog_item}`
@@ -149,7 +148,7 @@ export function FieldSourcePage() {
           </td>
           <td><code>{repo.git_ref ?? '—'}</code></td>
           <td style={{ textAlign: 'right' }}>{repo.provision_count}</td>
-          {tab === 'ocp' && <>
+          {showProviderCounts && <>
             <td style={{ textAlign: 'right' }}>{repo.cnv_count}</td>
             <td style={{ textAlign: 'right' }}>{repo.aws_count}</td>
           </>}
@@ -165,22 +164,29 @@ export function FieldSourcePage() {
                 <table className="ca-detail-table">
                   <thead>
                     <tr>
-                      <th>Provisioned</th><th>Retired</th><th>Duration</th>
-                      {tab === 'ocp' && <><th>Provider</th><th>Size</th></>}
+                      <th>User</th><th>Provisioned</th><th>Retired</th><th>Duration</th>
+                      {isOcpFamily && <><th>Provider</th><th>Size</th></>}
                       {tab === 'rhel' && <><th>Nodes</th><th>Size</th></>}
                     </tr>
                   </thead>
                   <tbody>
-                    {repo.provisions.map((p, i) => {
+                    {[...repo.provisions]
+                      .sort((a, b) => {
+                        const u = (a.user_email ?? '').localeCompare(b.user_email ?? '')
+                        if (u !== 0) return u
+                        return new Date(b.provisioned_at).getTime() - new Date(a.provisioned_at).getTime()
+                      })
+                      .map((p, i) => {
                       const duration = p.retired_at
                         ? Math.round((new Date(p.retired_at).getTime() - new Date(p.provisioned_at).getTime()) / 86400000)
                         : null
                       return (
                         <tr key={i}>
+                          <td>{p.user_email ?? '—'}</td>
                           <td>{formatDate(p.provisioned_at)}</td>
                           <td>{p.retired_at ? formatDate(p.retired_at) : 'Active'}</td>
                           <td>{duration !== null ? `${duration}d` : '—'}</td>
-                          {tab === 'ocp' && <>
+                          {isOcpFamily && <>
                             <td>{p.cloud_provider?.toUpperCase() ?? '—'}</td>
                             <td>{p.cluster_size ?? '—'}</td>
                           </>}
@@ -216,14 +222,16 @@ export function FieldSourcePage() {
           <div className="ret-stat-label">Total Provisions</div>
           <div className="ret-stat-value">{totalProvisions}</div>
         </div>
-        <div className="ret-stat-card">
-          <div className="ret-stat-label">CNV Provisions</div>
-          <div className="ret-stat-value">{totalCnv}</div>
-        </div>
-        <div className="ret-stat-card">
-          <div className="ret-stat-label">AWS Provisions</div>
-          <div className="ret-stat-value">{totalAws}</div>
-        </div>
+        {showProviderCounts && <>
+          <div className="ret-stat-card">
+            <div className="ret-stat-label">CNV Provisions</div>
+            <div className="ret-stat-value">{totalCnv}</div>
+          </div>
+          <div className="ret-stat-card">
+            <div className="ret-stat-label">AWS Provisions</div>
+            <div className="ret-stat-value">{totalAws}</div>
+          </div>
+        </>}
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '70rem', marginBottom: '8px' }}>
@@ -239,7 +247,7 @@ export function FieldSourcePage() {
       </div>
 
       <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid var(--border-subtle)', marginBottom: '8px' }}>
-        {(['ocp', 'rhel'] as Tab[]).map(t => (
+        {(Object.keys(TAB_LABELS) as Tab[]).map(t => (
           <button key={t} onClick={() => { setTab(t); setExpanded(new Set()) }}
             style={{
               padding: '6px 16px', cursor: 'pointer', fontWeight: 600, fontSize: '13px',
@@ -248,13 +256,13 @@ export function FieldSourcePage() {
               color: tab === t ? 'var(--text-link)' : 'var(--text-secondary)',
               marginBottom: '-2px',
             }}>
-            {t.toUpperCase()}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
       <table className="ca-table" style={{ maxWidth: '70rem' }}>
-        <thead>{tab === 'ocp' ? ocpColumns : rhelColumns}</thead>
+        <thead>{columns}</thead>
         <tbody>{sorted.map(renderRow)}</tbody>
       </table>
 
