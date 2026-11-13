@@ -372,6 +372,7 @@ class ReportingStatusResponse(BaseModel):
 class FieldSourceProvision(BaseModel):
     provisioned_at: datetime
     retired_at: datetime | None
+    user_email: str | None = None
     cloud_provider: str | None = None
     cluster_size: str | None = None
     node_size: str | None = None

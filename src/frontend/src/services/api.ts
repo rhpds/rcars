@@ -657,6 +657,7 @@ export interface VocabularyData {
 export interface FieldSourceProvision {
   provisioned_at: string
   retired_at: string | null
+  user_email: string | null
   cloud_provider: string | null
   cluster_size: string | null
   node_size: string | null

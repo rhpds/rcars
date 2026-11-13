@@ -1430,6 +1430,7 @@ async def field_source_report(
             provisions=[FieldSourceProvision(
                 provisioned_at=p["provisioned_at"],
                 retired_at=p.get("retired_at"),
+                user_email=p.get("user_email"),
                 cloud_provider=p.get("cloud_provider"),
                 cluster_size=p.get("cluster_size"),
                 node_size=p.get("node_size"),

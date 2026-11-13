@@ -604,6 +604,7 @@ CREATE INDEX IF NOT EXISTS idx_fsp_git_repo ON field_source_provisions(git_repo)
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cloud_provider TEXT;
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS cluster_size TEXT;
 ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS node_size TEXT;
+ALTER TABLE field_source_provisions ADD COLUMN IF NOT EXISTS user_email TEXT;
 
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_notice_pr_url TEXT;
 ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS agv_retire_pr_url TEXT;
@@ -4379,14 +4380,15 @@ class Database:
             return 0
         sql = """
             INSERT INTO field_source_provisions
-                (catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid, cloud_provider, cluster_size, node_size, synced_at)
+                (catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid, cloud_provider, cluster_size, node_size, user_email, synced_at)
             VALUES
-                (%(catalog_item)s, %(git_repo)s, %(git_ref)s, %(provisioned_at)s, %(retired_at)s, %(provision_uuid)s, %(cloud_provider)s, %(cluster_size)s, %(node_size)s, NOW())
+                (%(catalog_item)s, %(git_repo)s, %(git_ref)s, %(provisioned_at)s, %(retired_at)s, %(provision_uuid)s, %(cloud_provider)s, %(cluster_size)s, %(node_size)s, %(user_email)s, NOW())
             ON CONFLICT (provision_uuid) DO UPDATE SET
                 retired_at = EXCLUDED.retired_at,
                 cloud_provider = EXCLUDED.cloud_provider,
                 cluster_size = EXCLUDED.cluster_size,
                 node_size = EXCLUDED.node_size,
+                user_email = EXCLUDED.user_email,
                 synced_at = NOW()
         """
         with self._pool.connection() as conn:
@@ -4408,7 +4410,7 @@ class Database:
     def get_field_source_summary(self, catalog_item: str | None = None, months: int = 12) -> list[dict]:
         """Return provision rows within the given month window, optionally filtered by catalog_item."""
         sql = """
-            SELECT catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid, cloud_provider, cluster_size, node_size
+            SELECT catalog_item, git_repo, git_ref, provisioned_at, retired_at, provision_uuid, cloud_provider, cluster_size, node_size, user_email
             FROM field_source_provisions
             WHERE provisioned_at >= NOW() - make_interval(months => %s)
         """
