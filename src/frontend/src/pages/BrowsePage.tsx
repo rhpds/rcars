@@ -249,6 +249,7 @@ function CuratorDrawer({
   customDescription,
   onCustomDescriptionChange,
   onAnalysisSourceSave,
+  jobError,
   contentPath,
   onContentPathChange,
   onContentPathSave,
@@ -278,6 +279,7 @@ function CuratorDrawer({
   customDescription: string
   onCustomDescriptionChange: (val: string) => void
   onAnalysisSourceSave: () => Promise<void>
+  jobError: string
   contentPath: string
   onContentPathChange: (val: string) => void
   onContentPathSave: () => Promise<void>
@@ -421,9 +423,9 @@ function CuratorDrawer({
                     {savedSource ? 'Saved' : 'Set Source'}
                   </button>
                 </div>
-                {sourceError && (
+                {(sourceError || jobError) && (
                   <div role="alert" style={{ color: 'var(--pf-t--global--text--color--status--danger--default, #c9190b)', fontSize: '0.9em' }}>
-                    {sourceError}
+                    {sourceError || jobError}
                   </div>
                 )}
               </div>
@@ -564,6 +566,7 @@ export function BrowsePage() {
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
   const [analysisSources, setAnalysisSources] = useState<Record<string, AnalysisSource>>({})
   const [customDescriptions, setCustomDescriptions] = useState<Record<string, string>>({})
+  const [analysisJobErrors, setAnalysisJobErrors] = useState<Record<string, string>>({})
   const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
@@ -572,6 +575,11 @@ export function BrowsePage() {
   const searchRef = useRef(search)
   const requestRef = useRef(0)
   searchRef.current = search
+  // Polling callbacks outlive the render they started in; read the latest
+  // page and fetch function through refs so a job finishing late cannot
+  // refresh the list with a stale page or stale filters.
+  const pageRef = useRef(page)
+  pageRef.current = page
 
   // Load facets
   useEffect(() => {
@@ -624,6 +632,8 @@ export function BrowsePage() {
     }
     setLoading(false)
   }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, contentFilter, formats])
+  const fetchItemsRef = useRef(fetchItems)
+  fetchItemsRef.current = fetchItems
 
   // Sync URL params
   useEffect(() => {
@@ -752,7 +762,7 @@ export function BrowsePage() {
       const result = await api.getJobStatus(job_id)
       if (result.status === 'complete' || result.status === 'failed') {
         setAnalyzing(null)
-        fetchItems(page)
+        fetchItemsRef.current(pageRef.current)
         if (expandedItems.has(ciName)) {
           const detail = await api.getCatalogItem(ciName) as ItemDetail
           setItemDetails(prev => ({ ...prev, [ciName]: detail }))
@@ -799,6 +809,7 @@ export function BrowsePage() {
   }
 
   const handleSetAnalysisSource = async (ciName: string) => {
+    setAnalysisJobErrors(prev => ({ ...prev, [ciName]: '' }))
     const detail = itemDetails[ciName]
     const source = analysisSources[ciName] ?? (detail ? effectiveAnalysisSource(detail) : 'showroom')
     const custom = customDescriptions[ciName] ?? detail?.custom_description ?? ''
@@ -809,7 +820,12 @@ export function BrowsePage() {
     const poll = async () => {
       const result = await api.getJobStatus(job_id)
       if (result.status === 'complete' || result.status === 'failed') {
-        fetchItems(page)
+        if (result.status === 'failed') {
+          setAnalysisJobErrors(prev => ({
+            ...prev, [ciName]: result.error || 'The analysis job failed',
+          }))
+        }
+        fetchItemsRef.current(pageRef.current)
         if (expandedItems.has(ciName)) {
           const detail = await api.getCatalogItem(ciName) as ItemDetail
           setItemDetails(prev => ({ ...prev, [ciName]: detail }))
@@ -1352,6 +1368,7 @@ export function BrowsePage() {
           customDescription={customDescriptions[drawerItem] ?? drawerDetail.custom_description ?? ''}
           onCustomDescriptionChange={(val) => setCustomDescriptions(prev => ({ ...prev, [drawerItem]: val }))}
           onAnalysisSourceSave={() => handleSetAnalysisSource(drawerItem)}
+          jobError={analysisJobErrors[drawerItem] ?? ''}
           contentPath={contentPaths[drawerItem] ?? ''}
           onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
           onContentPathSave={() => handleSetContentPath(drawerItem)}
