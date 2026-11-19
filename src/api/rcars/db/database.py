@@ -23,7 +23,8 @@ from rcars.config import STAGE_PRIORITY
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
     AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete, content_owner,
-    effective_showroom_source, item_family_key, signature_matches_source,
+    effective_analysis_source, effective_showroom_source, item_family_key,
+    signature_matches_source,
 )
 
 logger = structlog.get_logger()
@@ -643,6 +644,8 @@ ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFA
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS platform TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp1 TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp2 TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS analysis_source_override TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS custom_description TEXT;
 
 """
 
@@ -939,9 +942,12 @@ class Database:
                     logger.info("content_type_transition", component="rcars",
                                 content_id=content_id, prev=prev_type, new=content_type,
                                 action="cleared_artifacts")
-                elif previous and previous.get("showroom_source_json") is not None and effective_showroom_source(previous) != effective_source:
+                elif (effective_analysis_source(effective_item) == "showroom"
+                      and previous and previous.get("showroom_source_json") is not None
+                      and effective_showroom_source(previous) != effective_source):
                     self.clear_babylon_generated_artifacts([content_id], conn=conn)
-                if source and effective_source.status in ("invalid", "ambiguous"):
+                if (source and effective_source.status in ("invalid", "ambiguous")
+                        and effective_analysis_source(effective_item) == "showroom"):
                     self.invalidate_babylon_scan_failure(content_id, f"{effective_source.status}_source", effective_source.error, conn=conn)
             conn.commit()
         return content_id
@@ -1392,6 +1398,7 @@ class Database:
         data_sql = f"""
             SELECT DISTINCT ce.*, bi.ci_name, bi.category, bi.stage, bi.catalog_namespace,
                    bi.showroom_url, bi.showroom_ref, bi.showroom_url_override, bi.content_path,
+                   bi.analysis_source_override, bi.custom_description,
                    bi.is_prod, bi.is_published, bi.published_ci_name, bi.base_ci_name,
                    bi.is_agd_v2, bi.agd_config, bi.cloud_provider, bi.ocp_version,
                    bi.os_image, bi.worker_instance_count, bi.control_plane_instance_count,
@@ -1589,6 +1596,37 @@ class Database:
                 self.clear_babylon_generated_artifacts([content_id], conn=conn)
             if source.status in ("invalid", "ambiguous"):
                 self.invalidate_babylon_scan_failure(content_id, f"{source.status}_source", source.error, conn=conn)
+
+    def set_analysis_source(self, content_id: str, source: str,
+                            custom_description: str | None = None) -> None:
+        """Select the per-item analysis input; any change clears derived artifacts."""
+        if source not in ("showroom", "agnosticv_description", "custom_description"):
+            raise ValueError(f"Unknown analysis source: {source}")
+        custom = custom_description if source == "custom_description" else None
+        if source == "custom_description" and not (custom or "").strip():
+            raise ValueError("Custom description is required for the custom_description source")
+        with self._pool.connection() as conn:
+            item = self.lock_babylon_item(conn, content_id)
+            if not item:
+                raise ValueError(f"Item not found: {content_id}")
+            if source != "showroom":
+                if content_owner(item) is not None:
+                    raise ValueError(
+                        "This item mirrors its owner's content; set the analysis source on the owner")
+                if (item.get("content_type") or "") not in ("lab", "demo"):
+                    raise ValueError("Description analysis applies to lab and demo items only")
+            if source == "agnosticv_description" and not (item.get("description") or "").strip():
+                raise ValueError("This item has no stored catalog description to analyze")
+            override = None if source == "showroom" else source
+            if (item.get("analysis_source_override") == override
+                    and item.get("custom_description") == custom):
+                return
+            conn.execute(
+                "UPDATE babylon_items SET analysis_source_override = %s, custom_description = %s "
+                "WHERE content_id = %s",
+                (override, custom, content_id),
+            )
+            self.clear_babylon_generated_artifacts([content_id], conn=conn)
 
     # ── Showroom analysis ──
 
@@ -2781,7 +2819,7 @@ class Database:
 
     def get_items_needing_analysis(self, settings=None, *, force: bool = False) -> list[dict[str, Any]]:
         from rcars.config import Settings
-        from rcars.services.analyzer import showroom_work_needed
+        from rcars.services.analyzer import description_work_needed, showroom_work_needed
         settings = settings or Settings(database_url=self._url)
         with self._pool.connection() as conn:
             cur = conn.execute("""
@@ -2800,13 +2838,18 @@ class Database:
 
         selected = []
         for item in all_needing:
-            source = effective_showroom_source(item)
-            if source.status != "resolved":
-                continue
             if content_owner(item) is not None:
                 continue
             analysis = self.get_showroom_analysis(item["content_id"]) or {}
-            if force or showroom_work_needed(item, analysis, self.get_embeddings_for_content(item["content_id"]), settings):
+            embeddings = self.get_embeddings_for_content(item["content_id"])
+            if effective_analysis_source(item) != "showroom":
+                if force or description_work_needed(item, analysis, embeddings, settings):
+                    selected.append(item)
+                continue
+            source = effective_showroom_source(item)
+            if source.status != "resolved":
+                continue
+            if force or showroom_work_needed(item, analysis, embeddings, settings):
                 selected.append(item)
         return selected
 
@@ -2823,7 +2866,8 @@ class Database:
         """
         with self._pool.connection() as conn:
             rows = conn.execute(sql).fetchall()
-        return [row for row in rows if content_owner(row) is None]
+        return [row for row in rows
+                if content_owner(row) is None and effective_analysis_source(row) == "showroom"]
 
     def get_sandboxes_needing_summary(self) -> list[dict]:
         sql = """

@@ -80,6 +80,8 @@ interface ItemDetail {
   catalog_namespace: string | null
   showroom_url: string | null
   showroom_ref: string | null
+  analysis_source_override: string | null
+  custom_description: string | null
   scan_status: string | null
   content_owner?: string | null
   content_path: string | null
@@ -117,6 +119,15 @@ interface ItemDetail {
   control_plane_instance_count?: string | null
   workloads?: Array<{ workload_fqcn: string; workload_role: string; workload_collection: string | null; has_infrastructure: boolean }>
   acl_groups?: string[]
+}
+
+type AnalysisSource = 'showroom' | 'agnosticv_description' | 'custom_description'
+
+function effectiveAnalysisSource(detail: ItemDetail): AnalysisSource {
+  return detail.analysis_source_override === 'agnosticv_description'
+    || detail.analysis_source_override === 'custom_description'
+    ? detail.analysis_source_override
+    : 'showroom'
 }
 
 interface Facets {
@@ -233,6 +244,12 @@ function CuratorDrawer({
   overrideUrl,
   onOverrideUrlChange,
   onOverrideUrlSave,
+  analysisSource,
+  onAnalysisSourceChange,
+  customDescription,
+  onCustomDescriptionChange,
+  onAnalysisSourceSave,
+  jobError,
   contentPath,
   onContentPathChange,
   onContentPathSave,
@@ -257,6 +274,12 @@ function CuratorDrawer({
   overrideUrl: string
   onOverrideUrlChange: (val: string) => void
   onOverrideUrlSave: () => Promise<void>
+  analysisSource: AnalysisSource
+  onAnalysisSourceChange: (val: AnalysisSource) => void
+  customDescription: string
+  onCustomDescriptionChange: (val: string) => void
+  onAnalysisSourceSave: () => Promise<void>
+  jobError: string
   contentPath: string
   onContentPathChange: (val: string) => void
   onContentPathSave: () => Promise<void>
@@ -269,7 +292,16 @@ function CuratorDrawer({
 }) {
   const [savedUrl, setSavedUrl] = useState(false)
   const [savedPath, setSavedPath] = useState(false)
+  const [savedSource, setSavedSource] = useState(false)
+  const [sourceError, setSourceError] = useState('')
   const flashSave = (setter: (v: boolean) => void) => { setter(true); setTimeout(() => setter(false), 1500) }
+  const saveAnalysisSource = () => {
+    setSourceError('')
+    onAnalysisSourceSave()
+      .then(() => flashSave(setSavedSource))
+      .catch((err: unknown) => setSourceError(
+        err instanceof Error ? err.message : 'Could not set the analysis source'))
+  }
   return (
     <>
       <div className="browse-drawer-overlay" onClick={onClose} />
@@ -352,6 +384,50 @@ function CuratorDrawer({
                     {savedUrl ? 'Saved' : 'Set URL'}
                   </button>
                 </div>
+              </div>
+
+              {/* Analysis Source */}
+              <div className="browse-drawer-field">
+                <label className="browse-drawer-label">Analysis Source</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {([
+                    ['showroom', 'Showroom (default)', 'Analyzed from the Showroom repo. Refreshes nightly.'],
+                    ['agnosticv_description', 'Use catalog description', 'Analyzed from the stored catalog description. Re-analyzed when the description changes.'],
+                    ['custom_description', 'Custom description', 'Analyzed once from the text below. Re-run only when you edit it.'],
+                  ] as Array<[AnalysisSource, string, string]>).map(([value, label, help]) => (
+                    <label key={value} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                      <input
+                        type="radio"
+                        name={`analysis-source-${ciName}`}
+                        checked={analysisSource === value}
+                        onChange={() => onAnalysisSourceChange(value)}
+                      />
+                      <span>
+                        <span>{label}</span>
+                        <span className="browse-drawer-help" style={{ display: 'block', opacity: 0.7, fontSize: '0.85em' }}>{help}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {analysisSource === 'custom_description' && (
+                  <textarea
+                    className="browse-drawer-textarea"
+                    value={customDescription}
+                    onChange={(e) => onCustomDescriptionChange(e.target.value)}
+                    placeholder="Paste the text to analyze. It runs once when you save."
+                    rows={4}
+                  />
+                )}
+                <div className="browse-drawer-input-row">
+                  <button className="browse-btn-action" onClick={saveAnalysisSource}>
+                    {savedSource ? 'Saved' : 'Set Source'}
+                  </button>
+                </div>
+                {(sourceError || jobError) && (
+                  <div role="alert" style={{ color: 'var(--pf-t--global--text--color--status--danger--default, #c9190b)', fontSize: '0.9em' }}>
+                    {sourceError || jobError}
+                  </div>
+                )}
               </div>
 
               {/* Content Path */}
@@ -488,6 +564,9 @@ export function BrowsePage() {
   const [noteTexts, setNoteTexts] = useState<Record<string, string>>({})
   const [contentPaths, setContentPaths] = useState<Record<string, string>>({})
   const [overrideUrls, setOverrideUrls] = useState<Record<string, string>>({})
+  const [analysisSources, setAnalysisSources] = useState<Record<string, AnalysisSource>>({})
+  const [customDescriptions, setCustomDescriptions] = useState<Record<string, string>>({})
+  const [analysisJobErrors, setAnalysisJobErrors] = useState<Record<string, string>>({})
   const [curatedDurations, setCuratedDurations] = useState<Record<string, string>>({})
   const [flaggedItems, setFlaggedItems] = useState<Set<string>>(new Set())
   const [analyzing, setAnalyzing] = useState<string | null>(null)
@@ -496,6 +575,11 @@ export function BrowsePage() {
   const searchRef = useRef(search)
   const requestRef = useRef(0)
   searchRef.current = search
+  // Polling callbacks outlive the render they started in; read the latest
+  // page and fetch function through refs so a job finishing late cannot
+  // refresh the list with a stale page or stale filters.
+  const pageRef = useRef(page)
+  pageRef.current = page
 
   // Load facets
   useEffect(() => {
@@ -548,6 +632,8 @@ export function BrowsePage() {
     }
     setLoading(false)
   }, [buildStageString, cloudProvider, agdConfig, selectedWorkloads, selectedSolutions, selectedVerticals, selectedAudience, selectedDifficulty, selectedPlatforms, selectedTdps, contentFilter, formats])
+  const fetchItemsRef = useRef(fetchItems)
+  fetchItemsRef.current = fetchItems
 
   // Sync URL params
   useEffect(() => {
@@ -676,7 +762,7 @@ export function BrowsePage() {
       const result = await api.getJobStatus(job_id)
       if (result.status === 'complete' || result.status === 'failed') {
         setAnalyzing(null)
-        fetchItems(page)
+        fetchItemsRef.current(pageRef.current)
         if (expandedItems.has(ciName)) {
           const detail = await api.getCatalogItem(ciName) as ItemDetail
           setItemDetails(prev => ({ ...prev, [ciName]: detail }))
@@ -720,6 +806,35 @@ export function BrowsePage() {
     await api.overrideUrl(ciName, url)
     const detail = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+  }
+
+  const handleSetAnalysisSource = async (ciName: string) => {
+    setAnalysisJobErrors(prev => ({ ...prev, [ciName]: '' }))
+    const detail = itemDetails[ciName]
+    const source = analysisSources[ciName] ?? (detail ? effectiveAnalysisSource(detail) : 'showroom')
+    const custom = customDescriptions[ciName] ?? detail?.custom_description ?? ''
+    const { job_id } = await api.setAnalysisSource(
+      ciName, source, source === 'custom_description' ? custom.trim() : undefined)
+    const refreshed = await api.getCatalogItem(ciName) as ItemDetail
+    setItemDetails(prev => ({ ...prev, [ciName]: refreshed }))
+    const poll = async () => {
+      const result = await api.getJobStatus(job_id)
+      if (result.status === 'complete' || result.status === 'failed') {
+        if (result.status === 'failed') {
+          setAnalysisJobErrors(prev => ({
+            ...prev, [ciName]: result.error || 'The analysis job failed',
+          }))
+        }
+        fetchItemsRef.current(pageRef.current)
+        if (expandedItems.has(ciName)) {
+          const detail = await api.getCatalogItem(ciName) as ItemDetail
+          setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+        }
+      } else {
+        setTimeout(poll, 3000)
+      }
+    }
+    setTimeout(poll, 3000)
   }
 
   const handleSetDuration = async (ciName: string) => {
@@ -1248,6 +1363,12 @@ export function BrowsePage() {
           overrideUrl={overrideUrls[drawerItem] ?? ''}
           onOverrideUrlChange={(val) => setOverrideUrls(prev => ({ ...prev, [drawerItem]: val }))}
           onOverrideUrlSave={() => handleOverrideUrl(drawerItem)}
+          analysisSource={analysisSources[drawerItem] ?? effectiveAnalysisSource(drawerDetail)}
+          onAnalysisSourceChange={(val) => setAnalysisSources(prev => ({ ...prev, [drawerItem]: val }))}
+          customDescription={customDescriptions[drawerItem] ?? drawerDetail.custom_description ?? ''}
+          onCustomDescriptionChange={(val) => setCustomDescriptions(prev => ({ ...prev, [drawerItem]: val }))}
+          onAnalysisSourceSave={() => handleSetAnalysisSource(drawerItem)}
+          jobError={analysisJobErrors[drawerItem] ?? ''}
           contentPath={contentPaths[drawerItem] ?? ''}
           onContentPathChange={(val) => setContentPaths(prev => ({ ...prev, [drawerItem]: val }))}
           onContentPathSave={() => handleSetContentPath(drawerItem)}

@@ -121,6 +121,15 @@ def effective_showroom_source(item: dict) -> ResolvedShowroom:
     return source
 
 
+def effective_analysis_source(item: dict) -> str:
+    """'showroom' | 'agnosticv_description' | 'custom_description'.
+
+    Absent or unknown overrides degrade to the default Showroom behavior.
+    """
+    override = item.get("analysis_source_override")
+    return override if override in ("agnosticv_description", "custom_description") else "showroom"
+
+
 def content_owner(item: dict) -> str | None:
     """Owner CI name when item is a pure stub, else None.
 
