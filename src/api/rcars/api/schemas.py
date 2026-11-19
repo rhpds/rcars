@@ -161,6 +161,8 @@ class CatalogItemResponse(BaseModel):
     stage: str | None = None
     cloud_provider: str | None = None
     showroom_url: str | None = None
+    analysis_source_override: str | None = None
+    custom_description: str | None = None
     analysis: dict | None = None
     tags: list[dict] = []
     workloads: list[dict] = []

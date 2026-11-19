@@ -1395,6 +1395,7 @@ class Database:
         data_sql = f"""
             SELECT DISTINCT ce.*, bi.ci_name, bi.category, bi.stage, bi.catalog_namespace,
                    bi.showroom_url, bi.showroom_ref, bi.showroom_url_override, bi.content_path,
+                   bi.analysis_source_override, bi.custom_description,
                    bi.is_prod, bi.is_published, bi.published_ci_name, bi.base_ci_name,
                    bi.is_agd_v2, bi.agd_config, bi.cloud_provider, bi.ocp_version,
                    bi.os_image, bi.worker_instance_count, bi.control_plane_instance_count,

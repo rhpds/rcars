@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends, Request, HTTPException, Path, Query
 from pydantic import BaseModel, Field, field_validator
 from rcars.api.middleware.auth import require_auth, require_curator, require_admin
@@ -421,6 +423,36 @@ async def override_url(identifier: str, body: OverrideUrlRequest, request: Reque
     content_id = _resolve_to_content_id(identifier, db)
     db.set_showroom_url_override(content_id, body.url)
     return {"status": "ok"}
+
+
+class AnalysisSourceRequest(BaseModel):
+    source: Literal["showroom", "agnosticv_description", "custom_description"]
+    custom_description: str | None = Field(default=None, max_length=20000)
+
+
+@router.put(
+    "/{identifier}/analysis-source",
+    summary="Set analysis source",
+    description=(
+        "Selects whether an item is analyzed from Showroom content, its catalog "
+        "description, or curator-written text. Enqueues one analysis job. Curator-only."
+    ),
+    response_model=JobResponse,
+)
+async def set_analysis_source(identifier: str, body: AnalysisSourceRequest, request: Request,
+                              user: str = Depends(require_curator)):
+    db = request.app.state.db
+    arq_redis = request.app.state.arq_redis
+    content_id = _resolve_to_content_id(identifier, db)
+    try:
+        db.set_analysis_source(content_id, body.source, body.custom_description)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    job_id = db.create_job(job_type="analyze", queue="analyze", created_by=user,
+                           progress_json={"content_id": content_id})
+    await arq_redis.enqueue_job("run_analysis", job_id=job_id, content_id=content_id,
+                                force=False, _job_id=job_id, _queue_name="arq:queue:scan")
+    return {"job_id": job_id}
 
 
 class DurationRequest(BaseModel):

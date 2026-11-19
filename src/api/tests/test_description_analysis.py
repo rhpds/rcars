@@ -355,6 +355,101 @@ def test_stale_check_candidates_exclude_description_items(db, monkeypatch):
     assert "isolation-test.show.prod" in names
 
 
+# ── Task 7: API endpoint ──
+
+
+def route_request(database, arq_redis=None):
+    from unittest.mock import AsyncMock
+    from rcars.config import Settings
+    return SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(
+        db=database, settings=Settings(database_url=database._url),
+        arq_redis=arq_redis or AsyncMock())))
+
+
+@pytest.mark.asyncio
+async def test_analysis_source_endpoint_curator_ok(db):
+    from rcars.api.routes.catalog import AnalysisSourceRequest, set_analysis_source
+
+    content_id = add_item(db)
+    arq = route_request(db).app.state.arq_redis
+
+    result = await set_analysis_source(
+        "isolation-test.desc-a.prod",
+        AnalysisSourceRequest(source="agnosticv_description"),
+        route_request(db, arq), user="test@example.com",
+    )
+
+    assert result["job_id"]
+    assert db.get_babylon_item(content_id)["analysis_source_override"] == "agnosticv_description"
+    assert arq.enqueue_job.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_analysis_source_endpoint_requires_curator():
+    from fastapi.testclient import TestClient
+    from rcars.api.app import create_app
+    from rcars.config import Settings
+
+    settings = Settings(
+        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        redis_url="redis://localhost:6379",
+        dev_user="", curator_emails_str="curator@redhat.com",
+        admin_emails_str="", proxy_verification_secret="s3cret",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        response = client.put(
+            "/api/v1/catalog/isolation-test.desc-a.prod/analysis-source",
+            json={"source": "showroom"},
+            headers={"X-Proxy-Secret": "s3cret", "X-Forwarded-Email": "user@redhat.com"},
+        )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_analysis_source_endpoint_custom_without_text_400(db):
+    from fastapi import HTTPException
+    from rcars.api.routes.catalog import AnalysisSourceRequest, set_analysis_source
+
+    add_item(db)
+    with pytest.raises(HTTPException) as excinfo:
+        await set_analysis_source(
+            "isolation-test.desc-a.prod",
+            AnalysisSourceRequest(source="custom_description"),
+            route_request(db), user="test@example.com",
+        )
+    assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_analysis_source_endpoint_empty_description_400(db):
+    from fastapi import HTTPException
+    from rcars.api.routes.catalog import AnalysisSourceRequest, set_analysis_source
+
+    add_item(db, description="")
+    with pytest.raises(HTTPException) as excinfo:
+        await set_analysis_source(
+            "isolation-test.desc-a.prod",
+            AnalysisSourceRequest(source="agnosticv_description"),
+            route_request(db), user="test@example.com",
+        )
+    assert excinfo.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_catalog_detail_includes_analysis_source_fields(db):
+    from rcars.api.routes.catalog import get_catalog_item
+
+    content_id = add_item(db)
+    db.set_analysis_source(content_id, "custom_description", "Custom text")
+
+    detail = await get_catalog_item(
+        "isolation-test.desc-a.prod", route_request(db), user="test@example.com")
+
+    assert detail["analysis_source_override"] == "custom_description"
+    assert detail["custom_description"] == "Custom text"
+
+
 def test_effective_analysis_source_defaults_to_showroom():
     assert effective_analysis_source({}) == "showroom"
     assert effective_analysis_source({"analysis_source_override": None}) == "showroom"
