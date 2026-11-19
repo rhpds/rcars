@@ -1592,6 +1592,31 @@ class Database:
             if source.status in ("invalid", "ambiguous"):
                 self.invalidate_babylon_scan_failure(content_id, f"{source.status}_source", source.error, conn=conn)
 
+    def set_analysis_source(self, content_id: str, source: str,
+                            custom_description: str | None = None) -> None:
+        """Select the per-item analysis input; any change clears derived artifacts."""
+        if source not in ("showroom", "agnosticv_description", "custom_description"):
+            raise ValueError(f"Unknown analysis source: {source}")
+        custom = custom_description if source == "custom_description" else None
+        if source == "custom_description" and not (custom or "").strip():
+            raise ValueError("Custom description is required for the custom_description source")
+        with self._pool.connection() as conn:
+            item = self.lock_babylon_item(conn, content_id)
+            if not item:
+                raise ValueError(f"Item not found: {content_id}")
+            if source == "agnosticv_description" and not (item.get("description") or "").strip():
+                raise ValueError("This item has no stored catalog description to analyze")
+            override = None if source == "showroom" else source
+            if (item.get("analysis_source_override") == override
+                    and item.get("custom_description") == custom):
+                return
+            conn.execute(
+                "UPDATE babylon_items SET analysis_source_override = %s, custom_description = %s "
+                "WHERE content_id = %s",
+                (override, custom, content_id),
+            )
+            self.clear_babylon_generated_artifacts([content_id], conn=conn)
+
     # ── Showroom analysis ──
 
     def upsert_showroom_analysis(self, analysis: dict[str, Any], conn=None):
