@@ -1606,6 +1606,12 @@ class Database:
             item = self.lock_babylon_item(conn, content_id)
             if not item:
                 raise ValueError(f"Item not found: {content_id}")
+            if source != "showroom":
+                if content_owner(item) is not None:
+                    raise ValueError(
+                        "This item mirrors its owner's content; set the analysis source on the owner")
+                if (item.get("content_type") or "") not in ("lab", "demo"):
+                    raise ValueError("Description analysis applies to lab and demo items only")
             if source == "agnosticv_description" and not (item.get("description") or "").strip():
                 raise ValueError("This item has no stored catalog description to analyze")
             override = None if source == "showroom" else source

@@ -100,6 +100,29 @@ def test_clear_babylon_generated_artifacts_preserves_override(db):
     assert item["custom_description"] is None
 
 
+def test_set_analysis_source_rejects_sandbox_items(db):
+    content_id = add_item(db, showroom_url=None)
+    assert db.get_babylon_item(content_id)["content_type"] == "sandbox"
+
+    with pytest.raises(ValueError):
+        db.set_analysis_source(content_id, "agnosticv_description")
+
+    # Reverting to showroom stays allowed so an existing override can be cleared.
+    db.set_analysis_source(content_id, "showroom")
+
+
+def test_set_analysis_source_rejects_content_owner_stubs(db):
+    owner = "isolation-test.desc-owner.prod"
+    add_item(db, owner)
+    stub_id = add_item(db, "isolation-test.desc-stub.prod", showroom_source={
+        "status": "resolved", "owner_ci_name": owner,
+        "scope_key": "isolation-test.desc-owner", "repo": URL, "ref": "main",
+    })
+
+    with pytest.raises(ValueError):
+        db.set_analysis_source(stub_id, "agnosticv_description")
+
+
 # ── Task 3: analyze_description ──
 
 
@@ -237,6 +260,37 @@ def test_analyze_description_blank_text_returns_no_content(db, monkeypatch):
     assert env.llm.call_count == 0
 
 
+def test_analyze_description_custom_text_runs_once_then_unchanged(db, monkeypatch):
+    content_id = add_item(db)
+    db.set_analysis_source(content_id, "custom_description", "Curator text one")
+    env = mock_analysis(monkeypatch)
+
+    first = analyzer.analyze_description(db.get_babylon_item(content_id), env.settings, db=db)
+    assert first["outcome"] == "analyzed"
+    assert first["analysis_provenance"]["source_type"] == "custom_description"
+    persist_result(db, content_id, first)
+    env.llm.reset_mock()
+
+    second = analyzer.analyze_description(db.get_babylon_item(content_id), env.settings, db=db)
+    assert second["outcome"] == "unchanged"
+    assert env.llm.call_count == 0
+
+
+def test_analyze_description_custom_text_edit_reruns(db, monkeypatch):
+    content_id = add_item(db)
+    db.set_analysis_source(content_id, "custom_description", "Curator text one")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+    db.set_analysis_source(content_id, "custom_description", "Curator text two")
+    env.llm.reset_mock()
+
+    result = analyzer.analyze_description(db.get_babylon_item(content_id), env.settings, db=db)
+
+    assert result["outcome"] == "analyzed"
+    assert env.llm.call_count == 1
+
+
 # ── Task 4: candidate selection ──
 
 
@@ -271,6 +325,19 @@ def test_needing_analysis_skips_current_description_item(db, monkeypatch):
     assert "isolation-test.desc-cand2.prod" in selected
 
 
+def test_needing_analysis_reselects_description_item_after_text_edit(db, monkeypatch):
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+    assert "isolation-test.desc-cand.prod" not in selected_names(db, env.settings)
+
+    set_raw(db, "babylon_items", "description", "The description changed upstream.", content_id)
+
+    assert "isolation-test.desc-cand.prod" in selected_names(db, env.settings)
+
+
 def test_needing_analysis_still_skips_content_owner_stubs(db, monkeypatch):
     owner = "isolation-test.desc-owner.prod"
     add_item(db, owner)
@@ -279,7 +346,8 @@ def test_needing_analysis_still_skips_content_owner_stubs(db, monkeypatch):
         "status": "resolved", "owner_ci_name": owner,
         "scope_key": "isolation-test.desc-owner", "repo": URL, "ref": "main",
     })
-    db.set_analysis_source(stub_id, "agnosticv_description")
+    # The setter now rejects stubs; simulate a pre-existing override directly.
+    set_raw(db, "babylon_items", "analysis_source_override", "agnosticv_description", stub_id)
     env = mock_analysis(monkeypatch)
 
     assert stub not in selected_names(db, env.settings)
@@ -332,6 +400,21 @@ def test_scan_description_error_marks_failed(db, monkeypatch):
     item = db.get_babylon_item(content_id)
     assert item["scan_status"] == "failed"
     assert item["scan_error_class"] == "parse_failed"
+
+
+def test_scan_blank_description_marks_no_content(db, monkeypatch):
+    from rcars.services.showroom_scan import scan_babylon_item
+
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    set_raw(db, "babylon_items", "description", "   ", content_id)
+    env = mock_analysis(monkeypatch)
+
+    result = scan_babylon_item(db, env.settings, content_id)
+
+    assert result["outcome"] == "failed"
+    assert db.get_babylon_item(content_id)["scan_error_class"] == "no_content"
+    assert env.llm.call_count == 0
 
 
 # ── Task 6: stale check ──

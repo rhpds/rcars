@@ -291,7 +291,15 @@ function CuratorDrawer({
   const [savedUrl, setSavedUrl] = useState(false)
   const [savedPath, setSavedPath] = useState(false)
   const [savedSource, setSavedSource] = useState(false)
+  const [sourceError, setSourceError] = useState('')
   const flashSave = (setter: (v: boolean) => void) => { setter(true); setTimeout(() => setter(false), 1500) }
+  const saveAnalysisSource = () => {
+    setSourceError('')
+    onAnalysisSourceSave()
+      .then(() => flashSave(setSavedSource))
+      .catch((err: unknown) => setSourceError(
+        err instanceof Error ? err.message : 'Could not set the analysis source'))
+  }
   return (
     <>
       <div className="browse-drawer-overlay" onClick={onClose} />
@@ -409,10 +417,15 @@ function CuratorDrawer({
                   />
                 )}
                 <div className="browse-drawer-input-row">
-                  <button className="browse-btn-action" onClick={() => onAnalysisSourceSave().then(() => flashSave(setSavedSource))}>
+                  <button className="browse-btn-action" onClick={saveAnalysisSource}>
                     {savedSource ? 'Saved' : 'Set Source'}
                   </button>
                 </div>
+                {sourceError && (
+                  <div role="alert" style={{ color: 'var(--pf-t--global--text--color--status--danger--default, #c9190b)', fontSize: '0.9em' }}>
+                    {sourceError}
+                  </div>
+                )}
               </div>
 
               {/* Content Path */}
