@@ -285,6 +285,55 @@ def test_needing_analysis_still_skips_content_owner_stubs(db, monkeypatch):
     assert stub not in selected_names(db, env.settings)
 
 
+# ── Task 5: scan pipeline ──
+
+
+def test_scan_description_item_succeeds(db, monkeypatch):
+    from rcars.services.showroom_scan import scan_babylon_item
+
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    with db.pool.connection() as conn:
+        db.invalidate_babylon_scan_failure(content_id, "invalid_source", "no source", conn=conn)
+    env = mock_analysis(monkeypatch)
+
+    result = scan_babylon_item(db, env.settings, content_id)
+
+    assert result["success"] is True
+    assert result["outcome"] == "analyzed"
+    assert db.get_babylon_item(content_id)["scan_status"] == "success"
+    analysis = db.get_showroom_analysis(content_id)
+    assert analysis["summary"] == "Description summary"
+    assert analysis["analysis_provenance_json"]["source_type"] == "agnosticv_description"
+    assert db.get_content_entity(content_id)["summary"] == "Description summary"
+    embeddings = db.get_embeddings_for_content(content_id)
+    assert [row["embed_type"] for row in embeddings] == ["summary"]
+
+
+def test_snapshot_includes_analysis_source_fields():
+    from rcars.services.showroom_scan import _snapshot
+
+    assert _snapshot({"ci_name": "a.prod"}) != _snapshot(
+        {"ci_name": "a.prod", "analysis_source_override": "custom_description"})
+
+
+def test_scan_description_error_marks_failed(db, monkeypatch):
+    from rcars.services.showroom_scan import scan_babylon_item
+
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    env.llm.return_value = SimpleNamespace(
+        text="this is not json", input_tokens=1, output_tokens=1, provider="test")
+
+    result = scan_babylon_item(db, env.settings, content_id)
+
+    assert result["outcome"] == "failed"
+    item = db.get_babylon_item(content_id)
+    assert item["scan_status"] == "failed"
+    assert item["scan_error_class"] == "parse_failed"
+
+
 def test_effective_analysis_source_defaults_to_showroom():
     assert effective_analysis_source({}) == "showroom"
     assert effective_analysis_source({"analysis_source_override": None}) == "showroom"

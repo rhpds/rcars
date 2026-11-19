@@ -7,8 +7,13 @@ connection serializes stages that can share one generation.
 import hashlib
 import subprocess
 
-from rcars.services.analyzer import analyze_showroom, classify_scan_error, regenerate_embeddings, showroom_reuse_key
-from rcars.services.showroom_source import content_owner, effective_showroom_source, analysis_generation
+from rcars.services.analyzer import (
+    analyze_description, analyze_showroom, classify_scan_error, description_source,
+    regenerate_embeddings, showroom_reuse_key,
+)
+from rcars.services.showroom_source import (
+    analysis_generation, content_owner, effective_analysis_source, effective_showroom_source,
+)
 import structlog
 
 log = structlog.get_logger()
@@ -16,7 +21,8 @@ log = structlog.get_logger()
 
 def _snapshot(item):
     return (effective_showroom_source(item).to_dict(), *(item.get(key) for key in
-        ("display_name", "category", "product", "keywords", "content_type", "retired_at")))
+        ("display_name", "category", "product", "keywords", "content_type", "retired_at",
+         "analysis_source_override", "custom_description")))
 
 
 # Longer than one analysis, well inside the 600s scan job timeout.
@@ -31,7 +37,8 @@ def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> 
     """Serialize stages sharing a reuse key so the second finds the first's
     persisted generation as a donor instead of making its own LLM call."""
     item = db.get_babylon_item(content_id)
-    reuse_key = showroom_reuse_key(item, settings) if item and not force else None
+    reuse_key = (showroom_reuse_key(item, settings)
+                 if item and not force and effective_analysis_source(item) == "showroom" else None)
     if reuse_key is None:
         return _scan_babylon_item(db, settings, content_id, force=force)
     with db.wait_advisory_lock(reuse_lock_id(reuse_key), wait_seconds=REUSE_LOCK_WAIT_SECONDS) as acquired:
@@ -61,11 +68,16 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
     observed_generation = analysis_generation(db.get_showroom_analysis(content_id))
     result = None
     try:
-        if source.status == "none":
+        if effective_analysis_source(item) != "showroom":
+            if item.get("retired_at"):
+                return {"content_id": content_id, "success": False, "outcome": "superseded"}
+            source = description_source(item)
+            result = analyze_description(item, settings, force=force, db=db)
+        elif source.status == "none":
             return {"content_id": content_id, "success": True, "outcome": "no_showroom", "source": source.to_dict()}
-        if item.get("retired_at"):
+        elif item.get("retired_at"):
             return {"content_id": content_id, "success": False, "outcome": "superseded"}
-        if source.status != "resolved":
+        elif source.status != "resolved":
             result = {"error": f"{source.status}_source", "message": source.error or "Unresolved source"}
         else:
             result = analyze_showroom(ci_name=item["ci_name"], display_name=item.get("display_name", ""),
