@@ -237,6 +237,54 @@ def test_analyze_description_blank_text_returns_no_content(db, monkeypatch):
     assert env.llm.call_count == 0
 
 
+# ── Task 4: candidate selection ──
+
+
+def add_description_item(database, name="isolation-test.desc-cand.prod"):
+    return add_item(database, name, showroom_url=None,
+                    showroom_source={"status": "invalid", "error": "no_showroom"})
+
+
+def selected_names(database, settings):
+    return [item["ci_name"] for item in database.get_items_needing_analysis(settings)]
+
+
+def test_needing_analysis_includes_description_item_without_showroom(db, monkeypatch):
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+
+    assert "isolation-test.desc-cand.prod" in selected_names(db, env.settings)
+
+
+def test_needing_analysis_skips_current_description_item(db, monkeypatch):
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    add_description_item(db, "isolation-test.desc-cand2.prod")
+    db.set_analysis_source("babylon:isolation-test.desc-cand2.prod", "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+
+    selected = selected_names(db, env.settings)
+    assert "isolation-test.desc-cand.prod" not in selected
+    assert "isolation-test.desc-cand2.prod" in selected
+
+
+def test_needing_analysis_still_skips_content_owner_stubs(db, monkeypatch):
+    owner = "isolation-test.desc-owner.prod"
+    add_item(db, owner)
+    stub = "isolation-test.desc-stub.prod"
+    stub_id = add_item(db, stub, showroom_source={
+        "status": "resolved", "owner_ci_name": owner,
+        "scope_key": "isolation-test.desc-owner", "repo": URL, "ref": "main",
+    })
+    db.set_analysis_source(stub_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+
+    assert stub not in selected_names(db, env.settings)
+
+
 def test_effective_analysis_source_defaults_to_showroom():
     assert effective_analysis_source({}) == "showroom"
     assert effective_analysis_source({"analysis_source_override": None}) == "showroom"

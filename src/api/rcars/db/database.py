@@ -23,7 +23,8 @@ from rcars.config import STAGE_PRIORITY
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
     AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete, content_owner,
-    effective_showroom_source, item_family_key, signature_matches_source,
+    effective_analysis_source, effective_showroom_source, item_family_key,
+    signature_matches_source,
 )
 
 logger = structlog.get_logger()
@@ -2808,7 +2809,7 @@ class Database:
 
     def get_items_needing_analysis(self, settings=None, *, force: bool = False) -> list[dict[str, Any]]:
         from rcars.config import Settings
-        from rcars.services.analyzer import showroom_work_needed
+        from rcars.services.analyzer import description_work_needed, showroom_work_needed
         settings = settings or Settings(database_url=self._url)
         with self._pool.connection() as conn:
             cur = conn.execute("""
@@ -2827,13 +2828,18 @@ class Database:
 
         selected = []
         for item in all_needing:
-            source = effective_showroom_source(item)
-            if source.status != "resolved":
-                continue
             if content_owner(item) is not None:
                 continue
             analysis = self.get_showroom_analysis(item["content_id"]) or {}
-            if force or showroom_work_needed(item, analysis, self.get_embeddings_for_content(item["content_id"]), settings):
+            embeddings = self.get_embeddings_for_content(item["content_id"])
+            if effective_analysis_source(item) != "showroom":
+                if force or description_work_needed(item, analysis, embeddings, settings):
+                    selected.append(item)
+                continue
+            source = effective_showroom_source(item)
+            if source.status != "resolved":
+                continue
+            if force or showroom_work_needed(item, analysis, embeddings, settings):
                 selected.append(item)
         return selected
 
