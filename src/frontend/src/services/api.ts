@@ -115,6 +115,15 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url }),
     }),
+  setAnalysisSource: (
+    ciName: string,
+    source: 'showroom' | 'agnosticv_description' | 'custom_description',
+    customDescription?: string,
+  ) =>
+    request<{ job_id: string }>(`/catalog/${encodeURIComponent(ciName)}/analysis-source`, {
+      method: 'PUT',
+      body: JSON.stringify({ source, custom_description: customDescription ?? null }),
+    }),
   setCuratedDuration: (ciName: string, durationMin: number | null) =>
     request<{ status: string }>(`/catalog/${encodeURIComponent(ciName)}/duration`, {
       method: 'PUT',
