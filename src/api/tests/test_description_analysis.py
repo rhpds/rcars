@@ -334,6 +334,27 @@ def test_scan_description_error_marks_failed(db, monkeypatch):
     assert item["scan_error_class"] == "parse_failed"
 
 
+# ── Task 6: stale check ──
+
+
+def test_stale_check_candidates_exclude_description_items(db, monkeypatch):
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+    showroom_id = add_item(db, "isolation-test.show.prod")
+    db.upsert_showroom_analysis({
+        "content_id": showroom_id, "summary": "Showroom analysis",
+        "modules_json": [], "content_hash": "abc",
+    })
+
+    names = [row["ci_name"] for row in db.get_stale_check_candidates()]
+
+    assert "isolation-test.desc-cand.prod" not in names
+    assert "isolation-test.show.prod" in names
+
+
 def test_effective_analysis_source_defaults_to_showroom():
     assert effective_analysis_source({}) == "showroom"
     assert effective_analysis_source({"analysis_source_override": None}) == "showroom"

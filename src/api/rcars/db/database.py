@@ -2856,7 +2856,8 @@ class Database:
         """
         with self._pool.connection() as conn:
             rows = conn.execute(sql).fetchall()
-        return [row for row in rows if content_owner(row) is None]
+        return [row for row in rows
+                if content_owner(row) is None and effective_analysis_source(row) == "showroom"]
 
     def get_sandboxes_needing_summary(self) -> list[dict]:
         sql = """
