@@ -19,7 +19,8 @@ from typing import Any
 
 from rcars.services.showroom_source import (
     AnalysisSignature, ResolvedShowroom, SHOWROOM_ANALYSIS_POLICY_VERSION,
-    effective_showroom_source, signature_matches_source,
+    effective_analysis_source, effective_showroom_source, item_family_key,
+    signature_matches_source,
 )
 
 import structlog
@@ -746,6 +747,146 @@ def _finish_showroom_result(ci_name, display_name, keywords, settings, analysis,
         "last_analyzed": (origin or {}).get("last_analyzed") if origin and not fresh_generation else datetime.now(timezone.utc),
         "content_hash": signature.content_hash, "input_tokens": input_tokens, "output_tokens": output_tokens,
         "content_file_count": content_file_count}
+
+
+# ── Description-based analysis ──
+
+
+def description_text(item: dict) -> str:
+    """Current analysis text: curator text when custom, else the stored catalog description."""
+    if effective_analysis_source(item) == "custom_description":
+        return item.get("custom_description") or ""
+    return item.get("description") or ""
+
+
+def description_source(item: dict) -> ResolvedShowroom:
+    """Per-item synthetic source; the sentinel repo can never match a real donor."""
+    ci_name = item["ci_name"]
+    return ResolvedShowroom(
+        "resolved", owner_ci_name=ci_name,
+        scope_key=item_family_key(ci_name, item.get("stage", "")),
+        repo=f"description:{ci_name}",
+    )
+
+
+def description_content_hash(text: str) -> str:
+    return hash_showroom_content({"description.adoc": text})
+
+
+def build_description_prompt(
+    ci_name: str,
+    display_name: str,
+    category: str,
+    product: str,
+    description_text: str,
+    entity_content_type: str = "lab",
+) -> tuple[str, str]:
+    """Same output contract as the Showroom prompt, framed for a short catalog description."""
+    system_prompt, _ = build_analysis_prompt(
+        ci_name, display_name, category, product, {},
+        entity_content_type=entity_content_type,
+    )
+    system_prompt += (
+        "\n\nThe input is a short catalog description, not Showroom module content. "
+        "Use only what it states and infer conservatively."
+    )
+    user_message = (
+        f"## Item Information\n"
+        f"- CI Name: {ci_name}\n"
+        f"- Display Name: {display_name or ci_name}\n"
+        f"- Category: {category or 'Unknown'}\n"
+        f"- Product: {product or 'Unknown'}\n\n"
+        f"## Catalog Description\n\n{_canonical_content(description_text)}"
+    )
+    return system_prompt, user_message
+
+
+def description_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
+    """Read-only selection predicate; text and context hashes both gate re-analysis."""
+    source = description_source(item)
+    context_hash = _item_context_hash(item, source.scope_key, settings.model)
+    if not _own_analysis_current(row, source, context_hash):
+        return True
+    if row.get("content_hash") != description_content_hash(description_text(item)):
+        return True
+    fingerprints = (row.get("analysis_provenance_json") or {}).get("embedding_fingerprints") or {}
+    return any(not _valid_embedding(spec, embeddings, fingerprints) for spec in _embedding_specs(
+        analysis_from_row(row), item.get("keywords"), item.get("display_name"), settings))
+
+
+def analyze_description(item: dict, settings, *, force: bool = False, db=None) -> dict | None:
+    """Analyze catalog text through the same persistence path as Showroom content.
+
+    db is optional so the pure hash/context short-circuit can be skipped when no
+    prior generation is available; the scan pipeline always supplies it.
+    """
+    ci_name = item["ci_name"]
+    content_id = item.get("content_id") or f"babylon:{ci_name}"
+    text = description_text(item)
+    if not text.strip():
+        log.warning("description_analyze_no_content", component="scanner",
+                    action="no_content", content_id=content_id)
+        return {"error": "no_content", "message": f"No description text to analyze for {ci_name}"}
+
+    source = description_source(item)
+    display_name = item.get("display_name", "")
+    category = item.get("category", "")
+    product = item.get("product", "")
+    entity_content_type = item.get("content_type") or "lab"
+    keywords = item.get("keywords") or []
+    prior = db.get_showroom_analysis(content_id) if db is not None else None
+    embeddings = db.get_embeddings_for_content(content_id) if db is not None else []
+
+    content_hash = description_content_hash(text)
+    context_hash = _item_context_hash(item, source.scope_key, settings.model)
+    system_prompt, user_message = build_description_prompt(
+        ci_name, display_name, category, product, text,
+        entity_content_type=entity_content_type,
+    )
+    signature = AnalysisSignature(
+        source.scope_key, f"description:{ci_name}", None, None,
+        content_hash, content_hash, context_hash,
+        compute_analysis_input_hash(system_prompt, user_message, settings.model),
+        SHOWROOM_ANALYSIS_POLICY_VERSION,
+    )
+
+    if not force and not description_work_needed(item, prior, embeddings, settings):
+        return _finish_showroom_result(
+            ci_name, display_name, keywords, settings, analysis_from_row(prior),
+            signature, source, origin=prior, prior_embeddings=embeddings, outcome="unchanged",
+        )
+
+    from rcars.config import call_llm
+    result = call_llm(
+        settings, model=settings.model,
+        messages=[{"role": "user", "content": user_message}], max_tokens=8192,
+        system=system_prompt,
+    )
+    if db is not None:
+        db.log_token_usage(
+            operation="scan", model=settings.model,
+            input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+            ci_name=ci_name, provider=result.provider,
+        )
+    analysis = parse_analysis_response(result.text)
+    if not isinstance(analysis, dict) or not analysis.get("summary"):
+        log.error("description_analyze_parse_failed", component="scanner",
+                  action="parse_failed", content_id=content_id)
+        return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
+    from rcars.services.vocabulary import normalize_analysis
+    analysis = normalize_analysis(analysis, entity_content_type, db=db, content_id=content_id)
+    analysis.setdefault("modules", [])
+    finished = _finish_showroom_result(
+        ci_name, display_name, keywords, settings, analysis, signature, source,
+        origin=prior, prior_embeddings=embeddings, fresh_generation=True, force=force,
+        input_tokens=result.input_tokens, output_tokens=result.output_tokens,
+        content_file_count=1,
+    )
+    finished["analysis_provenance"]["source_type"] = effective_analysis_source(item)
+    log.info("description_analyze_complete", component="scanner",
+             action=finished["outcome"], content_id=content_id,
+             source_type=finished["analysis_provenance"]["source_type"])
+    return finished
 
 
 def regenerate_embeddings(
