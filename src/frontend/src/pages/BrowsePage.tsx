@@ -802,10 +802,23 @@ export function BrowsePage() {
     const detail = itemDetails[ciName]
     const source = analysisSources[ciName] ?? (detail ? effectiveAnalysisSource(detail) : 'showroom')
     const custom = customDescriptions[ciName] ?? detail?.custom_description ?? ''
-    await api.setAnalysisSource(
+    const { job_id } = await api.setAnalysisSource(
       ciName, source, source === 'custom_description' ? custom.trim() : undefined)
     const refreshed = await api.getCatalogItem(ciName) as ItemDetail
     setItemDetails(prev => ({ ...prev, [ciName]: refreshed }))
+    const poll = async () => {
+      const result = await api.getJobStatus(job_id)
+      if (result.status === 'complete' || result.status === 'failed') {
+        fetchItems(page)
+        if (expandedItems.has(ciName)) {
+          const detail = await api.getCatalogItem(ciName) as ItemDetail
+          setItemDetails(prev => ({ ...prev, [ciName]: detail }))
+        }
+      } else {
+        setTimeout(poll, 3000)
+      }
+    }
+    setTimeout(poll, 3000)
   }
 
   const handleSetDuration = async (ciName: string) => {

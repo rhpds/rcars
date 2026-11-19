@@ -942,9 +942,12 @@ class Database:
                     logger.info("content_type_transition", component="rcars",
                                 content_id=content_id, prev=prev_type, new=content_type,
                                 action="cleared_artifacts")
-                elif previous and previous.get("showroom_source_json") is not None and effective_showroom_source(previous) != effective_source:
+                elif (effective_analysis_source(effective_item) == "showroom"
+                      and previous and previous.get("showroom_source_json") is not None
+                      and effective_showroom_source(previous) != effective_source):
                     self.clear_babylon_generated_artifacts([content_id], conn=conn)
-                if source and effective_source.status in ("invalid", "ambiguous"):
+                if (source and effective_source.status in ("invalid", "ambiguous")
+                        and effective_analysis_source(effective_item) == "showroom"):
                     self.invalidate_babylon_scan_failure(content_id, f"{effective_source.status}_source", effective_source.error, conn=conn)
             conn.commit()
         return content_id

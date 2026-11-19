@@ -546,3 +546,52 @@ def test_effective_analysis_source_returns_override():
     assert effective_analysis_source(
         {"analysis_source_override": "custom_description"}
     ) == "custom_description"
+
+
+# ── Review fix: catalog refresh must not wipe description analyses ──
+
+
+def refresh_item(database, name="isolation-test.desc-cand.prod", **updates):
+    """Simulate the nightly catalog refresh re-upserting an item."""
+    payload = {
+        "ci_name": name,
+        "stage": name.rsplit(".", 1)[-1],
+        "display_name": name,
+        "category": "Workshop",
+        "showroom_url": None,
+        "showroom_ref": None,
+        "showroom_source": {"status": "invalid", "error": "no_showroom"},
+        "description": "Provides a cluster.",
+    }
+    payload.update(updates)
+    return database.upsert_babylon_catalog_item(payload)
+
+
+def analyzed_description_item(database, name="isolation-test.desc-cand.prod"):
+    content_id = add_description_item(database, name)
+    database.set_analysis_source(content_id, "agnosticv_description")
+    seed_artifacts(database, content_id)
+    database.set_scan_status(content_id, "success")
+    return content_id
+
+
+def test_refresh_keeps_description_analysis_for_invalid_showroom(db):
+    content_id = analyzed_description_item(db)
+
+    refresh_item(db)
+
+    assert db.get_babylon_item(content_id)["scan_status"] == "success"
+    assert db.get_showroom_analysis(content_id)["summary"] == "Old analysis"
+    assert len(db.get_embeddings_for_content(content_id)) == 1
+
+
+def test_showroom_source_transition_keeps_description_analysis(db):
+    content_id = analyzed_description_item(db)
+
+    refresh_item(db, showroom_url=URL, showroom_ref="main", showroom_source={
+        "status": "resolved", "owner_ci_name": "isolation-test.desc-cand.prod",
+        "scope_key": "isolation-test.desc-cand", "repo": URL, "ref": "main",
+    })
+
+    assert db.get_showroom_analysis(content_id)["summary"] == "Old analysis"
+    assert len(db.get_embeddings_for_content(content_id)) == 1
