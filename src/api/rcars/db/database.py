@@ -643,6 +643,8 @@ ALTER TABLE nonprod_usage ADD COLUMN IF NOT EXISTS total_provisions INTEGER DEFA
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS platform TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp1 TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp2 TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS analysis_source_override TEXT;
+ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS custom_description TEXT;
 
 """
 
