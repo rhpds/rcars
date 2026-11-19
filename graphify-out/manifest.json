@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795088300.8958845,
-    "seen": 1795088555.335985,
-    "ast_hash": "6f10f35e9734a4eefe9a693aa80b35eb",
+    "mtime": 1795089576.0260222,
+    "seen": 1795089797.262795,
+    "ast_hash": "b90c5755d52b01925accebbe5661695f",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -486,9 +486,9 @@
     "semantic_hash": ""
   },
   "src/frontend/src/pages/BrowsePage.tsx": {
-    "mtime": 1795088335.9973474,
-    "seen": 1795088555.33609,
-    "ast_hash": "209274a8885b87f34692b1515d69aacc",
+    "mtime": 1795089588.9670138,
+    "seen": 1795089797.262891,
+    "ast_hash": "75ad0a003332e076af281a1952392f11",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/ContentAnalysisPage.tsx": {
@@ -2040,9 +2040,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_description_analysis.py": {
-    "mtime": 1795088322.890592,
-    "seen": 1795088555.336042,
-    "ast_hash": "f6d9556604777927f6dca354fc73c27a",
+    "mtime": 1795089559.174358,
+    "seen": 1795089797.262847,
+    "ast_hash": "7ad30c8e4bfe823ad7d9a9f44de8819c",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-11-19-description-analysis.md": {
