@@ -8,7 +8,7 @@ import functools
 import shutil
 import traceback
 from collections.abc import Callable
-from rcars.workers.base import WorkerContext, publish_progress
+from rcars.workers.base import WorkerContext, publish_progress, with_job_context
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current, order_for_reuse
 from rcars.services.showroom_scan import scan_candidates
@@ -892,11 +892,18 @@ async def run_retirement_sweep_job(ctx: dict, job_id: str) -> dict:
 
 async def run_nightly_pipeline(ctx: dict, job_id: str | None = None) -> dict:
     """Nightly maintenance orchestrator: Babylon, OSSPA, retirement sweep."""
+    wctx: WorkerContext = ctx["worker_ctx"]
+    if not job_id:
+        # Cron passes no job_id; create it here so the body can bind it to log context.
+        job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
+    return await _run_nightly_pipeline(ctx, job_id)
+
+
+@with_job_context
+async def _run_nightly_pipeline(ctx: dict, job_id: str) -> dict:
     from rcars.services.jira import jira_auth_configured
 
     wctx: WorkerContext = ctx["worker_ctx"]
-    if not job_id:
-        job_id = wctx.db.create_job(job_type="maintenance", queue="ops", created_by="scheduled")
     log = logger.bind(job_id=job_id)
 
     log.info("pipeline_started", action="pipeline_started")
