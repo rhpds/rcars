@@ -47,8 +47,8 @@ graphify-out/         # Knowledge graph (committed)
 
 ```bash
 source ~/.virtualenvs/rcars-v2/bin/activate
-cd src/api && python -m pytest tests/ -q -m "not integration"
-cd src/frontend && npm run build        # also: npm test
+(cd src/api && python -m pytest tests/ -q -m "not integration")
+(cd src/frontend && npm run build)        # also: npm test
 ```
 
 Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create the `rcars_test` database once (`dev-services.sh` does not); override with `RCARS_TEST_DATABASE_URL`. Test fixtures refuse any database without `test` in its name. `integration` tests need a live Babylon cluster.
@@ -57,8 +57,8 @@ Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create 
 
 - **Structured JSON from every LLM call.** No prose parsing. Use `parse_analysis_response()` (handles truncation).
 - **Long jobs return `{job_id}`.** Workers do the work; the API relays SSE.
-- **Auth** (`api/middleware/auth.py`, checked in order): dev bypass (`RCARS_DEV_USER`), API keys (`X-API-Key`), K8s ServiceAccount bearer tokens via TokenReview, OAuth proxy headers (`X-Forwarded-Email`). Dependencies: `require_auth`, `require_curator`, `require_admin`. Roles come from `RCARS_CURATOR_EMAILS` / `RCARS_ADMIN_EMAILS` and the `role_assignments` table (OpenShift groups).
-- **Chat routing.** An LLM router picks one of 8 intents (recommend, overlap, performance, item_facts, item_chat, infrastructure, help, out_of_scope). Each has a deterministic handler. Add intents in `services/chat/registry.py`. `RCARS_CHAT_INTENT_ROLES` gates intents by role.
+- **Auth** (`api/middleware/auth.py`, checked in order): dev bypass (`RCARS_DEV_USER`), API keys (`X-API-Key`), K8s ServiceAccount bearer tokens via TokenReview, OAuth proxy headers (`X-Forwarded-Email`). Dependencies: `require_auth`, `require_curator`, `require_admin`. Roles come from `RCARS_CURATOR_EMAILS_STR` / `RCARS_ADMIN_EMAILS_STR` and the `role_assignments` table (OpenShift groups).
+- **Chat routing.** An LLM router picks one of 8 intents (recommend, overlap, performance, item_facts, item_chat, infrastructure, help, out_of_scope). Each has a deterministic handler. Add intents in `services/chat/registry.py`. `RCARS_CHAT_INTENT_ROLES_STR` gates intents by role.
 - **Content-type drivers** (`services/recommender/drivers/`): `HandsOnDriver` (labs/demos) and `ArchitectureDriver` (portfolio architectures) own triage guidance, rationale input, and card format.
 - **Sibling propagation.** CIs sharing a Showroom (same URL + commit SHA, resolved by batch `git ls-remote`) are scanned once and analysis plus embeddings are copied to the siblings. Falls back to ref grouping if resolution fails.
 - **CI name resolution.** Vector search spots catalog references in a query (LB numbers, display names) and searches by that item's stored embedding.
@@ -68,7 +68,7 @@ Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create 
 - **Logging.** structlog JSON with `component`, `job_id`, `action`. Verbose is preferred.
 - **Config.** All env vars use the `RCARS_` prefix (Pydantic Settings).
 
-Performance scoring, retirement, overlap, and field-source details are in `docs/architecture/`. Read those before changing the scoring or retirement code. Two rules worth remembering: the Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC`; if you restrict it, also set `RCARS_CHAT_INTENT_ROLES=performance:curator`), and cost queries include all environments while provision queries are PROD-only.
+Performance scoring, retirement, overlap, and field-source details are in `docs/architecture/`. Read those before changing the scoring or retirement code. Two rules worth remembering: the Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC`; if you restrict it, also set `RCARS_CHAT_INTENT_ROLES_STR=performance:curator`), and cost queries include all environments while provision queries are PROD-only.
 
 ## Database
 
