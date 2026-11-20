@@ -1,3 +1,4 @@
+import os
 from rcars.workers.base import WorkerContext
 from rcars.workers.settings import WorkerSettings
 
@@ -24,7 +25,7 @@ from rcars.config import Settings
 def _worker_ctx(**setting_overrides):
     """Minimal ctx dict for testing ops pipeline functions."""
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         **setting_overrides,
     )
     db = MagicMock()

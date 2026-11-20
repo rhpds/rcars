@@ -1,4 +1,5 @@
 """Description-based analysis: source resolution, setter, analyzer, pipeline."""
+import os
 
 import pytest
 from types import SimpleNamespace
@@ -474,7 +475,7 @@ async def test_analysis_source_endpoint_requires_curator():
     from rcars.config import Settings
 
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="", curator_emails_str="curator@redhat.com",
         admin_emails_str="", proxy_verification_secret="s3cret",
