@@ -2094,6 +2094,7 @@ class Database:
         quality_threshold: float = 0.45,
         retrieval_window: int = 200,
         scope_content_ids: list[str] | None = None,
+        exclude_retiring: bool = True,
     ) -> list[dict[str, Any]]:
         zt_filter = ""
         if not include_zt:
@@ -2125,6 +2126,16 @@ class Database:
             scope_filter = "AND e.content_id = ANY(%s)"
             scope_params = [scope_content_ids]
 
+        # Items whose retirement has started must not be recommended.
+        # reviewed/approved/notified are still valid; 'retired' has retired_at set.
+        retiring_filter = ""
+        if exclude_retiring:
+            retiring_filter = (
+                "AND NOT EXISTS (SELECT 1 FROM retirement_workflow rw "
+                "WHERE rw.content_id = e.content_id "
+                "AND rw.status = 'started')"
+            )
+
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
 
         sql = f"""
@@ -2139,6 +2150,7 @@ class Database:
                   {stage_filter}
                   {zt_filter}
                   {scope_filter}
+                  {retiring_filter}
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
             ),
