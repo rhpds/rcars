@@ -111,7 +111,7 @@ All service logs go to `/tmp/`:
 - `oc` CLI with cluster-admin access (one-time bootstrap only)
 - `ansible` with `kubernetes.core` collection: `ansible-galaxy collection install -r ansible/requirements.yml`
 - Read-only kubeconfig for the Babylon cluster
-- Vertex AI service account JSON key
+- LiteMaaS API key
 - GitHub PAT with repo read access (repo is private)
 
 ---
@@ -151,9 +151,8 @@ Fill in all values:
 | `oauth_cookie_secret` | `openssl rand -hex 16` |
 | `cluster_domain` | `oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}'` |
 | `babylon_kubeconfig_path` | Path to Babylon read-only kubeconfig |
-| `vertex_credentials_path` | Path to GCP Vertex AI service account JSON key |
-| `vertex_project_id` | GCP project ID for Vertex AI |
-| `vertex_region` | GCP region (default: `global`) |
+| `litemaas_url` | LiteMaaS endpoint |
+| `litemaas_api_key` | LiteMaaS API key |
 | `curator_emails` | YAML list of curator-only emails |
 | `admin_emails` | YAML list of admin emails (admins also get curator access) |
 
@@ -449,6 +448,6 @@ oc get events -n rcars-dev --sort-by='.lastTimestamp' | tail -20
 
 - **Pod stuck in ContainerCreating** — usually a missing Secret (check `oc describe pod`)
 - **Redis connection refused** — verify Redis pod is running
-- **No Anthropic client** — verify Vertex AI credentials are mounted
+- **No LLM client** — verify `litemaas_url` and `litemaas_api_key` are set and applied
 - **Advisor queries stuck** — check recommend worker is running
 - **OAuth redirect loop** — verify OAuthClient name matches env (`rcars-dev` or `rcars-prod`)
