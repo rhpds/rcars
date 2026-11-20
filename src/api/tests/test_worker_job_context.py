@@ -79,3 +79,34 @@ def test_all_registered_functions_wrapped():
         for c in getattr(settings, "cron_jobs", []):
             if c.coroutine.__name__ != "cleanup_orphaned_jobs":
                 assert getattr(c.coroutine, "__rcars_job_context__", False)
+
+
+async def test_cron_nightly_pipeline_binds_created_job_id(monkeypatch):
+    """Cron passes no job_id; the pipeline creates one and nested steps must see it."""
+    from unittest.mock import AsyncMock, MagicMock
+    from rcars.workers import ops
+
+    seen = {}
+
+    async def _babylon(ctx, job_id, **kwargs):
+        seen["babylon"] = structlog.contextvars.get_contextvars().get("job_id")
+        return {"warnings": []}
+
+    async def _osspa(ctx, job_id, **kwargs):
+        seen["osspa"] = structlog.contextvars.get_contextvars().get("job_id")
+        return {"status": "complete"}
+
+    monkeypatch.setattr(ops, "run_babylon_pipeline", _babylon)
+    monkeypatch.setattr(ops, "run_osspa_pipeline", _osspa)
+
+    db = MagicMock()
+    db.create_job.return_value = "created-job"
+    settings = MagicMock(github_app_id=None)
+    monkeypatch.setattr("rcars.services.jira.jira_auth_configured", lambda s: False)
+    wctx = MagicMock(db=db, relay=MagicMock(publish=AsyncMock()), settings=settings)
+
+    wrapped = with_job_context(ops.run_nightly_pipeline)
+    await wrapped({"worker_ctx": wctx})
+
+    assert seen == {"babylon": "created-job", "osspa": "created-job"}
+    assert "job_id" not in structlog.contextvars.get_contextvars()
