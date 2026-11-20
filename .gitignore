@@ -16,10 +16,9 @@ venv/
 *.swp
 *.swo
 
-# Local agent instructions and state
+# Local agent state
 .agents/
 .codex/
-AGENTS.md
 
 # Data (never commit)
 data/
