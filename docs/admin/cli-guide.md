@@ -331,14 +331,12 @@ All configuration is via `RCARS_`-prefixed environment variables. No config file
 
 ### LLM Provider
 
-RCARS prefers LiteMaaS (internal Red Hat proxy). If that is not configured, it falls back to Vertex AI. If neither is set, `scan` and `recommend` will refuse to run.
+RCARS uses LiteMaaS (internal Red Hat proxy) as its only LLM provider. If it is not configured, `scan` and `recommend` will refuse to run.
 
 | Variable | Description |
 |---|---|
-| `RCARS_LITEMAAS_URL` | LiteMaaS proxy endpoint (preferred). |
-| `ANTHROPIC_VERTEX_PROJECT_ID` | GCP project ID for Vertex AI (fallback). |
-| `CLOUD_ML_REGION` | GCP region for Vertex AI (default: `global`). |
-| `ANTHROPIC_API_KEY` | Direct Anthropic API key (development fallback). |
+| `RCARS_LITEMAAS_URL` | LiteMaaS proxy endpoint. |
+| `RCARS_LITEMAAS_API_KEY` | LiteMaaS API key. |
 
 ### Models
 
