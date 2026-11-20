@@ -32,7 +32,7 @@ def _redis_settings_from_url(url: str) -> RedisSettings:
 from rcars.db import Database
 from rcars.logging import setup_logging, get_logger
 from rcars.api.streaming import JobProgressRelay
-from rcars.workers.base import WorkerContext
+from rcars.workers.base import WorkerContext, with_job_context
 from rcars.workers.recommend import run_recommendation
 from rcars.workers.chat import run_chat_turn
 from rcars.workers.scan import run_analysis
@@ -43,6 +43,21 @@ from rcars.workers.ops import (
     run_retirement_sweep_job,
     run_babylon_pipeline, run_osspa_pipeline,
 )
+
+# Bind job_id to log context for each job (see with_job_context).
+run_analysis = with_job_context(run_analysis)
+run_recommendation = with_job_context(run_recommendation)
+run_chat_turn = with_job_context(run_chat_turn)
+run_catalog_refresh = with_job_context(run_catalog_refresh)
+run_stale_check = with_job_context(run_stale_check)
+run_nightly_pipeline = with_job_context(run_nightly_pipeline)
+run_workload_scan = with_job_context(run_workload_scan)
+run_reporting_sync_job = with_job_context(run_reporting_sync_job)
+run_field_source_sync_job = with_job_context(run_field_source_sync_job)
+run_osspa_sync_job = with_job_context(run_osspa_sync_job)
+run_retirement_sweep_job = with_job_context(run_retirement_sweep_job)
+run_babylon_pipeline = with_job_context(run_babylon_pipeline)
+run_osspa_pipeline = with_job_context(run_osspa_pipeline)
 
 # Maps the jobs.queue column value to the arq sorted-set key for that queue.
 _DB_QUEUE_TO_ARQ = {
