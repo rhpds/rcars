@@ -6,8 +6,9 @@ Validates that all auth mechanisms enforce boundaries correctly:
 - Spoofed proxy headers without secret get 401
 - Role ceiling enforcement works
 """
-
 from __future__ import annotations
+import os
+
 
 from unittest.mock import MagicMock
 
@@ -22,7 +23,7 @@ from rcars.config import Settings
 def app_no_auth():
     """App with NO dev_user — all auth enforced."""
     settings = Settings(
-        database_url="postgresql://rcars:rcars@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:rcars@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="",
         admin_emails_str="admin@redhat.com",

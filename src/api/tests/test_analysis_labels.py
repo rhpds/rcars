@@ -1,6 +1,7 @@
 """Tests for Platform/TDP labels on analysis dashboard endpoints."""
-
 from __future__ import annotations
+import os
+
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +9,7 @@ from rcars.api.app import create_app
 from rcars.config import Settings
 from rcars.db.database import Database
 
-TEST_DB_URL = "postgresql://rcars:dev@localhost:5432/rcars_test"
+TEST_DB_URL = os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test")
 
 
 @pytest.fixture(scope="module")

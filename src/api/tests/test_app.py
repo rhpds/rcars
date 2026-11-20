@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 from rcars.api.app import create_app
@@ -7,7 +8,7 @@ from rcars.config import Settings
 @pytest.fixture
 def client():
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="test@redhat.com",
         admin_emails_str="test@redhat.com",
@@ -36,7 +37,7 @@ def test_auth_me(client):
 
 def test_auth_me_unauthenticated():
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
     )
     app = create_app(settings)

@@ -1,6 +1,7 @@
 """Tests for OAuth token exchange endpoint (implicit grant flow)."""
-
 from __future__ import annotations
+import os
+
 
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -14,7 +15,7 @@ from rcars.config import Settings
 @pytest.fixture
 def client():
     settings = Settings(
-        database_url="postgresql://rcars:rcars@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:rcars@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="",
         oauth_server_url="https://oauth.example.com",
