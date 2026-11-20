@@ -261,3 +261,45 @@ def test_nonprod_list_keeps_item_with_unfinished_retirement_workflow(db):
     items = db.list_nonprod_items()
 
     assert [i["workflow_status"] for i in items] == ["started"]
+
+
+@pytest.mark.parametrize("status,hidden", [
+    ("reviewed", False),
+    ("approved", False),
+    ("notified", False),
+    ("started", True),
+])
+def test_search_embeddings_excludes_started_retirement(db, status, hidden):
+    _arch(db, 1, "prod")
+    _arch(db, 2, "prod")
+    db.upsert_retirement_workflow("pa:2", {"status": status})
+
+    rows = db.search_embeddings(VECTOR, limit=10, stages=["prod"], quality_threshold=0.0)
+
+    expected = ["pa:1"] if hidden else ["pa:1", "pa:2"]
+    assert sorted(r["content_id"] for r in rows) == expected
+
+
+def test_search_embeddings_can_include_retiring_items(db):
+    _arch(db, 1, "prod")
+    db.upsert_retirement_workflow("pa:1", {"status": "started"})
+
+    rows = db.search_embeddings(VECTOR, limit=10, stages=["prod"], quality_threshold=0.0,
+                                exclude_retiring=False)
+
+    assert [r["content_id"] for r in rows] == ["pa:1"]
+
+
+def test_search_embeddings_hides_stage_siblings_of_started_retirement(db):
+    for stage in ("dev", "prod"):
+        db.upsert_babylon_catalog_item({"ci_name": f"a.{stage}", "display_name": f"A {stage}",
+                                        "stage": stage, "showroom_url": "https://example.com/r"})
+        db.store_embedding(f"babylon:a.{stage}", "lab", "babylon", "summary", "Lab: x", VECTOR)
+    db.upsert_babylon_catalog_item({"ci_name": "b.prod", "display_name": "B", "stage": "prod",
+                                    "showroom_url": "https://example.com/r"})
+    db.store_embedding("babylon:b.prod", "lab", "babylon", "summary", "Lab: y", VECTOR)
+    db.upsert_retirement_workflow("babylon:a.dev", {"status": "started"})
+
+    rows = db.search_embeddings(VECTOR, limit=10, stages=["prod"], quality_threshold=0.0)
+
+    assert [r["content_id"] for r in rows] == ["babylon:b.prod"]

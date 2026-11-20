@@ -133,7 +133,7 @@ def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
             return {"item": item}
     embed = embed_fn or generate_embedding
     guesses = db.search_embeddings(embed(ref, prefix="search_query"),
-                                   limit=3, stages=stages)
+                                   limit=3, stages=stages, exclude_retiring=False)
     ref_lower = ref.lower()
     for g in guesses:
         g_name = (g.get("display_name") or "").lower()
