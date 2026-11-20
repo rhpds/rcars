@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795185616.679564,
-    "seen": 1795185908.723704,
-    "ast_hash": "b78d78c2883fc1e3dbc5c2d305cc06e1",
+    "mtime": 1795186701.1941168,
+    "seen": 1795187011.305247,
+    "ast_hash": "b33531f064fc230f291155c94aba9774",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -1620,9 +1620,9 @@
     "semantic_hash": "7ea3f671ed6bb6f58159143a7f1f9894"
   },
   "src/api/tests/test_status_visibility.py": {
-    "mtime": 1795185616.6799572,
-    "seen": 1795185908.7264562,
-    "ast_hash": "4bdd6002159fed5e6c8a2da649678d43",
+    "mtime": 1795186698.4859073,
+    "seen": 1795187011.308151,
+    "ast_hash": "66ecd870b37043b5ea7d08400d2ca02b",
     "semantic_hash": ""
   },
   "src/frontend/src/pages/browse/helpers.test.ts": {

@@ -2130,10 +2130,14 @@ class Database:
         # reviewed/approved/notified are still valid; 'retired' has retired_at set.
         retiring_filter = ""
         if exclude_retiring:
+            # Stages share one AgV description, so a started retirement on any
+            # stage sibling (same CI name minus the stage suffix) hides them all.
             retiring_filter = (
                 "AND NOT EXISTS (SELECT 1 FROM retirement_workflow rw "
-                "WHERE rw.content_id = e.content_id "
-                "AND rw.status = 'started')"
+                "LEFT JOIN babylon_items rw_bi ON rw_bi.content_id = rw.content_id "
+                "WHERE rw.status = 'started' "
+                "AND COALESCE(substring(rw_bi.ci_name FROM '^(.+)\\.[^.]+$'), rw.content_id) "
+                "= COALESCE(substring(cbi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))"
             )
 
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
@@ -2144,6 +2148,7 @@ class Database:
                        1 - (e.embedding <=> %s::vector) AS similarity
                 FROM embeddings e
                 JOIN content_entities ce ON ce.content_id = e.content_id
+                LEFT JOIN babylon_items cbi ON cbi.content_id = e.content_id
                 WHERE ce.retired_at IS NULL
                   AND ce.content_id NOT LIKE 'babylon:tests.%%'
                   {ct_filter}
