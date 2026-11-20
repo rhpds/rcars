@@ -487,7 +487,8 @@ async def start_retirement(base_name: str, body: StartRequest, request: Request,
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
             raise HTTPException(409, "Retirement start or cleanup is already running")
-        return _start_retirement_locked(base_name, content_id, body, request, user)
+        # The helper makes a blocking Jira HTTP call; keep it off the event loop.
+        return await asyncio.to_thread(_start_retirement_locked, base_name, content_id, body, request, user)
 
 
 def _start_retirement_locked(base_name: str, content_id: str, body: StartRequest, request: Request, user: str):
