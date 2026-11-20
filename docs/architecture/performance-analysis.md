@@ -9,7 +9,7 @@ Performance analysis helps curators understand catalog item impact based on usag
 
 ## Access Model
 
-The Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC=true`), allowing all authenticated users to view performance data. Curators see additional features: item muting, retirement workflow access, and expanded metrics. To restrict the page to curators only, set `RCARS_PERFORMANCE_PUBLIC=false`. When restricting page access, also configure `RCARS_CHAT_INTENT_ROLES_STR=performance:curator` so chat performance answers match page access.
+The Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC=true`), allowing all authenticated users to view performance data. Curators see additional features: item muting, retirement workflow access, and expanded metrics. To restrict the page to curators only, set `RCARS_PERFORMANCE_PUBLIC=false`. When restricting page access, also add `performance:curator` to the comma-separated `RCARS_CHAT_INTENT_ROLES_STR` (keep any existing entries) so chat performance answers match page access.
 
 ## Data Source — RHDP Reporting Database
 
@@ -336,7 +336,7 @@ URL state updates on every filter/tab change and is read on page load to restore
 | `RCARS_REPORTING_SALES_DAYS` | 365 | Trailing window for provisions, touched, cost |
 | `RCARS_REPORTING_PROVISIONS_DAYS` | 90 | Trailing window for quarter provisions |
 
-When setting `RCARS_PERFORMANCE_PUBLIC=false`, also configure `RCARS_CHAT_INTENT_ROLES_STR=performance:curator` so chat performance answers match page access.
+When setting `RCARS_PERFORMANCE_PUBLIC=false`, also add `performance:curator` to the comma-separated `RCARS_CHAT_INTENT_ROLES_STR` (keep any existing entries) so chat performance answers match page access.
 
 ---
 

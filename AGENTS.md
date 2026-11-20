@@ -51,7 +51,7 @@ source ~/.virtualenvs/rcars-v2/bin/activate
 (cd src/frontend && npm run build)        # also: npm test
 ```
 
-Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create the `rcars_test` database once (`dev-services.sh` does not); override with `RCARS_TEST_DATABASE_URL`. Test fixtures refuse any database without `test` in its name. `integration` tests need a live Babylon cluster.
+Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create the `rcars_test` database once (`dev-services.sh` does not); override with `RCARS_TEST_DATABASE_URL`. Always point it at a database with `test` in its name: many fixtures drop or delete tables, and not all of them check the name. `integration` tests need a live Babylon cluster.
 
 ## Key Patterns
 
@@ -68,7 +68,7 @@ Needs PostgreSQL+pgvector on localhost:5432 and Redis on localhost:6379. Create 
 - **Logging.** structlog JSON with `component`, `job_id`, `action`. Verbose is preferred.
 - **Config.** All env vars use the `RCARS_` prefix (Pydantic Settings).
 
-Performance scoring, retirement, overlap, and field-source details are in `docs/architecture/`. Read those before changing the scoring or retirement code. Two rules worth remembering: the Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC`; if you restrict it, also set `RCARS_CHAT_INTENT_ROLES_STR=performance:curator`), and cost queries include all environments while provision queries are PROD-only.
+Performance scoring, retirement, overlap, and field-source details are in `docs/architecture/`. Read those before changing the scoring or retirement code. Two rules worth remembering: the Performance page is public by default (`RCARS_PERFORMANCE_PUBLIC`; if you restrict it, also add `performance:curator` to the comma-separated `RCARS_CHAT_INTENT_ROLES_STR`, keeping any existing entries), and cost queries include all environments while provision queries are PROD-only.
 
 ## Database
 
