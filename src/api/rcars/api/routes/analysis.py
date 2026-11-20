@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import contextmanager
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -40,6 +41,20 @@ _RETIREMENT_METRIC_KEYS = (
     "performance_score", "pipeline_touched", "closed_amount", "total_cost",
     "avg_cost_per_provision", "score_breakdown", "extrapolated", "active_months",
 )
+
+
+@contextmanager
+def _workflow_lock(db, content_id: str):
+    """Hold the per-workflow advisory lock; a concurrent duplicate request gets 409.
+
+    The API runs several uvicorn workers, so an in-process check is not enough:
+    two workers can both read the same state and both act on it.
+    """
+    from rcars.services.retirement_cleanup import workflow_lock_id
+    with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
+        if not acquired:
+            raise HTTPException(409, "Another change to this retirement is already running; retry shortly")
+        yield
 
 
 def _retirement_metrics(channels: list[dict]) -> dict | None:
@@ -381,7 +396,8 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
         "step_reviewed_by": user,
         "status": "reviewed",
     }
-    result = db.upsert_retirement_workflow(content_id, fields)
+    with _workflow_lock(db, content_id):
+        result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_reviewed", user, "Marked as reviewed")
     return {"status": "ok", "workflow": result}
 
@@ -437,7 +453,8 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
         fields["replacement_ci"] = body.replacement_ci
         fields["replacement_name"] = body.replacement_name
 
-    result = db.upsert_retirement_workflow(content_id, fields)
+    with _workflow_lock(db, content_id):
+        result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_approved", user, f"Reason: {body.reason}")
     return {"status": "ok", "workflow": result}
 
@@ -460,7 +477,8 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
         "step_notified_by": user,
         "status": "notified",
     }
-    result = db.upsert_retirement_workflow(content_id, fields)
+    with _workflow_lock(db, content_id):
+        result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_notified", user, "Owner notified")
     return {"status": "ok", "workflow": result}
 
@@ -556,21 +574,20 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
-    wf = db.get_retirement_workflow(content_id)
-    if not wf or not wf.get("step_approved_at"):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Item must be approved before linking a Jira ticket")
-    if wf.get("step_started_at"):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
+    with _workflow_lock(db, content_id):
+        wf = db.get_retirement_workflow(content_id)
+        if not wf or not wf.get("step_approved_at"):
+            raise HTTPException(status_code=400, detail="Item must be approved before linking a Jira ticket")
+        if wf.get("step_started_at"):
+            raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
 
-    fields = {
-        "step_started_at": "NOW()",
-        "step_started_by": user,
-        "jira_key": body.jira_key,
-        "status": "started",
-    }
-    result = db.upsert_retirement_workflow(content_id, fields)
+        fields = {
+            "step_started_at": "NOW()",
+            "step_started_by": user,
+            "jira_key": body.jira_key,
+            "status": "started",
+        }
+        result = db.upsert_retirement_workflow(content_id, fields)
     db.log_action(base_name, "retirement_jira_linked", user, f"Linked existing Jira: {body.jira_key}")
     return {"status": "ok", "workflow": result}
 
@@ -599,48 +616,50 @@ async def edit_retirement(base_name: str, body: EditRetirementRequest, request: 
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
         raise HTTPException(404, f"No content found for base name: {base_name}")
-    wf = db.get_retirement_workflow(content_id)
-    if not wf:
-        raise HTTPException(404, f"No retirement workflow for: {base_name}")
-    entity = db.get_content_entity(content_id)
-    if (entity and entity.get("retired_at")) or wf.get("step_retired_at") or wf.get("status") == "retired":
-        raise HTTPException(409, "This item is already retired; it can no longer be edited")
-    if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
-        raise HTTPException(409, "Cancellation cleanup is pending; the workflow can no longer be edited")
+    # Serialize with other workflow changes: the checks below and the write must see one state.
+    with _workflow_lock(db, content_id):
+        wf = db.get_retirement_workflow(content_id)
+        if not wf:
+            raise HTTPException(404, f"No retirement workflow for: {base_name}")
+        entity = db.get_content_entity(content_id)
+        if (entity and entity.get("retired_at")) or wf.get("step_retired_at") or wf.get("status") == "retired":
+            raise HTTPException(409, "This item is already retired; it can no longer be edited")
+        if wf.get("cancellation_requested_at") or wf.get("agv_revert_pr_url"):
+            raise HTTPException(409, "Cancellation cleanup is pending; the workflow can no longer be edited")
 
-    if body.retirement_target_date is None and body.replacement_ci is None and body.replacement_name is None:
-        raise HTTPException(400, "Nothing to edit: provide a target date or replacement CI")
+        if body.retirement_target_date is None and body.replacement_ci is None and body.replacement_name is None:
+            raise HTTPException(400, "Nothing to edit: provide a target date or replacement CI")
 
-    fields: dict = {}
-    changes: list[str] = []
-    if body.retirement_target_date is not None and body.retirement_target_date != wf.get("retirement_target_date"):
-        fields["retirement_target_date"] = body.retirement_target_date
-        changes.append(f"target date moved from {wf.get('retirement_target_date') or 'unset'} to {body.retirement_target_date}")
-    if body.replacement_ci is not None:
-        new_ci = body.replacement_ci.strip()
-        if new_ci != (wf.get("replacement_ci") or ""):
-            fields["replacement_ci"] = new_ci or None
-            fields["replacement_name"] = (new_ci and (body.replacement_name or "").strip()) or None
-            changes.append(f"replacement CI changed from {wf.get('replacement_ci') or 'unset'} to {new_ci or 'unset'}")
-    elif body.replacement_name is not None:
-        # Name-only edit: never resubmit the CI, so a stale field cannot restore it.
-        new_name = body.replacement_name.strip()
-        if new_name != (wf.get("replacement_name") or ""):
-            if not wf.get("replacement_ci"):
-                raise HTTPException(400, "Cannot change the replacement name without a replacement CI")
-            fields["replacement_name"] = new_name or None
-            changes.append(f"replacement name changed from {wf.get('replacement_name') or 'unset'} to {new_name or 'unset'}")
-    if not fields:
-        # Same values submitted: a successful no-op, with no Jira comment.
-        return {"status": "ok", "workflow": wf, "jira_comment_errors": []}
+        fields: dict = {}
+        changes: list[str] = []
+        if body.retirement_target_date is not None and body.retirement_target_date != wf.get("retirement_target_date"):
+            fields["retirement_target_date"] = body.retirement_target_date
+            changes.append(f"target date moved from {wf.get('retirement_target_date') or 'unset'} to {body.retirement_target_date}")
+        if body.replacement_ci is not None:
+            new_ci = body.replacement_ci.strip()
+            if new_ci != (wf.get("replacement_ci") or ""):
+                fields["replacement_ci"] = new_ci or None
+                fields["replacement_name"] = (new_ci and (body.replacement_name or "").strip()) or None
+                changes.append(f"replacement CI changed from {wf.get('replacement_ci') or 'unset'} to {new_ci or 'unset'}")
+        elif body.replacement_name is not None:
+            # Name-only edit: never resubmit the CI, so a stale field cannot restore it.
+            new_name = body.replacement_name.strip()
+            if new_name != (wf.get("replacement_name") or ""):
+                if not wf.get("replacement_ci"):
+                    raise HTTPException(400, "Cannot change the replacement name without a replacement CI")
+                fields["replacement_name"] = new_name or None
+                changes.append(f"replacement name changed from {wf.get('replacement_name') or 'unset'} to {new_name or 'unset'}")
+        if not fields:
+            # Same values submitted: a successful no-op, with no Jira comment.
+            return {"status": "ok", "workflow": wf, "jira_comment_errors": []}
 
-    # The Jira comment is durable: a failed delivery is retried by the nightly sweep.
-    event_message = "; ".join(changes) + f" (edited by {user})" if wf.get("jira_key") else None
-    result = db.edit_retirement_workflow(content_id, fields, event_message=event_message)
-    if result is None:
-        # A concurrent cancellation or retirement won the race; nothing was edited.
-        raise HTTPException(409, "The workflow changed or was removed; reload and retry")
-    db.log_action(base_name, "retirement_edited", user, "; ".join(changes))
+        # The Jira comment is durable: a failed delivery is retried by the nightly sweep.
+        event_message = "; ".join(changes) + f" (edited by {user})" if wf.get("jira_key") else None
+        result = db.edit_retirement_workflow(content_id, fields, event_message=event_message)
+        if result is None:
+            # A concurrent cancellation or retirement won the race; nothing was edited.
+            raise HTTPException(409, "The workflow changed or was removed; reload and retry")
+        db.log_action(base_name, "retirement_edited", user, "; ".join(changes))
     jira_comment_errors = await deliver_pending_events(db, request.app.state.settings, content_id=content_id)
     return {"status": "ok", "workflow": result, "jira_comment_errors": jira_comment_errors}
 
@@ -659,7 +678,8 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
         from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {"curator_notes": body.notes}
-    result = db.upsert_retirement_workflow(content_id, fields)
+    with _workflow_lock(db, content_id):
+        result = db.upsert_retirement_workflow(content_id, fields)
     return {"status": "ok", "workflow": result}
 
 
@@ -675,12 +695,12 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     ),
     response_model=CancelWorkflowResponse,
     responses={
-        409: {"description": "Item is already retired; cancellation is not allowed"},
+        409: {"description": "Item is already retired, or another change to this retirement is running"},
         502: {"description": "Required Jira/GitHub cleanup failed; workflow retained for retry"},
     },
 )
 async def cancel_workflow(base_name: str, request: Request, user: str = Depends(require_admin)):
-    from rcars.services.retirement_cleanup import cancel_retirement, CleanupError, RetirementAlreadyCompleted
+    from rcars.services.retirement_cleanup import cancel_retirement, CleanupBusy, CleanupError, RetirementAlreadyCompleted
     from rcars.services.retirement_jira_events import deliver_pending_events
 
     db = request.app.state.db
@@ -691,7 +711,7 @@ async def cancel_workflow(base_name: str, request: Request, user: str = Depends(
 
     try:
         result = await cancel_retirement(db, settings, content_id, user)
-    except RetirementAlreadyCompleted as exc:
+    except (RetirementAlreadyCompleted, CleanupBusy) as exc:
         raise HTTPException(409, str(exc)) from exc
     except CleanupError as exc:
         await deliver_pending_events(db, settings, content_id=content_id)
