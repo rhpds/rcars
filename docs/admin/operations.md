@@ -171,4 +171,4 @@ The API and worker never communicate directly. Redis is the sole channel.
 
 **Advisor queries not responding:** Check the recommend worker is running separately from the scan worker. If only the scan worker is up, advisor queries will never be picked up.
 
-**LLM errors (429, quota exceeded):** Check Vertex AI quotas. The worker logs the full error. The job fails and can be retried.
+**LLM errors (429, quota exceeded):** Check LiteMaaS quotas and model availability. The worker logs the full error. The job fails and can be retried.
