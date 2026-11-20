@@ -1,10 +1,8 @@
 {
-  "2": "registry.ts",
   "5": "devDependencies",
   "9": "admin.py",
   "11": "Infrastructure Catalog",
   "12": "BrowsePage.tsx",
-  "14": "derive_status",
   "15": "Generalized Content Model Design",
   "23": "test_osspa_adoc.py",
   "30": "App.tsx",

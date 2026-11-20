@@ -389,7 +389,6 @@ async def review_item(base_name: str, request: Request, user: str = Depends(requ
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {
         "step_reviewed_at": "NOW()",
@@ -418,7 +417,6 @@ async def approve_item(base_name: str, body: ApproveRequest, request: Request, u
 
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     # Build channel-keyed approval snapshot from performance data
@@ -470,7 +468,6 @@ async def notify_owner(base_name: str, request: Request, user: str = Depends(req
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {
         "step_notified_at": "NOW()",
@@ -515,10 +512,8 @@ def _start_retirement_locked(base_name: str, content_id: str, body: StartRequest
 
     wf = db.get_retirement_workflow(content_id)
     if not wf or not wf.get("step_approved_at"):
-        from fastapi import HTTPException
         raise HTTPException(status_code=400, detail="Item must be approved before starting retirement")
     if wf.get("step_started_at"):
-        from fastapi import HTTPException
         raise HTTPException(status_code=409, detail=f"Retirement already started (Jira: {wf.get('jira_key', 'unknown')})")
 
     target_date = (datetime.now() + timedelta(days=body.target_days)).date()
@@ -543,7 +538,6 @@ def _start_retirement_locked(base_name: str, content_id: str, body: StartRequest
         jira_key = create_retirement_ticket(settings, wf_for_jira, metrics)
     except Exception as exc:
         logger.error("retirement_jira_failed", base_name=base_name, content_id=content_id, error=str(exc))
-        from fastapi import HTTPException
         raise HTTPException(status_code=502, detail=f"Failed to create Jira ticket: {exc}")
 
     fields = {
@@ -571,7 +565,6 @@ async def link_jira(base_name: str, body: LinkJiraRequest, request: Request, use
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
 
     with _workflow_lock(db, content_id):
@@ -675,7 +668,6 @@ async def update_notes(base_name: str, body: NotesRequest, request: Request, use
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db, include_retired=True)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"No content found for base name: {base_name}")
     fields = {"curator_notes": body.notes}
     with _workflow_lock(db, content_id):
@@ -1036,12 +1028,10 @@ async def ignore_item(base_name: str, request: Request, user: str = Depends(requ
     from datetime import date, timedelta
     content_id = _base_name_to_content_id(base_name, db)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
     until = (date.today() + timedelta(days=30)).isoformat()
     ok = db.set_ignored_until(content_id, until)
     if not ok:
-        from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
     db.log_action(base_name, "retirement_ignored", user, f"Muted until {until}")
     return {"status": "ok", "ignored_until": until}
@@ -1057,11 +1047,9 @@ async def unignore_item(base_name: str, request: Request, user: str = Depends(re
     db = request.app.state.db
     content_id = _base_name_to_content_id(base_name, db)
     if not content_id:
-        from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
     ok = db.clear_ignored(content_id)
     if not ok:
-        from fastapi import HTTPException
         raise HTTPException(404, f"Item not found: {base_name}")
     db.log_action(base_name, "retirement_unignored", user, "Unmuted")
     return {"status": "ok"}

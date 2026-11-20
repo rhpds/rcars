@@ -55,3 +55,16 @@ def test_route_releases_lock_after_request(client, db, method, suffix, body, sta
     assert response.status_code != 409, response.text
     with db.advisory_lock(workflow_lock_id(CONTENT_ID)) as acquired:
         assert acquired
+
+
+def test_link_jira_not_approved_returns_400(client, db):
+    db.delete_retirement_workflow(CONTENT_ID)
+    response = client.put(URL + "/link-jira", json={"jira_key": "EXAMPLE-9"})
+    assert response.status_code == 400
+
+
+def test_link_jira_already_started_returns_409(client, db):
+    db.upsert_retirement_workflow(CONTENT_ID, {"step_approved_at": "NOW()", "jira_key": "EXAMPLE-1"})
+    response = client.put(URL + "/link-jira", json={"jira_key": "EXAMPLE-9"})
+    assert response.status_code == 409
+    assert "EXAMPLE-1" in response.json()["detail"]
