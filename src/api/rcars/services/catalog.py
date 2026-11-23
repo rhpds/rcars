@@ -447,7 +447,7 @@ def build_catalog_families(items: list[dict], nodes: dict[str, SourceNode]) -> C
         for node in nodes.values() for position, link in enumerate(node.links)
     ]
     members, without_anchor, covering = [], [], {}
-    virtual_cis = sorted(i["ci_name"] for i in items if i.get("is_published"))
+    virtual_cis = sorted({i["ci_name"] for i in items if i.get("is_published")})
     for name in virtual_cis:
         family = family_members(name, nodes)
         if not family:

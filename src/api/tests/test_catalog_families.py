@@ -335,3 +335,26 @@ async def test_catalog_refresh_job_writes_families_after_upserts(monkeypatch):
     assert calls == ["upsert", "upsert", "retire", "families"]
     components, members = db.replace_catalog_families.call_args.args
     assert [m["member_content_id"] for m in members] == ["babylon:a.lab.prod"]
+
+
+def test_duplicate_virtual_ci_names_from_two_namespaces_give_one_family():
+    nodes = graph(node("a.lab.prod", repo=URL), node("published.x.prod", links=["a.lab.prod"]))
+    result = build_catalog_families([_item("published.x.prod"), _item("published.x.prod")], nodes)
+    assert len(result.members) == 1 and result.summary["virtual_cis"] == 1
+
+
+@pytest.mark.asyncio
+async def test_catalog_refresh_job_keeps_stored_families_on_empty_scan(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    from rcars.workers import ops
+
+    db = Mock()
+    db.retire_missing_babylon.return_value = []
+    wctx = SimpleNamespace(db=db, relay=Mock(), settings=SimpleNamespace(
+        kubeconfig_path="", catalog_namespaces=["example"], agnosticv_component_namespace="x"))
+    monkeypatch.setattr(ops, "publish_progress", AsyncMock())
+    monkeypatch.setattr(ops, "CatalogReader", lambda **kw: SimpleNamespace(
+        refresh_catalog_graph=lambda **k: ([], {})))
+    await ops.run_catalog_refresh({"worker_ctx": wctx}, "job-2")
+    db.replace_catalog_families.assert_not_called()

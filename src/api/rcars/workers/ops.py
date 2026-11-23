@@ -59,9 +59,13 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
 
         retired = wctx.db.retire_missing_babylon(current_content_ids)
 
-        families = build_catalog_families(items, nodes)
-        wctx.db.replace_catalog_families(families.components, families.members)
-        log_catalog_families(families, job_id=job_id)
+        if current_content_ids:
+            families = build_catalog_families(items, nodes)
+            wctx.db.replace_catalog_families(families.components, families.members)
+            log_catalog_families(families, job_id=job_id)
+        else:
+            # Same rule as retire_missing_babylon: an empty scan keeps what is stored.
+            log.warning("catalog_family_replace_skipped_empty_scan", action="catalog_family_skip")
 
         result = {"total_items": len(items), "retired_items": len(retired)}
         await publish_progress(wctx.relay, job_id, wctx.db,
