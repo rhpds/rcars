@@ -110,3 +110,28 @@ async def test_cron_nightly_pipeline_binds_created_job_id(monkeypatch):
 
     assert seen == {"babylon": "created-job", "osspa": "created-job"}
     assert "job_id" not in structlog.contextvars.get_contextvars()
+
+
+def test_rationale_threads_inherit_job_id(monkeypatch):
+    """The rationale fan-out uses a ThreadPoolExecutor, which does not copy contextvars."""
+    from types import SimpleNamespace
+    from rcars.services.recommender import rationale
+    from rcars.services.recommender.models import Candidate, QueryState
+
+    seen: list[str | None] = []
+
+    def fake_single(c, analysis, query, settings, model, driver):
+        seen.append(structlog.contextvars.get_contextvars().get("job_id"))
+        return {"why_it_fits": "ok", "tokens": {}}
+
+    monkeypatch.setattr(rationale, "_call_rationale_single", fake_single)
+    monkeypatch.setattr(rationale, "_call_synthesis", lambda *a, **k: {"content_gaps": [], "tokens": {}})
+
+    cands = [Candidate(content_id=f"c{i}", display_name=f"C{i}", content_type="lab", source="babylon", summary="s", products=[], topics=[]) for i in range(3)]
+    state = QueryState(phase="TRIAGE_DONE", candidates=cands, query="q")
+    db = SimpleNamespace(get_display_analysis=lambda cid: {"x": 1})
+
+    structlog.contextvars.bind_contextvars(job_id="job-thread")
+    rationale.generate_rationale(state, db, SimpleNamespace(triage_model="m"), top_n=3)
+
+    assert seen == ["job-thread"] * 3

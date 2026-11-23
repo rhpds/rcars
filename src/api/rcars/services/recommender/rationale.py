@@ -1,5 +1,6 @@
 """Phase 3 — per-candidate Sonnet rationale + Haiku content gap synthesis."""
 
+import contextvars
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -234,7 +235,12 @@ def generate_rationale(
         futures = {}
         for c in top_candidates:
             analysis = analyses.get(c.content_id, {})
-            future = executor.submit(_call_rationale_single, c, analysis, state.query, settings, model, driver)
+            # ThreadPoolExecutor does not copy contextvars. Use one context copy per
+            # task so job_id stays in the logs (a Context cannot be entered twice at once).
+            ctx = contextvars.copy_context()
+            future = executor.submit(
+                ctx.run, _call_rationale_single, c, analysis, state.query, settings, model, driver
+            )
             futures[future] = c.content_id
 
         for future in as_completed(futures):
