@@ -235,3 +235,60 @@ def resolve_showroom_source(root_ci_name: str, nodes: dict[str, SourceNode], *, 
     owner, scope, values, origins = candidates[0]
     return ResolvedShowroom("resolved", owner, scope, values.get("repo"), values.get("ref"),
                             values.get("content_path"), provenance_paths, origins)
+
+
+# ── Catalog families (RHDPCD-2297) ──
+
+def declares_or_overrides_content(node: SourceNode) -> bool:
+    """The ONE content-anchor test: does this node bind Showroom content?
+
+    True when the node declares repo/ref/content_path (even a templated or
+    empty value), or overrides one on a link to a child. Resolved or not does
+    not matter. Option (c) (a curator-set analysis source counts as a binder)
+    would be a one-line extension here.
+    """
+    return bool(node.declaration.provided_fields) or any(link.overrides for link in node.links)
+
+
+@dataclass(frozen=True)
+class FamilyMember:
+    ci_name: str
+    role: str  # "anchor" (declares/overrides content) or "passthrough" (between the virtual CI and an anchor)
+    depth: int  # hops below the virtual CI; 1 = direct component
+
+
+def family_members(virtual_ci_name: str, nodes: dict[str, SourceNode]) -> list[FamilyMember]:
+    """Components on every path from a virtual CI down to its content anchor(s).
+
+    Walk stops at the first content node on each path; nothing below an anchor
+    is a member. Only paths that reach an anchor contribute. A virtual CI that
+    binds content itself, or has no anchor, has no members. Missing and
+    excluded components are skipped.
+    """
+    root = nodes.get(virtual_ci_name)
+    if root is None or declares_or_overrides_content(root):
+        return []
+    found: dict[str, FamilyMember] = {}
+
+    def walk(name: str, path: tuple[str, ...], depth: int) -> bool:
+        node = nodes.get(name)
+        if node is None or is_content_excluded(name) or name in path:
+            return False
+        if declares_or_overrides_content(node):
+            _keep(FamilyMember(name, "anchor", depth))
+            return True
+        reached = False
+        for link in node.links:
+            reached = walk(link.target_ci_name, (*path, name), depth + 1) or reached
+        if reached:
+            _keep(FamilyMember(name, "passthrough", depth))
+        return reached
+
+    def _keep(member: FamilyMember) -> None:
+        known = found.get(member.ci_name)
+        if known is None or member.depth < known.depth:
+            found[member.ci_name] = member
+
+    for link in root.links:
+        walk(link.target_ci_name, (virtual_ci_name,), 1)
+    return sorted(found.values(), key=lambda m: (m.depth, m.ci_name))

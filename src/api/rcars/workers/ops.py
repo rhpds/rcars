@@ -9,7 +9,7 @@ import shutil
 import traceback
 from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress, with_job_context
-from rcars.services.catalog import CatalogReader
+from rcars.services.catalog import CatalogReader, build_catalog_families, log_catalog_families
 from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current, order_for_reuse
 from rcars.services.showroom_scan import scan_candidates
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
@@ -33,7 +33,7 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
                                phase="catalog_refresh", status="reading", message="Reading catalog from all namespaces...")
 
         reader = CatalogReader(kubeconfig_path=wctx.settings.kubeconfig_path)
-        items = reader.refresh_catalog(
+        items, nodes = reader.refresh_catalog_graph(
             namespaces=wctx.settings.catalog_namespaces,
             component_namespace=wctx.settings.agnosticv_component_namespace,
         )
@@ -58,6 +58,10 @@ async def run_catalog_refresh(ctx: dict, job_id: str) -> dict:
                                        message=f"Upserting... {i}/{total}", current=i, total=total)
 
         retired = wctx.db.retire_missing_babylon(current_content_ids)
+
+        families = build_catalog_families(items, nodes)
+        wctx.db.replace_catalog_families(families.components, families.members)
+        log_catalog_families(families, job_id=job_id)
 
         result = {"total_items": len(items), "retired_items": len(retired)}
         await publish_progress(wctx.relay, job_id, wctx.db,

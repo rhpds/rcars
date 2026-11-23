@@ -68,7 +68,7 @@ def init_db(drop: bool):
 def refresh():
     """Refresh catalog from Babylon CRDs (all namespaces)."""
     import time
-    from rcars.services.catalog import CatalogReader
+    from rcars.services.catalog import CatalogReader, build_catalog_families, log_catalog_families
 
     settings = Settings()
     db = get_db()
@@ -79,7 +79,7 @@ def refresh():
 
     try:
         reader = CatalogReader(settings.kubeconfig_path)
-        items = reader.refresh_catalog(
+        items, nodes = reader.refresh_catalog_graph(
             namespaces=namespaces,
             component_namespace=settings.agnosticv_component_namespace,
         )
@@ -108,6 +108,14 @@ def refresh():
     if retired:
         for r in retired:
             _print(f"  retired: {r['content_id']} (stage={r.get('stage', '?')})")
+
+    families = build_catalog_families(items, nodes)
+    db.replace_catalog_families(families.components, families.members)
+    log_catalog_families(families)
+    summary = families.summary
+    _print(f"Families: {summary['virtual_cis']} virtual CIs, {summary['with_members']} with members, "
+           f"{len(summary['without_anchor'])} without a content anchor, "
+           f"{len(summary['shared_members'])} members in several families.")
 
     elapsed = time.monotonic() - t0
     _print(f"Done in {elapsed:.1f}s. {len(items)} items, {count_with_showroom} with Showroom, {len(retired)} retired.")

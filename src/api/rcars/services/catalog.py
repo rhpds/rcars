@@ -6,6 +6,7 @@ and extracts catalog metadata and Showroom URLs using a strict allowlist.
 
 import json
 import urllib3
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -14,7 +15,7 @@ from kubernetes import client, config as k8s_config
 
 from rcars.services.showroom_source import (
     KNOWN_STAGES, ComponentLink, ContentDeclaration, SourceNode, resolve_showroom_source,
-    is_content_excluded,
+    is_content_excluded, family_members,
 )
 
 # Suppress SSL warnings for clusters with self-signed certificates
@@ -425,6 +426,63 @@ def _apply_component_inheritance(items: list[dict]) -> None:
         item["_workloads"] = merged
 
 
+@dataclass
+class CatalogFamilies:
+    """Rows for catalog_components / catalog_family_members, plus log summary."""
+    components: list[dict] = field(default_factory=list)
+    members: list[dict] = field(default_factory=list)
+    summary: dict = field(default_factory=dict)
+
+
+def build_catalog_families(items: list[dict], nodes: dict[str, SourceNode]) -> CatalogFamilies:
+    """One family per virtual CI (`published.*`), from the per-stage component graph.
+
+    Every component link in the graph is kept in `components` (pools and base
+    clusters included). `members` holds only the content-anchor family of each
+    virtual CI; a component can be a member of several virtual CIs.
+    """
+    components = [
+        {"parent_content_id": f"babylon:{node.ci_name}", "child_ci_name": link.target_ci_name,
+         "position": position, "has_content_override": bool(link.overrides)}
+        for node in nodes.values() for position, link in enumerate(node.links)
+    ]
+    members, without_anchor, covering = [], [], {}
+    virtual_cis = sorted(i["ci_name"] for i in items if i.get("is_published"))
+    for name in virtual_cis:
+        family = family_members(name, nodes)
+        if not family:
+            without_anchor.append(name)
+        for member in family:
+            members.append({"virtual_content_id": f"babylon:{name}",
+                            "member_content_id": f"babylon:{member.ci_name}",
+                            "role": member.role, "depth": member.depth})
+            covering.setdefault(member.ci_name, []).append(name)
+    summary = {
+        "virtual_cis": len(virtual_cis),
+        "with_members": len(virtual_cis) - len(without_anchor),
+        "without_anchor": without_anchor,
+        "shared_members": {m: sorted(v) for m, v in sorted(covering.items()) if len(v) > 1},
+        "components": len(components),
+        "member_rows": len(members),
+    }
+    return CatalogFamilies(components, members, summary)
+
+
+def log_catalog_families(families: CatalogFamilies, **context) -> None:
+    summary = families.summary
+    log.info("catalog_family_summary", component="catalog", action="catalog_family_summary",
+             virtual_cis=summary["virtual_cis"], with_members=summary["with_members"],
+             without_anchor=len(summary["without_anchor"]),
+             members_in_multiple_families=len(summary["shared_members"]),
+             component_links=summary["components"], member_rows=summary["member_rows"], **context)
+    for member, virtual_cis in summary["shared_members"].items():
+        log.info("catalog_family_shared_member", component="catalog", action="catalog_family_shared_member",
+                 member=member, virtual_cis=virtual_cis, **context)
+    for name in summary["without_anchor"]:
+        log.info("catalog_family_no_anchor", component="catalog", action="catalog_family_no_anchor",
+                 virtual_ci=name, **context)
+
+
 class CatalogReader:
     """Reads catalog data from Babylon K8s CRDs."""
 
@@ -478,6 +536,14 @@ class CatalogReader:
         namespaces: list[str],
         component_namespace: str = "babylon-config",
     ) -> list[dict[str, Any]]:
+        return self.refresh_catalog_graph(namespaces, component_namespace)[0]
+
+    def refresh_catalog_graph(
+        self,
+        namespaces: list[str],
+        component_namespace: str = "babylon-config",
+    ) -> tuple[list[dict[str, Any]], dict[str, SourceNode]]:
+        """Items plus the per-stage component graph the Showroom resolver walked."""
         items = []
         nodes = {}
         components = {}
@@ -579,4 +645,4 @@ class CatalogReader:
             item["showroom_ref"] = source.ref
             item["showroom_content_path"] = source.content_path
 
-        return items
+        return items, nodes
