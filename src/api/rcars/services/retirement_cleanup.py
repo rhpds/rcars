@@ -15,6 +15,10 @@ class CleanupError(RuntimeError):
     """External cleanup is incomplete; tracking must be retained."""
 
 
+class CleanupBusy(CleanupError):
+    """Another worker holds the workflow lock; the request is a concurrent duplicate."""
+
+
 class RetirementAlreadyCompleted(CleanupError):
     """Completed retirement cannot be cancelled or have its history removed."""
 
@@ -70,6 +74,9 @@ async def cancel_retirement(
     github_available: bool = True, jira_available: bool = True,
 ) -> dict:
     """Retain intent until PR cleanup AND Jira closure are complete."""
+    # The cancellation request is recorded before taking the lock on purpose: a
+    # cancel that finds a PR creation in flight must still leave its intent behind,
+    # so the PR path and the sweep finish the cancellation.
     wf = db.get_retirement_workflow(content_id)
     _ensure_cancellable(db, content_id, wf)
     if not wf:
@@ -79,7 +86,7 @@ async def cancel_retirement(
             _ensure_cancellable(db, content_id, db.get_retirement_workflow(content_id))
     with db.advisory_lock(workflow_lock_id(content_id)) as acquired:
         if not acquired:
-            raise CleanupError("Retirement cleanup is already running; retry shortly")
+            raise CleanupBusy("Retirement cleanup is already running; retry shortly")
         wf = db.get_retirement_workflow(content_id)
         _ensure_cancellable(db, content_id, wf)
         if not wf:
