@@ -184,3 +184,35 @@ def test_overlap_candidates_exclude_non_babylon_sources(db):
     with db.pool.connection() as conn:
         rows = conn.execute("SELECT content_id_a, content_id_b FROM overlap_candidates").fetchall()
     assert rows == []
+
+
+def test_stage_dedup_by_base_name_with_different_showroom_urls(db, seed_items):
+    """Dev and prod copies of one CI collapse even when their showroom URLs differ."""
+    with db.pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO content_entities (content_id, source, content_type, display_name) "
+            "VALUES ('test:a-dev', 'babylon', 'lab', 'Item A Dev')",
+        )
+        conn.execute(
+            "INSERT INTO babylon_items (content_id, ci_name, showroom_url, stage) "
+            "VALUES ('test:a', 'ci-a.prod', 'https://git/org-one/repo-a', 'prod')",
+        )
+        conn.execute(
+            "INSERT INTO babylon_items (content_id, ci_name, showroom_url, stage) "
+            "VALUES ('test:a-dev', 'ci-a.dev', 'https://git/org-two/repo-a-copy', 'dev')",
+        )
+        # The dev copy has slightly different content, so the hash filter cannot hide it.
+        conn.execute(
+            "INSERT INTO showroom_analysis (content_id, products_json, topics_json, content_hash) "
+            "VALUES ('test:a-dev', %s::jsonb, %s::jsonb, 'hash_a_dev')",
+            ('["OpenShift", "Ansible"]', '["containers", "automation", "networking"]'),
+        )
+        conn.commit()
+
+    generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
+    with db.pool.connection() as conn:
+        rows = conn.execute("SELECT * FROM overlap_candidates").fetchall()
+    pairs = {frozenset((r["content_id_a"], r["content_id_b"])) for r in rows}
+    # No false dev-vs-prod pair, and the prod copy represents the CI against B.
+    assert frozenset(("test:a", "test:a-dev")) not in pairs
+    assert pairs == {frozenset(("test:a", "test:b"))}
