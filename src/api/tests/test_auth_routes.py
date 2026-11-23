@@ -1,6 +1,7 @@
 """Tests for API key management endpoints."""
-
 from __future__ import annotations
+import os
+
 
 import hashlib
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -16,7 +17,7 @@ from rcars.config import Settings
 @pytest.fixture
 def client():
     settings = Settings(
-        database_url="postgresql://rcars:rcars@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:rcars@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="admin@redhat.com",
         admin_emails_str="admin@redhat.com",

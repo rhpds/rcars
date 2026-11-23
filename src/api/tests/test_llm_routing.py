@@ -3,8 +3,9 @@
 Claude 5.5 on LiteMaaS rejects the temperature parameter, so the LiteMaaS
 call path must retry without it and remember the model.
 """
-
 from __future__ import annotations
+import os
+
 
 from types import SimpleNamespace
 
@@ -13,7 +14,7 @@ import pytest
 import rcars.config as config_module
 from rcars.config import Settings
 
-TEST_DB_URL = "postgresql://rcars:dev@localhost:5432/rcars_test"
+TEST_DB_URL = os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test")
 SEEDED_MODEL = "claude-sonnet-5-5-a46b"
 UNSEEDED_MODEL = "claude-test-model"
 SEEDED = set(config_module._models_without_temperature)

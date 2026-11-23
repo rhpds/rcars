@@ -3,8 +3,9 @@
 Covers the status payload: the active provider (LiteMaaS) and the model
 used for every LLM use in RCARS.
 """
-
 from __future__ import annotations
+import os
+
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +14,7 @@ import rcars.config as config_module
 from rcars.api.app import create_app
 from rcars.config import Settings
 
-TEST_DB_URL = "postgresql://rcars:dev@localhost:5432/rcars_test"
+TEST_DB_URL = os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test")
 
 ALL_USES = {
     "analysis",

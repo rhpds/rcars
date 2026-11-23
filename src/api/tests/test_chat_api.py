@@ -1,4 +1,5 @@
 """Tests for POST /advisor/chat endpoint."""
+import os
 import pytest
 from fastapi.testclient import TestClient
 from rcars.api.app import create_app
@@ -9,7 +10,7 @@ from rcars.db import Database
 @pytest.fixture
 def client():
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="test@redhat.com",
         admin_emails_str="test@redhat.com",
@@ -23,7 +24,7 @@ def client():
 @pytest.fixture
 def non_admin_client():
     settings = Settings(
-        database_url="postgresql://rcars:dev@localhost:5432/rcars_test",
+        database_url=os.environ.get("RCARS_TEST_DATABASE_URL", "postgresql://rcars:dev@localhost:5432/rcars_test"),
         redis_url="redis://localhost:6379",
         dev_user="user@redhat.com",
         admin_emails_str="",
@@ -44,16 +45,24 @@ def test_chat_new_session_generates_id(client):
 
 
 def test_chat_append_checks_ownership(non_admin_client):
-    # Create a session owned by another user
+    # Create a session owned by another user. Use a unique id and remove the
+    # row afterwards so the test never collides with a previous run's data.
+    import uuid
     from rcars.db import chat_sessions
     db = non_admin_client.app.state.db
-    chat_sessions.log_chat_turn(db.pool, session_id="other-sess", turn_index=0,
+    session_id = f"other-sess-{uuid.uuid4().hex}"
+    chat_sessions.log_chat_turn(db.pool, session_id=session_id, turn_index=0,
                                 user_email="someoneelse@x.com", query_text="q", results=None,
                                 overall_assessment=None, intent="recommend",
                                 envelope=None, scope=None)
-    resp = non_admin_client.post("/api/v1/advisor/chat",
-                                 json={"message": "more", "session_id": "other-sess"})
-    assert resp.status_code == 404
+    try:
+        resp = non_admin_client.post("/api/v1/advisor/chat",
+                                     json={"message": "more", "session_id": session_id})
+        assert resp.status_code == 404
+    finally:
+        with db.pool.connection() as conn:
+            conn.execute("DELETE FROM advisor_sessions WHERE session_id = %s", (session_id,))
+            conn.commit()
 
 
 def test_chat_message_length_capped(client):
