@@ -79,7 +79,7 @@ A nightly pipeline runs at 04:00 UTC. It runs Babylon catalog/content/reporting 
 
 RCARS runs on OpenShift as four deployments: a React frontend (PatternFly 6), a FastAPI API, and two arq background workers (scan and recommend, split to prevent bulk operations from blocking user queries). It is backed by PostgreSQL with pgvector for semantic search and Redis for job queuing and SSE streaming.
 
-LLM calls use LiteMaaS (Red Hat's internal AI service) as the primary provider with Vertex AI as an automatic fallback. Two models: Sonnet for content analysis, rationale, and chat answers; Haiku for triage, workload scanning, and chat routing.
+LLM calls use LiteMaaS (Red Hat's internal AI service), the only provider. Two models: Sonnet for content analysis, rationale, and chat answers; Haiku for triage, workload scanning, and chat routing.
 
 Reporting data is imported from the RHDP reporting MCP server, which provides access to the same `provisions_summary` materialized view that powers the SuperSet management dashboard.
 

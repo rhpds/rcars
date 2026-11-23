@@ -12,7 +12,7 @@ AI-powered content intelligence for the Red Hat Demo Platform. RCARS reads every
 
 ## Architecture
 
-Four deployments on OpenShift: React frontend, FastAPI API, arq workers (scan + recommend), PostgreSQL with pgvector. LLM analysis via LiteMaaS (primary) with Vertex AI fallback. Nightly pipeline handles catalog refresh, stale detection, workload scanning, content similarity, and reporting sync.
+Four deployments on OpenShift: React frontend, FastAPI API, arq workers (scan + recommend), PostgreSQL with pgvector. LLM analysis via LiteMaaS (RHDP MaaS). Nightly pipeline handles catalog refresh, stale detection, workload scanning, content similarity, and reporting sync.
 
 ## Documentation
 
@@ -23,7 +23,6 @@ Full documentation is published at **[rhpds.github.io/rcars](https://rhpds.githu
 - [CLI Guide](https://rhpds.github.io/rcars/admin/cli-guide/) — Command-line reference
 - [System Design](https://rhpds.github.io/rcars/architecture/system-design/) — Architecture and data model
 - [Operations](https://rhpds.github.io/rcars/admin/operations/) — Deployment, monitoring, and maintenance
-- [Development](https://rhpds.github.io/rcars/admin/development/) — Local setup and contributing
 
 ## Contributing
 
@@ -34,7 +33,7 @@ All changes must go through a pull request to the `main` branch. The project own
 RCARS is deployed to OpenShift via Ansible. See `ansible/` for playbooks and `ansible/vars/common.yml` for shared configuration. Environment-specific vars (`dev.yml`, `prod.yml`) are gitignored.
 
 ```bash
-ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
+ansible-playbook ansible/deploy.yml -e env=dev --tags full
 ```
 
 ## Local Development
@@ -44,4 +43,4 @@ ansible-playbook ansible/deploy.yml -e env=dev --tags deploy
 ./dev-services.sh stop
 ```
 
-See the [Development guide](https://rhpds.github.io/rcars/admin/development/) for full setup instructions.
+See `AGENTS.md` for setup, tests, and the deploy and git workflow.
