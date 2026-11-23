@@ -7,9 +7,12 @@ from psycopg_pool import ConnectionPool
 
 logger = structlog.get_logger(component="overlap")
 
+# Group by base CI name (ci_name without its .dev/.prod/.event suffix) so stage
+# copies with different showroom URLs count as one item. Items without a CI name
+# fall back to their content_id.
 CANDIDATE_SQL = """
 WITH deduped AS (
-    SELECT DISTINCT ON (COALESCE(bi.showroom_url, ce.content_id))
+    SELECT DISTINCT ON (COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))
         ce.content_id,
         COALESCE(sa.products_json, '[]'::jsonb) AS products,
         COALESCE(sa.topics_json, '[]'::jsonb) AS topics,
@@ -20,7 +23,7 @@ WITH deduped AS (
     WHERE ce.retired_at IS NULL
       AND ce.source = 'babylon'
       AND ce.content_id NOT LIKE 'babylon:tests.%%'
-    ORDER BY COALESCE(bi.showroom_url, ce.content_id),
+    ORDER BY COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id),
              CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 WHEN 'dev' THEN 2 ELSE 3 END
 ),
 pairs AS (
