@@ -11,8 +11,9 @@ from rcars.services.showroom_source import ResolvedShowroom
 from rcars.services.showroom_scan import scan_babylon_item
 
 
-def add_item(db, scan, name="isolation-test.a.prod", scope=None, **fields):
-    source = replace(scan.source, owner_ci_name=name, scope_key=scope or name.rsplit(".", 1)[0], paths=((name,),))
+def add_item(db, scan, name="isolation-test.a.prod", scope=None, ref=None, **fields):
+    source = replace(scan.source, owner_ci_name=name, scope_key=scope or name.rsplit(".", 1)[0], paths=((name,),),
+                     **({"ref": ref} if ref else {}))
     return db.upsert_babylon_catalog_item({"ci_name": name, "stage": name.rsplit(".", 1)[-1],
         "display_name": "TLS workshop", "category": "Workshop", "showroom_url": source.repo,
         "showroom_ref": source.ref, "showroom_source": source.to_dict(), **fields})
@@ -333,11 +334,16 @@ async def test_unchanged_maintenance_enqueues_no_analysis_jobs(db, scan, monkeyp
     monkeypatch.setattr(ops, "prune_stale_candidates", lambda *a: 0)
     monkeypatch.setattr(ops, "generate_overlap_candidates", lambda *a, **k: {"total_candidates": 0})
     monkeypatch.setattr(ops, "batch_assess_overlaps", lambda *a, **k: {"assessed": 0})
-    result = await ops.run_babylon_pipeline(ctx, "fixture-parent", own_lifecycle=False)
+    from structlog.testing import capture_logs
+    with capture_logs() as logs:
+        result = await ops.run_babylon_pipeline(ctx, "fixture-parent", own_lifecycle=False)
     assert result["analysis_enqueued"] == 0
     assert result["warnings"] == []
     assert ctx["redis"].enqueue_job.call_count == 0
     assert scan.llm.call_count == scan.embed.call_count == 0
+    summary = [row for row in logs if row["event"] == "scan_reuse_summary"]
+    assert len(summary) == 1
+    assert {"analyses", "llm_runs", "reused", "distinct_content", "extra_llm_runs"} <= summary[0].keys()
 
 
 @pytest.mark.asyncio
@@ -378,25 +384,77 @@ async def test_missing_repo_stale_lookup_invalidates_artifacts(db, scan, monkeyp
     assert db.get_babylon_item(cid)["scan_error_class"] == "http_404"
 
 
-def test_reuse_key_groups_stage_siblings_and_matches_stored_signature(db, scan):
-    from rcars.services.analyzer import showroom_reuse_key, reuse_key_from_signature
-    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev")
+def commit_of(db, cid):
+    from rcars.services.analyzer import ls_remote_sha
+    source = db.get_babylon_item(cid)["showroom_source_json"]
+    return ls_remote_sha(source["repo"], source["ref"])
+
+
+def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_repo):
+    from rcars.services.analysis_identity import pre_clone_key
+    from rcars.services.analyzer import showroom_reuse_key
+    git_repo[1]("tag", "v1")  # another ref name on the same commit as main
+    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev", ref="v1")
     renamed = add_item(db, scan, "isolation-test.a.event", display_name="TLS workshop (event)")
     other = add_item(db, scan, "isolation-test.b.prod")
-    key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings)
+    key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
     assert key(prod) == key(dev)
-    assert key(renamed) != key(prod)
+    assert key(renamed) != key(prod)  # per-CI context is still in the prompt, so still in analysis_config
     assert key(other) != key(prod)
     scan_babylon_item(db, scan.settings, prod)
     signature = db.get_showroom_analysis(prod)["analysis_provenance_json"]["signature"]
     # Guards against the pre-clone key drifting from analyze_showroom's signature inputs.
-    assert reuse_key_from_signature(signature) == key(prod)
+    assert pre_clone_key(signature["repo"], signature["commit"], signature["content_path"],
+                         signature["context_hash"], "lab") == key(prod)
 
 
-def test_reuse_key_is_none_for_unresolved_source(db, scan):
+def test_reuse_key_is_shared_across_cis_once_context_leaves_the_config(db, scan, monkeypatch):
+    from rcars.services import analysis_identity
+    from rcars.services.analyzer import showroom_reuse_key
+    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
+    one, two = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.b.dev",
+                                                                     display_name="Another name")
+    key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
+    assert key(one) == key(two)
+
+
+def test_reuse_key_differs_by_commit_and_content_path(db, scan):
+    from rcars.services.analyzer import showroom_reuse_key
+    cid = add_item(db, scan)
+    item = db.get_babylon_item(cid)
+    base = showroom_reuse_key(item, scan.settings, "a" * 40)
+    assert showroom_reuse_key(item, scan.settings, "b" * 40) != base
+    db.set_content_path(cid, "other/pages")
+    assert showroom_reuse_key(db.get_babylon_item(cid), scan.settings, "a" * 40) != base
+
+
+def test_reuse_key_is_none_for_unresolved_source_or_unresolved_commit(db, scan):
     from rcars.services.analyzer import showroom_reuse_key
     cid = add_item(db, scan, "isolation-test.broken.prod", showroom_source=ResolvedShowroom("invalid", error="x").to_dict())
-    assert showroom_reuse_key(db.get_babylon_item(cid), scan.settings) is None
+    assert showroom_reuse_key(db.get_babylon_item(cid), scan.settings, "a" * 40) is None
+    good = add_item(db, scan, "isolation-test.good.prod")
+    assert showroom_reuse_key(db.get_babylon_item(good), scan.settings, None) is None
+
+
+def test_resolve_commits_makes_one_ls_remote_per_repo_and_skips_bad_refs(db, scan, git_repo, monkeypatch):
+    from rcars.services import analyzer
+    git_repo[1]("tag", "v1")
+    items = [db.get_babylon_item(add_item(db, scan, name, ref=ref)) for name, ref in
+             (("isolation-test.a.prod", "main"), ("isolation-test.a.dev", "v1"), ("isolation-test.a.event", "missing"))]
+    calls = Mock(wraps=analyzer.ls_remote_refs)
+    monkeypatch.setattr(analyzer, "ls_remote_refs", calls)
+    commits = analyzer.resolve_commits(items)
+    assert calls.call_count == 1
+    url = scan.source.repo
+    assert commits[(url, "main")] == commits[(url, "v1")] == git_repo[3]
+    assert (url, "missing") not in commits
+
+
+def test_resolve_commits_leaves_a_failing_repo_out(db, scan, monkeypatch):
+    from rcars.services import analyzer
+    items = [db.get_babylon_item(add_item(db, scan))]
+    monkeypatch.setattr(analyzer, "ls_remote_refs", Mock(side_effect=RuntimeError("network down")))
+    assert analyzer.resolve_commits(items) == {}
 
 
 def test_order_for_reuse_puts_one_prod_preferred_leader_per_group_first(db, scan):
@@ -409,11 +467,33 @@ def test_order_for_reuse_puts_one_prod_preferred_leader_per_group_first(db, scan
                        "isolation-test.a.event", "isolation-test.a.dev", "isolation-test.c.dev"]
 
 
-def test_concurrent_sibling_scans_make_one_llm_call(db, scan):
+def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, scan, git_repo, monkeypatch):
+    from rcars.services import analysis_identity
+    from rcars.services.analyzer import order_for_reuse
+    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
+    git_repo[1]("tag", "v1")
+    specs = [("isolation-test.a.dev", "v1"), ("isolation-test.b.prod", "main"), ("isolation-test.a.prod", "main"),
+             ("isolation-test.c.dev", "light")]  # `light` is the earlier commit: its own group
+    items = [db.get_babylon_item(add_item(db, scan, name, ref=ref)) for name, ref in specs]
+    ordered = [item["ci_name"] for item in order_for_reuse(items, scan.settings)]
+    assert ordered == ["isolation-test.a.prod", "isolation-test.c.dev", "isolation-test.b.prod",
+                       "isolation-test.a.dev"]
+
+
+@pytest.mark.parametrize("second,second_ref,prompt_carries_item_context", [
+    ("isolation-test.a.dev", None, True),         # stage sibling, same ref
+    ("isolation-test.a.dev", "v1", True),         # stage sibling, another ref name on the same commit
+    ("isolation-test.b.prod", None, False),       # another CI on the same files, once context is out
+])
+def test_concurrent_sibling_scans_make_one_llm_call(db, scan, git_repo, monkeypatch, second, second_ref,
+                                                    prompt_carries_item_context):
     import threading
     import time
     from concurrent.futures import ThreadPoolExecutor
-    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev")
+    from rcars.services import analysis_identity
+    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", prompt_carries_item_context)
+    git_repo[1]("tag", "v1")
+    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, second, ref=second_ref)
     reply, both_started = scan.llm.return_value, threading.Barrier(2, timeout=10)
     from rcars.services import showroom_scan
     analyze = showroom_scan.analyze_showroom
@@ -438,6 +518,36 @@ def test_concurrent_sibling_scans_make_one_llm_call(db, scan):
         showroom_scan.analyze_showroom = analyze
     assert sorted(r["outcome"] for r in results) == ["analyzed", "reused"]
     assert scan.llm.call_count == 1
+
+
+def test_scan_lock_is_taken_on_the_pre_clone_key_not_the_ref_name(db, scan, git_repo, monkeypatch):
+    from rcars.services import showroom_scan
+    git_repo[1]("tag", "v1")
+    prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.a.dev", ref="v1")
+    keys = [showroom_scan.item_reuse_key(db.get_babylon_item(cid), scan.settings) for cid in (prod, dev)]
+    assert keys[0] is not None and keys[0] == keys[1]
+    assert showroom_scan.reuse_lock_id(keys[0]) == showroom_scan.reuse_lock_id(keys[1])
+
+
+def test_item_without_a_resolvable_commit_takes_no_lock_and_still_scans(db, scan, monkeypatch):
+    from rcars.services import showroom_scan
+    cid = add_item(db, scan)
+    monkeypatch.setattr(showroom_scan, "ls_remote_sha", Mock(side_effect=RuntimeError("network down")))
+    assert showroom_scan.item_reuse_key(db.get_babylon_item(cid), scan.settings) is None
+
+
+def test_pure_stub_and_description_items_take_no_lock(db, scan):
+    from rcars.services import showroom_scan
+    owner = add_item(db, scan, "isolation-test.owner.prod")
+    source = replace(scan.source, owner_ci_name="isolation-test.owner.prod", scope_key="isolation-test.owner",
+                     paths=(("isolation-test.virtual.prod", "isolation-test.owner.prod"),))
+    stub = db.upsert_babylon_catalog_item({"ci_name": "isolation-test.virtual.prod", "stage": "prod",
+        "showroom_url": source.repo, "showroom_ref": source.ref, "showroom_source": source.to_dict()})
+    assert showroom_scan.item_reuse_key(db.get_babylon_item(stub), scan.settings) is None
+    assert showroom_scan.item_reuse_key(db.get_babylon_item(owner), scan.settings) is not None
+    described = add_item(db, scan, "isolation-test.described.prod")
+    db.set_analysis_source(described, "custom_description", "A curator-written description")
+    assert showroom_scan.item_reuse_key(db.get_babylon_item(described), scan.settings) is None
 
 
 def test_reuse_lock_wait_times_out_and_reports_not_acquired(db):

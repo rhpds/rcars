@@ -1,15 +1,16 @@
 """One target's scan and source-checked, atomic artifact persistence.
 
 Queue and job lifecycle belong to the caller. No row lock or pooled connection
-spans Git/LLM requests; only a per-reuse-key advisory lock on a dedicated
-connection serializes stages that can share one generation.
+spans Git/LLM requests; only an advisory lock on the pre-clone key (repo +
+resolved commit + content_path + analysis_config) on a dedicated connection
+serializes the CIs and stages that can share one generation.
 """
 import hashlib
 import subprocess
 
 from rcars.services.analyzer import (
     analyze_description, analyze_showroom, classify_scan_error, description_source,
-    regenerate_embeddings, showroom_reuse_key,
+    ls_remote_sha, regenerate_embeddings, showroom_reuse_key,
 )
 from rcars.services.showroom_source import (
     analysis_generation, content_owner, effective_analysis_source, effective_showroom_source,
@@ -33,12 +34,30 @@ def reuse_lock_id(reuse_key: str) -> int:
     return int.from_bytes(hashlib.blake2b(f"showroom-reuse:{reuse_key}".encode(), digest_size=8).digest(), signed=True)
 
 
+def item_reuse_key(item: dict, settings) -> str | None:
+    """Pre-clone key of one item: resolves its commit with one ``git ls-remote``.
+
+    None (no lock) when the item has no analyzable Showroom source or Git cannot resolve
+    the ref; the scan itself then reports that failure.
+    """
+    source = effective_showroom_source(item)
+    if (source.status != "resolved" or not source.repo or effective_analysis_source(item) != "showroom"
+            or content_owner(item) is not None):
+        return None
+    try:
+        commit = ls_remote_sha(source.repo, source.ref)
+    except Exception as exc:
+        log.warning("showroom_reuse_key_unresolved", component="scanner", action="reuse_key",
+                    content_id=item.get("content_id"), error=str(exc)[:200])
+        return None
+    return showroom_reuse_key(item, settings, commit)
+
+
 def scan_babylon_item(db, settings, content_id: str, *, force: bool = False) -> dict:
-    """Serialize stages sharing a reuse key so the second finds the first's
+    """Serialize CIs and stages sharing a pre-clone key so the second finds the first's
     persisted generation as a donor instead of making its own LLM call."""
     item = db.get_babylon_item(content_id)
-    reuse_key = (showroom_reuse_key(item, settings)
-                 if item and not force and effective_analysis_source(item) == "showroom" else None)
+    reuse_key = item_reuse_key(item, settings) if item and not force else None
     if reuse_key is None:
         return _scan_babylon_item(db, settings, content_id, force=force)
     with db.wait_advisory_lock(reuse_lock_id(reuse_key), wait_seconds=REUSE_LOCK_WAIT_SECONDS) as acquired:
@@ -162,3 +181,10 @@ def scan_candidates(db, settings, *, force: bool = False) -> list[dict]:
     """The single scan front door: reconcile stubs, then select work."""
     reconcile_pure_stubs(db)
     return db.get_items_needing_analysis(settings, force=force)
+
+
+def log_scan_reuse_summary(db) -> dict[str, int]:
+    """One log line: own LLM runs vs distinct content across active Showroom analyses."""
+    stats = db.get_scan_reuse_stats()
+    log.info("scan_reuse_summary", component="scanner", action="scan_reuse_summary", **stats)
+    return stats

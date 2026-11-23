@@ -11,7 +11,7 @@ from collections.abc import Callable
 from rcars.workers.base import WorkerContext, publish_progress, with_job_context
 from rcars.services.catalog import CatalogReader
 from rcars.services.analyzer import InvalidShowroomRef, ls_remote_sha, classify_scan_error, showroom_analysis_current, order_for_reuse
-from rcars.services.showroom_scan import scan_candidates
+from rcars.services.showroom_scan import log_scan_reuse_summary, scan_candidates
 from rcars.services.showroom_source import effective_showroom_source, analysis_generation
 from rcars.db.overlap import generate_overlap_candidates, prune_stale_candidates
 from rcars.services.overlap_assessment import batch_assess_overlaps
@@ -210,8 +210,13 @@ async def run_babylon_pipeline(ctx: dict, job_id: str, *, own_lifecycle: bool = 
 
     # Step 3: Enqueue only item stages needing analysis or embedding repair.
     try:
-        # Group leaders first so stage siblings reuse a finished donor instead of racing it.
-        items = order_for_reuse(scan_candidates(wctx.db, wctx.settings), wctx.settings)
+        # Group leaders first so siblings (any CI or stage on the same files) reuse a finished donor.
+        try:
+            await asyncio.to_thread(log_scan_reuse_summary, wctx.db)
+        except Exception as exc:
+            log.warning("scan_reuse_summary_failed", action="scan_reuse_summary", error=str(exc))
+        candidates = scan_candidates(wctx.db, wctx.settings)
+        items = await asyncio.to_thread(order_for_reuse, candidates, wctx.settings)
         if items:
             await publish_progress(wctx.relay, job_id, wctx.db,
                                    phase="pipeline:analysis", status="enqueuing",

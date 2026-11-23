@@ -4,7 +4,6 @@ Clones Showroom repos, reads AsciiDoc content, sends to Sonnet for
 structured analysis, generates embeddings, and stores results.
 """
 
-import hashlib
 import json
 import re
 import shutil
@@ -17,6 +16,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from rcars.services.analysis_identity import (
+    canonical_content as _canonical_content,
+    compute_analysis_config,
+    compute_content_hash as hash_showroom_content,
+    donor_matches_commit, donor_matches_content, fingerprint as _fingerprint, pre_clone_key,
+)
 from rcars.services.showroom_source import (
     AnalysisSignature, ResolvedShowroom, SHOWROOM_ANALYSIS_POLICY_VERSION,
     effective_analysis_source, effective_showroom_source, item_family_key,
@@ -139,29 +144,6 @@ def filter_boilerplate_files(files: dict[str, str]) -> dict[str, str]:
     return filtered
 
 
-def hash_showroom_content(files: dict[str, str]) -> str:
-    """Produce a deterministic SHA-256 hash of showroom content files.
-
-    Normalizes whitespace so that trailing spaces, blank line differences,
-    and line ending changes don't produce a different hash. Files are
-    sorted by name for stable ordering.
-    """
-    h = hashlib.sha256()
-    for filename in sorted(files.keys()):
-        normalized = _canonical_content(files[filename])
-        h.update(filename.encode())
-        h.update(b"\x00")
-        h.update(normalized.encode())
-        h.update(b"\x00")
-    return h.hexdigest()
-
-
-def _canonical_content(content: str) -> str:
-    """The exact text hashed is also the text sent to the analysis model."""
-    text = "\n".join(line.rstrip() for line in content.splitlines())
-    return re.sub(r"\n{3,}", "\n\n", text).strip()
-
-
 def check_showroom_stale(
     clone_path: Path,
     old_content_hash: str | None,
@@ -271,20 +253,31 @@ class InvalidShowroomRef(ValueError):
     """Requested source cannot be resolved to exactly one commit."""
 
 
-def ls_remote_sha(url: str, ref: str | None) -> str:
-    """Resolve exact heads/tags (peeling annotated tags), not Git glob matches."""
+def ls_remote_refs(url: str) -> tuple[dict[str, str], str | None]:
+    """All refs of one repo in a single ``git ls-remote``, annotated tags peeled."""
     result = _run_git_with_retry(["git", "ls-remote", "--", url], timeout=30)
     lookup = dict(line.split()[::-1] for line in result.stdout.splitlines() if len(line.split()) == 2)
     head = lookup.get("HEAD")
     for name, commit in list(lookup.items()):
         if name.endswith("^{}"):
             lookup[name[:-3]] = commit
+    return lookup, head
+
+
+def commit_for_ref(ref: str | None, lookup: dict[str, str], head: str | None) -> str:
+    """Resolve exact heads/tags, not Git glob matches. Raises on a missing or ambiguous ref."""
     if ref and re.fullmatch(r"[0-9a-fA-F]{40}", ref):
         return ref.lower()  # reachability/type verified by detached fetch before use
     commit = _resolve_ref_from_lookup(ref, lookup, head)
     if not commit:
         raise InvalidShowroomRef(f"Missing or ambiguous Showroom ref: {ref or 'HEAD'}")
     return commit
+
+
+def ls_remote_sha(url: str, ref: str | None) -> str:
+    """Resolve exact heads/tags (peeling annotated tags), not Git glob matches."""
+    lookup, head = ls_remote_refs(url)
+    return commit_for_ref(ref, lookup, head)
 
 
 def _resolve_ref_from_lookup(
@@ -593,16 +586,8 @@ def build_module_embedding_text(module: dict[str, Any]) -> str:
     return " ".join(str(p) for p in parts if p)
 
 
-def _fingerprint(*values) -> str:
-    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
-
-
 def compute_analysis_input_hash(system_prompt: str, user_message: str, model: str) -> str:
     return _fingerprint(system_prompt, user_message, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
-
-
-def compute_analysis_context_hash(system_prompt: str, canonical_item_info: str, model: str) -> str:
-    return _fingerprint(system_prompt, canonical_item_info, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
 
 
 def compute_embedding_fingerprint(text: str, model: str, configuration: dict) -> str:
@@ -640,63 +625,98 @@ def _valid_embedding(spec, embeddings, fingerprints):
     return None
 
 
-def _own_analysis_current(row, source, context_hash, *, allow_stale=False):
+def _own_analysis_current(row, source, analysis_config, *, allow_stale=False):
     provenance = (row or {}).get("analysis_provenance_json") or {}
     signature = provenance.get("signature") or {}
     return bool(row and row.get("summary") and isinstance(row.get("modules_json"), list)
                 and (allow_stale or not row.get("is_stale"))
                 and signature_matches_source(signature, source)
                 and row.get("content_hash") == signature.get("content_hash")
-                and signature.get("context_hash") == context_hash
+                and signature.get("context_hash") == analysis_config
                 and provenance.get("source") == source.to_dict())
 
 
-def analysis_context_hash(scope_key: str, display_name: str, category: str, product: str,
-                          entity_content_type: str, model: str) -> str:
-    system, info = build_analysis_prompt(scope_key, display_name, category, product, {},
-                                         entity_content_type=entity_content_type)
-    return compute_analysis_context_hash(system, info, model)
+def _item_analysis_config(item: dict, scope_key: str, model: str) -> str:
+    """Argument unpacking only; ``compute_analysis_config`` is the single owner."""
+    return compute_analysis_config(scope_key, item.get("display_name", ""), item.get("category", ""),
+                                   item.get("product", ""), item.get("content_type") or "lab", model)
 
 
-def _item_context_hash(item: dict, scope_key: str, model: str) -> str:
-    return analysis_context_hash(scope_key, item.get("display_name", ""), item.get("category", ""),
-                                 item.get("product", ""), item.get("content_type") or "lab", model)
+def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
+    """Pre-clone queue/lock key: repo + resolved commit + content_path + analysis_config.
 
-
-def reuse_key_from_signature(signature: dict) -> str:
-    return _fingerprint(*(signature.get(key) for key in ("scope_key", "repo", "ref", "content_path", "context_hash")))
-
-
-def showroom_reuse_key(item: dict, settings) -> str | None:
-    """Pre-clone part of the AnalysisSignature. Stages sharing it share one generation
-    unless the commit or selected content differs; None when no source resolves."""
+    Ref names, CI names and stages are not part of it, so stage copies and other CIs
+    reading the same files share one key. None when no source or commit resolves.
+    """
     source = effective_showroom_source(item)
-    if source.status != "resolved" or not source.repo or not source.scope_key:
+    if (not commit or source.status != "resolved" or not source.repo or not source.scope_key
+            or effective_analysis_source(item) != "showroom"):
         return None
-    return reuse_key_from_signature({"scope_key": source.scope_key, "repo": source.repo, "ref": source.ref,
-        "content_path": source.content_path, "context_hash": _item_context_hash(item, source.scope_key, settings.model)})
+    return pre_clone_key(source.repo, commit, source.content_path,
+                         _item_analysis_config(item, source.scope_key, settings.model),
+                         item.get("content_type") or "lab")
 
 
-def order_for_reuse(items: list[dict], settings) -> list[dict]:
-    """Queue one donor candidate per reuse key first (prod preferred, matching donor
-    lookup), then its siblings, so siblings find a finished donor instead of racing it."""
+def resolve_commits(items: list[dict], *, max_workers: int = 8) -> dict[tuple[str, str | None], str]:
+    """Commit per (repo, ref) for Showroom items, one ``git ls-remote`` per repo.
+
+    Missing refs and Git failures leave the pair out: that item simply gets no shared key.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    refs_by_repo: dict[str, set[str | None]] = {}
+    for item in items:
+        source = effective_showroom_source(item)
+        if source.status == "resolved" and source.repo and effective_analysis_source(item) == "showroom":
+            refs_by_repo.setdefault(source.repo, set()).add(source.ref)
+
+    def resolve(repo):
+        try:
+            lookup, head = ls_remote_refs(repo)
+        except Exception as exc:
+            log.warning("reuse_commit_lookup_failed", component="scanner", action="resolve_commits",
+                        repo=repo, error=str(exc)[:200])
+            return []
+        found = []
+        for ref in refs_by_repo[repo]:
+            try:
+                found.append(((repo, ref), commit_for_ref(ref, lookup, head)))
+            except InvalidShowroomRef:
+                continue
+        return found
+
+    if not refs_by_repo:
+        return {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        return {key: commit for found in pool.map(resolve, refs_by_repo) for key, commit in found}
+
+
+def order_for_reuse(items: list[dict], settings,
+                    commits: dict[tuple[str, str | None], str] | None = None) -> list[dict]:
+    """Queue one donor candidate per pre-clone key first (prod preferred, matching donor
+    lookup), then its siblings across CIs and stages, so siblings find a finished donor
+    instead of racing it. Blocking (Git network): call from a thread in async code."""
+    if commits is None:
+        commits = resolve_commits(items)
     rank = {"prod": 0, "event": 1}
     leaders, followers, seen = [], [], set()
     for item in sorted(items, key=lambda i: (rank.get(i.get("stage"), 2), i["ci_name"])):
-        key = showroom_reuse_key(item, settings)
+        source = effective_showroom_source(item)
+        key = showroom_reuse_key(item, settings, commits.get((source.repo, source.ref)))
         if key is not None and key in seen:
             followers.append(item)
         else:
             seen.add(key)
             leaders.append(item)
+    log.info("scan_reuse_queue_ordered", component="scanner", action="order_for_reuse",
+             items=len(items), leaders=len(leaders), followers=len(followers))
     return leaders + followers
 
 
 def showroom_analysis_current(item: dict, row: dict, settings) -> bool:
     """Current source AND actual non-content prompt inputs, not just Git SHA."""
     source = effective_showroom_source(item)
-    context = _item_context_hash(item, source.scope_key or item["ci_name"], settings.model)
-    return item.get("scan_status") == "success" and _own_analysis_current(row, source, context)
+    config = _item_analysis_config(item, source.scope_key or item["ci_name"], settings.model)
+    return item.get("scan_status") == "success" and _own_analysis_current(row, source, config)
 
 
 def showroom_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
@@ -804,8 +824,8 @@ def build_description_prompt(
 def description_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
     """Read-only selection predicate; text and context hashes both gate re-analysis."""
     source = description_source(item)
-    context_hash = _item_context_hash(item, source.scope_key, settings.model)
-    if not _own_analysis_current(row, source, context_hash):
+    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
+    if not _own_analysis_current(row, source, analysis_config):
         return True
     if row.get("content_hash") != description_content_hash(description_text(item)):
         return True
@@ -838,14 +858,14 @@ def analyze_description(item: dict, settings, *, force: bool = False, db=None) -
     embeddings = db.get_embeddings_for_content(content_id) if db is not None else []
 
     content_hash = description_content_hash(text)
-    context_hash = _item_context_hash(item, source.scope_key, settings.model)
+    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
     system_prompt, user_message = build_description_prompt(
         ci_name, display_name, category, product, text,
         entity_content_type=entity_content_type,
     )
     signature = AnalysisSignature(
         source.scope_key, f"description:{ci_name}", None, None,
-        content_hash, content_hash, context_hash,
+        content_hash, content_hash, analysis_config,
         compute_analysis_input_hash(system_prompt, user_message, settings.model),
         SHOWROOM_ANALYSIS_POLICY_VERSION,
     )
@@ -971,12 +991,12 @@ def analyze_showroom(
         showroom_url, showroom_ref, content_path = source.repo, source.ref, source.content_path
         if any(value and ("{{" in value or "{%" in value) for value in (showroom_url, showroom_ref, content_path)):
             return {"error": "invalid_source", "message": "Unresolved Showroom variables"}
-        context_hash = analysis_context_hash(source.scope_key, display_name, category, product,
-                                             entity_content_type, model)
+        analysis_config = compute_analysis_config(source.scope_key, display_name, category, product,
+                                                  entity_content_type, model)
         revision = ls_remote_sha(showroom_url, showroom_ref)
         own = db.get_showroom_analysis(content_id) if db is not None else None
         own_embeddings = db.get_embeddings_for_content(content_id) if own and db is not None else []
-        own_current = not force and _own_analysis_current(own, source, context_hash, allow_stale=True)
+        own_current = not force and _own_analysis_current(own, source, analysis_config, allow_stale=True)
         if item and item.get("scan_status") not in (None, "success"):
             own_current = False
         if own_current:
@@ -984,6 +1004,29 @@ def analyze_showroom(
             if own_signature.commit == revision and not own.get("is_stale"):
                 return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
                     own_signature, source, origin=own, prior_embeddings=own_embeddings, outcome="unchanged")
+
+        # Pre-clone shortcut: a complete analysis of the same repo + commit + content_path
+        # under the same analysis_config, from any CI or stage. No clone, no LLM. Skipped
+        # when this item's own analysis is current: the clone then verifies its own hash.
+        if db is not None and not force and not own_current:
+            donor = db.find_showroom_donor_by_commit(
+                repo=showroom_url, commit=revision, content_path=content_path,
+                analysis_config=analysis_config, entity_content_type=entity_content_type,
+                exclude_content_id=content_id)
+            if donor and donor_matches_commit(
+                    donor, repo=showroom_url, commit=revision, content_path=content_path,
+                    analysis_config=analysis_config, entity_content_type=entity_content_type):
+                donor_signature = donor["analysis_provenance_json"]["signature"]
+                signature = AnalysisSignature(
+                    source.scope_key, source.repo, source.ref, source.content_path, revision,
+                    donor["content_hash"], analysis_config, donor_signature["input_hash"],
+                    SHOWROOM_ANALYSIS_POLICY_VERSION)
+                log.info("analyze_reused", ci_name=ci_name, stage="pre_clone", reused_from=donor["content_id"],
+                         commit=revision[:8], content_hash=donor["content_hash"])
+                return _finish_showroom_result(
+                    ci_name, display_name, keywords, settings, analysis_from_row(donor), signature, source,
+                    origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
+                    outcome="reused", reused_from=donor["content_id"])
 
         # Clone
         log.info("analyze_cloning", ci_name=ci_name, url=showroom_url, ref=showroom_ref or "HEAD")
@@ -1023,16 +1066,23 @@ def analyze_showroom(
             entity_content_type=entity_content_type,
         )
         signature = AnalysisSignature(source.scope_key, source.repo, source.ref, source.content_path,
-            head_sha, content_hash, context_hash, compute_analysis_input_hash(system_prompt, user_message, model),
+            head_sha, content_hash, analysis_config, compute_analysis_input_hash(system_prompt, user_message, model),
             SHOWROOM_ANALYSIS_POLICY_VERSION)
         if own_current and own_signature.content_hash == content_hash and own_signature.input_hash == signature.input_hash:
             return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
                 signature, source, origin=own, prior_embeddings=own_embeddings, outcome="revision_verified", head_date=head_date)
 
-        # Only the full authorized signature may identify a donor, after validation.
+        # Post-clone lookup: only content_hash + analysis_config identify a donor (any CI,
+        # any stage, any ref name). The LLM runs only when no complete analysis matches.
         if db is not None and not force:
-            donor = db.find_showroom_donor(signature, exclude_content_id=content_id)
-            if donor:
+            donor = db.find_showroom_donor_by_content(
+                content_hash=content_hash, analysis_config=analysis_config,
+                entity_content_type=entity_content_type, exclude_content_id=content_id)
+            if donor and donor_matches_content(
+                    donor, content_hash=content_hash, analysis_config=analysis_config,
+                    entity_content_type=entity_content_type):
+                log.info("analyze_reused", ci_name=ci_name, stage="post_clone", reused_from=donor["content_id"],
+                         commit=head_sha[:8], content_hash=content_hash)
                 return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(donor),
                     signature, source, origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", head_date=head_date, content_file_count=len(content_files), reused_from=donor["content_id"])
