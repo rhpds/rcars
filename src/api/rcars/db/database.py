@@ -2094,6 +2094,7 @@ class Database:
         quality_threshold: float = 0.45,
         retrieval_window: int = 200,
         scope_content_ids: list[str] | None = None,
+        exclude_retiring: bool = True,
     ) -> list[dict[str, Any]]:
         zt_filter = ""
         if not include_zt:
@@ -2125,6 +2126,20 @@ class Database:
             scope_filter = "AND e.content_id = ANY(%s)"
             scope_params = [scope_content_ids]
 
+        # Items whose retirement has started must not be recommended.
+        # reviewed/approved/notified are still valid; 'retired' has retired_at set.
+        retiring_filter = ""
+        if exclude_retiring:
+            # Stages share one AgV description, so a started retirement on any
+            # stage sibling (same CI name minus the stage suffix) hides them all.
+            retiring_filter = (
+                "AND NOT EXISTS (SELECT 1 FROM retirement_workflow rw "
+                "LEFT JOIN babylon_items rw_bi ON rw_bi.content_id = rw.content_id "
+                "WHERE rw.status = 'started' "
+                "AND COALESCE(substring(rw_bi.ci_name FROM '^(.+)\\.[^.]+$'), rw.content_id) "
+                "= COALESCE(substring(cbi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))"
+            )
+
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
 
         sql = f"""
@@ -2133,12 +2148,14 @@ class Database:
                        1 - (e.embedding <=> %s::vector) AS similarity
                 FROM embeddings e
                 JOIN content_entities ce ON ce.content_id = e.content_id
+                LEFT JOIN babylon_items cbi ON cbi.content_id = e.content_id
                 WHERE ce.retired_at IS NULL
                   AND ce.content_id NOT LIKE 'babylon:tests.%%'
                   {ct_filter}
                   {stage_filter}
                   {zt_filter}
                   {scope_filter}
+                  {retiring_filter}
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
             ),
