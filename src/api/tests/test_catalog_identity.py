@@ -205,9 +205,10 @@ def test_cards_sharing_a_family_flags_member_next_to_its_virtual_ci():
     assert cards_sharing_a_family(["v", "m"], rows) == [("v", "m", "v")]
 
 
-def test_cards_sharing_a_family_flags_two_members_of_one_virtual_ci():
+def test_two_members_of_a_virtual_ci_that_is_not_a_card_are_allowed():
+    # The virtual CI is not eligible (retired, other stage...), so its members may show.
     rows = [fam("v", "m1"), fam("v", "m2")]
-    assert cards_sharing_a_family(["m1", "m2"], rows) == [("m1", "m2", "v")]
+    assert cards_sharing_a_family(["m1", "m2"], rows) == []
 
 
 def test_two_virtual_cis_over_one_shared_component_do_not_share_a_family():

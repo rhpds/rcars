@@ -1866,9 +1866,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/catalog_identity.py": {
-    "mtime": 1795514407.0176132,
-    "seen": 1795514734.316389,
-    "ast_hash": "8360dfba3467fd42ae38f169a9c2e355",
+    "mtime": 1795515218.1406498,
+    "seen": 1795515231.145186,
+    "ast_hash": "ba0fc3bc20646eb46d7bf5b5a08c61d0",
     "semantic_hash": ""
   },
   "src/api/tests/test_advisor_families.py": {
@@ -1878,9 +1878,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_catalog_identity.py": {
-    "mtime": 1795514407.0173068,
-    "seen": 1795514734.316426,
-    "ast_hash": "5a5a0743756c586a21854dca6072efb9",
+    "mtime": 1795515218.1402347,
+    "seen": 1795515231.1470048,
+    "ast_hash": "eb3400c908ec4cf358d3ae499bc1b211",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {

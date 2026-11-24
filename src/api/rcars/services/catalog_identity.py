@@ -172,23 +172,17 @@ def enforce_card_invariant(candidates: list, db) -> list:
 
 
 def cards_sharing_a_family(content_ids: list[str], family_rows: list[dict]) -> list[tuple[str, str, str]]:
-    """Pairs of cards that share a family, as (card, card, shared virtual CI).
+    """Pairs of cards that break the family rule, as (virtual CI, member, virtual CI).
 
-    Used by the deploy smoke check on a finished result. A card belongs to the
-    families of the virtual CIs that cover it, and to its own family when it is a
-    virtual CI. Two virtual CIs over one component do not share a family: each is
-    its own.
+    Used by the deploy smoke check on a finished result. It is the same rule as
+    ``family_violations``: a card is a violation when a virtual CI that covers it is
+    also a card. Two members of a virtual CI that is not a card are fine (the
+    virtual CI was not eligible). Two virtual CIs over one component are fine: each
+    is its own family.
     """
-    families: dict[str, set[str]] = {cid: set() for cid in content_ids}
+    covers: dict[str, list[str]] = {}
     for row in family_rows:
-        if row["virtual_content_id"] in families:
-            families[row["virtual_content_id"]].add(row["virtual_content_id"])
-        if row["member_content_id"] in families:
-            families[row["member_content_id"]].add(row["virtual_content_id"])
-    shared = []
-    for i, first in enumerate(content_ids):
-        for second in content_ids[i + 1:]:
-            common = families[first] & families[second]
-            if common:
-                shared.append((first, second, sorted(common)[0]))
-    return shared
+        covers.setdefault(row["member_content_id"], []).append(row["virtual_content_id"])
+    bad = family_violations(content_ids, covers)
+    return [(reason.split(":", 1)[1], content_ids[index], reason.split(":", 1)[1])
+            for index, reason in sorted(bad.items()) if reason.startswith("covered_by_card:")]
