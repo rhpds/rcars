@@ -15,6 +15,10 @@ Three rules, all here. Nothing else in the Advisor path decides "same card".
 3. **Invariant.** No two final cards share a content_id, and no card is a member
    of another card's family.
 
+A fourth question lives here too: "similar to LB1234" must not return the item
+asked about (RHDPCD-2298). ``exclusion_set_for`` answers it from the same family
+table and the same ``stage_key``; no name matching.
+
 Everything below is pure: rows in, rows out. The database lookups (family table,
 eligibility) live in ``Database`` and are wired up in ``recommender.vector_search``.
 """
@@ -186,3 +190,32 @@ def cards_sharing_a_family(content_ids: list[str], family_rows: list[dict]) -> l
     bad = family_violations(content_ids, covers)
     return [(reason.split(":", 1)[1], content_ids[index], reason.split(":", 1)[1])
             for index, reason in sorted(bad.items()) if reason.startswith("covered_by_card:")]
+
+
+def family_exclusion_core(referenced_id: str, family_rows: list[dict]) -> set[str]:
+    """The referenced item plus the family-linked items that are "the same thing".
+
+    Referenced item R is always in. When R is a virtual CI, its members are in. When
+    R is a member, every virtual CI that covers it is in (a component shared by two
+    virtual CIs excludes both). Other members of those virtual CIs are not: they are
+    different components. ``family_rows`` are ``catalog_family_members`` rows that
+    touch R. Stage copies are added by ``exclusion_set_for``.
+    """
+    core = {referenced_id}
+    for row in family_rows:
+        if row["virtual_content_id"] == referenced_id:
+            core.add(row["member_content_id"])
+        if row["member_content_id"] == referenced_id:
+            core.add(row["virtual_content_id"])
+    return core
+
+
+def exclusion_set_for(db, referenced_id: str) -> set[str]:
+    """Everything "similar to <referenced_id>" must never show.
+
+    ``family_exclusion_core`` plus the stage copies (same ``stage_key``, any stage,
+    whatever stages the user selected) of every item in it. With empty family tables
+    this is the item and its stage copies only.
+    """
+    core = family_exclusion_core(referenced_id, db.get_family_rows([referenced_id]))
+    return db.get_stage_copy_ids(core)

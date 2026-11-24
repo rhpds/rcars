@@ -8,7 +8,7 @@ import structlog
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
-from rcars.services.catalog_identity import collapse_to_cards
+from rcars.services.catalog_identity import collapse_to_cards, exclusion_set_for
 from rcars.services.showroom_source import (
     content_owner, effective_showroom_source, is_content_excluded,
 )
@@ -52,8 +52,13 @@ def _strip_embedding_filler(query: str) -> str:
 def _resolve_ci_references(
     query: str, db: Database, stages: list[str], include_zt: bool,
     content_types: list[str] | None = None,
-) -> list[dict]:
+) -> tuple[list[dict], list[dict], set[str]]:
     """Find CI references in the query and return neighbors based on the referenced item's embedding.
+
+    Returns (neighbor rows, references, exclusion set). A reference is
+    {content_id, display_name, summary}. The exclusion set (RHDPCD-2298) is the
+    referenced item, its family and their stage copies: none of it may be shown.
+    The neighbors already leave it out; the caller removes it from its own rows.
 
     Two strategies:
     1. Lab number pattern (LB1234) — exact prefix match on display_name
@@ -82,6 +87,8 @@ def _resolve_ci_references(
 
     results = []
     seen = set()
+    references: list[dict] = []
+    excluded: set[str] = set()
     for item in resolved_items:
         if (is_content_excluded(item["content_id"])
                 or effective_showroom_source(item).status == "excluded"):
@@ -96,17 +103,27 @@ def _resolve_ci_references(
             log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
             continue
 
+        # The referenced item's family and stage copies (all stages) never show.
+        item_excluded = exclusion_set_for(db, item["content_id"]) | {embed_content_id}
+        excluded |= item_excluded
+        summary = ((db.get_card_analysis(item["content_id"]) or {}).get("summary") or "")
+        references.append({"content_id": item["content_id"],
+                           "display_name": item.get("display_name") or item["content_id"],
+                           "summary": summary})
+
         neighbors = db.search_embeddings(
             query_embedding=embedding, limit=25, stages=stages,
             include_zt=include_zt, content_types=content_types,
             quality_threshold=0.45,
         )
         for row in neighbors:
-            if row["content_id"] != embed_content_id and row["content_id"] not in seen:
+            if row["content_id"] not in item_excluded and row["content_id"] not in seen:
                 results.append(row)
                 seen.add(row["content_id"])
 
-    return results
+    # A neighbor of one reference can be the family of another: drop the union.
+    results = [row for row in results if row["content_id"] not in excluded]
+    return results, references, excluded
 
 
 def _is_excluded(db, row: dict) -> bool:
@@ -119,15 +136,20 @@ def _is_excluded(db, row: dict) -> bool:
     return bool(item and effective_showroom_source(item).status == "excluded")
 
 
-def _collapse_families(db, rows, *, stages, include_zt, content_types, scope_content_ids):
-    """Apply the card identity rules (rcars.services.catalog_identity) to search rows."""
+def _collapse_families(db, rows, *, stages, include_zt, content_types, scope_content_ids,
+                       excluded=frozenset()):
+    """Apply the card identity rules (rcars.services.catalog_identity) to search rows.
+
+    ``excluded`` (a "similar to X" exclusion set) are never eligible as the virtual CI
+    that absorbs a member: a sibling component then shows as itself.
+    """
     covers = db.get_family_covers([r["content_id"] for r in rows])
     candidate_vcis = sorted({v for vcis in covers.values() for v in vcis})
     eligible_rows = {
         cid: vci_row for cid, vci_row in db.get_eligible_card_rows(
             candidate_vcis, content_types=content_types, stages=stages, include_zt=include_zt,
             scope_content_ids=scope_content_ids).items()
-        if not _is_excluded(db, vci_row)
+        if not _is_excluded(db, vci_row) and cid not in excluded
     }
 
     def displayed_hash(content_id):
@@ -182,7 +204,9 @@ def search(
         scope_content_ids=_owner_scope_ids(db, scope_content_ids),
     )
 
-    ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
+    ci_ref_rows, references, excluded = (
+        ([], [], set()) if scope_content_ids
+        else _resolve_ci_references(query, db, effective_stages, include_zt, content_types))
     if ci_ref_rows:
         log.info("ci_resolve_neighbors", count=len(ci_ref_rows))
         seen = {r["content_id"] for r in rows}
@@ -190,6 +214,14 @@ def search(
             if row["content_id"] not in seen:
                 rows.append(row)
                 seen.add(row["content_id"])
+
+    if excluded:
+        # RHDPCD-2298: before the family collapse and the top-K cut, so no slot is left empty.
+        kept = [r for r in rows if r["content_id"] not in excluded]
+        log.info("ci_reference_exclusion", action="ci_reference_exclusion",
+                 referenced=[r["content_id"] for r in references],
+                 exclusion_set_size=len(excluded), rows_dropped=len(rows) - len(kept))
+        rows = kept
 
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
@@ -199,7 +231,7 @@ def search(
     # One card per family and per stage-copy group, BEFORE the final top-K cut.
     rows, collapse = _collapse_families(
         db, rows, stages=effective_stages, include_zt=include_zt,
-        content_types=content_types, scope_content_ids=scope_content_ids)
+        content_types=content_types, scope_content_ids=scope_content_ids, excluded=excluded)
     if scope_content_ids:
         # Scope ids that are pure stubs are searched through their owner; an owner left
         # as a card (no family rows yet, or its stub not eligible) is outside the scope.
@@ -316,4 +348,5 @@ def search(
         candidates=candidates,
         query=query,
         timings={"vector_search": round(elapsed, 3)},
+        references=references,
     )

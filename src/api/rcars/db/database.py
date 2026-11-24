@@ -2372,6 +2372,19 @@ class Database:
                 "WHERE virtual_content_id = ANY(%(ids)s) OR member_content_id = ANY(%(ids)s)",
                 {"ids": list(content_ids)}).fetchall()
 
+    def get_stage_copy_ids(self, content_ids: set[str] | list[str]) -> set[str]:
+        """``content_ids`` plus every content_id sharing a stage_key with one of them."""
+        ids = set(content_ids)
+        if not ids:
+            return ids
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT content_id FROM content_entities WHERE stage_key IN "
+                "(SELECT stage_key FROM content_entities "
+                " WHERE content_id = ANY(%s) AND stage_key IS NOT NULL)",
+                (list(ids),)).fetchall()
+        return ids | {row["content_id"] for row in rows}
+
     def count_family_members(self) -> int:
         with self._pool.connection() as conn:
             return conn.execute("SELECT COUNT(*) AS n FROM catalog_family_members").fetchone()["n"]

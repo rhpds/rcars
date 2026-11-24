@@ -135,6 +135,20 @@ def _build_deterministic_assessment(candidates: list[Candidate], max_picks: int 
     return "\n\n".join(lines)
 
 
+def request_with_references(query: str, references: list[dict]) -> str:
+    """The request text for the answer step, with what each referenced item covers.
+
+    "Similar to LB1237" means nothing to the model on its own; the referenced
+    item's summary tells it what the user is asking for.
+    """
+    parts = [query]
+    for reference in references:
+        if reference.get("summary"):
+            parts.append(f"The request refers to {reference.get('display_name') or reference['content_id']}. "
+                         f"What it covers: {reference['summary']}")
+    return "\n\n".join(parts)
+
+
 def _call_synthesis(
     query: str, candidates: list[Candidate], settings, model: str,
 ) -> dict:
@@ -207,6 +221,7 @@ def generate_rationale(
     """
     t0 = time.monotonic()
 
+    request_text = request_with_references(state.query, state.references)
     top_candidates = state.candidates[:top_n]
     remaining = state.candidates[top_n:]
 
@@ -239,7 +254,7 @@ def generate_rationale(
             # task so job_id stays in the logs (a Context cannot be entered twice at once).
             ctx = contextvars.copy_context()
             future = executor.submit(
-                ctx.run, _call_rationale_single, c, analysis, state.query, settings, model, driver
+                ctx.run, _call_rationale_single, c, analysis, request_text, settings, model, driver
             )
             futures[future] = c.content_id
 
@@ -281,7 +296,7 @@ def generate_rationale(
 
     # Phase 3b: Haiku synthesis for content_gaps only
     synthesis_model = settings.triage_model
-    synthesis_result = _call_synthesis(state.query, top_candidates, settings, synthesis_model)
+    synthesis_result = _call_synthesis(request_text, top_candidates, settings, synthesis_model)
     synthesis_tokens = synthesis_result.pop("tokens", {})
 
     elapsed = time.monotonic() - t0
@@ -310,6 +325,7 @@ def generate_rationale(
         phase="COMPLETE",
         candidates=top_candidates + remaining,
         query=state.query,
+        references=state.references,
         overall_assessment=deterministic_assessment,
         content_gaps=synthesis_result.get("content_gaps"),
         timings={**state.timings, "rationale": round(elapsed, 3)},
