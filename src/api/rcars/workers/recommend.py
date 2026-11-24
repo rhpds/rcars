@@ -18,6 +18,7 @@ async def run_recommendation(
     user_email: str | None = None,
     depth: str = "high",
     content_types: list[str] | None = None,
+    reference_ids: list[str] | None = None,
 ) -> dict:
     """Run an advisor recommendation query end-to-end and log the session with its duration."""
     wctx: WorkerContext = ctx["worker_ctx"]
@@ -40,6 +41,7 @@ async def run_recommendation(
             on_progress=on_progress,
             depth=depth,
             content_types=content_types,
+            reference_ids=reference_ids,
         )
 
         candidates_json = []

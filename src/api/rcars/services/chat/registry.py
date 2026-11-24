@@ -35,7 +35,12 @@ INTENTS: dict[str, IntentSpec] = {
         prompt_fragment=("recommend: the user wants content from the catalog — for a topic, audience, "
                          "event, or use case. Includes exploratory asks ('something about X', "
                          "'what do we have for Y'). Composite asks like 'high-usage Ansible content "
-                         "for EDA' are recommend with constraints.performance='high_usage', NOT performance."),
+                         "for EDA' are recommend with constraints.performance='high_usage', NOT performance. "
+                         "When the user asks for content similar to, like, instead of, or an alternative to "
+                         "a NAMED catalog item (by display name, lab number, CI name or catalog URL), set "
+                         "args.similar_to to that reference exactly as written, however it is named. "
+                         "Leave similar_to out for a plain topic search, even if the words happen to "
+                         "look like a title."),
         examples=(
             {"message": "I need a 2-hour OpenShift virtualization lab for platform engineers",
              "output": {"intent": "recommend", "args": {"search_query": "2-hour OpenShift virtualization lab for platform engineers"},
@@ -49,6 +54,24 @@ INTENTS: dict[str, IntentSpec] = {
              "output": {"intent": "recommend",
                         "args": {"search_query": "Red Hat SaaS capabilities"},
                         "scope": None, "item_refs": [], "confidence": 0.85, "clarify": None}},
+            {"message": "something similar to Event-Driven Ansible Basics",
+             "output": {"intent": "recommend",
+                        "args": {"search_query": "similar to Event-Driven Ansible Basics",
+                                 "similar_to": "Event-Driven Ansible Basics"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "an alternative to LB1237",
+             "output": {"intent": "recommend",
+                        "args": {"search_query": "alternative to LB1237", "similar_to": "LB1237"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "what else is like https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod/summit-2026.lb1237-hol-rhel10-cnv.prod",
+             "output": {"intent": "recommend",
+                        "args": {"search_query": "like summit-2026.lb1237-hol-rhel10-cnv.prod",
+                                 "similar_to": "https://catalog.demo.redhat.com/catalog?item=babylon-catalog-prod/summit-2026.lb1237-hol-rhel10-cnv.prod"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
+            {"message": "OpenShift Virtualization Networking",
+             "output": {"intent": "recommend",
+                        "args": {"search_query": "OpenShift Virtualization Networking"},
+                        "scope": None, "item_refs": [], "confidence": 0.9, "clarify": None}},
         )),
     "overlap": IntentSpec(
         name="overlap",

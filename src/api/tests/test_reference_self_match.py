@@ -20,8 +20,8 @@ def ref(db, name, number, **kw):
     return item(db, name, ci_extra={"display_name": f"LB{number} {name}"}, **kw)
 
 
-def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, embedding=[0.1] * 768, query=None):
-    """search("Something similar to LB<number>") with ``hits`` as every vector result."""
+def run_similar(db, monkeypatch, reference, hits, *, stages=("prod",), limit=25, embedding=[0.1] * 768, query=None):
+    """search() for a similar-to request naming ``reference`` (a content_id the router resolved)."""
     def fake(**kwargs):
         rows = []
         for content_id, score in hits:
@@ -39,7 +39,8 @@ def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, em
     monkeypatch.setattr(db, "search_embeddings", Mock(side_effect=lambda **kw: fake(**kw)))
     monkeypatch.setattr(db, "get_embedding", lambda *a, **k: embedding)
     monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
-    return vector_search.search(query or f"Something similar to LB{number}", db, stages=list(stages), limit=limit)
+    return vector_search.search(query or "Something similar to the lab", db, stages=list(stages), limit=limit,
+                                reference_ids=[reference] if reference else None)
 
 
 # ── pure rule ──
@@ -86,7 +87,7 @@ def test_pure_stub_reference_is_not_returned_and_neither_is_its_published_vci(db
     owner = item(db, "owner.prod")
     link(db, vci, stub)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9101, [(owner, 0.5), (vci, 0.47), (other, 0.85)])
+    state = run_similar(db, monkeypatch, stub, [(owner, 0.5), (vci, 0.47), (other, 0.85)])
     assert stub not in card_ids(state.candidates)
     assert vci not in card_ids(state.candidates)
     assert other in card_ids(state.candidates)
@@ -98,7 +99,7 @@ def test_virtual_ci_reference_excludes_itself_members_and_dev_copy(db, monkeypat
     link(db, vci, lab)
     link(db, vci_dev, lab_dev)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9102, [(lab, 0.9), (lab_dev, 0.9), (other, 0.8)],
+    state = run_similar(db, monkeypatch, vci, [(lab, 0.9), (lab_dev, 0.9), (other, 0.8)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
 
@@ -109,7 +110,7 @@ def test_member_reference_excludes_covering_virtual_ci_and_dev_copies(db, monkey
     link(db, vci, lab)
     link(db, vci_dev, lab_dev)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9103, [(vci, 0.9), (vci_dev, 0.9), (other, 0.8)],
+    state = run_similar(db, monkeypatch, lab, [(vci, 0.9), (vci_dev, 0.9), (other, 0.8)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
 
@@ -120,7 +121,7 @@ def test_component_covered_by_two_virtual_cis_excludes_both(db, monkeypatch):
     link(db, a, fsc)
     link(db, b, fsc)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9104, [(a, 0.9), (b, 0.9), (other, 0.8)])
+    state = run_similar(db, monkeypatch, fsc, [(a, 0.9), (b, 0.9), (other, 0.8)])
     assert card_ids(state.candidates) == [other]
 
 
@@ -130,7 +131,7 @@ def test_virtual_ci_sharing_only_a_component_with_the_reference_still_shows(db, 
     vb = item(db, "vb.prod", analysis=False)
     link(db, va, fsc)
     link(db, vb, fsc)
-    state = run_similar(db, monkeypatch, 9105, [(fsc, 0.9), (vb, 0.85)])
+    state = run_similar(db, monkeypatch, va, [(fsc, 0.9), (vb, 0.85)])
     assert card_ids(state.candidates) == [vb]
 
 
@@ -139,7 +140,7 @@ def test_sibling_component_of_an_excluded_virtual_ci_still_shows_as_itself(db, m
     vci = item(db, "virtual.prod", analysis=False)
     link(db, vci, lab)
     link(db, vci, sibling, "passthrough", 1)
-    state = run_similar(db, monkeypatch, 9106, [(sibling, 0.9)])
+    state = run_similar(db, monkeypatch, lab, [(sibling, 0.9)])
     # The covering virtual CI cannot show, so the sibling is not collapsed into it.
     assert card_ids(state.candidates) == [sibling]
 
@@ -147,7 +148,7 @@ def test_sibling_component_of_an_excluded_virtual_ci_still_shows_as_itself(db, m
 def test_plain_ci_reference_and_its_stage_copies_are_excluded(db, monkeypatch):
     plain, dev = ref(db, "plain.prod", 9107), item(db, "plain.dev")
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9107, [(plain, 1.0), (dev, 0.95), (other, 0.7)],
+    state = run_similar(db, monkeypatch, plain, [(plain, 1.0), (dev, 0.95), (other, 0.7)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
 
@@ -156,7 +157,7 @@ def test_dev_copy_is_excluded_even_when_dev_is_not_selected_or_is_selected(db, m
     plain, dev = ref(db, "plain.prod", 9108), item(db, "plain.dev")
     other = item(db, "other.prod")
     for stages in (("prod",), ("prod", "dev")):
-        state = run_similar(db, monkeypatch, 9108, [(plain, 1.0), (dev, 0.9), (other, 0.7)], stages=stages)
+        state = run_similar(db, monkeypatch, plain, [(plain, 1.0), (dev, 0.9), (other, 0.7)], stages=stages)
         assert card_ids(state.candidates) == [other]
 
 
@@ -164,7 +165,7 @@ def test_empty_family_tables_exclude_the_item_and_its_stage_copies_only(db, monk
     plain, dev = ref(db, "plain.prod", 9109), item(db, "plain.dev")
     other = item(db, "other.prod")
     assert db.get_family_rows([plain]) == []
-    state = run_similar(db, monkeypatch, 9109, [(plain, 1.0), (dev, 0.9), (other, 0.7)],
+    state = run_similar(db, monkeypatch, plain, [(plain, 1.0), (dev, 0.9), (other, 0.7)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
 
@@ -172,7 +173,7 @@ def test_empty_family_tables_exclude_the_item_and_its_stage_copies_only(db, monk
 def test_exclusion_leaves_no_empty_slot(db, monkeypatch):
     plain = ref(db, "plain.prod", 9110)
     others = [item(db, f"other{i}.prod") for i in range(3)]
-    state = run_similar(db, monkeypatch, 9110, [(plain, 1.0), *[(o, 0.8 - i / 100) for i, o in enumerate(others)]],
+    state = run_similar(db, monkeypatch, plain, [(plain, 1.0), *[(o, 0.8 - i / 100) for i, o in enumerate(others)]],
                         limit=3)
     assert card_ids(state.candidates) == sorted(others)
 
@@ -184,7 +185,7 @@ def test_search_returns_the_referenced_summary_from_the_card_analysis(db, monkey
     anchor = item(db, "anchor.prod")  # analysis summary: "About anchor.prod"
     link(db, vci, anchor)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9111, [(other, 0.8)])
+    state = run_similar(db, monkeypatch, vci, [(other, 0.8)])
     assert len(state.references) == 1
     assert state.references[0]["content_id"] == vci
     assert state.references[0]["summary"] == "About anchor.prod"
@@ -223,23 +224,31 @@ def test_reference_without_an_embedding_is_still_excluded_and_described(db, monk
     vci, lab = ref(db, "virtual.prod", 9112, analysis=False), item(db, "lab.prod")
     link(db, vci, lab)
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9112, [(lab, 0.9), (vci, 0.9), (other, 0.8)], embedding=None)
+    state = run_similar(db, monkeypatch, vci, [(lab, 0.9), (vci, 0.9), (other, 0.8)], embedding=None)
     assert card_ids(state.candidates) == [other]
     assert state.references[0]["summary"] == "About lab.prod"
 
 
-def test_keyword_match_without_a_lab_number_keeps_the_matched_item_in_the_results(db, monkeypatch):
-    """A topic search that happens to match a display name is not a "similar to" request."""
+def test_topic_search_overlapping_a_title_excludes_nothing(db, monkeypatch):
+    """No reference from the router: the matched item and its family stay in the results."""
     vci = item(db, "virtual.prod", analysis=False,
                ci_extra={"display_name": "OpenShift Virtualization Networking"})
     lab = item(db, "lab.prod")
     link(db, vci, lab)
     other = item(db, "other.prod")
-    monkeypatch.setattr(db, "find_catalog_item_by_keyword_overlap", lambda *a, **k: db.get_babylon_item(vci) | db.get_content_entity(vci))
-    state = run_similar(db, monkeypatch, 0, [(lab, 0.9), (other, 0.8)],
+    monkeypatch.setattr(db, "find_catalog_item_by_keyword_overlap",
+                        lambda *a, **k: {**db.get_content_entity(vci), **db.get_babylon_item(vci)})
+    state = run_similar(db, monkeypatch, None, [(lab, 0.9), (other, 0.8)],
                         query="OpenShift Virtualization Networking")
     assert card_ids(state.candidates) == sorted([vci, other])
     assert state.references == []
+
+
+def test_lab_number_in_the_query_without_a_reference_excludes_nothing(db, monkeypatch):
+    plain = ref(db, "plain.prod", 9120)
+    other = item(db, "other.prod")
+    state = run_similar(db, monkeypatch, None, [(plain, 0.9), (other, 0.8)], query="what is LB9120 about")
+    assert card_ids(state.candidates) == sorted([plain, other])
 
 
 def test_stage_copy_of_a_stub_owner_is_excluded_too(db, monkeypatch):
@@ -248,6 +257,6 @@ def test_stage_copy_of_a_stub_owner_is_excluded_too(db, monkeypatch):
     with db.pool.connection() as conn:
         conn.execute("UPDATE content_entities SET display_name = 'LB9113 stub' WHERE content_id = %s", (stub,))
     other = item(db, "other.prod")
-    state = run_similar(db, monkeypatch, 9113, [(owner, 0.9), (owner_dev, 0.9), (other, 0.8)],
+    state = run_similar(db, monkeypatch, stub, [(owner, 0.9), (owner_dev, 0.9), (other, 0.8)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
