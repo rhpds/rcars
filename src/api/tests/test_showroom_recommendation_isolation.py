@@ -163,3 +163,14 @@ def test_zt_stub_is_not_promoted_when_zt_is_excluded(db, monkeypatch):
     link(db, stub, owner)
     candidates = search(db, monkeypatch, [owner], stages=["prod"], include_zt=False)
     assert [c.content_id for c in candidates] == [owner]
+
+
+def test_scoped_stub_never_returns_its_owner_outside_the_scope_without_family_rows(db, monkeypatch):
+    # Before the first catalog refresh stores families, a scoped pure stub is searched
+    # through its owner. The owner is not in the requested scope, so it must not show.
+    owner, _, _ = seed(db)
+    stub = add_stub(db, owner.removeprefix("babylon:"), "isolation-test.virtual.prod")
+    monkeypatch.setattr(db, "search_embeddings", lambda **kwargs: [
+        {**db.get_babylon_item(owner), "content_hash": "content", "best_similarity": 0.9}])
+    monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
+    assert vector_search.search("TLS", db, stages=["prod"], scope_content_ids=[stub]).candidates == []

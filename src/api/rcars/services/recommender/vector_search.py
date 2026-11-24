@@ -204,6 +204,11 @@ def search(
     rows, collapse = _collapse_families(
         db, rows, stages=effective_stages, include_zt=include_zt,
         content_types=content_types, scope_content_ids=scope_content_ids)
+    if scope_content_ids:
+        # Scope ids that are pure stubs are searched through their owner; an owner left
+        # as a card (no family rows yet, or its stub not eligible) is outside the scope.
+        in_scope = set(scope_content_ids)
+        rows = [r for r in rows if r["content_id"] in in_scope]
     rows = rows[:limit]
     log.info(
         "advisor_family_collapse", action="advisor_family_collapse",
