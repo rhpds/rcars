@@ -24,7 +24,7 @@ from rcars.services.analysis_identity import donor_matches_commit, donor_matches
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
     ResolvedShowroom, analysis_artifacts_complete, content_owner,
-    effective_analysis_source, effective_showroom_source, item_family_key,
+    effective_analysis_source, effective_showroom_source, item_family_key, KNOWN_STAGES,
     signature_matches_source,
 )
 
@@ -649,6 +649,34 @@ ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS analysis_source_override TEXT
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS custom_description TEXT;
 CREATE INDEX IF NOT EXISTS idx_sa_content_hash ON showroom_analysis(content_hash);
 
+-- Catalog families (RHDPCD-2297). stage_key = CI name minus its stage suffix
+-- (non-Babylon items: content_id). Backfilled by create_schema().
+ALTER TABLE content_entities ADD COLUMN IF NOT EXISTS stage_key TEXT;
+CREATE INDEX IF NOT EXISTS idx_content_entities_stage_key ON content_entities(stage_key);
+
+-- Every component link of the per-stage graph, in declared order. Written at
+-- catalog refresh. child_ci_name has no FK: reached components can lack a CatalogItem.
+CREATE TABLE IF NOT EXISTS catalog_components (
+    parent_content_id    TEXT NOT NULL,
+    position             INTEGER NOT NULL,
+    child_ci_name        TEXT NOT NULL,
+    has_content_override BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY (parent_content_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_components_child ON catalog_components(child_ci_name);
+
+-- One family per virtual CI (published.*): the components on the path down to
+-- its content anchor. A component can be a member of several virtual CIs.
+-- role: 'anchor' | 'passthrough'. depth: hops below the virtual CI (1 = direct).
+CREATE TABLE IF NOT EXISTS catalog_family_members (
+    virtual_content_id TEXT NOT NULL,
+    member_content_id  TEXT NOT NULL,
+    role               TEXT NOT NULL,
+    depth              INTEGER NOT NULL,
+    PRIMARY KEY (virtual_content_id, member_content_id)
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_family_members_member ON catalog_family_members(member_content_id);
+
 """
 
 # Approved retirement for an item or any stage sibling (same CI name minus the
@@ -747,6 +775,41 @@ class Database:
                 # Drop replaced tables after migration has run
                 cur.execute("DROP TABLE IF EXISTS workload_scan_state")
                 cur.execute("DROP TABLE IF EXISTS workload_mapping CASCADE")
+            conn.commit()
+        self.backfill_stage_keys()
+
+    def backfill_stage_keys(self) -> int:
+        """Fill content_entities.stage_key where missing. Idempotent.
+
+        Babylon: ci_name minus a known stage suffix (same rule as
+        item_family_key). Everything else: content_id.
+        """
+        suffix = "\\.(" + "|".join(sorted(KNOWN_STAGES)) + ")$"
+        with self._pool.connection() as conn:
+            cur = conn.execute("""
+                UPDATE content_entities ce
+                SET stage_key = COALESCE(
+                    (SELECT regexp_replace(bi.ci_name, %(suffix)s, '')
+                     FROM babylon_items bi WHERE bi.content_id = ce.content_id),
+                    ce.content_id)
+                WHERE ce.stage_key IS NULL
+            """, {"suffix": suffix})
+            conn.commit()
+            return cur.rowcount
+
+    def replace_catalog_families(self, components: list[dict], members: list[dict]) -> None:
+        """Replace catalog_components and catalog_family_members in one transaction."""
+        with self._pool.connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM catalog_family_members")
+                cur.execute("DELETE FROM catalog_components")
+                cur.executemany(
+                    "INSERT INTO catalog_components (parent_content_id, position, child_ci_name, "
+                    "has_content_override) VALUES (%(parent_content_id)s, %(position)s, "
+                    "%(child_ci_name)s, %(has_content_override)s)", components)
+                cur.executemany(
+                    "INSERT INTO catalog_family_members (virtual_content_id, member_content_id, role, depth) "
+                    "VALUES (%(virtual_content_id)s, %(member_content_id)s, %(role)s, %(depth)s)", members)
             conn.commit()
 
     @contextmanager
@@ -873,6 +936,7 @@ class Database:
             "is_hands_on": True,
             "display_name": item.get("display_name") or ci_name,
             "status": item.get("stage"),
+            "stage_key": item_family_key(ci_name, item.get("stage") or ""),
             "last_refreshed": datetime.now(timezone.utc),
             "retired_at": None,
             "retirement_reason": None,
@@ -1010,6 +1074,7 @@ class Database:
             "topics_json": Jsonb(row.get("topics") or []),
             "audience_json": Jsonb(row.get("audience") or []),
             "difficulty": None,
+            "stage_key": content_id,
             "retired_at": None,
             "retirement_reason": None,
             "updated_at": now,
