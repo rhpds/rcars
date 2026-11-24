@@ -260,3 +260,45 @@ def test_stage_copy_of_a_stub_owner_is_excluded_too(db, monkeypatch):
     state = run_similar(db, monkeypatch, stub, [(owner, 0.9), (owner_dev, 0.9), (other, 0.8)],
                         stages=("prod", "dev"))
     assert card_ids(state.candidates) == [other]
+
+
+# ── CodeRabbit on PR #219 ──
+
+def test_sibling_virtual_ci_survives_when_only_the_shared_component_is_a_hit(db, monkeypatch):
+    """A (the reference) and B share component C. Only C is hit: B shows, A and C do not."""
+    c = item(db, "shared.prod")
+    a = ref(db, "va.prod", 9130, analysis=False)
+    b = item(db, "vb.prod", analysis=False)
+    link(db, a, c)
+    link(db, b, c)
+    state = run_similar(db, monkeypatch, a, [(c, 0.9)])
+    assert card_ids(state.candidates) == [b]
+
+
+def test_exclusion_still_holds_inside_a_scope(db, monkeypatch):
+    plain = ref(db, "plain.prod", 9131)
+    other = item(db, "other.prod")
+    run_similar(db, monkeypatch, plain, [(plain, 1.0), (other, 0.8)])  # patches the vector search
+    scoped = vector_search.search("similar", db, stages=["prod"], scope_content_ids=[plain, other],
+                                  reference_ids=[plain])
+    assert plain not in card_ids(scoped.candidates)
+
+
+def test_architecture_reference_summary_comes_from_architecture_analysis(db, monkeypatch):
+    content_id = "pa:isolation-test-9132"
+    with db.pool.connection() as conn:
+        conn.execute("DELETE FROM content_entities WHERE content_id = %s", (content_id,))
+    db.upsert_osspa_item({
+        "content_id": content_id, "ppid": 9132, "pa_name": "9132-isolation-test", "display_name": "Arch ref",
+        "status": "prod", "summary": "csv", "products": [], "topics": [], "audience": [], "verticals": [],
+        "solutions": [], "detail_page": "x.adoc", "image_url": "x.png", "is_live": True,
+        "show_in_catalog": True, "asset_type": "PA"})
+    try:
+        db.upsert_architecture_analysis({"content_id": content_id, "summary": "What the architecture covers."})
+        _, references, _ = vector_search._reference_context(db, [content_id])
+        assert references[0]["summary"] == "What the architecture covers."
+    finally:
+        with db.pool.connection() as conn:
+            conn.execute("DELETE FROM architecture_analysis WHERE content_id = %s", (content_id,))
+            conn.execute("DELETE FROM portfolio_architectures WHERE content_id = %s", (content_id,))
+            conn.execute("DELETE FROM content_entities WHERE content_id = %s", (content_id,))

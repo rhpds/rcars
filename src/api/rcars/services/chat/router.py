@@ -216,7 +216,12 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
     # Ladder 3: item refs → catalog resolution ("did you mean…" on miss)
     # Skip when scope already resolved content_ids — re-resolving by name is
     # lossy and can pick the wrong variant (e.g. "Roadshow" vs "Roadshow (2026)").
+    # A ref that is also args.similar_to is resolved (and clarified) only by the
+    # similar_to step below, so one ambiguous name never asks twice.
+    similar_to = output.args.get("similar_to") if output.intent == "recommend" else None
     for ref in (output.item_refs if not scope_ids else []):
+        if similar_to and ref == similar_to:
+            continue
         resolved = resolve_item(ref, db)
         if "item" in resolved:
             items.append(resolved["item"])
@@ -226,7 +231,6 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
     # A named reference ("similar to X"): same resolver, same clarify flow. It stays
     # unresolved, and nothing is excluded, until the user picks the item.
     reference_ids: list[str] = []
-    similar_to = output.args.get("similar_to") if output.intent == "recommend" else None
     if similar_to:
         ref = similar_to
         urls, _ = extract_urls(similar_to)

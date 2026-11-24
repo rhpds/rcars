@@ -120,3 +120,22 @@ def test_router_examples_cover_name_lab_number_url_and_a_plain_topic():
     assert any("similar_to" not in a for a in examples)  # a topic search with no reference
     system, _ = registry.build_router_prompt([])
     assert "similar_to" in system
+
+
+@pytest.mark.asyncio
+async def test_same_ambiguous_name_in_item_refs_and_similar_to_clarifies_once(db, monkeypatch):
+    ids = seed_chat_fixtures(db)
+    monkeypatch.setattr(chat_router, "generate_embedding", lambda text, prefix="": fake_embedding(text))
+    name = "the quantum blockchain lab"
+    out = RouterOutput(intent="recommend", confidence=0.9, item_refs=[name],
+                       args={"search_query": f"similar to {name}", "similar_to": name})
+    res = await chat_router.resolve_and_verify(out, CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    assert res.kind == "clarify" and res.chips
+    assert all("similar_to" in chip.args and chip.args["similar_to"].startswith("content_id:")
+               for chip in res.chips)
+    # A chip is pre-routed: no item_refs, its args carry the picked similar_to.
+    chip = res.chips[0]
+    picked = await chat_router.resolve_and_verify(
+        RouterOutput(intent="recommend", confidence=1.0, args=chip.args),
+        CTX, db, SETTINGS(chat_intent_roles_str=""), "u@x.com")
+    assert picked.kind == "execute" and picked.reference_ids == [chip.args["similar_to"].removeprefix("content_id:")]

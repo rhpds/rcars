@@ -119,6 +119,15 @@ def _resolve_ci_references(
     return results
 
 
+def _reference_summary(db: Database, content_id: str, entity: dict) -> str:
+    """What the referenced item covers. Architectures keep theirs in architecture_analysis."""
+    if entity.get("content_type") == "architecture":
+        analysis = db.get_analysis(content_id)
+    else:
+        analysis = db.get_card_analysis(content_id)
+    return (analysis or {}).get("summary") or ""
+
+
 def _reference_context(db: Database, reference_ids: list[str]) -> tuple[list[dict], list[dict], set[str]]:
     """Items the user named as "similar to": (items, references, exclusion set).
 
@@ -140,7 +149,7 @@ def _reference_context(db: Database, reference_ids: list[str]) -> tuple[list[dic
         excluded |= exclusion_set_for(db, content_id) | db.get_stage_copy_ids({_embedding_owner_id(item)})
         references.append({"content_id": content_id,
                            "display_name": item.get("display_name") or content_id,
-                           "summary": (db.get_card_analysis(content_id) or {}).get("summary") or ""})
+                           "summary": _reference_summary(db, content_id, entity)})
     return items, references, excluded
 
 
@@ -238,14 +247,6 @@ def search(
                 rows.append(row)
                 seen.add(row["content_id"])
 
-    if excluded:
-        # RHDPCD-2298: before the family collapse and the top-K cut, so no slot is left empty.
-        kept = [r for r in rows if r["content_id"] not in excluded]
-        log.info("ci_reference_exclusion", action="ci_reference_exclusion",
-                 referenced=[r["content_id"] for r in references],
-                 exclusion_set_size=len(excluded), rows_dropped=len(rows) - len(kept))
-        rows = kept
-
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
     rows = [r for r in rows if not _is_excluded(db, r)]
@@ -255,6 +256,15 @@ def search(
     rows, collapse = _collapse_families(
         db, rows, stages=effective_stages, include_zt=include_zt,
         content_types=content_types, scope_content_ids=scope_content_ids, excluded=excluded)
+    if excluded:
+        # RHDPCD-2298: after the collapse, so a sibling virtual CI that shares a hit
+        # component with the reference still takes it in; before the scope filter and
+        # the top-K cut, so no slot is left empty.
+        kept = [r for r in rows if r["content_id"] not in excluded]
+        log.info("ci_reference_exclusion", action="ci_reference_exclusion",
+                 referenced=[r["content_id"] for r in references],
+                 exclusion_set_size=len(excluded), rows_dropped=len(rows) - len(kept))
+        rows = kept
     if scope_content_ids:
         # Scope ids that are pure stubs are searched through their owner; an owner left
         # as a card (no family rows yet, or its stub not eligible) is outside the scope.
