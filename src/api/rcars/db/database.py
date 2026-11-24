@@ -2287,7 +2287,7 @@ class Database:
         return sql, [*ct_params, *stage_params, *scope_params]
 
     def search_embeddings(
-        self, query_embedding: list[float], limit: int = 25,
+        self, query_embedding: list[float], limit: int | None = 25,
         content_types: list[str] | None = None,
         stages: list[str] | None = None,
         include_zt: bool = True,
@@ -2336,6 +2336,8 @@ class Database:
             LEFT JOIN showroom_analysis sa ON sa.content_id = g.content_id
             ORDER BY g.best_similarity DESC
         """
+        # limit=None: every item of the retrieval window that passes the quality bar
+        # (LIMIT NULL is LIMIT ALL in Postgres).
         params = [vec_str, *visibility_params, vec_str, retrieval_window,
                   quality_threshold, limit]
 

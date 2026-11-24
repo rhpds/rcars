@@ -265,8 +265,31 @@ def test_dropped_members_do_not_leave_empty_slots(db, monkeypatch):
     cards = run(db, monkeypatch, hits, limit=4)
     assert len(cards) == 4
     assert card_ids(cards) == sorted(vcis + others[:1])
-    # the search asked for more than `limit` rows so the next-best hits can fill the slots
-    assert db.search_embeddings.call_args.kwargs["limit"] > 4
+    # the search asks SQL for every item of the window; the cut to `limit` is after the collapse
+    assert db.search_embeddings.call_args.kwargs["limit"] is None
+
+
+def test_cut_to_limit_happens_after_the_collapse_with_an_uncapped_result(db, monkeypatch):
+    # 30 members of 30 virtual CIs hit first, then 30 plain items. limit=25: the cards are
+    # the 25 best of (30 virtual CIs + 30 plain items), never members.
+    members = [item(db, f"m{i:02d}.prod") for i in range(30)]
+    vcis = [item(db, f"v{i:02d}.prod", analysis=False) for i in range(30)]
+    plain = [item(db, f"p{i:02d}.prod") for i in range(30)]
+    for v, m in zip(vcis, members):
+        link(db, v, m)
+    hits = [(m, 0.99 - i * 0.001) for i, m in enumerate(members)] + [(p, 0.9 - i * 0.001) for i, p in enumerate(plain)]
+    cards = run(db, monkeypatch, hits, limit=25)
+    assert card_ids(cards) == sorted(vcis[:25])
+    assert not set(card_ids(cards)) & set(members)
+
+
+def test_search_embeddings_without_a_limit_returns_every_item_that_passes_the_bar(db):
+    ids = [item(db, f"u{i:02d}.prod") for i in range(30)]
+    for content_id in ids:
+        db.store_embedding(content_id, "lab", "babylon", "summary", "text", [0.1] * 768)
+    vec = [0.1] * 768
+    assert len(db.search_embeddings(vec, scope_content_ids=ids)) == 25
+    assert len(db.search_embeddings(vec, limit=None, scope_content_ids=ids)) == 30
 
 
 # ── everything at once ──

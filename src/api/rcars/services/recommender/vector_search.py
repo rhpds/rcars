@@ -109,11 +109,6 @@ def _resolve_ci_references(
     return results
 
 
-# Fetch this many times `limit` hits so family collapse does not leave empty slots:
-# dropped members free slots that the next-best hits then fill (cut happens after).
-FAMILY_OVERFETCH = 4
-
-
 def _is_excluded(db, row: dict) -> bool:
     """Test content and items whose Showroom source is excluded never show."""
     if is_content_excluded(row["content_id"]):
@@ -179,7 +174,7 @@ def search(
 
     rows = db.search_embeddings(
         query_embedding=query_embedding,
-        limit=limit * FAMILY_OVERFETCH,
+        limit=None,  # whole retrieval window; the cut to `limit` comes after the family collapse
         stages=effective_stages,
         include_zt=include_zt,
         content_types=content_types,
@@ -199,6 +194,7 @@ def search(
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
     rows = [r for r in rows if not _is_excluded(db, r)]
+    raw_hits = len(rows)
 
     # One card per family and per stage-copy group, BEFORE the final top-K cut.
     rows, collapse = _collapse_families(
@@ -209,9 +205,11 @@ def search(
         # as a card (no family rows yet, or its stub not eligible) is outside the scope.
         in_scope = set(scope_content_ids)
         rows = [r for r in rows if r["content_id"] in in_scope]
+    cards_before_cut = len(rows)
     rows = rows[:limit]
     log.info(
         "advisor_family_collapse", action="advisor_family_collapse",
+        raw_hits=raw_hits, cards_before_cut=cards_before_cut,
         cards=len(rows), dropped_by_family=len(collapse.dropped_members),
         dropped_members=[{"member": m, "covered_by": v} for m, v in collapse.dropped_members],
         kept_members_no_eligible_virtual_ci=[{"member": m, "covering": v} for m, v in collapse.kept_members],
