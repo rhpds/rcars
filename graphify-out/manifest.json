@@ -186,9 +186,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/pipeline.py": {
-    "mtime": 1795526058.5010185,
-    "seen": 1795526638.3056269,
-    "ast_hash": "9a239e71b973e39939eb978961ff280d",
+    "mtime": 1795530117.4515483,
+    "seen": 1795530591.4474308,
+    "ast_hash": "7be1bbf2be7864f9f7f805d1a21411bd",
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/rationale.py": {
@@ -204,9 +204,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/vector_search.py": {
-    "mtime": 1795527915.3021128,
-    "seen": 1795528282.0435321,
-    "ast_hash": "be285c38d1911af86083f8b778258554",
+    "mtime": 1795530140.7566504,
+    "seen": 1795530591.4474828,
+    "ast_hash": "231730c5e680b30e59ecce88e18325f2",
     "semantic_hash": ""
   },
   "src/api/rcars/services/reporting_sync.py": {
@@ -252,9 +252,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/workers/recommend.py": {
-    "mtime": 1795526058.504569,
-    "seen": 1795526638.3056378,
-    "ast_hash": "0e10138def54cc1510bfa7176192fe30",
+    "mtime": 1795530117.451964,
+    "seen": 1795530591.4479291,
+    "ast_hash": "5b0bedaf3f9eb23a416eba3132f1859a",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/scan.py": {
@@ -936,15 +936,15 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/handlers.py": {
-    "mtime": 1795526058.4986296,
-    "seen": 1795526638.305619,
-    "ast_hash": "21cfc75cfbb86a4b00ce8528afad93e0",
+    "mtime": 1795530117.4509244,
+    "seen": 1795530591.447139,
+    "ast_hash": "49b6cd5fa9bb77123448570805c8c708",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/models.py": {
-    "mtime": 1795526058.4988296,
-    "seen": 1795526638.305619,
-    "ast_hash": "bc0d175760ef537e6c05c26f8880c19c",
+    "mtime": 1795530117.4486456,
+    "seen": 1795530591.44714,
+    "ast_hash": "cd10bf5a58ef610f2d2aac646a81a4b4",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/orchestrator.py": {
@@ -954,15 +954,15 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/registry.py": {
-    "mtime": 1795526058.499083,
-    "seen": 1795526638.30562,
-    "ast_hash": "e9908145127ff1036173056b291adca3",
+    "mtime": 1795530117.450263,
+    "seen": 1795530591.447166,
+    "ast_hash": "ce9eba4a1360e19e9cb7bdf8137baa0d",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/router.py": {
-    "mtime": 1795526058.499198,
-    "seen": 1795526638.305621,
-    "ast_hash": "8605c08858d28d1eaf9df2e6b896df9e",
+    "mtime": 1795530198.9378133,
+    "seen": 1795530591.447166,
+    "ast_hash": "d3ba228ecfbf4e3ba99ce4d281ded2dc",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/chat.py": {
@@ -1692,9 +1692,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_test_content_exclusion.py": {
-    "mtime": 1795526608.390276,
-    "seen": 1795526638.305683,
-    "ast_hash": "8c2b1739558e9cd4118265e0f244d09f",
+    "mtime": 1795530172.9531145,
+    "seen": 1795530591.4497972,
+    "ast_hash": "c2f4614d7ee141bb5fca524d5d084cc0",
     "semantic_hash": ""
   },
   "src/frontend/src/components/performance/RetirementBadge.tsx": {
@@ -1884,9 +1884,15 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_reference_self_match.py": {
-    "mtime": 1795527908.9168627,
-    "seen": 1795528282.045592,
-    "ast_hash": "ce9317af3b179e6a65a71a3399920209",
+    "mtime": 1795530164.2551577,
+    "seen": 1795530591.449357,
+    "ast_hash": "b1283ea1a432d06833cc17726c483e58",
+    "semantic_hash": ""
+  },
+  "src/api/tests/test_chat_similar_to.py": {
+    "mtime": 1795530198.9537885,
+    "seen": 1795530591.448766,
+    "ast_hash": "09e91baf0bad3bee463a7050c95a6c0d",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {
