@@ -12,6 +12,7 @@ from rcars.services.recommender import rationale, vector_search
 from rcars.services.recommender.models import Candidate, QueryState
 from tests.showroom_helpers import db  # noqa: F401  (fixture)
 from tests.test_advisor_families import card_ids, item, link
+from tests.test_showroom_recommendation_isolation import add_stub
 
 
 def ref(db, name, number, **kw):
@@ -19,7 +20,7 @@ def ref(db, name, number, **kw):
     return item(db, name, ci_extra={"display_name": f"LB{number} {name}"}, **kw)
 
 
-def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, embedding=[0.1] * 768):
+def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, embedding=[0.1] * 768, query=None):
     """search("Something similar to LB<number>") with ``hits`` as every vector result."""
     def fake(**kwargs):
         rows = []
@@ -38,7 +39,7 @@ def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, em
     monkeypatch.setattr(db, "search_embeddings", Mock(side_effect=lambda **kw: fake(**kw)))
     monkeypatch.setattr(db, "get_embedding", lambda *a, **k: embedding)
     monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
-    return vector_search.search(f"Something similar to LB{number}", db, stages=list(stages), limit=limit)
+    return vector_search.search(query or f"Something similar to LB{number}", db, stages=list(stages), limit=limit)
 
 
 # ── pure rule ──
@@ -225,3 +226,28 @@ def test_reference_without_an_embedding_is_still_excluded_and_described(db, monk
     state = run_similar(db, monkeypatch, 9112, [(lab, 0.9), (vci, 0.9), (other, 0.8)], embedding=None)
     assert card_ids(state.candidates) == [other]
     assert state.references[0]["summary"] == "About lab.prod"
+
+
+def test_keyword_match_without_a_lab_number_keeps_the_matched_item_in_the_results(db, monkeypatch):
+    """A topic search that happens to match a display name is not a "similar to" request."""
+    vci = item(db, "virtual.prod", analysis=False,
+               ci_extra={"display_name": "OpenShift Virtualization Networking"})
+    lab = item(db, "lab.prod")
+    link(db, vci, lab)
+    other = item(db, "other.prod")
+    monkeypatch.setattr(db, "find_catalog_item_by_keyword_overlap", lambda *a, **k: db.get_babylon_item(vci) | db.get_content_entity(vci))
+    state = run_similar(db, monkeypatch, 0, [(lab, 0.9), (other, 0.8)],
+                        query="OpenShift Virtualization Networking")
+    assert card_ids(state.candidates) == sorted([vci, other])
+    assert state.references == []
+
+
+def test_stage_copy_of_a_stub_owner_is_excluded_too(db, monkeypatch):
+    owner, owner_dev = item(db, "owner.prod"), item(db, "owner.dev")
+    stub = add_stub(db, "isolation-test.owner.prod", "isolation-test.lb-stub.prod")
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE content_entities SET display_name = 'LB9113 stub' WHERE content_id = %s", (stub,))
+    other = item(db, "other.prod")
+    state = run_similar(db, monkeypatch, 9113, [(owner, 0.9), (owner_dev, 0.9), (other, 0.8)],
+                        stages=("prod", "dev"))
+    assert card_ids(state.candidates) == [other]

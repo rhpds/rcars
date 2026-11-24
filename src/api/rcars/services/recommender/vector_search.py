@@ -66,6 +66,9 @@ def _resolve_ci_references(
        for items with high word overlap (3+ matching words)
     """
     resolved_items = []
+    # Only an explicit lab number is a "similar to X" request. A keyword match is a
+    # topic search that happens to look like a display name: its best match must stay.
+    lab_number_items: set[str] = set()
 
     # Strategy 1: LB number patterns
     for lab_num in _CI_REF_PATTERN.findall(query):
@@ -73,6 +76,7 @@ def _resolve_ci_references(
         if item:
             log.info("ci_resolve_match", lab_num=lab_num, content_id=item["content_id"], display_name=item.get("display_name", ""))
             resolved_items.append(item)
+            lab_number_items.add(item["content_id"])
         else:
             log.info("ci_resolve_miss", lab_num=lab_num)
 
@@ -99,15 +103,20 @@ def _resolve_ci_references(
         if owner:
             embed_content_id = f"babylon:{owner}"
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
-        # The referenced item's family and stage copies (all stages) never show.
-        item_excluded = exclusion_set_for(db, item["content_id"]) | {embed_content_id}
-        excluded |= item_excluded
-        summary = ((db.get_card_analysis(item["content_id"]) or {}).get("summary") or "")
-        references.append({"content_id": item["content_id"],
-                           "display_name": item.get("display_name") or item["content_id"],
-                           "summary": summary})
+        if item["content_id"] in lab_number_items:
+            # The referenced item's family and stage copies (all stages) never show.
+            # A stub's owner holds the embedding, so its stage copies leave too.
+            item_excluded = (exclusion_set_for(db, item["content_id"])
+                             | db.get_stage_copy_ids({embed_content_id}))
+            excluded |= item_excluded
+            summary = ((db.get_card_analysis(item["content_id"]) or {}).get("summary") or "")
+            references.append({"content_id": item["content_id"],
+                               "display_name": item.get("display_name") or item["content_id"],
+                               "summary": summary})
+        else:
+            item_excluded = {embed_content_id}
         if not embedding:
-            # Nothing to expand from, but the item and its family stay excluded.
+            # Nothing to expand from; any exclusion above still applies.
             log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
             continue
 
