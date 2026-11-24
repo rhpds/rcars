@@ -156,6 +156,7 @@ def triage(
         phase=phase,
         candidates=annotated,
         query=state.query,
+        references=state.references,
         timings={**state.timings, "triage": round(elapsed, 3)},
         token_usage=[*state.token_usage, new_token_entry],
     )

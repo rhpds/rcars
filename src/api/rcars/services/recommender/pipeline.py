@@ -90,6 +90,7 @@ async def run_query(
     depth: str = "high",
     scope_content_ids: list[str] | None = None,
     content_types: list[str] | None = None,
+    reference_ids: list[str] | None = None,
 ) -> dict[str, QueryState]:
     """Orchestrate parallel pipeline runs, one per content-type driver.
 
@@ -106,6 +107,7 @@ async def run_query(
             query, db, settings, driver=driver, category="",
             stages=stages, include_zt=include_zt, on_progress=on_progress,
             depth=depth, scope_content_ids=scope_content_ids,
+            reference_ids=reference_ids,
         )
         return {cat: state}
 
@@ -114,6 +116,7 @@ async def run_query(
             query, db, settings, driver=drv, category=cat,
             stages=stages, include_zt=include_zt, on_progress=on_progress,
             depth=depth, scope_content_ids=scope_content_ids,
+            reference_ids=reference_ids,
         )
 
     results = await asyncio.gather(
@@ -142,8 +145,13 @@ async def run_category(
     on_progress: Callable[[dict], Awaitable[None]] | None = None,
     depth: str = "high",
     scope_content_ids: list[str] | None = None,
+    reference_ids: list[str] | None = None,
 ) -> QueryState:
-    """Run the full pipeline for one content-type driver."""
+    """Run the full pipeline for one content-type driver.
+
+    reference_ids: catalog items the user named as "similar to" (RHDPCD-2298). They
+    and their family never show, and their summary reaches the answer step.
+    """
 
     async def emit(data: dict):
         if category:
@@ -196,6 +204,7 @@ async def run_category(
         stages=stages or ["prod"], include_zt=include_zt,
         scope_content_ids=scope_content_ids,
         content_types=driver.content_types,
+        reference_ids=reference_ids,
     )
     await emit({"phase": "vector_search", "status": "complete", "candidates": len(state.candidates),
                 "candidate_data": serialize_candidates(state.candidates)})

@@ -8,7 +8,7 @@ import structlog
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
-from rcars.services.catalog_identity import collapse_to_cards
+from rcars.services.catalog_identity import collapse_to_cards, exclusion_set_for
 from rcars.services.showroom_source import (
     content_owner, effective_showroom_source, is_content_excluded,
 )
@@ -49,13 +49,42 @@ def _strip_embedding_filler(query: str) -> str:
     return " ".join(kept) if kept else query
 
 
+def _embedding_owner_id(item: dict) -> str:
+    """A pure stub's embedding lives on its owner."""
+    owner = content_owner(item)
+    return f"babylon:{owner}" if owner else item["content_id"]
+
+
+def _neighbor_rows(
+    db: Database, item: dict, stages: list[str], include_zt: bool,
+    content_types: list[str] | None,
+) -> list[dict]:
+    """Search neighbours of ``item``'s summary embedding (the item's own embedding row left out)."""
+    if (is_content_excluded(item["content_id"])
+            or effective_showroom_source(item).status == "excluded"):
+        return []
+    embed_content_id = _embedding_owner_id(item)
+    embedding = db.get_embedding(embed_content_id, embed_type="summary")
+    if not embedding:
+        log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
+        return []
+    neighbors = db.search_embeddings(
+        query_embedding=embedding, limit=25, stages=stages,
+        include_zt=include_zt, content_types=content_types,
+        quality_threshold=0.45,
+    )
+    return [row for row in neighbors if row["content_id"] != embed_content_id]
+
+
 def _resolve_ci_references(
     query: str, db: Database, stages: list[str], include_zt: bool,
     content_types: list[str] | None = None,
 ) -> list[dict]:
-    """Find CI references in the query and return neighbors based on the referenced item's embedding.
+    """Find CI mentions in the query and return neighbors based on the mentioned item's embedding.
 
-    Two strategies:
+    Detection only adds neighbour rows. It never decides what is excluded: that comes
+    from the references the user named (``reference_ids``, RHDPCD-2298), however the
+    item was named. Two strategies:
     1. Lab number pattern (LB1234) — exact prefix match on display_name
     2. Keyword overlap — extract significant words from the query, search display_names
        for items with high word overlap (3+ matching words)
@@ -83,30 +112,45 @@ def _resolve_ci_references(
     results = []
     seen = set()
     for item in resolved_items:
-        if (is_content_excluded(item["content_id"])
-                or effective_showroom_source(item).status == "excluded"):
-            continue
-        # A pure stub's embedding lives on its owner.
-        embed_content_id = item["content_id"]
-        owner = content_owner(item)
-        if owner:
-            embed_content_id = f"babylon:{owner}"
-        embedding = db.get_embedding(embed_content_id, embed_type="summary")
-        if not embedding:
-            log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
-            continue
-
-        neighbors = db.search_embeddings(
-            query_embedding=embedding, limit=25, stages=stages,
-            include_zt=include_zt, content_types=content_types,
-            quality_threshold=0.45,
-        )
-        for row in neighbors:
-            if row["content_id"] != embed_content_id and row["content_id"] not in seen:
+        for row in _neighbor_rows(db, item, stages, include_zt, content_types):
+            if row["content_id"] not in seen:
                 results.append(row)
                 seen.add(row["content_id"])
-
     return results
+
+
+def _reference_summary(db: Database, content_id: str, entity: dict) -> str:
+    """What the referenced item covers. Architectures keep theirs in architecture_analysis."""
+    if entity.get("content_type") == "architecture":
+        analysis = db.get_analysis(content_id)
+    else:
+        analysis = db.get_card_analysis(content_id)
+    return (analysis or {}).get("summary") or ""
+
+
+def _reference_context(db: Database, reference_ids: list[str]) -> tuple[list[dict], list[dict], set[str]]:
+    """Items the user named as "similar to": (items, references, exclusion set).
+
+    The exclusion set is each item's family and stage copies in every stage
+    (``catalog_identity.exclusion_set_for``), plus the stage copies of the stub owner
+    that holds its embedding. A reference is {content_id, display_name, summary}; the
+    summary is the card analysis (a virtual CI without one uses its anchor's).
+    """
+    items: list[dict] = []
+    references: list[dict] = []
+    excluded: set[str] = set()
+    for content_id in reference_ids:
+        entity = db.get_content_entity(content_id)
+        if not entity:
+            log.warning("reference_not_found", action="reference_not_found", content_id=content_id)
+            continue
+        item = {**entity, **(db.get_babylon_item(content_id) or {})}
+        items.append(item)
+        excluded |= exclusion_set_for(db, content_id) | db.get_stage_copy_ids({_embedding_owner_id(item)})
+        references.append({"content_id": content_id,
+                           "display_name": item.get("display_name") or content_id,
+                           "summary": _reference_summary(db, content_id, entity)})
+    return items, references, excluded
 
 
 def _is_excluded(db, row: dict) -> bool:
@@ -119,15 +163,20 @@ def _is_excluded(db, row: dict) -> bool:
     return bool(item and effective_showroom_source(item).status == "excluded")
 
 
-def _collapse_families(db, rows, *, stages, include_zt, content_types, scope_content_ids):
-    """Apply the card identity rules (rcars.services.catalog_identity) to search rows."""
+def _collapse_families(db, rows, *, stages, include_zt, content_types, scope_content_ids,
+                       excluded=frozenset()):
+    """Apply the card identity rules (rcars.services.catalog_identity) to search rows.
+
+    ``excluded`` (a "similar to X" exclusion set) are never eligible as the virtual CI
+    that absorbs a member: a sibling component then shows as itself.
+    """
     covers = db.get_family_covers([r["content_id"] for r in rows])
     candidate_vcis = sorted({v for vcis in covers.values() for v in vcis})
     eligible_rows = {
         cid: vci_row for cid, vci_row in db.get_eligible_card_rows(
             candidate_vcis, content_types=content_types, stages=stages, include_zt=include_zt,
             scope_content_ids=scope_content_ids).items()
-        if not _is_excluded(db, vci_row)
+        if not _is_excluded(db, vci_row) and cid not in excluded
     }
 
     def displayed_hash(content_id):
@@ -157,11 +206,14 @@ def search(
     include_zt: bool = True,
     content_types: list[str] | None = None,
     scope_content_ids: list[str] | None = None,
+    reference_ids: list[str] | None = None,
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply quality threshold.
 
     The DB returns MAX(similarity) per content_id. Card identity (families, stage
     copies) is decided by rcars.services.catalog_identity before the top-K cut.
+    reference_ids: items the user named as "similar to". They, their family and their
+    stage copies are dropped before the family collapse and the top-K cut.
     Returns QueryState with phase VECTOR_DONE or NO_MATCHES.
     """
     t0 = time.monotonic()
@@ -182,7 +234,11 @@ def search(
         scope_content_ids=_owner_scope_ids(db, scope_content_ids),
     )
 
+    reference_items, references, excluded = _reference_context(db, reference_ids or [])
     ci_ref_rows = [] if scope_content_ids else _resolve_ci_references(query, db, effective_stages, include_zt, content_types)
+    if not scope_content_ids:
+        for item in reference_items:
+            ci_ref_rows += _neighbor_rows(db, item, effective_stages, include_zt, content_types)
     if ci_ref_rows:
         log.info("ci_resolve_neighbors", count=len(ci_ref_rows))
         seen = {r["content_id"] for r in rows}
@@ -199,7 +255,16 @@ def search(
     # One card per family and per stage-copy group, BEFORE the final top-K cut.
     rows, collapse = _collapse_families(
         db, rows, stages=effective_stages, include_zt=include_zt,
-        content_types=content_types, scope_content_ids=scope_content_ids)
+        content_types=content_types, scope_content_ids=scope_content_ids, excluded=excluded)
+    if excluded:
+        # RHDPCD-2298: after the collapse, so a sibling virtual CI that shares a hit
+        # component with the reference still takes it in; before the scope filter and
+        # the top-K cut, so no slot is left empty.
+        kept = [r for r in rows if r["content_id"] not in excluded]
+        log.info("ci_reference_exclusion", action="ci_reference_exclusion",
+                 referenced=[r["content_id"] for r in references],
+                 exclusion_set_size=len(excluded), rows_dropped=len(rows) - len(kept))
+        rows = kept
     if scope_content_ids:
         # Scope ids that are pure stubs are searched through their owner; an owner left
         # as a card (no family rows yet, or its stub not eligible) is outside the scope.
@@ -316,4 +381,5 @@ def search(
         candidates=candidates,
         query=query,
         timings={"vector_search": round(elapsed, 3)},
+        references=references,
     )

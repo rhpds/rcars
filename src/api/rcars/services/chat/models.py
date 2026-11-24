@@ -55,6 +55,9 @@ class Envelope(BaseModel):
 class RecommendArgs(BaseModel):
     search_query: str = ""
     constraints: dict = Field(default_factory=dict)  # duration, format_hint, performance, stages
+    # Set ONLY when the user asks for content similar to / like / instead of a NAMED
+    # catalog item. The named item is then a reference: it and its family never show.
+    similar_to: str | None = None
 
 
 class OverlapArgs(BaseModel):

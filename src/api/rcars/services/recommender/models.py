@@ -53,3 +53,5 @@ class QueryState:
     content_gaps: list[str] | None = None
     timings: dict[str, float] = field(default_factory=dict)
     token_usage: list[dict] = field(default_factory=list)
+    # Items the query points at ("similar to LB1237"): content_id, display_name, summary.
+    references: list[dict] = field(default_factory=list)

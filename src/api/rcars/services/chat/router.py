@@ -153,6 +153,7 @@ class Resolution:
     clarify: Clarify | None = None
     chips: list[Chip] = field(default_factory=list)
     redirect_message: str = ""
+    reference_ids: list[str] = field(default_factory=list)  # recommend: the named item(s) the user wants similar content to
 
 
 def _result_turns(context: list[dict]) -> list[dict]:
@@ -165,6 +166,21 @@ def _turn_chips(context: list[dict], output: RouterOutput) -> list[Chip]:
                  intent=output.intent, args=output.args,
                  scope={"type": "prior_results", "turn": t["n"]})
             for t in _result_turns(context)[-3:]]
+
+
+def _guess_clarification(output: RouterOutput, ref: str, guesses: list[dict], arg: str) -> Resolution:
+    """"Did you mean…" for a ref that did not resolve to one item. ``arg`` is the args key a chip sets."""
+    chips = [Chip(label=g.get("display_name", g["content_id"]), intent=output.intent,
+                  args={**output.args, arg: f"content_id:{g['content_id']}"})
+             for g in guesses[:5]]
+    n = len(guesses)
+    if n == 0:
+        question = f'No items found matching "{ref}".'
+    elif n == 1:
+        question = f'Did you mean "{guesses[0].get("display_name", ref)}"?'
+    else:
+        question = f'Multiple items match "{ref}". Which did you mean:'
+    return Resolution(kind="clarify", output=output, clarify=Clarify(question=question), chips=chips)
 
 
 async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
@@ -200,25 +216,31 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
     # Ladder 3: item refs → catalog resolution ("did you mean…" on miss)
     # Skip when scope already resolved content_ids — re-resolving by name is
     # lossy and can pick the wrong variant (e.g. "Roadshow" vs "Roadshow (2026)").
+    # A ref that is also args.similar_to is resolved (and clarified) only by the
+    # similar_to step below, so one ambiguous name never asks twice.
+    similar_to = output.args.get("similar_to") if output.intent == "recommend" else None
     for ref in (output.item_refs if not scope_ids else []):
+        if similar_to and ref == similar_to:
+            continue
         resolved = resolve_item(ref, db)
         if "item" in resolved:
             items.append(resolved["item"])
         else:
-            guesses = resolved["guesses"]
-            chips = [Chip(label=g.get("display_name", g["content_id"]), intent=output.intent,
-                          args={**output.args, "item_ref": f"content_id:{g['content_id']}"})
-                     for g in guesses[:5]]
-            n = len(guesses)
-            if n == 0:
-                question = f'No items found matching "{ref}".'
-            elif n == 1:
-                question = f'Did you mean "{guesses[0].get("display_name", ref)}"?'
-            else:
-                question = f'Multiple items match "{ref}". Which did you mean:'
-            return Resolution(kind="clarify", output=output,
-                              clarify=Clarify(question=question),
-                              chips=chips)
+            return _guess_clarification(output, ref, resolved["guesses"], "item_ref")
+
+    # A named reference ("similar to X"): same resolver, same clarify flow. It stays
+    # unresolved, and nothing is excluded, until the user picks the item.
+    reference_ids: list[str] = []
+    if similar_to:
+        ref = similar_to
+        urls, _ = extract_urls(similar_to)
+        ci_name = _parse_catalog_url(urls[0]) if urls else None
+        if ci_name:  # a catalog URL names a CI; same lookup as a chip
+            ref = f"content_id:babylon:{ci_name}"
+        resolved = resolve_item(ref, db)
+        if "item" not in resolved:
+            return _guess_clarification(output, similar_to, resolved["guesses"], "similar_to")
+        reference_ids.append(resolved["item"]["content_id"])
 
     # Ladder 4: confidence gate → router's own clarify question
     if output.confidence < settings.chat_router_confidence_threshold and output.clarify:
@@ -242,7 +264,8 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
                                             f"Browse page for catalog details."))
 
     return Resolution(kind="execute", output=output, message=message,
-                      scope_ids=scope_ids, scope_turn=scope_turn, items=items)
+                      scope_ids=scope_ids, scope_turn=scope_turn, items=items,
+                      reference_ids=reference_ids)
 
 
 def _extract_json(text: str) -> dict:
