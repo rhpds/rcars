@@ -101,7 +101,7 @@ def test_test_item_cannot_seed_recommendation_neighbor_expansion(db, legacy_test
     seed(db, "isolation-test.real-content.prod")
     with db.pool.connection() as conn:
         conn.execute("UPDATE content_entities SET display_name='LB9876 test-only content' WHERE content_id=%s", (TEST_ID,))
-    assert _resolve_ci_references("similar to LB9876", db, ["prod"], True) == []
+    assert _resolve_ci_references("similar to LB9876", db, ["prod"], True) == ([], [], set())
 
 
 def test_catalog_refresh_marks_test_content_excluded_without_deleting_history(db, legacy_test_item):
