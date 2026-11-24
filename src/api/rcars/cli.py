@@ -64,6 +64,31 @@ def init_db(drop: bool):
         db.close()
 
 
+@cli.command("check-card-families")
+@click.argument("content_ids", nargs=-1)
+def check_card_families(content_ids: tuple[str, ...]):
+    """Deploy smoke check: fail when two Advisor cards share a catalog family.
+
+    Pass the content_ids of one result. Exit 1 when two share a family. When no
+    families are stored yet (before the first catalog refresh) it warns and passes.
+    """
+    from rcars.services.catalog_identity import cards_sharing_a_family
+
+    db = get_db()
+    try:
+        if db.count_family_members() == 0:
+            _print("WARNING: no catalog families stored yet (run a catalog refresh). Family check skipped.")
+            return
+        shared = cards_sharing_a_family(list(content_ids), db.get_family_rows(list(content_ids)))
+    finally:
+        db.close()
+    for first, second, virtual in shared:
+        _print(f"FAIL: {first} and {second} share the family of {virtual}")
+    if shared:
+        sys.exit(1)
+    _print(f"OK: {len(content_ids)} cards, none share a family.")
+
+
 @cli.command()
 def refresh():
     """Refresh catalog from Babylon CRDs (all namespaces)."""
