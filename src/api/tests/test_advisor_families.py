@@ -348,3 +348,31 @@ def test_check_card_families_passes_with_a_warning_when_no_families_are_stored(d
     monkeypatch.setattr(db, "count_family_members", lambda: 0)
     result = CliRunner().invoke(cli_module.cli, ["check-card-families", "babylon:a", "babylon:b"])
     assert result.exit_code == 0 and "WARNING" in result.output
+
+
+# ── card analysis: a cleared own row must not hide the anchor ──
+
+def _clear_own_analysis(db, content_id):
+    with db.pool.connection() as conn:  # keeps the row, summary etc. become NULL
+        db.clear_babylon_generated_artifacts([content_id], conn=conn)
+
+
+def test_card_analysis_uses_the_anchor_when_the_virtual_ci_row_is_cleared(db):
+    anchor, vci = item(db, "lab.prod"), item(db, "virtual.prod")
+    link(db, vci, anchor)
+    _clear_own_analysis(db, vci)
+    assert db.get_showroom_analysis(vci) is not None and db.get_showroom_analysis(vci)["summary"] is None
+    assert db.get_card_analysis(vci)["summary"] == "About lab.prod"
+
+
+def test_card_analysis_keeps_the_cleared_own_row_when_there_is_no_anchor(db):
+    vci = item(db, "virtual.prod")
+    _clear_own_analysis(db, vci)
+    result = db.get_card_analysis(vci)
+    assert result is not None and result["content_id"] == vci and result["summary"] is None
+
+
+def test_card_analysis_prefers_a_usable_own_analysis(db):
+    anchor, vci = item(db, "lab.prod"), item(db, "virtual.prod")
+    link(db, vci, anchor)
+    assert db.get_card_analysis(vci)["summary"] == "About virtual.prod"

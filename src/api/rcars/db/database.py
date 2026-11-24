@@ -2414,12 +2414,14 @@ class Database:
     def get_card_analysis(self, content_id: str) -> dict | None:
         """The analysis an Advisor card shows.
 
-        The display analysis (a pure stub shows its owner's). A virtual CI with
-        no analysis of its own (its Showroom did not resolve to an owner, for
-        example a field-asset wrapper) shows its family's content anchor instead.
+        The display analysis (a pure stub shows its owner's) when it has generated
+        data (``summary`` set). A virtual CI with no usable analysis of its own (its
+        Showroom did not resolve to an owner, for example a field-asset wrapper, or
+        its row was cleared by a failed scan and keeps only NULLs) shows its family's
+        content anchor instead. With no anchor, the own row is returned as before.
         """
         analysis = self.get_display_analysis(content_id)
-        if analysis:
+        if analysis and analysis.get("summary") is not None:
             return analysis
         with self._pool.connection() as conn:
             row = conn.execute(
@@ -2427,7 +2429,7 @@ class Database:
                 "JOIN showroom_analysis sa ON sa.content_id = fm.member_content_id "
                 "WHERE fm.virtual_content_id = %s AND fm.role = 'anchor' "
                 "ORDER BY fm.member_content_id LIMIT 1", (content_id,)).fetchone()
-        return row
+        return row or analysis
 
     def search_infrastructure_embeddings(
         self,
