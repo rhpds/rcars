@@ -183,19 +183,38 @@ namespace and not a substring match on titles or names.
 
 ### Verified reuse and incremental maintenance
 
-Reuse requires the same authorized item/content-owner scope and complete matching
-versioned signatures: repo, exact requested ref, selected path, fetched commit,
-content hash, actual prompt/vocabulary/model inputs, and policy version. Legacy,
-stale, failed, retired, or incomplete donors cannot donate. Each target owns its
-materialized analysis/card/embeddings and durable donor provenance. Summary text
-uses that target's display name and keywords. Recommendation promotion follows
-verified exact stage counterparts or explicit content-delegation paths only.
+One LLM analysis per distinct content. "Same content" has one owner,
+`services/analysis_identity.py`: the `content_hash` of the selected, filtered files the
+LLM reads. Ref names, tags and CI names never count. The analysis setup has one owner
+too (`compute_analysis_config`: prompt template, vocabulary block, model, policy
+version, entity content type). A complete analysis may be reused by any CI and any
+stage when `content_hash` and `analysis_config` match. Do not add other reuse rules.
+
+1. Pre-clone shortcut: a complete analysis with the same repo, resolved commit,
+   `content_path` and `analysis_config` is reused. No clone, no LLM. The commit and
+   path only find a known hash early; they are never identity.
+2. Post-clone lookup: otherwise the scan clones, filters and hashes, then reuses a
+   complete analysis with the same `content_hash` and `analysis_config`.
+3. Otherwise one LLM call.
+
+Reuse is pull, never push: an item looks for a donor when it is scanned, and each
+target keeps its own analysis row, card, embeddings and `reused_from` provenance.
+Reuse never sets card identity. Summary text uses that target's display name and
+keywords. Stale, failed, retired, description-sourced or incomplete donors cannot
+donate. Concurrent scans queue and lock on the pre-clone key (repo + commit + path +
+`analysis_config`), so one leader runs and siblings across CIs and stages reuse it.
+
+The content prompt still carries per-CI lines (CI name, display name, category,
+product), so they are still part of `analysis_config` (`PROMPT_CARRIES_ITEM_CONTEXT`).
+Until they leave the prompt, another CI reading the same files is not a donor; stage
+copies of one CI are, even under different ref names. The nightly pipeline logs
+`scan_reuse_summary` (own LLM runs vs distinct content, and the repeated runs).
 
 - Same source/revision/context with current complete embeddings: lightweight
   freshness check only; no analysis job, clone, LLM, embedding call, or replacement.
 - New commit with identical selected content/context: fetch once and advance the
   verified revision while preserving `generated_commit` and `last_analyzed`.
-- Changed content/context: analyze or use a fully matching authorized donor.
+- Changed content/context: reuse a complete analysis with the same `content_hash` and `analysis_config`, else analyze.
 - Changed/missing embedding artifacts: repair only affected vectors, without
   rerunning otherwise-current LLM analysis.
 - Explicit force/rescan-all bypasses unchanged and donor fast paths for targets.

@@ -20,9 +20,10 @@ from psycopg_pool import ConnectionPool
 import structlog
 
 from rcars.config import STAGE_PRIORITY
+from rcars.services.analysis_identity import donor_matches_commit, donor_matches_content
 from rcars.services.retirement import retirement_label
 from rcars.services.showroom_source import (
-    AnalysisSignature, ResolvedShowroom, analysis_artifacts_complete, content_owner,
+    ResolvedShowroom, analysis_artifacts_complete, content_owner,
     effective_analysis_source, effective_showroom_source, item_family_key, KNOWN_STAGES,
     signature_matches_source,
 )
@@ -646,6 +647,7 @@ ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp1 TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS tdp2 TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS analysis_source_override TEXT;
 ALTER TABLE babylon_items ADD COLUMN IF NOT EXISTS custom_description TEXT;
+CREATE INDEX IF NOT EXISTS idx_sa_content_hash ON showroom_analysis(content_hash);
 
 -- Catalog families (RHDPCD-2297). stage_key = CI name minus its stage suffix
 -- (non-Babylon items: content_id). Backfilled by create_schema().
@@ -1965,28 +1967,94 @@ class Database:
         content_id = f"babylon:{ci_name}"
         return self.get_showroom_analysis(content_id)
 
-    def find_showroom_donor(self, signature: AnalysisSignature, *, exclude_content_id: str) -> dict | None:
+    def _complete_showroom_donor(self, where: str, params: tuple, matches) -> dict | None:
+        """First complete, current analysis from any CI and stage that passes ``matches``.
+
+        ``where`` only narrows the candidates in SQL; ``matches`` (the analysis_identity
+        matchers) is the rule. Complete means: not retired, scan succeeded, not stale, its
+        signature is current for its own source, and all its embeddings exist.
+        """
         with self._pool.connection() as conn:
-            rows = conn.execute("""
-                    SELECT sa.*, bi.stage, bi.ci_name, bi.showroom_source_json,
-                           bi.showroom_url_override, bi.content_path
+            rows = conn.execute(f"""
+                    SELECT sa.*, ce.content_type AS entity_content_type, bi.stage, bi.ci_name,
+                           bi.showroom_source_json, bi.showroom_url_override, bi.content_path
                     FROM showroom_analysis sa
                     JOIN content_entities ce ON ce.content_id = sa.content_id
                     JOIN babylon_items bi ON bi.content_id = sa.content_id
-                    WHERE sa.analysis_provenance_json->'signature' = %s
-                      AND sa.content_id != %s AND ce.retired_at IS NULL
+                    WHERE sa.content_id != %s AND ce.retired_at IS NULL
                       AND ce.scan_status = 'success' AND sa.is_stale IS FALSE
-                      AND sa.content_hash = %s
+                      AND sa.content_hash IS NOT NULL
+                      AND {where}
                     ORDER BY CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 ELSE 2 END,
                              sa.last_analyzed DESC NULLS LAST, sa.content_id
-                """, (Jsonb(signature.to_dict()), exclude_content_id, signature.content_hash)).fetchall()
+                """, params).fetchall()
         for row in rows:
             source = effective_showroom_source(row)
-            if (signature_matches_source(signature.to_dict(), source)
+            if (matches(row)
+                    and signature_matches_source(row["analysis_provenance_json"]["signature"], source)
                     and row["analysis_provenance_json"].get("source") == source.to_dict()
                     and analysis_artifacts_complete(row, self.get_embeddings_for_content(row["content_id"]))):
                 return row
         return None
+
+    def find_showroom_donor_by_commit(self, *, repo: str, commit: str, content_path: str | None,
+                                      analysis_config: str, entity_content_type: str,
+                                      exclude_content_id: str) -> dict | None:
+        """Pre-clone shortcut: same repo + commit + content_path + analysis_config."""
+        return self._complete_showroom_donor(
+            """sa.analysis_provenance_json->'signature'->>'repo' = %s
+               AND sa.analysis_provenance_json->'signature'->>'commit' = %s
+               AND sa.analysis_provenance_json->'signature'->>'content_path' IS NOT DISTINCT FROM %s
+               AND sa.analysis_provenance_json->'signature'->>'context_hash' = %s
+               AND ce.content_type = %s""",
+            (exclude_content_id, repo, commit, content_path or None, analysis_config, entity_content_type),
+            lambda row: donor_matches_commit(row, repo=repo, commit=commit, content_path=content_path,
+                                             analysis_config=analysis_config,
+                                             entity_content_type=entity_content_type))
+
+    def find_showroom_donor_by_content(self, *, content_hash: str, analysis_config: str,
+                                       entity_content_type: str, exclude_content_id: str) -> dict | None:
+        """Post-clone lookup: same content_hash + analysis_config, any CI and stage."""
+        return self._complete_showroom_donor(
+            """sa.content_hash = %s
+               AND sa.analysis_provenance_json->'signature'->>'context_hash' = %s
+               AND ce.content_type = %s""",
+            (exclude_content_id, content_hash, analysis_config, entity_content_type),
+            lambda row: donor_matches_content(row, content_hash=content_hash, analysis_config=analysis_config,
+                                              entity_content_type=entity_content_type))
+
+    def get_scan_reuse_stats(self) -> dict[str, int]:
+        """LLM runs vs distinct content over active Showroom analyses (nightly log line).
+
+        An own run is an analysis that was not copied from a donor. ``extra_llm_runs`` is how
+        many own runs repeated content (same content_hash + analysis_config) that another own
+        run already covered. ``extra_llm_runs_hash_only`` is the same count once per-CI context
+        has left analysis_config (the prompt-change PR).
+        """
+        with self._pool.connection() as conn:
+            row = conn.execute("""
+                WITH active AS (
+                    SELECT sa.content_hash,
+                           sa.analysis_provenance_json->'signature'->>'context_hash' AS analysis_config,
+                           (sa.analysis_provenance_json->>'reused_from') IS NULL AS own_run
+                    FROM showroom_analysis sa
+                    JOIN content_entities ce ON ce.content_id = sa.content_id
+                    WHERE ce.retired_at IS NULL AND sa.content_hash IS NOT NULL
+                      AND sa.content_id NOT LIKE 'babylon:tests.%%'
+                      AND COALESCE(sa.analysis_provenance_json->'signature'->>'repo', '') NOT LIKE 'description:%%'
+                )
+                SELECT COUNT(*) AS analyses,
+                       COUNT(*) FILTER (WHERE own_run) AS llm_runs,
+                       COUNT(*) FILTER (WHERE NOT own_run) AS reused,
+                       COUNT(DISTINCT (content_hash, analysis_config)) AS distinct_content,
+                       COUNT(DISTINCT (content_hash, analysis_config)) FILTER (WHERE own_run) AS distinct_own,
+                       COUNT(DISTINCT content_hash) FILTER (WHERE own_run) AS distinct_own_hash_only
+                FROM active
+            """).fetchone()
+        return {"analyses": row["analyses"], "llm_runs": row["llm_runs"], "reused": row["reused"],
+                "distinct_content": row["distinct_content"],
+                "extra_llm_runs": row["llm_runs"] - row["distinct_own"],
+                "extra_llm_runs_hash_only": row["llm_runs"] - row["distinct_own_hash_only"]}
 
     def get_stage_counterpart(self, content_id: str, stage: str) -> dict | None:
         item = self.get_babylon_item(content_id)

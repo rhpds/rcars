@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from tests.test_analyzer import git_repo
-from rcars.services import analyzer
+from rcars.services import analysis_identity, analyzer
 from rcars.services.showroom_source import ResolvedShowroom
 
 
@@ -17,7 +17,8 @@ class MemoryArtifacts:
         self.embeddings = []
         self.item = None
         self.donor = None
-        self.lookups = []
+        self.commit_lookups = []
+        self.content_lookups = []
 
     def get_showroom_analysis(self, _):
         return self.analysis
@@ -34,11 +35,15 @@ class MemoryArtifacts:
     def record_unknown_term(self, *args, **kwargs):
         pass
 
-    def find_showroom_donor(self, signature, *, exclude_content_id):
-        self.lookups.append(signature)
-        if self.donor and self.donor["analysis_provenance_json"]["signature"] == signature.to_dict():
-            return self.donor
-        return None
+    # A deliberately careless database: it hands back whatever donor it holds, so these
+    # tests prove the analyzer itself refuses a donor that does not match the key.
+    def find_showroom_donor_by_commit(self, **kwargs):
+        self.commit_lookups.append(kwargs)
+        return self.donor
+
+    def find_showroom_donor_by_content(self, **kwargs):
+        self.content_lookups.append(kwargs)
+        return self.donor
 
     def save(self, result):
         self.analysis = {**{key + "_json": value for key, value in result["analysis"].items()},
@@ -79,6 +84,8 @@ def prime(scan):
     scan.db.save(result)
     scan.llm.reset_mock()
     scan.embed.reset_mock()
+    scan.db.commit_lookups.clear()
+    scan.db.content_lookups.clear()
     return result
 
 
@@ -98,8 +105,23 @@ def test_nav_and_publishing_house_stub_return_no_content_before_lookup_or_llm(sc
     git("commit", "-m", "Stub")
     result = scan.run()
     assert result["error"] == "no_content"
-    assert scan.db.lookups == []
+    assert scan.db.content_lookups == []  # boilerplate-only content never becomes a shared key
     assert scan.llm.call_count == scan.embed.call_count == 0
+
+
+def test_boilerplate_only_content_never_reuses_even_a_donor_with_the_empty_hash(scan, git_repo):
+    repo, git, _, _ = git_repo
+    (repo / "content/modules/ROOT/pages/index.adoc").write_text("= Home\n\n* xref:other.adoc[Next]")
+    git("add", ".")
+    git("commit", "-m", "Stub")
+    prime_donor = analyzer.hash_showroom_content({})
+    scan.db.donor = {"content_id": "babylon:example.other.prod", "entity_content_type": "lab",
+                     "content_hash": prime_donor, "analysis_provenance_json": {"signature": {
+                         "repo": scan.source.repo, "commit": git("rev-parse", "HEAD"), "content_path": None,
+                         "content_hash": prime_donor, "context_hash": "any", "policy_version": 1}}}
+    assert scan.run()["error"] == "no_content"
+    assert scan.db.content_lookups == []
+    assert scan.llm.call_count == 0
 
 
 def test_identical_revision_and_context_skips_clone_llm_and_embeddings(scan, monkeypatch):
@@ -110,6 +132,7 @@ def test_identical_revision_and_context_skips_clone_llm_and_embeddings(scan, mon
     assert result["outcome"] == "unchanged"
     assert result["analysis_provenance"] == first["analysis_provenance"]
     assert clone.call_count == scan.llm.call_count == scan.embed.call_count == 0
+    assert scan.db.commit_lookups == scan.db.content_lookups == []
 
 
 def test_new_commit_same_selected_content_only_advances_verified_revision(scan, git_repo, monkeypatch):
@@ -200,12 +223,29 @@ def test_force_bypasses_unchanged_fast_path_and_donors(scan):
     assert scan.embed.call_count == 2
 
 
-def test_same_scoped_signature_reuses_analysis_but_targets_own_summary(scan):
-    prime(scan)
+def donor_row(scan, content_id="babylon:example.item.prod", **changes):
+    """The saved analysis, as the database would return it for another item."""
     donor = deepcopy(scan.db.analysis)
-    donor.update(content_id="babylon:example.item.prod", ci_name="example.item.prod")
-    scan.db.donor = donor
+    donor.update(content_id=content_id, ci_name=content_id.removeprefix("babylon:"), entity_content_type="lab")
+    signature = donor["analysis_provenance_json"]["signature"]
+    for key, value in changes.items():
+        if key == "entity_content_type":
+            donor[key] = value
+        else:
+            signature[key] = value
+            if key == "content_hash":
+                donor["content_hash"] = value
+    return donor
+
+
+def as_donor(scan, **changes):
+    scan.db.donor = donor_row(scan, **changes)
     scan.db.analysis = None
+
+
+def test_same_content_reuses_analysis_but_targets_own_summary(scan):
+    prime(scan)
+    as_donor(scan)
     result = scan.run(ci_name="example.item.dev", keywords=["target-only"])
     assert result["outcome"] == "reused"
     assert scan.llm.call_count == 0
@@ -215,18 +255,95 @@ def test_same_scoped_signature_reuses_analysis_but_targets_own_summary(scan):
     assert result["analysis_provenance"]["reused_from"] == "babylon:example.item.prod"
 
 
-@pytest.mark.parametrize("field,value", [("scope_key", "example.other"), ("ref", "light"),
-    ("content_path", "content/modules/ROOT/pages"), ("commit", "f" * 40),
-    ("repo", "https://github.com/example/other"), ("content_hash", "different"),
-    ("context_hash", "different"), ("input_hash", "different")])
-def test_every_changed_signature_input_prevents_donor_reuse(scan, field, value):
+def test_other_stage_with_another_ref_name_on_the_same_commit_reuses_without_cloning(scan, git_repo, monkeypatch):
+    repo, git, _, second = git_repo
+    git("tag", "v1")  # a tag on the same commit as main
     prime(scan)
-    donor = deepcopy(scan.db.analysis)
-    donor["analysis_provenance_json"]["signature"][field] = value
-    scan.db.donor = donor
-    scan.db.analysis = None
-    assert scan.run()["outcome"] == "analyzed"
-    assert scan.llm.call_count == 1
+    as_donor(scan)
+    monkeypatch.setattr(analyzer, "clone_showroom", Mock(side_effect=AssertionError("pre-clone shortcut must not clone")))
+    result = scan.run(ci_name="example.item.dev", source=replace(scan.source, ref="v1"))
+    assert result["outcome"] == "reused"
+    assert scan.llm.call_count == 0
+    signature = result["analysis_provenance"]["signature"]
+    assert (signature["ref"], signature["commit"]) == ("v1", second)  # own source facts stay on the item
+    assert result["analysis_provenance"]["reused_from"] == "babylon:example.item.prod"
+    assert scan.db.content_lookups == []  # the shortcut answered; no post-clone lookup needed
+
+
+def test_new_commit_with_the_same_files_reuses_after_the_clone(scan, git_repo, monkeypatch):
+    repo, git, _, _ = git_repo
+    prime(scan)
+    as_donor(scan)
+    (repo / "README.md").write_text("Another irrelevant commit")
+    git("add", ".")
+    git("commit", "-m", "Documentation only")
+    clone = Mock(wraps=analyzer.clone_showroom)
+    monkeypatch.setattr(analyzer, "clone_showroom", clone)
+    result = scan.run(ci_name="example.item.dev")
+    assert result["outcome"] == "reused"
+    assert clone.call_count == 1 and scan.llm.call_count == 0
+    assert result["analysis_provenance"]["signature"]["commit"] == git("rev-parse", "HEAD")
+    assert len(scan.db.commit_lookups) == len(scan.db.content_lookups) == 1
+
+
+def test_different_content_path_in_one_repo_is_not_reused(scan, git_repo, monkeypatch):
+    repo, git, _, _ = git_repo
+    other = repo / "other/modules/ROOT/pages"
+    other.mkdir(parents=True)
+    (other / "index.adoc").write_text("= Another lab\n\nDeploy a service mesh with Istio.\n")
+    git("add", ".")
+    git("commit", "-m", "Second lab in the same repo")
+    prime(scan)
+    as_donor(scan)
+    clone = Mock(wraps=analyzer.clone_showroom)
+    monkeypatch.setattr(analyzer, "clone_showroom", clone)
+    result = scan.run(ci_name="example.item.dev", source=replace(scan.source, content_path="other"))
+    assert result["outcome"] == "analyzed"
+    assert clone.call_count == 1 and scan.llm.call_count == 1
+
+
+@pytest.mark.parametrize("prompt_carries_item_context", [True, False])
+def test_different_ci_with_the_same_files_reuses_only_once_context_is_out_of_the_config(
+        scan, monkeypatch, prompt_carries_item_context):
+    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", prompt_carries_item_context)
+    first = scan.run(ci_name="example.other.prod", display_name="Another workshop",
+                     source=replace(scan.source, scope_key="example.other"))
+    scan.db.save(first)
+    scan.llm.reset_mock()
+    as_donor(scan, content_id="babylon:example.other.prod")
+    result = scan.run()  # example.item.prod, "TLS workshop": same files, other CI
+    if prompt_carries_item_context:
+        assert result["outcome"] == "analyzed" and scan.llm.call_count == 1
+    else:
+        assert result["outcome"] == "reused" and scan.llm.call_count == 0
+        assert result["analysis_provenance"]["reused_from"] == "babylon:example.other.prod"
+        assert "TLS workshop" in result["ci_embedding_text"]  # the summary embedding stays per item
+
+
+@pytest.mark.parametrize("changes,blocks_reuse", [
+    # The invariant: only content_hash + analysis_config (and policy, entity type) decide.
+    # (A donor on this commit and path cannot hold other files, so a different hash comes
+    # from another commit; the pre-clone shortcut never sees a hash.)
+    ({"content_hash": "different", "commit": "f" * 40}, True), ({"context_hash": "different"}, True),
+    ({"policy_version": 99}, True), ({"entity_content_type": "architecture"}, True),
+    # Ref names, CI names, commits, repos, paths and prompt hashes never block reuse by themselves.
+    ({"ref": "light"}, False), ({"scope_key": "example.other"}, False), ({"input_hash": "different"}, False),
+    ({"commit": "f" * 40}, False), ({"content_path": "content/modules/ROOT/pages"}, False),
+    ({"repo": "https://github.com/example/other"}, False)])
+def test_scan_never_reuses_unless_content_hash_and_analysis_config_match(scan, changes, blocks_reuse):
+    prime(scan)
+    as_donor(scan, **changes)
+    result = scan.run(ci_name="example.item.dev")
+    if blocks_reuse:
+        assert result["outcome"] == "analyzed" and scan.llm.call_count == 1
+    else:
+        assert result["outcome"] == "reused" and scan.llm.call_count == 0
+
+
+def test_description_analysis_is_never_a_showroom_donor(scan):
+    prime(scan)
+    as_donor(scan, repo="description:example.item.prod")
+    assert scan.run(ci_name="example.item.dev")["outcome"] == "analyzed"
 
 
 @pytest.mark.parametrize("field,value", [("showroom_url_override", "url"), ("content_path", "content/modules/ROOT/pages")])

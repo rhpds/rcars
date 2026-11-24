@@ -33,6 +33,11 @@ class AnalysisSignature:
     def to_dict(self) -> dict:
         return asdict(self)
 
+    @property
+    def analysis_config(self) -> str:
+        """The stored ``context_hash`` is the analysis_config digest (see analysis_identity)."""
+        return self.context_hash
+
 
 def signatures_match(left: AnalysisSignature, right: AnalysisSignature) -> bool:
     return left == right and left.policy_version == SHOWROOM_ANALYSIS_POLICY_VERSION

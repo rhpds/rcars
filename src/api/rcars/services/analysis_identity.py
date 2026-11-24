@@ -1,0 +1,126 @@
+"""The only place that decides when two Showroom analyses are "the same".
+
+Two owner functions, everything else calls them:
+
+* ``compute_content_hash`` -- same Showroom content. Equal hash of the selected,
+  filtered files the LLM reads. Ref names, tags and CI names never count.
+* ``compute_analysis_config`` -- same analysis setup. Prompt template, vocabulary
+  block, model, policy version and entity content type.
+
+An analysis may be reused when ``content_hash`` and ``analysis_config`` (and the
+entity content type) are equal. ``repo + resolved commit + content_path`` is only
+a pre-clone shortcut to find a known hash without cloning; it is never identity.
+
+Pull, never push: a scan looks for a donor for itself. Reuse never sets card
+identity (that comes from the catalog families, not from scan reuse).
+"""
+import hashlib
+import json
+import re
+
+from rcars.services.showroom_source import SHOWROOM_ANALYSIS_POLICY_VERSION
+
+# The content prompt still carries per-CI lines (CI name, display name, category,
+# product). While it does, those lines are part of the LLM input, so they MUST be
+# part of analysis_config or reuse would hand one CI the analysis written for
+# another. The prompt-change PR (RHDPCD-2302 PR 7) removes the lines from the
+# prompt and sets this to False. Nothing else needs to change.
+PROMPT_CARRIES_ITEM_CONTEXT = True
+
+
+def fingerprint(*values) -> str:
+    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def canonical_content(content: str) -> str:
+    """The exact text hashed is also the text sent to the analysis model."""
+    text = "\n".join(line.rstrip() for line in content.splitlines())
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
+
+
+def compute_content_hash(files: dict[str, str]) -> str:
+    """Deterministic SHA-256 of Showroom content files.
+
+    Whitespace is normalized so trailing spaces, blank-line differences and line
+    endings do not change the hash. Files are sorted by name.
+    """
+    h = hashlib.sha256()
+    for filename in sorted(files.keys()):
+        h.update(filename.encode())
+        h.update(b"\x00")
+        h.update(canonical_content(files[filename]).encode())
+        h.update(b"\x00")
+    return h.hexdigest()
+
+
+# Boilerplate-only content is rejected before the LLM and never gets a hash. This
+# is the hash of "no files"; it must never become a shared key.
+EMPTY_CONTENT_HASH = compute_content_hash({})
+
+
+def compute_analysis_config(scope_key: str, display_name: str, category: str, product: str,
+                            entity_content_type: str, model: str) -> str:
+    """Digest of everything except the content that shapes the LLM result.
+
+    The entity content type reaches the digest through the vocabulary block of
+    the system prompt. The value is deliberately identical to the digest stored
+    before this module existed (``signature.context_hash``): a different formula
+    would make every stored analysis look outdated and force a full rescan. The
+    donor matchers below also compare the entity content type explicitly.
+    """
+    from rcars.services import analyzer
+    system, info = analyzer.build_analysis_prompt(scope_key, display_name, category, product, {},
+                                                  entity_content_type=entity_content_type)
+    return fingerprint(system, info if PROMPT_CARRIES_ITEM_CONTEXT else None, model,
+                       SHOWROOM_ANALYSIS_POLICY_VERSION)
+
+
+def pre_clone_key(repo: str, commit: str, content_path: str | None, analysis_config: str,
+                  entity_content_type: str) -> str:
+    """Queue and lock key known before cloning: same files, same analysis setup."""
+    return fingerprint("showroom-pre-clone", repo, commit, content_path or None, analysis_config,
+                       entity_content_type)
+
+
+def _signature(row: dict) -> dict:
+    return (row.get("analysis_provenance_json") or {}).get("signature") or {}
+
+
+def _donor_signature(row: dict, analysis_config: str, entity_content_type: str) -> dict | None:
+    """The donor's signature when its hash, config, policy and type are usable."""
+    signature, stored_hash = _signature(row), row.get("content_hash")
+    if not signature or not stored_hash or stored_hash == EMPTY_CONTENT_HASH:
+        return None
+    if signature.get("content_hash") != stored_hash:
+        return None
+    if signature.get("context_hash") != analysis_config:
+        return None
+    if signature.get("policy_version") != SHOWROOM_ANALYSIS_POLICY_VERSION:
+        return None
+    if row.get("entity_content_type") != entity_content_type:
+        return None
+    if str(signature.get("repo") or "").startswith("description:"):
+        return None  # description analyses are per item, never Showroom donors
+    return signature
+
+
+def donor_matches_content(row: dict, *, content_hash: str, analysis_config: str,
+                          entity_content_type: str) -> bool:
+    """Post-clone rule: same content_hash + analysis_config, from any CI and stage."""
+    if not content_hash or content_hash == EMPTY_CONTENT_HASH:
+        return False
+    return (_donor_signature(row, analysis_config, entity_content_type) is not None
+            and row.get("content_hash") == content_hash)
+
+
+def donor_matches_commit(row: dict, *, repo: str, commit: str, content_path: str | None,
+                         analysis_config: str, entity_content_type: str) -> bool:
+    """Pre-clone shortcut: same repo + commit + content_path + analysis_config.
+
+    The same commit and path always select the same files, so the donor's stored
+    content_hash is the hash this item would compute after cloning.
+    """
+    signature = _donor_signature(row, analysis_config, entity_content_type)
+    return (signature is not None and bool(commit)
+            and signature.get("repo") == repo and signature.get("commit") == commit
+            and (signature.get("content_path") or None) == (content_path or None))

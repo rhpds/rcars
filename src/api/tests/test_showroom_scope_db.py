@@ -8,9 +8,28 @@ from rcars.services.showroom_source import AnalysisSignature, ResolvedShowroom
 URL = "https://github.com/example/content"
 
 
+def CONFIG_FOR_EXAMPLE(model):
+    from rcars.services.analysis_identity import compute_analysis_config
+    return compute_analysis_config("isolation-test.item", "Example", "", "", "lab", model)
+
+
+def by_commit(db, signature, **changes):
+    args = dict(repo=signature.repo, commit=signature.commit, content_path=signature.content_path,
+                analysis_config=signature.analysis_config, entity_content_type="lab",
+                exclude_content_id="babylon:isolation-test.item.dev")
+    return db.find_showroom_donor_by_commit(**{**args, **changes})
+
+
+def by_content(db, signature, **changes):
+    args = dict(content_hash=signature.content_hash, analysis_config=signature.analysis_config,
+                entity_content_type="lab", exclude_content_id="babylon:isolation-test.item.dev")
+    return db.find_showroom_donor_by_content(**{**args, **changes})
+
+
 def seed(db, name="isolation-test.item.prod", **overrides):
     from rcars.config import Settings
-    from rcars.services.analyzer import build_analysis_prompt, compute_analysis_context_hash, compute_embedding_fingerprint
+    from rcars.services.analysis_identity import compute_analysis_config
+    from rcars.services.analyzer import compute_embedding_fingerprint
     settings = Settings(database_url=db._url)
     source = ResolvedShowroom("resolved", name, "isolation-test.item", URL, "main",
                               paths=((name,),)).to_dict()
@@ -19,9 +38,8 @@ def seed(db, name="isolation-test.item.prod", **overrides):
         "showroom_url": URL, "showroom_ref": "main", "showroom_source": source,
         **overrides,
     })
-    system, info = build_analysis_prompt("isolation-test.item", "Example", "", "", {})
     signature = AnalysisSignature("isolation-test.item", URL, "main", None, "a" * 40,
-                                   "content", compute_analysis_context_hash(system, info, settings.model), "input", 1)
+                                   "content", CONFIG_FOR_EXAMPLE(settings.model), "input", 1)
     provenance = {"signature": signature.to_dict(), "source": source,
                   "generated_for": content_id, "generated_commit": "a" * 40,
                   "reused_from": None, "embedding_fingerprints": {"summary": compute_embedding_fingerprint(
@@ -34,24 +52,69 @@ def seed(db, name="isolation-test.item.prod", **overrides):
     return content_id, signature, provenance
 
 
-def test_same_item_matching_signature_reuses_stage(db):
+def test_other_stage_of_the_same_ci_is_a_donor_for_both_lookups(db):
     content_id, signature, _ = seed(db)
-    donor = db.find_showroom_donor(signature, exclude_content_id="babylon:isolation-test.item.dev")
-    assert donor["content_id"] == content_id
+    assert by_commit(db, signature)["content_id"] == content_id
+    assert by_content(db, signature)["content_id"] == content_id
 
 
-def test_unrelated_identical_repo_ref_sha_hash_is_not_donor(db):
+def test_another_ci_is_a_donor_when_it_has_the_same_analysis_config(db):
+    content_id, signature, _ = seed(db)
+    other = "babylon:isolation-test.other.dev"
+    assert by_commit(db, signature, exclude_content_id=other)["content_id"] == content_id
+    assert by_content(db, signature, exclude_content_id=other)["content_id"] == content_id
+
+
+def test_ref_name_and_ci_scope_never_decide(db):
+    """Same files under another ref name or CI scope: the donor is still found."""
+    from psycopg.types.json import Jsonb
+    content_id, signature, provenance = seed(db)
+    provenance["signature"].update(ref="v1.2", scope_key="isolation-test.other", input_hash="another")
+    provenance["source"] = {**provenance["source"], "ref": "v1.2", "scope_key": "isolation-test.other"}
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE showroom_analysis SET analysis_provenance_json = %s WHERE content_id = %s",
+                     (Jsonb(provenance), content_id))
+        conn.execute("UPDATE babylon_items SET showroom_source_json = %s WHERE content_id = %s",
+                     (Jsonb(provenance["source"]), content_id))
+    assert by_commit(db, signature)["content_id"] == content_id
+    assert by_content(db, signature)["content_id"] == content_id
+
+
+@pytest.mark.parametrize("changes", [{"repo": URL + "/other"}, {"commit": "b" * 40}, {"content_path": "other"},
+                                     {"analysis_config": "other"}, {"entity_content_type": "architecture"}])
+def test_pre_clone_lookup_needs_repo_commit_path_config_and_type(db, changes):
     _, signature, _ = seed(db)
-    assert db.find_showroom_donor(replace(signature, scope_key="isolation-test.other"),
-                                   exclude_content_id="babylon:isolation-test.other.dev") is None
+    assert by_commit(db, signature, **changes) is None
 
 
-@pytest.mark.parametrize("field,value", [("scope_key", "other"), ("repo", URL + "/other"),
-    ("ref", None), ("content_path", "other"), ("commit", "b" * 40), ("content_hash", "other"),
-    ("context_hash", "other"), ("input_hash", "other"), ("policy_version", 2)])
-def test_every_signature_field_must_match(db, field, value):
+@pytest.mark.parametrize("changes", [{"content_hash": "other"}, {"analysis_config": "other"},
+                                     {"entity_content_type": "architecture"}])
+def test_post_clone_lookup_needs_content_hash_config_and_type(db, changes):
     _, signature, _ = seed(db)
-    assert db.find_showroom_donor(replace(signature, **{field: value}), exclude_content_id="target") is None
+    assert by_content(db, signature, **changes) is None
+
+
+def test_the_item_never_donates_to_itself(db):
+    content_id, signature, _ = seed(db)
+    assert by_commit(db, signature, exclude_content_id=content_id) is None
+    assert by_content(db, signature, exclude_content_id=content_id) is None
+
+
+def test_description_analysis_is_never_a_showroom_donor(db):
+    content_id, signature, provenance = seed(db)
+    from psycopg.types.json import Jsonb
+    provenance["signature"]["repo"] = "description:isolation-test.item.prod"
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE showroom_analysis SET analysis_provenance_json = %s WHERE content_id = %s",
+                     (Jsonb(provenance), content_id))
+    assert by_content(db, signature) is None
+
+
+def test_prod_donor_is_preferred_over_dev(db):
+    dev_id, signature, _ = seed(db, "isolation-test.item.dev")
+    prod_id, _, _ = seed(db, "isolation-test.item.prod")
+    assert by_content(db, signature, exclude_content_id="babylon:isolation-test.item.event")["content_id"] == prod_id
+    assert by_commit(db, signature, exclude_content_id="babylon:isolation-test.item.event")["content_id"] == prod_id
 
 
 @pytest.mark.parametrize("state", ["stale", "failed", "retired", "legacy", "missing_summary", "missing_module"])
@@ -70,7 +133,26 @@ def test_stale_failed_retired_or_legacy_donor_is_rejected(db, state):
             from psycopg.types.json import Jsonb
             conn.execute("UPDATE showroom_analysis SET modules_json = %s WHERE content_id = %s",
                          (Jsonb([{"title": "Missing", "topics": ["security"]}]), content_id))
-    assert db.find_showroom_donor(signature, exclude_content_id="target") is None
+    assert by_commit(db, signature) is None
+    assert by_content(db, signature) is None
+
+
+def test_reuse_stats_count_llm_runs_against_distinct_content(db):
+    from psycopg.types.json import Jsonb
+    before = db.get_scan_reuse_stats()
+    first, _, provenance = seed(db, "isolation-test.a.prod")
+    second, _, _ = seed(db, "isolation-test.b.prod")           # same content, own LLM run: an extra run
+    third, _, reused = seed(db, "isolation-test.c.prod")       # same content, copied from a donor
+    reused["reused_from"] = first
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE showroom_analysis SET analysis_provenance_json = %s WHERE content_id = %s",
+                     (Jsonb(reused), third))
+    after = db.get_scan_reuse_stats()
+    assert after["analyses"] - before["analyses"] == 3
+    assert after["llm_runs"] - before["llm_runs"] == 2
+    assert after["reused"] - before["reused"] == 1
+    assert after["extra_llm_runs"] - before["extra_llm_runs"] == 1
+    assert after["extra_llm_runs_hash_only"] >= after["extra_llm_runs"]
 
 
 def test_source_and_analysis_provenance_round_trip_and_schema_idempotence(db):

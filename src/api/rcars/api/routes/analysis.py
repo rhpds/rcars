@@ -955,8 +955,8 @@ async def start_scan(request: Request, user: str = Depends(require_admin)):
     arq_redis = request.app.state.arq_redis
 
     settings = request.app.state.settings
-    # Group leaders first so stage siblings reuse a finished donor instead of racing it.
-    items = order_for_reuse(scan_candidates(db, settings), settings)
+    # Group leaders first so siblings (any CI or stage on the same files) reuse a finished donor.
+    items = await asyncio.to_thread(order_for_reuse, scan_candidates(db, settings), settings)
     dedup_stats = db.get_scan_dedup_stats()
 
     parent_job_id = db.create_job(job_type="scan", queue="analyze", created_by=user)
