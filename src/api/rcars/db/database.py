@@ -2219,16 +2219,19 @@ class Database:
                 )
             conn.commit()
 
-    def search_embeddings(
-        self, query_embedding: list[float], limit: int = 25,
-        content_types: list[str] | None = None,
-        stages: list[str] | None = None,
-        include_zt: bool = True,
-        quality_threshold: float = 0.45,
-        retrieval_window: int = 200,
-        scope_content_ids: list[str] | None = None,
-        exclude_retiring: bool = True,
-    ) -> list[dict[str, Any]]:
+    @staticmethod
+    def _card_visibility_sql(
+        *, content_types: list[str] | None, stages: list[str] | None, include_zt: bool,
+        scope_content_ids: list[str] | None, exclude_retiring: bool,
+    ) -> tuple[str, list]:
+        """The ONE definition of "may this item show as an Advisor card".
+
+        Used by search_embeddings and by get_eligible_card_rows (virtual CIs that
+        might cover a hit), so a covering virtual CI is judged by the same rules
+        as a card. Expects aliases ``e`` (content_id, content_type), ``ce``
+        (content_entities) and ``cbi`` (babylon_items). Returns the AND-ed
+        conditions (leading AND included) and their params in placeholder order.
+        """
         zt_filter = ""
         if not include_zt:
             zt_filter = (
@@ -2273,6 +2276,30 @@ class Database:
                 "= COALESCE(substring(cbi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))"
             )
 
+        sql = f"""
+                  AND ce.retired_at IS NULL
+                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
+                  {ct_filter}
+                  {stage_filter}
+                  {zt_filter}
+                  {scope_filter}
+                  {retiring_filter}"""
+        return sql, [*ct_params, *stage_params, *scope_params]
+
+    def search_embeddings(
+        self, query_embedding: list[float], limit: int | None = 25,
+        content_types: list[str] | None = None,
+        stages: list[str] | None = None,
+        include_zt: bool = True,
+        quality_threshold: float = 0.45,
+        retrieval_window: int = 200,
+        scope_content_ids: list[str] | None = None,
+        exclude_retiring: bool = True,
+    ) -> list[dict[str, Any]]:
+        visibility_sql, visibility_params = self._card_visibility_sql(
+            content_types=content_types, stages=stages, include_zt=include_zt,
+            scope_content_ids=scope_content_ids, exclude_retiring=exclude_retiring)
+
         vec_str = f"[{','.join(str(v) for v in query_embedding)}]"
 
         sql = f"""
@@ -2282,13 +2309,8 @@ class Database:
                 FROM embeddings e
                 JOIN content_entities ce ON ce.content_id = e.content_id
                 LEFT JOIN babylon_items cbi ON cbi.content_id = e.content_id
-                WHERE ce.retired_at IS NULL
-                  AND ce.content_id NOT LIKE 'babylon:tests.%%'
-                  {ct_filter}
-                  {stage_filter}
-                  {zt_filter}
-                  {scope_filter}
-                  {retiring_filter}
+                WHERE TRUE
+                  {visibility_sql}
                 ORDER BY e.embedding <=> %s::vector
                 LIMIT %s
             ),
@@ -2304,7 +2326,7 @@ class Database:
                 LIMIT %s
             )
             SELECT g.*,
-                   ce.display_name, ce.is_hands_on, ce.status,
+                   ce.display_name, ce.is_hands_on, ce.status, ce.stage_key,
                    bi.ci_name, bi.stage, bi.category, bi.showroom_url, bi.showroom_ref,
                    bi.is_published, bi.published_ci_name, bi.base_ci_name,
                    bi.catalog_namespace, sa.content_hash
@@ -2314,13 +2336,100 @@ class Database:
             LEFT JOIN showroom_analysis sa ON sa.content_id = g.content_id
             ORDER BY g.best_similarity DESC
         """
-        params = [vec_str, *ct_params, *stage_params, *scope_params, vec_str, retrieval_window,
+        # limit=None: every item of the retrieval window that passes the quality bar
+        # (LIMIT NULL is LIMIT ALL in Postgres).
+        params = [vec_str, *visibility_params, vec_str, retrieval_window,
                   quality_threshold, limit]
 
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(sql, params)
                 return cur.fetchall()
+
+    def get_family_covers(self, member_content_ids: list[str]) -> dict[str, list[str]]:
+        """member content_id -> virtual CI content_ids whose family contains it.
+
+        Empty before the first catalog refresh stores families; that means no
+        family collapse, not an error.
+        """
+        if not member_content_ids:
+            return {}
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT member_content_id, virtual_content_id FROM catalog_family_members "
+                "WHERE member_content_id = ANY(%s) ORDER BY virtual_content_id",
+                (list(member_content_ids),)).fetchall()
+        covers: dict[str, list[str]] = {}
+        for row in rows:
+            covers.setdefault(row["member_content_id"], []).append(row["virtual_content_id"])
+        return covers
+
+    def get_family_rows(self, content_ids: list[str]) -> list[dict]:
+        """catalog_family_members rows where any of content_ids is the virtual CI or a member."""
+        with self._pool.connection() as conn:
+            return conn.execute(
+                "SELECT virtual_content_id, member_content_id FROM catalog_family_members "
+                "WHERE virtual_content_id = ANY(%(ids)s) OR member_content_id = ANY(%(ids)s)",
+                {"ids": list(content_ids)}).fetchall()
+
+    def count_family_members(self) -> int:
+        with self._pool.connection() as conn:
+            return conn.execute("SELECT COUNT(*) AS n FROM catalog_family_members").fetchone()["n"]
+
+    def get_eligible_card_rows(
+        self, content_ids: list[str], *, content_types: list[str] | None = None,
+        stages: list[str] | None = None, include_zt: bool = True,
+        scope_content_ids: list[str] | None = None, exclude_retiring: bool = True,
+    ) -> dict[str, dict]:
+        """Of ``content_ids``, those that pass the same filters as an Advisor card.
+
+        Returns content_id -> row with the same columns search_embeddings gives
+        a hit (no similarity). Judged by _card_visibility_sql, the same
+        conditions as search_embeddings.
+        """
+        if not content_ids:
+            return {}
+        visibility_sql, visibility_params = self._card_visibility_sql(
+            content_types=content_types, stages=stages, include_zt=include_zt,
+            scope_content_ids=scope_content_ids, exclude_retiring=exclude_retiring)
+        sql = f"""
+            SELECT e.content_id, e.content_type, e.source,
+                   ce.display_name, ce.is_hands_on, ce.status, ce.stage_key,
+                   bi.ci_name, bi.stage, bi.category, bi.showroom_url, bi.showroom_ref,
+                   bi.is_published, bi.published_ci_name, bi.base_ci_name,
+                   bi.catalog_namespace, sa.content_hash
+            FROM (SELECT content_id, content_type, source FROM content_entities
+                  WHERE content_id = ANY(%s)) e
+            JOIN content_entities ce ON ce.content_id = e.content_id
+            LEFT JOIN babylon_items cbi ON cbi.content_id = e.content_id
+            LEFT JOIN babylon_items bi ON bi.content_id = e.content_id
+            LEFT JOIN showroom_analysis sa ON sa.content_id = e.content_id
+            WHERE TRUE
+              {visibility_sql}
+        """
+        with self._pool.connection() as conn:
+            rows = conn.execute(sql, [list(content_ids), *visibility_params]).fetchall()
+        return {row["content_id"]: row for row in rows}
+
+    def get_card_analysis(self, content_id: str) -> dict | None:
+        """The analysis an Advisor card shows.
+
+        The display analysis (a pure stub shows its owner's) when it has generated
+        data (``summary`` set). A virtual CI with no usable analysis of its own (its
+        Showroom did not resolve to an owner, for example a field-asset wrapper, or
+        its row was cleared by a failed scan and keeps only NULLs) shows its family's
+        content anchor instead. With no anchor, the own row is returned as before.
+        """
+        analysis = self.get_display_analysis(content_id)
+        if analysis and analysis.get("summary") is not None:
+            return analysis
+        with self._pool.connection() as conn:
+            row = conn.execute(
+                "SELECT sa.* FROM catalog_family_members fm "
+                "JOIN showroom_analysis sa ON sa.content_id = fm.member_content_id "
+                "WHERE fm.virtual_content_id = %s AND fm.role = 'anchor' "
+                "ORDER BY fm.member_content_id LIMIT 1", (content_id,)).fetchone()
+        return row or analysis
 
     def search_infrastructure_embeddings(
         self,

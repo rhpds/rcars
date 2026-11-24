@@ -111,3 +111,17 @@
       Smoke test failed with status={{ smoke_parsed.status | default('unknown') }}:
       {{ smoke_parsed.error | default((smoke_parsed.result | default({})).error | default('none')) }}
   when: smoke_parsed.status | default('') != 'complete'
+
+# ── Card identity check (RHDPCD-2297) ──
+# Fixed queries must never return two cards that share a catalog family (a virtual
+# CI next to a component it covers). Fails the deploy. If the family tables are
+# still empty the check warns and passes. "OpenShift Virtualization" also selects
+# the event stage so the stage-copy rule runs (dev is stripped for this user).
+- name: Family check on fixed Advisor queries
+  ansible.builtin.include_tasks: smoke-test-families-query.yml
+  loop:
+    - { query: "RHEL AI", stages: ["prod"] }
+    - { query: "Platform Engineering Roadshow", stages: ["prod"] }
+    - { query: "OpenShift Virtualization", stages: ["prod", "event"] }
+  loop_control:
+    loop_var: smoke_family_query

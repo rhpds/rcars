@@ -9,6 +9,7 @@ from typing import Callable, Awaitable
 from rcars.db import Database
 from rcars.config import Settings
 from rcars.services.recommender.models import Candidate, QueryState
+from rcars.services.catalog_identity import enforce_card_invariant
 from rcars.services.recommender.vector_search import search
 from rcars.services.recommender.triage import triage
 from rcars.services.recommender.rationale import generate_rationale, generate_content_gaps
@@ -249,6 +250,8 @@ async def run_category(
         0 if c.tier == "yellow" else 1,
         -(c.relevance_score or 0) if c.tier == "yellow" else -(c.vector_similarity_pct or 0),
     ))
+    # Final card-identity invariant (after triage and boosts, before rationale spends LLM calls).
+    state.candidates = enforce_card_invariant(state.candidates, db)
 
     # Phase 3: Rationale
     top_n = settings.rationale_top_n

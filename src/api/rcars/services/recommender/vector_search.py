@@ -8,9 +8,9 @@ import structlog
 from rcars.services.analyzer import generate_embedding
 from rcars.db import Database
 from rcars.services.recommender.models import Candidate, QueryState
+from rcars.services.catalog_identity import collapse_to_cards
 from rcars.services.showroom_source import (
-    AnalysisSignature, content_owner, effective_showroom_source, signature_matches_source,
-    signatures_match, is_content_excluded,
+    content_owner, effective_showroom_source, is_content_excluded,
 )
 
 log = structlog.get_logger()
@@ -109,67 +109,31 @@ def _resolve_ci_references(
     return results
 
 
-def _verified_signature(db, content_id):
-    item = db.get_babylon_item(content_id)
-    analysis = db.get_showroom_analysis(content_id)
-    if not item or item.get("retired_at") or item.get("scan_status") != "success" or not analysis or analysis.get("is_stale"):
-        return None
-    provenance = analysis.get("analysis_provenance_json") or {}
-    signature = provenance.get("signature") or {}
-    source = effective_showroom_source(item)
-    if (not signature_matches_source(signature, source) or provenance.get("source") != source.to_dict()
-            or signature.get("content_hash") != analysis.get("content_hash")):
-        return None
-    try:
-        return AnalysisSignature(**signature)
-    except (TypeError, ValueError):
-        return None
-
-
-def _eligible_stub(target, stages, include_zt, scope) -> bool:
-    if not target or target.get("stage") not in stages:
-        return False
-    if scope and target["content_id"] not in scope:
-        return False
-    if not include_zt and ((target.get("ci_name") or "").startswith("zt-")
-                           or (target.get("catalog_namespace") or "").startswith("zt-")):
-        return False
-    return True
-
-
-def _authorized_promotion(db, row, stages, include_zt, scope):
+def _is_excluded(db, row: dict) -> bool:
+    """Test content and items whose Showroom source is excluded never show."""
     if is_content_excluded(row["content_id"]):
-        return None
+        return True
     if row.get("source") != "babylon":
-        return row
+        return False
     item = db.get_babylon_item(row["content_id"])
-    if item and effective_showroom_source(item).status == "excluded":
-        return None
-    original_signature = _verified_signature(db, row["content_id"])
-    if not original_signature:
-        return row
+    return bool(item and effective_showroom_source(item).status == "excluded")
 
-    def eligible(target):
-        if not target or target.get("stage") not in stages or (scope and target["content_id"] not in scope):
-            return False
-        if not include_zt and ((target.get("ci_name") or "").startswith("zt-") or (target.get("catalog_namespace") or "").startswith("zt-")):
-            return False
-        signature = _verified_signature(db, target["content_id"])
-        return signature is not None and signatures_match(original_signature, signature)
 
-    if "prod" in stages and row.get("stage") != "prod":
-        target = db.get_stage_counterpart(row["content_id"], "prod")
-        if eligible(target):
-            row = {**target, "best_similarity": row["best_similarity"]}
-    promoted_ci_name = row.get("ci_name")
-    if not promoted_ci_name:
-        promoted = db.get_babylon_item(row["content_id"])
-        promoted_ci_name = promoted.get("ci_name") if promoted else None
-    stubs = ([stub for stub in db.get_pure_stubs_for_owner(promoted_ci_name, list(stages))
-              if _eligible_stub(stub, stages, include_zt, scope)] if promoted_ci_name else [])
-    if len(stubs) == 1:
-        row = {**stubs[0], "best_similarity": row["best_similarity"]}
-    return row
+def _collapse_families(db, rows, *, stages, include_zt, content_types, scope_content_ids):
+    """Apply the card identity rules (rcars.services.catalog_identity) to search rows."""
+    covers = db.get_family_covers([r["content_id"] for r in rows])
+    candidate_vcis = sorted({v for vcis in covers.values() for v in vcis})
+    eligible_rows = {
+        cid: vci_row for cid, vci_row in db.get_eligible_card_rows(
+            candidate_vcis, content_types=content_types, stages=stages, include_zt=include_zt,
+            scope_content_ids=scope_content_ids).items()
+        if not _is_excluded(db, vci_row)
+    }
+
+    def displayed_hash(content_id):
+        return ((db.get_card_analysis(content_id) or {}).get("content_hash"))
+
+    return collapse_to_cards(rows, covers, eligible_rows, stages, displayed_hash)
 
 
 def _owner_scope_ids(db, scope_content_ids: list[str] | None) -> list[str] | None:
@@ -196,7 +160,8 @@ def search(
 ) -> QueryState:
     """Generate query embedding, search pgvector, apply quality threshold.
 
-    The DB returns MAX(similarity) per content_id — no manual dedup needed.
+    The DB returns MAX(similarity) per content_id. Card identity (families, stage
+    copies) is decided by rcars.services.catalog_identity before the top-K cut.
     Returns QueryState with phase VECTOR_DONE or NO_MATCHES.
     """
     t0 = time.monotonic()
@@ -209,7 +174,7 @@ def search(
 
     rows = db.search_embeddings(
         query_embedding=query_embedding,
-        limit=limit,
+        limit=None,  # whole retrieval window; the cut to `limit` comes after the family collapse
         stages=effective_stages,
         include_zt=include_zt,
         content_types=content_types,
@@ -228,23 +193,29 @@ def search(
 
     # Filter by quality threshold — DB returns similarity (1.0 = best)
     rows = [r for r in rows if r["best_similarity"] >= quality_threshold]
+    rows = [r for r in rows if not _is_excluded(db, r)]
+    raw_hits = len(rows)
 
-    rows = [promoted for row in rows
-            if (promoted := _authorized_promotion(db, row, effective_stages, include_zt, scope_content_ids)) is not None]
-
-    # Dedup by content_id after all promotions — keep the highest similarity
-    seen_ids: dict[str, int] = {}
-    deduped_rows: list[dict] = []
-    for row in rows:
-        cid = row["content_id"]
-        if cid in seen_ids:
-            existing_idx = seen_ids[cid]
-            if row["best_similarity"] > deduped_rows[existing_idx]["best_similarity"]:
-                deduped_rows[existing_idx] = row
-        else:
-            seen_ids[cid] = len(deduped_rows)
-            deduped_rows.append(row)
-    rows = deduped_rows
+    # One card per family and per stage-copy group, BEFORE the final top-K cut.
+    rows, collapse = _collapse_families(
+        db, rows, stages=effective_stages, include_zt=include_zt,
+        content_types=content_types, scope_content_ids=scope_content_ids)
+    if scope_content_ids:
+        # Scope ids that are pure stubs are searched through their owner; an owner left
+        # as a card (no family rows yet, or its stub not eligible) is outside the scope.
+        in_scope = set(scope_content_ids)
+        rows = [r for r in rows if r["content_id"] in in_scope]
+    cards_before_cut = len(rows)
+    rows = rows[:limit]
+    log.info(
+        "advisor_family_collapse", action="advisor_family_collapse",
+        raw_hits=raw_hits, cards_before_cut=cards_before_cut,
+        cards=len(rows), dropped_by_family=len(collapse.dropped_members),
+        dropped_members=[{"member": m, "covered_by": v} for m, v in collapse.dropped_members],
+        kept_members_no_eligible_virtual_ci=[{"member": m, "covering": v} for m, v in collapse.kept_members],
+        merged_stage_copies=[{"dropped": d, "kept": k} for d, k in collapse.merged_stage_copies],
+        reason_dropped="member_covered_by_eligible_virtual_ci",
+        reason_merged="same_stage_key_same_content_hash_several_stages")
 
     candidates = []
     for row in rows:
@@ -254,7 +225,7 @@ def search(
 
         type_data: dict = {}
         if content_type in ("lab", "demo"):
-            analysis = db.get_display_analysis(content_id)
+            analysis = db.get_card_analysis(content_id)
 
             lo = (analysis or {}).get("learning_objectives_json") or {}
             learning_objs = (lo.get("stated", []) if isinstance(lo, dict) else []) or []

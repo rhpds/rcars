@@ -24,6 +24,7 @@ def db():
     with database.pool.connection() as conn:
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:isolation-test.%'")
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
+        conn.execute("DELETE FROM catalog_family_members WHERE virtual_content_id LIKE '%isolation-test.%' OR member_content_id LIKE '%isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
         conn.execute("DELETE FROM advisor_sessions WHERE session_id = 'isolation-test-session'")
@@ -33,6 +34,7 @@ def db():
         conn.execute("DELETE FROM jobs WHERE NOT (id = ANY(%s))", (initial_jobs,))
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:isolation-test.%'")
         conn.execute("DELETE FROM embeddings WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
+        conn.execute("DELETE FROM catalog_family_members WHERE virtual_content_id LIKE '%isolation-test.%' OR member_content_id LIKE '%isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:isolation-test.%'")
         conn.execute("DELETE FROM content_entities WHERE content_id LIKE 'babylon:zt-isolation-test.%'")
     database.close()

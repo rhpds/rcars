@@ -1,0 +1,56 @@
+---
+# One fixed Advisor query for the family check. Vector search only (depth "low"):
+# card identity is decided there, so no LLM call is needed. Expects `smoke_pod`
+# and the loop item `smoke_family_query` ({query, stages}).
+
+- name: "Family check: submit '{{ smoke_family_query.query }}'"
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    pod: "{{ smoke_pod }}"
+    command: >-
+      sh -c 'curl -sf --max-time 30 -X POST http://localhost:{{ app_port }}/api/v1/advisor/query
+      -H "Content-Type: application/json"
+      -H "X-Forwarded-Email: smoke-test@redhat.com"
+      -H "X-Proxy-Secret: $RCARS_PROXY_VERIFICATION_SECRET"
+      -d "{\"query\": \"{{ smoke_family_query.query }}\", \"stages\": [\"{{ smoke_family_query.stages | join('\", \"') }}\"], \"depth\": \"low\"}"'
+  no_log: true
+  register: smoke_family_submit
+  failed_when: smoke_family_submit.rc != 0
+
+- name: "Family check: poll '{{ smoke_family_query.query }}'"
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    pod: "{{ smoke_pod }}"
+    command: >-
+      sh -c 'curl -sf --max-time 30 http://localhost:{{ app_port }}/api/v1/advisor/query/{{ (smoke_family_submit.stdout | from_json).job_id }}/result
+      -H "X-Forwarded-Email: smoke-test@redhat.com"
+      -H "X-Proxy-Secret: $RCARS_PROXY_VERIFICATION_SECRET"'
+  no_log: true
+  register: smoke_family_result
+  until: (smoke_family_result.stdout | from_json).status | default('') in ['complete', 'failed']
+  retries: 24
+  delay: 5
+  failed_when: smoke_family_result.rc != 0
+
+- name: "Family check: query must complete ('{{ smoke_family_query.query }}')"
+  ansible.builtin.assert:
+    that: (smoke_family_result.stdout | from_json).status == 'complete'
+    fail_msg: "Family check query '{{ smoke_family_query.query }}' did not complete."
+
+- name: "Family check: no two cards share a family ('{{ smoke_family_query.query }}')"
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ target_namespace }}"
+    pod: "{{ smoke_pod }}"
+    command: >-
+      rcars check-card-families
+      {{ ((smoke_family_result.stdout | from_json).result.candidates | default([])) | map(attribute='content_id') | map('quote') | join(' ') }}
+  register: smoke_family_check
+  failed_when: smoke_family_check.rc != 0
+  when: ((smoke_family_result.stdout | from_json).result.candidates | default([])) | length > 0
+
+- name: "Family check result ('{{ smoke_family_query.query }}')"
+  ansible.builtin.debug:
+    msg: "{{ (smoke_family_check.stdout | default('no candidates, nothing to check')) }}"
