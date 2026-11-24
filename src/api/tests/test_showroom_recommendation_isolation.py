@@ -1,7 +1,6 @@
 from dataclasses import replace
 from unittest.mock import Mock
 
-import pytest
 from psycopg.types.json import Jsonb
 
 from tests.showroom_helpers import db
