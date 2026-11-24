@@ -204,9 +204,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/recommender/vector_search.py": {
-    "mtime": 1795526208.9972882,
-    "seen": 1795526638.305629,
-    "ast_hash": "58762ff0ecb74f5647544481dd7d061b",
+    "mtime": 1795527068.7360055,
+    "seen": 1795527433.755403,
+    "ast_hash": "9284416bca38f2d3131600b7c8032b59",
     "semantic_hash": ""
   },
   "src/api/rcars/services/reporting_sync.py": {
@@ -1884,9 +1884,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_reference_self_match.py": {
-    "mtime": 1795526181.9507916,
-    "seen": 1795526638.305672,
-    "ast_hash": "ee3176d77c7cce74432ab323987952fb",
+    "mtime": 1795527056.76812,
+    "seen": 1795527433.757277,
+    "ast_hash": "0a41d967ccd33aabc09bf1bc68bd5c91",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {
