@@ -19,7 +19,7 @@ def ref(db, name, number, **kw):
     return item(db, name, ci_extra={"display_name": f"LB{number} {name}"}, **kw)
 
 
-def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25):
+def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25, embedding=[0.1] * 768):
     """search("Something similar to LB<number>") with ``hits`` as every vector result."""
     def fake(**kwargs):
         rows = []
@@ -36,7 +36,7 @@ def run_similar(db, monkeypatch, number, hits, *, stages=("prod",), limit=25):
         return rows
 
     monkeypatch.setattr(db, "search_embeddings", Mock(side_effect=lambda **kw: fake(**kw)))
-    monkeypatch.setattr(db, "get_embedding", lambda *a, **k: [0.1] * 768)
+    monkeypatch.setattr(db, "get_embedding", lambda *a, **k: embedding)
     monkeypatch.setattr(vector_search, "generate_embedding", lambda *a, **k: [0.1] * 768)
     return vector_search.search(f"Something similar to LB{number}", db, stages=list(stages), limit=limit)
 
@@ -216,3 +216,12 @@ def test_rationale_and_synthesis_receive_the_reference_summary(monkeypatch):
     assert "Covers RHEL on CNV." in seen["single"]
     assert "Covers RHEL on CNV." in seen["synthesis"]
     assert result.references == state.references
+
+
+def test_reference_without_an_embedding_is_still_excluded_and_described(db, monkeypatch):
+    vci, lab = ref(db, "virtual.prod", 9112, analysis=False), item(db, "lab.prod")
+    link(db, vci, lab)
+    other = item(db, "other.prod")
+    state = run_similar(db, monkeypatch, 9112, [(lab, 0.9), (vci, 0.9), (other, 0.8)], embedding=None)
+    assert card_ids(state.candidates) == [other]
+    assert state.references[0]["summary"] == "About lab.prod"

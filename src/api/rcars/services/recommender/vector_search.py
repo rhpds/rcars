@@ -99,10 +99,6 @@ def _resolve_ci_references(
         if owner:
             embed_content_id = f"babylon:{owner}"
         embedding = db.get_embedding(embed_content_id, embed_type="summary")
-        if not embedding:
-            log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
-            continue
-
         # The referenced item's family and stage copies (all stages) never show.
         item_excluded = exclusion_set_for(db, item["content_id"]) | {embed_content_id}
         excluded |= item_excluded
@@ -110,6 +106,10 @@ def _resolve_ci_references(
         references.append({"content_id": item["content_id"],
                            "display_name": item.get("display_name") or item["content_id"],
                            "summary": summary})
+        if not embedding:
+            # Nothing to expand from, but the item and its family stay excluded.
+            log.info("ci_resolve_no_embedding", content_id=item["content_id"], embed_content_id=embed_content_id)
+            continue
 
         neighbors = db.search_embeddings(
             query_embedding=embedding, limit=25, stages=stages,
