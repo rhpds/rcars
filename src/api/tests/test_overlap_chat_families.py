@@ -332,3 +332,32 @@ async def test_resolve_and_verify_passes_the_users_stages(db):
     prod = await chat_router.resolve_and_verify(out, [], db, settings, "u@x.com")
     both = await chat_router.resolve_and_verify(out, [], db, settings, "u@x.com", stages=["prod", "dev"])
     assert prod.items[0]["content_id"] == member and both.items[0]["content_id"] == virtual
+
+
+@pytest.mark.asyncio
+async def test_overlap_lists_a_neighbor_once_when_several_members_overlap_with_it(db):
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    first = add(db, "agd-v2.one.prod")
+    second = add(db, "agd-v2.two.prod")
+    other = add(db, "unrelated.prod")
+    virtual = db.upsert_babylon_catalog_item({"ci_name": "published.lab.prod", "stage": "prod",
+                                              "display_name": "Lab"})
+    link(db, virtual, first)
+    link(db, virtual, second, role="passthrough", depth=2)
+    generate_overlap_candidates(db.pool)
+    res = Resolution(kind="execute", output=RouterOutput(intent="overlap", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    out = await handlers.handle_overlap(res, db, SETTINGS(chat_intent_roles_str=""), ["prod"], True, None)
+    assert [n["content_id"] for n in out.session_results] == [other]
+    assert out.scaffold_facts["neighbor_count"] == 1
+
+
+def test_item_card_of_a_virtual_ci_without_analysis_shows_its_anchors_summary(db):
+    from rcars.services.chat import handlers
+    anchor = add(db, "agd-v2.lab.prod")
+    virtual = db.upsert_babylon_catalog_item({"ci_name": "published.lab.prod", "stage": "prod",
+                                              "display_name": "Lab"})
+    link(db, virtual, anchor)
+    card = handlers._item_card(db, db.get_babylon_item(virtual))
+    assert card["summary"] == "About agd-v2.lab.prod"
