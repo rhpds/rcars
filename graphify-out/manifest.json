@@ -936,9 +936,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/handlers.py": {
-    "mtime": 1795601032.4691455,
-    "seen": 1795601763.2331789,
-    "ast_hash": "49b6cd5fa9bb77123448570805c8c708",
+    "mtime": 1795602277.4970417,
+    "seen": 1795602308.906629,
+    "ast_hash": "09bc514c45f84b51e8287eb2705dc3d8",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/models.py": {
@@ -948,9 +948,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/orchestrator.py": {
-    "mtime": 1795601275.1139922,
-    "seen": 1795601763.2331798,
-    "ast_hash": "ccd07a8b774920b739e49b5b5014d315",
+    "mtime": 1795602277.4983182,
+    "seen": 1795602308.9066508,
+    "ast_hash": "7e61a7d884f14ef974a759786ebe37c8",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/registry.py": {
@@ -960,9 +960,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/router.py": {
-    "mtime": 1795601308.984042,
-    "seen": 1795601763.233181,
-    "ast_hash": "92c8d07f3a31272218cd36aad4fef534",
+    "mtime": 1795602277.4978206,
+    "seen": 1795602308.906674,
+    "ast_hash": "70ebd115a37dbd883584848a7c21fee9",
     "semantic_hash": ""
   },
   "src/api/rcars/workers/chat.py": {
@@ -1896,9 +1896,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_overlap_chat_families.py": {
-    "mtime": 1795601250.0171936,
-    "seen": 1795601763.233234,
-    "ast_hash": "ddb540d9d7a9b56ca87246f24b425879",
+    "mtime": 1795602286.2138176,
+    "seen": 1795602308.908782,
+    "ast_hash": "1b92a14a2595af5a6f3bb7b4c00e68b2",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {
