@@ -231,7 +231,7 @@ def _guess_clarification(output: RouterOutput, ref: str, guesses: list[dict], ar
 
 async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
                              settings: Settings, user_email: str,
-                             message: str = "") -> Resolution:
+                             message: str = "", stages: list[str] | None = None) -> Resolution:
     # Ladder 2: symbolic scope → content_ids from session turns
     scope_ids: list[str] = []
     scope_turn: int | None = None
@@ -268,7 +268,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
     for ref in (output.item_refs if not scope_ids else []):
         if similar_to and ref == similar_to:
             continue
-        resolved = resolve_item(ref, db)
+        resolved = resolve_item(ref, db, stages)
         if "item" in resolved:
             items.append(resolved["item"])
         else:
@@ -283,7 +283,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
         ci_name = _parse_catalog_url(urls[0]) if urls else None
         if ci_name:  # a catalog URL names a CI; same lookup as a chip
             ref = f"content_id:babylon:{ci_name}"
-        resolved = resolve_item(ref, db)
+        resolved = resolve_item(ref, db, stages)
         if "item" not in resolved:
             return _guess_clarification(output, similar_to, resolved["guesses"], "similar_to")
         reference_ids.append(resolved["item"]["content_id"])

@@ -162,6 +162,11 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     anchor = anchors[0]
     cid = anchor["content_id"]
 
+    # A virtual CI often has no analysis of its own, so overlap pairs sit on its
+    # members (the anchor component holds the analysis). Look from the item and from
+    # its members; a pair inside that group is the same content, never a neighbor.
+    group = [cid] + sorted({r["member_content_id"] for r in db.get_family_rows([cid])
+                            if r["virtual_content_id"] == cid})
     with db.pool.connection() as conn:
         from psycopg.rows import dict_row
         conn.row_factory = dict_row
@@ -172,19 +177,20 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                       ce.display_name, bi.ci_name, bi.stage
                FROM overlap_candidates oc
                JOIN content_entities ce ON ce.content_id =
-                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
+                   CASE WHEN oc.content_id_a = ANY(%(group)s) THEN oc.content_id_b
                         ELSE oc.content_id_a END
                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
-               WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
+               WHERE (oc.content_id_a = ANY(%(group)s) OR oc.content_id_b = ANY(%(group)s))
+                 AND NOT (oc.content_id_a = ANY(%(group)s) AND oc.content_id_b = ANY(%(group)s))
                {stage_clause}
                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT 10""",
-            {"cid": cid, "stages": stages},
+            {"group": group, "stages": stages},
         ).fetchall()
 
     neighbors = []
     for r in rows:
-        other_id = r["content_id_b"] if r["content_id_a"] == cid else r["content_id_a"]
+        other_id = r["content_id_a"] if r["content_id_b"] in group else r["content_id_b"]
         assessment = r["llm_assessment"] or {}
         neighbors.append({
             "content_id": other_id, "ci_name": r.get("ci_name"),
@@ -202,7 +208,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                                                               "display_name": anchor.get("display_name")},
                                                    "neighbors": neighbors})],
         scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors)},
-        anchor_ids=[cid],
+        anchor_ids=group,
         session_results=[{"content_id": n["content_id"], "display_name": n["display_name"]}
                          for n in neighbors])
 

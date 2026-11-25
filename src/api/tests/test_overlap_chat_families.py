@@ -301,3 +301,34 @@ def test_short_overlap_ask_with_a_lab_number_goes_to_overlap():
 def test_similar_to_with_a_url_and_a_name_does_not_pre_route_on_the_name():
     # Display names are not parsed here: without a URL the LLM router sets similar_to.
     assert chat_router.pattern_check("something similar to Event-Driven Ansible Basics") is None
+
+
+# ── review fixes ──
+
+@pytest.mark.asyncio
+async def test_overlap_from_a_lifted_virtual_ci_keeps_its_members_neighbors(db):
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    member = add(db, "agd-v2.lab.prod", display="Lab member")
+    other = add(db, "unrelated.prod", display="Unrelated")
+    virtual = db.upsert_babylon_catalog_item({  # a virtual CI with no analysis of its own
+        "ci_name": "published.lab.prod", "stage": "prod", "display_name": "Lab"})
+    link(db, virtual, member)
+    generate_overlap_candidates(db.pool)
+    res = Resolution(kind="execute", output=RouterOutput(intent="overlap", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    out = await handlers.handle_overlap(res, db, SETTINGS(chat_intent_roles_str=""), ["prod"], True, None)
+    assert [n["content_id"] for n in out.session_results] == [other]
+    assert set(out.anchor_ids) == {virtual, member}
+
+
+@pytest.mark.asyncio
+async def test_resolve_and_verify_passes_the_users_stages(db):
+    member = add(db, "agd-v2.lab.prod", display="LB9005 Lab")
+    virtual = add(db, "published.lab.dev", stage="dev", display="LB9005 Lab dev")
+    link(db, virtual, member)
+    out = RouterOutput(intent="item_facts", confidence=0.9, item_refs=[f"content_id:{member}"], args={})
+    settings = SETTINGS(chat_intent_roles_str="")
+    prod = await chat_router.resolve_and_verify(out, [], db, settings, "u@x.com")
+    both = await chat_router.resolve_and_verify(out, [], db, settings, "u@x.com", stages=["prod", "dev"])
+    assert prod.items[0]["content_id"] == member and both.items[0]["content_id"] == virtual
