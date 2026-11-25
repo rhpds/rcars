@@ -14,6 +14,7 @@ from rcars.api.middleware.auth import _user_has_db_role
 from rcars.config import Settings, call_llm
 from rcars.db.database import Database, _prefix_overlap
 from rcars.services.analyzer import generate_embedding
+from rcars.services.catalog_identity import lift_to_covering
 from rcars.services.chat.models import Chip, Clarify, RouterOutput
 from rcars.services.recommender.pipeline import extract_urls
 from rcars.services.recommender.vector_search import STOP_WORDS
@@ -23,7 +24,11 @@ from rcars.services.vocabulary.models import DIMENSIONS
 logger = structlog.get_logger(component="chat")
 
 _LB_RE = re.compile(r"\bLB(\d{3,4})\b", re.IGNORECASE)
-_SIMILARITY_RE = re.compile(r"\b(similar|overlap|like this|compare|versus)\b", re.IGNORECASE)
+# "Similar to X" / "like X" / "an alternative to X" / "instead of X" asks for other
+# content, so it goes to recommend with args.similar_to (RHDPCD-2298). Overlap words
+# ask whether X duplicates something, so they go to overlap.
+_SIMILAR_RE = re.compile(r"\b(similar|alternatives?\s+to|instead\s+of|like)\b", re.IGNORECASE)
+_OVERLAP_RE = re.compile(r"\b(overlaps?|overlapping|duplicates?|redundant|compare|versus|vs)\b", re.IGNORECASE)
 _PERFORMANCE_RE = re.compile(r"\b(performance|provisions?|usage|sales|cost|retirement|how is .+ doing)\b", re.IGNORECASE)
 
 
@@ -40,25 +45,41 @@ def _parse_catalog_url(url: str) -> str | None:
 
 
 def pattern_check(message: str) -> RouterOutput | None:
-    """Deterministic pre-router. Narrow by design — the LLM router is the main path."""
+    """Deterministic pre-router. Narrow by design — the LLM router is the main path.
+
+    A "similar to X" message is routed to recommend with similar_to only where X is a
+    catalog URL: the URL is the exact reference. For a lab number or a name the LLM
+    router already reads the reference and sets similar_to (see the registry examples),
+    so those fall through instead of being parsed here.
+    """
     urls, remaining = extract_urls(message)
     if urls:
         ci_name = _parse_catalog_url(urls[0])
         if ci_name:
             ref = f"content_id:babylon:{ci_name}"
-            if _SIMILARITY_RE.search(remaining):
+            if _OVERLAP_RE.search(remaining):
                 return RouterOutput(intent="overlap", args={"item_ref": ref},
                                     item_refs=[ref], confidence=1.0)
             if _PERFORMANCE_RE.search(remaining):
                 return RouterOutput(intent="performance",
                                     args={"item_refs": [ref]},
                                     item_refs=[ref], confidence=1.0)
+            if _SIMILAR_RE.search(remaining):
+                # The reference is resolved once, by similar_to (item_refs stays empty).
+                return RouterOutput(intent="recommend",
+                                    args={"search_query": message, "similar_to": urls[0]},
+                                    confidence=1.0)
             return RouterOutput(intent="item_facts", args={"item_ref": ref},
                                 item_refs=[ref], confidence=1.0)
         return RouterOutput(intent="recommend", args={"search_query": message}, confidence=1.0)
     m = _LB_RE.search(message)
     if m and len(message.split()) <= 4 and "?" not in message:
         ref = m.group(0).upper()
+        if _OVERLAP_RE.search(message):
+            return RouterOutput(intent="overlap", args={"item_ref": ref},
+                                item_refs=[ref], confidence=1.0)
+        if _SIMILAR_RE.search(message):
+            return None  # "similar to LB1237": the LLM router sets similar_to
         return RouterOutput(intent="item_facts", args={"item_ref": ref},
                             item_refs=[ref], confidence=1.0)
     return None
@@ -104,9 +125,34 @@ def _find_keyword_ties(db: Database, keywords: set[str], best: dict, stages: lis
 
 def resolve_item(ref: str, db: Database, stages: list[str] | None = None,
                  embed_fn=None) -> dict:
-    """Catalog resolution: LB regex → name keyword overlap → embedding guesses.
-    The router's belief that an item exists is never trusted."""
+    """Catalog resolution, then lift a family member to its virtual CI.
+
+    A component (member) is not what the user means: they mean the card the Advisor
+    shows. One eligible covering virtual CI -> that one. Several (the two field-asset
+    virtual CIs) -> ``guesses``, so the existing clarify flow asks. None eligible, or
+    not a member -> the item itself. Same rule as the Advisor (``lift_to_covering``).
+    """
     stages = stages or ["prod"]
+    resolved = _resolve_item_by_name(ref, db, stages, embed_fn)
+    item = resolved.get("item")
+    if not item:
+        return resolved
+    covers = db.get_family_covers([item["content_id"]])
+    if not covers:
+        return resolved
+    eligible = db.get_eligible_card_rows(covers[item["content_id"]], stages=stages)
+    lifted = lift_to_covering(item["content_id"], covers, set(eligible))
+    if lifted == [item["content_id"]]:
+        return resolved
+    if len(lifted) == 1:
+        return {"item": db.get_babylon_item(lifted[0]) or db.get_content_entity(lifted[0])}
+    return {"guesses": [eligible[cid] for cid in lifted]}
+
+
+def _resolve_item_by_name(ref: str, db: Database, stages: list[str],
+                          embed_fn=None) -> dict:
+    """LB regex → name keyword overlap → embedding guesses.
+    The router's belief that an item exists is never trusted."""
     if ref.startswith("content_id:"):  # pre-routed chip fast-path
         cid = ref.removeprefix("content_id:")
         item = db.get_babylon_item(cid) or db.get_content_entity(cid)
@@ -185,7 +231,7 @@ def _guess_clarification(output: RouterOutput, ref: str, guesses: list[dict], ar
 
 async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Database,
                              settings: Settings, user_email: str,
-                             message: str = "") -> Resolution:
+                             message: str = "", stages: list[str] | None = None) -> Resolution:
     # Ladder 2: symbolic scope → content_ids from session turns
     scope_ids: list[str] = []
     scope_turn: int | None = None
@@ -222,7 +268,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
     for ref in (output.item_refs if not scope_ids else []):
         if similar_to and ref == similar_to:
             continue
-        resolved = resolve_item(ref, db)
+        resolved = resolve_item(ref, db, stages)
         if "item" in resolved:
             items.append(resolved["item"])
         else:
@@ -237,7 +283,7 @@ async def resolve_and_verify(output: RouterOutput, context: list[dict], db: Data
         ci_name = _parse_catalog_url(urls[0]) if urls else None
         if ci_name:  # a catalog URL names a CI; same lookup as a chip
             ref = f"content_id:babylon:{ci_name}"
-        resolved = resolve_item(ref, db)
+        resolved = resolve_item(ref, db, stages)
         if "item" not in resolved:
             return _guess_clarification(output, similar_to, resolved["guesses"], "similar_to")
         reference_ids.append(resolved["item"]["content_id"])

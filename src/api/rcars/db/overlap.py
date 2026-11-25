@@ -7,13 +7,18 @@ from psycopg_pool import ConnectionPool
 
 logger = structlog.get_logger(component="overlap")
 
-# Group by base CI name (ci_name without its .dev/.prod/.event suffix) so stage
-# copies with different showroom URLs count as one item. Items without a CI name
-# fall back to their content_id.
+# One row per item: stage copies (same stage_key) count as one, the highest stage
+# represents them. Items without a stage_key fall back to their content_id.
+#
+# A virtual CI and a member of its family (catalog_family_members) are the same
+# content, not an overlap, so that pair is skipped. The check compares stage_keys, so
+# it holds whichever stage copy represents each side. Two virtual CIs that share a
+# component are two items and may overlap.
 CANDIDATE_SQL = """
 WITH deduped AS (
-    SELECT DISTINCT ON (COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))
+    SELECT DISTINCT ON (COALESCE(ce.stage_key, ce.content_id))
         ce.content_id,
+        COALESCE(ce.stage_key, ce.content_id) AS item_key,
         COALESCE(sa.products_json, '[]'::jsonb) AS products,
         COALESCE(sa.topics_json, '[]'::jsonb) AS topics,
         sa.content_hash
@@ -23,8 +28,16 @@ WITH deduped AS (
     WHERE ce.retired_at IS NULL
       AND ce.source = 'babylon'
       AND ce.content_id NOT LIKE 'babylon:tests.%%'
-    ORDER BY COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id),
-             CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 WHEN 'dev' THEN 2 ELSE 3 END
+    ORDER BY COALESCE(ce.stage_key, ce.content_id),
+             CASE bi.stage WHEN 'prod' THEN 0 WHEN 'event' THEN 1 WHEN 'dev' THEN 2 ELSE 3 END,
+             ce.content_id
+),
+family_keys AS (
+    SELECT DISTINCT COALESCE(cv.stage_key, cv.content_id) AS virtual_key,
+                    COALESCE(cm.stage_key, cm.content_id) AS member_key
+    FROM catalog_family_members fm
+    JOIN content_entities cv ON cv.content_id = fm.virtual_content_id
+    JOIN content_entities cm ON cm.content_id = fm.member_content_id
 ),
 pairs AS (
     SELECT
@@ -44,6 +57,11 @@ pairs AS (
         ) x)::int AS shared_topics
     FROM deduped a
     JOIN deduped b ON a.content_id < b.content_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM family_keys f
+        WHERE (f.virtual_key = a.item_key AND f.member_key = b.item_key)
+           OR (f.virtual_key = b.item_key AND f.member_key = a.item_key)
+    )
 )
 SELECT * FROM pairs
 WHERE shared_products >= %(min_products)s AND shared_topics >= %(min_topics)s

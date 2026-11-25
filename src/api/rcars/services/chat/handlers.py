@@ -26,11 +26,20 @@ class HandlerResult:
     session_results: list[dict] = field(default_factory=list)
 
 
+def _analysis(db: Database, cid: str) -> dict:
+    """The analysis a card shows. A virtual CI with no usable analysis shows its
+    family anchor's (``get_card_analysis``); architectures keep their own table."""
+    entity = db.get_content_entity(cid) or {}
+    if entity.get("content_type") == "architecture":
+        return db.get_analysis(cid) or {}
+    return db.get_card_analysis(cid) or {}
+
+
 def _item_card(db: Database, item: dict) -> dict:
     cid = item["content_id"]
     entity = db.get_content_entity(cid) or {}
     content_type = entity.get("content_type")
-    analysis = db.get_analysis(cid) or {}
+    analysis = _analysis(db, cid)
     lo = analysis.get("learning_objectives_json") or {}
     card = {
         "content_id": cid, "ci_name": item.get("ci_name"),
@@ -162,29 +171,39 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
     anchor = anchors[0]
     cid = anchor["content_id"]
 
+    # A virtual CI often has no analysis of its own, so overlap pairs sit on its
+    # members (the anchor component holds the analysis). Look from the item and from
+    # its members; a pair inside that group is the same content, never a neighbor.
+    group = [cid] + sorted({r["member_content_id"] for r in db.get_family_rows([cid])
+                            if r["virtual_content_id"] == cid})
     with db.pool.connection() as conn:
         from psycopg.rows import dict_row
         conn.row_factory = dict_row
         stage_clause = "AND (bi.stage IS NULL OR bi.stage = ANY(%(stages)s))" if stages else ""
         rows = conn.execute(
-            f"""SELECT oc.content_id_a, oc.content_id_b,
+            f"""SELECT * FROM (
+                 SELECT DISTINCT ON (ce.content_id)
+                      oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.ci_name, bi.stage
-               FROM overlap_candidates oc
-               JOIN content_entities ce ON ce.content_id =
-                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b
-                        ELSE oc.content_id_a END
-               LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
-               WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
-               {stage_clause}
-               ORDER BY oc.shared_products DESC, oc.shared_topics DESC
+                 FROM overlap_candidates oc
+                 JOIN content_entities ce ON ce.content_id =
+                     CASE WHEN oc.content_id_a = ANY(%(group)s) THEN oc.content_id_b
+                          ELSE oc.content_id_a END
+                 LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
+                 WHERE (oc.content_id_a = ANY(%(group)s) OR oc.content_id_b = ANY(%(group)s))
+                   AND NOT (oc.content_id_a = ANY(%(group)s) AND oc.content_id_b = ANY(%(group)s))
+                 {stage_clause}
+                 ORDER BY ce.content_id, oc.shared_products DESC, oc.shared_topics DESC
+               ) one_per_neighbor
+               ORDER BY shared_products DESC, shared_topics DESC
                LIMIT 10""",
-            {"cid": cid, "stages": stages},
+            {"group": group, "stages": stages},
         ).fetchall()
 
     neighbors = []
     for r in rows:
-        other_id = r["content_id_b"] if r["content_id_a"] == cid else r["content_id_a"]
+        other_id = r["content_id_a"] if r["content_id_b"] in group else r["content_id_b"]
         assessment = r["llm_assessment"] or {}
         neighbors.append({
             "content_id": other_id, "ci_name": r.get("ci_name"),
@@ -202,7 +221,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                                                               "display_name": anchor.get("display_name")},
                                                    "neighbors": neighbors})],
         scaffold_facts={"anchor": anchor.get("display_name"), "neighbor_count": len(neighbors)},
-        anchor_ids=[cid],
+        anchor_ids=group,
         session_results=[{"content_id": n["content_id"], "display_name": n["display_name"]}
                          for n in neighbors])
 
@@ -317,7 +336,7 @@ async def handle_item_chat(res: Resolution, db: Database, settings: Settings,
     entity = db.get_content_entity(cid) or {}
     content_type = entity.get("content_type", "lab")
 
-    analysis = db.get_analysis(cid) or {}
+    analysis = _analysis(db, cid)
     context_parts = {}
     if analysis.get("summary"):
         context_parts["summary"] = analysis["summary"]

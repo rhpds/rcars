@@ -12,14 +12,23 @@ from rcars.db.database import Database
 MAX_NEIGHBORS = 15
 
 
-def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
+def build_evidence_pack(db: Database, anchor_ids: list[str],
+                        stages: list[str] | None = None) -> list[dict]:
+    """Neighbors of the anchors for the answer step.
+
+    ``stages`` are the user's selected stages. Neighbors outside them are left out,
+    the same rule ``handle_overlap`` applies to its table, so the answer sees the
+    items the user sees. Items with no stage (not Babylon) always pass. None means
+    no stage filter.
+    """
     if not anchor_ids:
         return []
+    stage_clause = "AND (bi.stage IS NULL OR bi.stage = ANY(%(stages)s))" if stages else ""
     from psycopg.rows import dict_row
     with db.pool.connection() as conn:
         conn.row_factory = dict_row
         sim_rows = conn.execute(
-            """SELECT oc.content_id_a, oc.content_id_b,
+            f"""SELECT oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.stage, sa.products_json,
                       (SELECT pc.provisions FROM performance_channels pc
@@ -31,15 +40,16 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
                LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
                LEFT JOIN showroom_analysis sa ON sa.content_id = ce.content_id
                WHERE (oc.content_id_a = ANY(%(ids)s) OR oc.content_id_b = ANY(%(ids)s))
+                 {stage_clause}
                  AND NOT (oc.content_id_a = ANY(%(ids)s) AND oc.content_id_b = ANY(%(ids)s))
                  AND oc.content_id_a NOT LIKE 'babylon:tests.%%'
                  AND oc.content_id_b NOT LIKE 'babylon:tests.%%'
                ORDER BY oc.shared_products DESC, oc.shared_topics DESC
                LIMIT %(cap)s""",
-            {"ids": anchor_ids, "cap": MAX_NEIGHBORS}).fetchall()
+            {"ids": anchor_ids, "cap": MAX_NEIGHBORS, "stages": stages}).fetchall()
 
         wl_rows = conn.execute(
-            """SELECT w1.content_id AS anchor, w2.content_id AS other,
+            f"""SELECT w1.content_id AS anchor, w2.content_id AS other,
                       ce.display_name, bi.stage, w1.workload_role
                FROM babylon_item_workloads w1
                JOIN babylon_item_workloads w2
@@ -47,10 +57,11 @@ def build_evidence_pack(db: Database, anchor_ids: list[str]) -> list[dict]:
                JOIN content_entities ce ON ce.content_id = w2.content_id
                LEFT JOIN babylon_items bi ON bi.content_id = w2.content_id
                WHERE w1.content_id = ANY(%(ids)s)
+                 {stage_clause}
                  AND w1.content_id NOT LIKE 'babylon:tests.%%'
                  AND w2.content_id NOT LIKE 'babylon:tests.%%'
                LIMIT 20""",
-            {"ids": anchor_ids}).fetchall()
+            {"ids": anchor_ids, "stages": stages}).fetchall()
 
     pack: list[dict] = []
     seen: set[str] = set()

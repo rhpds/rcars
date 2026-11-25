@@ -172,7 +172,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                             blocks=[Block(type="notice", data={"kind": "help"})])
     else:
         res = await resolve_and_verify(output, context, db, settings, user_email,
-                                       message=message)
+                                       message=message, stages=stages)
         if res.kind == "clarify":
             intent_for_log = "clarify"
             envelope = Envelope(intent="clarify", scope_echo="Needs clarification",
@@ -193,7 +193,7 @@ async def process_turn(*, message: str, session_id: str, user_email: str,
                 answer = build_scaffold(output.intent, hres.scaffold_facts)
                 ausage = None
             else:
-                pack = build_evidence_pack(db, hres.anchor_ids)
+                pack = build_evidence_pack(db, hres.anchor_ids, stages=stages)
                 answer, ausage = await asyncio.to_thread(
                     compose_answer, output.intent, hres.scaffold_facts, pack, message,
                     settings, llm_call)
