@@ -86,13 +86,15 @@ def test_idempotent_upsert(db, seed_items):
 
 
 def test_stage_dedup(db, seed_items):
-    """Items sharing a showroom_url collapse to one representative."""
+    """Stage copies (same stage_key) collapse to one representative."""
     with db.pool.connection() as conn:
         # Add babylon_items with same showroom_url for A (prod) and a new item D (dev)
         conn.execute(
-            "INSERT INTO content_entities (content_id, source, content_type, display_name) "
-            "VALUES ('test:d', 'babylon', 'lab', 'Item A Dev') ON CONFLICT DO NOTHING",
+            "INSERT INTO content_entities (content_id, source, content_type, display_name, stage_key) "
+            "VALUES ('test:d', 'babylon', 'lab', 'Item A Dev', 'ci-a') ON CONFLICT DO NOTHING",
         )
+        # Stage copies share a stage_key (refresh and init-db set it from the CI name).
+        conn.execute("UPDATE content_entities SET stage_key = 'ci-a' WHERE content_id = 'test:a'")
         conn.execute(
             "INSERT INTO babylon_items (content_id, ci_name, showroom_url, stage) "
             "VALUES ('test:a', 'ci-a.prod', 'https://git/repo-a', 'prod') ON CONFLICT DO NOTHING",
@@ -113,7 +115,7 @@ def test_stage_dedup(db, seed_items):
     result = generate_overlap_candidates(db.pool, min_products=1, min_topics=2)
     with db.pool.connection() as conn:
         rows = conn.execute("SELECT * FROM overlap_candidates").fetchall()
-    # D should be deduped with A (same showroom_url, A wins as prod)
+    # D should be deduped with A (same stage_key, A wins as prod)
     # Only A-B pair should exist, not D-B
     assert len(rows) == 1
     pair_ids = {rows[0]["content_id_a"], rows[0]["content_id_b"]}
@@ -190,9 +192,10 @@ def test_stage_dedup_by_base_name_with_different_showroom_urls(db, seed_items):
     """Dev and prod copies of one CI collapse even when their showroom URLs differ."""
     with db.pool.connection() as conn:
         conn.execute(
-            "INSERT INTO content_entities (content_id, source, content_type, display_name) "
-            "VALUES ('test:a-dev', 'babylon', 'lab', 'Item A Dev')",
+            "INSERT INTO content_entities (content_id, source, content_type, display_name, stage_key) "
+            "VALUES ('test:a-dev', 'babylon', 'lab', 'Item A Dev', 'ci-a')",
         )
+        conn.execute("UPDATE content_entities SET stage_key = 'ci-a' WHERE content_id = 'test:a'")
         conn.execute(
             "INSERT INTO babylon_items (content_id, ci_name, showroom_url, stage) "
             "VALUES ('test:a', 'ci-a.prod', 'https://git/org-one/repo-a', 'prod')",

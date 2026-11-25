@@ -15,6 +15,10 @@ Three rules, all here. Nothing else in the Advisor path decides "same card".
 3. **Invariant.** No two final cards share a content_id, and no card is a member
    of another card's family.
 
+Overlap uses the same table: a virtual CI and its own member are never an
+overlap pair (``db/overlap.py``), and chat resolves a member to its covering
+virtual CI with ``lift_to_covering``.
+
 A fourth question lives here too: "similar to LB1234" must not return the item
 asked about (RHDPCD-2298). ``exclusion_set_for`` answers it from the same family
 table and the same ``stage_key``; no name matching.
@@ -208,6 +212,18 @@ def family_exclusion_core(referenced_id: str, family_rows: list[dict]) -> set[st
         if row["member_content_id"] == referenced_id:
             core.add(row["virtual_content_id"])
     return core
+
+
+def lift_to_covering(content_id: str, covers: dict[str, list[str]], eligible: set[str]) -> list[str]:
+    """What a chat reference to ``content_id`` means: its eligible covering virtual CIs.
+
+    The same rule as the Advisor collapse, for one item. A member lifts to every
+    covering virtual CI that is eligible (one -> that one; several, such as the two
+    field-asset virtual CIs -> the caller asks the user). With none eligible, or when
+    the item is not a member, it stays itself.
+    """
+    lifted = [v for v in covers.get(content_id, []) if v in eligible]
+    return lifted or [content_id]
 
 
 def exclusion_set_for(db, referenced_id: str) -> set[str]:
