@@ -408,3 +408,24 @@ def test_overlap_neighbors_is_the_one_shared_lookup(db):
     virtual, member, expected = _family_with_pairs_on_the_member(db)
     group, neighbors = overlap_neighbors(db, virtual, ["prod"], limit=1)
     assert set(group) == {virtual, member} and len(neighbors) == 1
+
+
+@pytest.mark.asyncio
+async def test_tied_scores_card_is_the_first_five_table_rows(db):
+    """More than ten neighbors with the same score: both limits cut the same ordered list."""
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    member = add(db, "agd-v2.lab.prod")
+    others = [add(db, f"zt-n{i:03d}.prod") for i in range(12)]
+    virtual = db.upsert_babylon_catalog_item({"ci_name": "published.lab.prod", "stage": "prod",
+                                              "display_name": "Lab"})
+    link(db, virtual, member)
+    generate_overlap_candidates(db.pool)
+    res = Resolution(kind="execute", output=RouterOutput(intent="overlap", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    settings = SETTINGS(chat_intent_roles_str="")
+    table = (await handlers.handle_overlap(res, db, settings, ["prod"], True, None)).blocks[1].data["neighbors"]
+    card = (await handlers.handle_item_facts(res, db, settings, ["prod"], True, None)).blocks[0].data["neighbors"]
+    expected = sorted(others)  # equal scores: ties break by neighbor content_id
+    assert [n["content_id"] for n in table] == expected[:10]
+    assert [n["content_id"] for n in card] == expected[:5] == [n["content_id"] for n in table[:5]]

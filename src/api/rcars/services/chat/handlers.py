@@ -166,7 +166,7 @@ def overlap_neighbors(db: Database, cid: str, stages: list[str], limit: int) -> 
     A virtual CI often has no analysis of its own, so overlap pairs sit on its
     members (the anchor component holds the analysis). Look from the item and from
     its members; a pair inside that group is the same content, never a neighbor.
-    One row per neighbor, best pair first. The overlap handler and the item card
+    One row per neighbor, best pair first, ties by neighbor content_id so every limit cuts the same list. The overlap handler and the item card
     both use this, so they always list the same items.
     """
     group = [cid] + sorted({r["member_content_id"] for r in db.get_family_rows([cid])
@@ -178,6 +178,7 @@ def overlap_neighbors(db: Database, cid: str, stages: list[str], limit: int) -> 
         rows = conn.execute(
             f"""SELECT * FROM (
                  SELECT DISTINCT ON (ce.content_id)
+                      ce.content_id AS neighbor_id,
                       oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.ci_name, bi.stage
@@ -191,7 +192,7 @@ def overlap_neighbors(db: Database, cid: str, stages: list[str], limit: int) -> 
                  {stage_clause}
                  ORDER BY ce.content_id, oc.shared_products DESC, oc.shared_topics DESC
                ) one_per_neighbor
-               ORDER BY shared_products DESC, shared_topics DESC
+               ORDER BY shared_products DESC, shared_topics DESC, neighbor_id
                LIMIT %(limit)s""",
             {"group": group, "stages": stages, "limit": limit},
         ).fetchall()
