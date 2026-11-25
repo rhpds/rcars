@@ -936,9 +936,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/handlers.py": {
-    "mtime": 1795620597.3398166,
-    "seen": 1795620638.722656,
-    "ast_hash": "48d94592968df8cd9846af2ead993b49",
+    "mtime": 1795621216.1508985,
+    "seen": 1795621224.463114,
+    "ast_hash": "f1b9b84df4f611a4d5d008724d7af029",
     "semantic_hash": ""
   },
   "src/api/rcars/services/chat/models.py": {
@@ -1896,9 +1896,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_overlap_chat_families.py": {
-    "mtime": 1795620597.3395162,
-    "seen": 1795620638.7246258,
-    "ast_hash": "9fdd8f4ee9ea605aae03ac5083bf0fda",
+    "mtime": 1795621205.7456245,
+    "seen": 1795621224.4651442,
+    "ast_hash": "55a71eef5f67937f0d6fc24698ad477f",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {
