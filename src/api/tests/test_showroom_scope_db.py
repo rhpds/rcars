@@ -163,15 +163,6 @@ def test_source_and_analysis_provenance_round_trip_and_schema_idempotence(db):
     assert db.get_showroom_analysis(content_id)["analysis_provenance_json"] == provenance
 
 
-def test_stage_counterpart_does_not_match_lab_numbers_or_infrastructure_base(db):
-    content_id, _, _ = seed(db)
-    db.upsert_babylon_catalog_item({"ci_name": "isolation-test.item.dev", "stage": "dev"})
-    db.upsert_babylon_catalog_item({"ci_name": "isolation-test.other.prod", "stage": "prod",
-                                   "base_ci_name": "isolation-test.item.dev"})
-    assert db.get_stage_counterpart("babylon:isolation-test.item.dev", "prod")["content_id"] == content_id
-    assert db.get_stage_counterpart("babylon:isolation-test.missing.dev", "prod") is None
-
-
 def test_independent_items_and_virtual_stages_are_not_deduplicated(db):
     for name in ("isolation-test.a.prod", "isolation-test.b.prod", "isolation-test.virtual.dev"):
         db.upsert_babylon_catalog_item({"ci_name": name, "stage": name.rsplit(".", 1)[-1],

@@ -132,10 +132,7 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
     recent = []
     for j in complete[-20:]:
         rj = j.get("result_json") or {}
-        ci = rj.get("ci_name", "unknown")
-        propagated = rj.get("propagated", 0)
-        label = f"{ci} (+{propagated} siblings)" if propagated else ci
-        recent.append(label)
+        recent.append(rj.get("ci_name", "unknown"))
     failed_names = []
     for j in failed[-10:]:
         ci = j.get("result_json", {}).get("ci_name") if j.get("result_json") else None
@@ -143,18 +140,12 @@ async def scan_progress(request: Request, user: str = Depends(require_admin)):
         label = f"{ci}: {error}" if ci else error
         failed_names.append(label[:120])
 
-    total_propagated = sum(
-        (j.get("result_json") or {}).get("propagated", 0)
-        for j in complete
-    )
-
     return {
         "queued": len(queued),
         "running": len(running),
         "complete": len(complete),
         "failed": len(failed),
         "total": len(jobs),
-        "total_propagated": total_propagated,
         "recent_complete": recent,
         "recent_failures": failed_names,
     }

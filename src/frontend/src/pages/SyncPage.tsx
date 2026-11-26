@@ -82,12 +82,10 @@ function ScanMonitor() {
         if (done) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           intervalRef.current = null
-          const propCount = progress.total_propagated || 0
-          addLog(`Analysis complete: ${progress.complete} analyzed + ${propCount} propagated = ${progress.complete + propCount} total, ${progress.failed} failed`)
+          addLog(`Analysis complete: ${progress.complete} analyzed, ${progress.failed} failed`)
           setScanning(false)
         } else {
-          const propInfo = progress.total_propagated ? `, ${progress.total_propagated} propagated` : ''
-          addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed${propInfo}]`)
+          addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed]`)
         }
       } catch { /* ignore */ }
     }, 10000)
@@ -227,12 +225,10 @@ function RescanAllSection() {
         if (done) {
           if (intervalRef.current) clearInterval(intervalRef.current)
           intervalRef.current = null
-          const propCount = progress.total_propagated || 0
-          addLog(`Full re-analysis complete: ${progress.complete} analyzed + ${propCount} propagated, ${progress.failed} failed`)
+          addLog(`Full re-analysis complete: ${progress.complete} analyzed, ${progress.failed} failed`)
           setRunning(false)
         } else {
-          const propInfo = progress.total_propagated ? `, ${progress.total_propagated} propagated` : ''
-          addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed${propInfo}]`)
+          addLog(`  [${progress.complete} done, ${progress.running} running, ${progress.queued} queued, ${progress.failed} failed]`)
         }
       } catch { /* ignore */ }
     }, 10000)

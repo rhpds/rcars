@@ -322,7 +322,6 @@ class ScanProgressResponse(BaseModel):
     complete: int
     failed: int
     total: int
-    total_propagated: int = 0
     recent_complete: list[str]
     recent_failures: list[str]
 

@@ -29,7 +29,7 @@ flowchart TD
         CIRef -->|No| Cutoff
         Resolve --> MergeResults[Merge Neighbor Results<br/>with Query Results]
         MergeResults --> Cutoff[Apply Distance Cutoff<br/>default ≤ 0.55]
-        Cutoff --> Dedup[Content Dedup<br/>+ Base→Published Promotion]
+        Cutoff --> Dedup[One Card per<br/>Catalog Family]
     end
 
     subgraph "Phase 2 — Triage"
@@ -67,13 +67,24 @@ This entire search runs in milliseconds thanks to pgvector's IVFFlat index on th
 
 ### Deduplication
 
-Before passing results to triage, the vector search deduplicates to prevent the same lab content from appearing multiple times:
+Before passing results to triage, vector search turns the raw hits into one card
+per catalog family. The rules live in `services/catalog_identity.py`; see
+[Catalog Identity](catalog-identity.md) for the full model.
 
-**Content hash deduplication:** When multiple CIs share the same Showroom content (same `content_hash`), only the best representative is kept. Priority: prod > event > dev, published > base, lower vector distance.
+**Catalog family:** A virtual CI (`published.*`) and the components down to its
+content anchor form one family. A component hit lifts to every covering virtual
+CI that passes the card filters. When no covering virtual CI passes them, the
+component itself shows. Two eligible virtual CIs over one component show as two
+cards.
 
-**Published/base CI promotion:** Embeddings are stored on base CIs (they own the Showroom content). When a base CI has a published counterpart, the vector search promotes it — presenting the published CI's identity (the orderable item) while using the base CI's analysis data.
+**Stage copies:** Copies of one CI (same `stage_key`) merge only when the user
+selects several stages and their displayed analyses have the same non-empty
+`content_hash`. The highest stage wins: `prod` > `event` > `dev`. Different
+content stays as separate cards.
 
-**Ref normalization:** For deduplication fallback (when `content_hash` is not available), refs `""`, `"main"`, `"master"`, and `"HEAD"` are all treated as equivalent.
+**Invariant:** A finished result never has two cards with the same `content_id`,
+and never a component next to a virtual CI that covers it. The pipeline enforces
+it after triage and boosts.
 
 ### CI Name Resolution
 
@@ -87,7 +98,7 @@ CI name resolution solves this by detecting references to known catalog items in
 
 2. **Keyword overlap** (only if no lab number matched) — significant words (3+ characters, excluding stop words) are extracted from the query. Catalog item display names are scanned for items with 3 or more matching words. For example, "content similar to the Experience OpenShift virtualization item" would match a display name containing "Experience", "OpenShift", and "virtualization."
 
-When a CI is resolved, its stored `ci_summary` embedding is retrieved and used as the query vector for a neighbor search. The referenced item itself is excluded from results (the user already knows about it). Neighbor results are merged with the regular query embedding results before the distance cutoff and deduplication are applied.
+When a CI is resolved, its stored `ci_summary` embedding is retrieved and used as the query vector for a neighbor search. The referenced item is excluded from results, together with its family and its stage copies, so "similar to X" never returns X, a virtual CI that covers X, or another stage of either (RHDPCD-2298). Neighbor results are merged with the regular query embedding results before the distance cutoff and deduplication are applied.
 
 **Why not widen the distance cutoff instead?** Widening the cutoff globally (e.g., from 0.55 to 0.65) would let marginal matches through for all queries, not just ones that reference specific content. The triage phase scores candidates relative to the query — if handed a list of weakly-matched items, Haiku still ranks the "best of a bad lot" and can produce plausible-looking but poor recommendations. CI name resolution is targeted: it only affects queries that reference known content and produces genuinely similar results via embedding proximity.
 

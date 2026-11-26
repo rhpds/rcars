@@ -106,24 +106,27 @@ rcars scan --max 5          # Limit to 5 items (useful for testing)
 
 **Parallelism:** Items are processed in parallel threads (default: 5, controlled by `RCARS_MAX_PARALLEL`). Reduce this if you hit API rate limits or memory pressure.
 
-**Cost:** Each item requires one Sonnet API call. A full scan of ~130 Showroom items will make ~130 calls. Use `--max` to test on a small batch before running a full scan.
+**Cost:** A scan makes at most one Sonnet API call per item. Reuse lowers the count. An item reuses a donor analysis only when the `content_hash`, `analysis_config` and content type all match, and the run is not forced. `analysis_config` includes the per-item prompt inputs (CI name, display name, category, product), so two different CIs usually need separate calls today. Use `--max` to test on a small batch before running a full scan.
 
-**Deduplication:** Refs are resolved to commit SHAs via batch `git ls-remote`. CIs sharing the same Showroom URL + commit SHA are scanned once and results are propagated to all siblings automatically.
+**Deduplication:** A pre-clone check by repo + resolved commit + `content_path` finds a known hash. A donor with the same `content_hash` and `analysis_config` is reused from any CI or stage; each item still gets its own analysis row and embeddings. Ref names never count as content. A forced rescan skips reuse. The planned prompt change (RHDPCD-2302 PR 7) removes the per-item lines from the prompt and makes cross-CI reuse the normal case.
 
 ---
 
-### `rcars compute-similarity`
+### `rcars overlap-candidates`
 
-Computes pairwise cosine similarity between catalog item embeddings within a selected stage. Compares every item against every other item in that stage and stores pairs above the threshold. No LLM calls — runs entirely in PostgreSQL using pgvector.
+Finds overlapping content pairs by shared products and topics and stores them in
+`overlap_candidates`. Stage copies count as one item. A virtual CI and its own
+family members are never a pair. Pairs that do not meet the thresholds are
+pruned. No LLM calls.
 
 ```bash
-rcars compute-similarity                        # Prod items, default threshold 0.75
-rcars compute-similarity --stage event          # Event items (-s shorthand)
-rcars compute-similarity --stage dev            # Dev items
-rcars compute-similarity --threshold 0.80       # Higher threshold = fewer pairs (-t shorthand)
+rcars overlap-candidates                       # Default: 1 shared product, 2 shared topics
+rcars overlap-candidates -p 2                  # Require 2 shared products
+rcars overlap-candidates -t 3                  # Require 3 shared topics
 ```
 
-Recompute after scans or re-analysis since the underlying embeddings may have changed. Also available via the Content Analysis UI (`/analysis/overlap`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`).
+The nightly maintenance pipeline runs this step, then assesses new pairs with
+the LLM. See [Content Overlap](../architecture/content-overlap.md).
 
 ---
 

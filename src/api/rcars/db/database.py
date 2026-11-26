@@ -679,23 +679,23 @@ CREATE INDEX IF NOT EXISTS idx_catalog_family_members_member ON catalog_family_m
 
 """
 
-# Approved retirement for an item or any stage sibling (same CI name minus the
-# stage suffix). Stages share one AgV description, so retiring one retires all;
-# the workflow row lives only on the stage it was started from. Non-Babylon
-# items match on content_id. Expects `ce` and `bi` aliases; exposes
+# Approved retirement for an item or any stage sibling. Stages share one AgV
+# description, so retiring one retires all; the workflow row lives only on the
+# stage it was started from. Stage siblings share content_entities.stage_key
+# (non-Babylon items: their content_id). Expects the `ce` alias; exposes
 # `rw.status` and `rw.retirement_target_date`.
 _SIBLING_RETIREMENT_JOIN = """
     LEFT JOIN (
         SELECT DISTINCT ON (family) family, status, retirement_target_date
         FROM (
-            SELECT COALESCE(substring(rw_bi.ci_name FROM '^(.+)\\.[^.]+$'), rw.content_id) AS family,
+            SELECT COALESCE(rw_ce.stage_key, rw.content_id) AS family,
                    rw.status, rw.retirement_target_date, rw.updated_at
             FROM retirement_workflow rw
-            LEFT JOIN babylon_items rw_bi ON rw_bi.content_id = rw.content_id
+            LEFT JOIN content_entities rw_ce ON rw_ce.content_id = rw.content_id
             WHERE rw.step_approved_at IS NOT NULL
         ) approved
         ORDER BY family, updated_at DESC
-    ) rw ON rw.family = COALESCE(substring(bi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id)
+    ) rw ON rw.family = COALESCE(ce.stage_key, ce.content_id)
 """
 
 
@@ -2055,14 +2055,6 @@ class Database:
                 "extra_llm_runs": row["llm_runs"] - row["distinct_own"],
                 "extra_llm_runs_hash_only": row["llm_runs"] - row["distinct_own_hash_only"]}
 
-    def get_stage_counterpart(self, content_id: str, stage: str) -> dict | None:
-        item = self.get_babylon_item(content_id)
-        if not item or stage not in ("prod", "event", "dev", "test"):
-            return None
-        family = item_family_key(item["ci_name"], item.get("stage", ""))
-        counterpart = self.get_babylon_item_by_ci_name(f"{family}.{stage}")
-        return counterpart if counterpart and counterpart.get("retired_at") is None else None
-
     def get_embeddings_for_content(self, content_id: str) -> list[dict[str, Any]]:
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
@@ -2266,13 +2258,13 @@ class Database:
         retiring_filter = ""
         if exclude_retiring:
             # Stages share one AgV description, so a started retirement on any
-            # stage sibling (same CI name minus the stage suffix) hides them all.
+            # stage sibling (same stage_key) hides them all.
             retiring_filter = (
                 "AND NOT EXISTS (SELECT 1 FROM retirement_workflow rw "
-                "LEFT JOIN babylon_items rw_bi ON rw_bi.content_id = rw.content_id "
+                "LEFT JOIN content_entities rw_ce ON rw_ce.content_id = rw.content_id "
                 "WHERE rw.status = 'started' "
-                "AND COALESCE(substring(rw_bi.ci_name FROM '^(.+)\\.[^.]+$'), rw.content_id) "
-                "= COALESCE(substring(cbi.ci_name FROM '^(.+)\\.[^.]+$'), ce.content_id))"
+                "AND COALESCE(rw_ce.stage_key, rw.content_id) "
+                "= COALESCE(ce.stage_key, ce.content_id))"
             )
 
         sql = f"""
