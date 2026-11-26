@@ -228,6 +228,23 @@ def classify_scan_error(
     return "unknown", f"Unexpected error scanning {url}: {msg}"
 
 
+# Only these failures prove the source has no usable content, so only these may
+# clear an item's prior analysis and embeddings. Every other failure (LLM call
+# error, timeout, parse failure, embedding error, unknown exception) is
+# retryable: the prior analysis and embeddings stay, the scan is marked failed,
+# and the next scan retries. This keeps healthy items in the Advisor during a
+# batch rescan.
+DEFINITIVE_SCAN_FAILURES = frozenset({
+    "http_404", "invalid_ref", "private_repo",
+    "invalid_source", "jinja_url", "none_source", "ambiguous_source", "excluded_source",
+    "missing_antora", "no_content",
+})
+
+
+def is_definitive_scan_failure(error_class: str) -> bool:
+    return error_class in DEFINITIVE_SCAN_FAILURES
+
+
 def _is_github_throttle(stderr: str) -> bool:
     indicators = ["rate limit", "too many requests", "403", "secondary rate"]
     return any(ind in stderr.lower() for ind in indicators)

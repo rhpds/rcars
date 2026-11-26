@@ -99,25 +99,42 @@ What triggers the re-analysis:
    that needs work, `rcars scan --content-id babylon:<ci_name>` one item, and
    `rcars scan --force` bypasses the unchanged and donor fast paths.
 
-Expected LLM runs on dev (read-only counts, 2026-11-26): 841 Showroom analyses
-over 410 distinct `content_hash`. One run per distinct (`content_hash`, entity
-content type) is about 414 runs. The pre-clone grouping gives 422 leader
-groups, so 414-422 runs is the expected range, against 841 if every item stage
-ran alone. The 8 description-sourced analyses are per item and re-run as well.
-Their prompt still names the item, so
-`compute_description_analysis_config` keeps the item fields in their setup.
+Expected LLM runs on dev (read-only counts, 2026-11-26, after the eligibility
+filters of `get_items_needing_analysis`: active lab/demo, non-test, resolved
+Showroom or description source, no pure stubs):
 
-The batch is safe to spread. Step 3 enqueues and returns; the scan worker runs 5
-jobs at a time with a 600s per-job timeout (clone + one LLM call + embeddings),
-and the nightly pipeline has a 7200s timeout of its own. The queue therefore
-drains in the background over roughly one to two hours. About 414 LLM calls,
-five at a time, are normal night-time load for RHDP MaaS.
+- 731 eligible Showroom analyses have a summary; all are policy 1.
+  17 eligible Showroom items have no summary. 8 items are description-sourced.
+- The 731 prior analyses cover 355 distinct (`content_hash`, entity content
+  type) pairs and 401 distinct stored pre-clone groups (repo + stored commit +
+  content path + content type).
+- Estimate: about 363-426 LLM runs -- 355-401 Showroom leaders, plus up to 17
+  items with no prior hash, plus 8 description items. The same batch under the
+  old per-CI config needs about 412-469 runs. Treat both as estimates: content
+  can change, a fresh commit can move a group, and concurrent jobs in different
+  pre-clone groups can miss the same donor.
+- Description analyses keep the item fields in their setup
+  (`compute_description_analysis_config`) and re-run per item.
+
+Step 3 enqueues and returns; the scan worker runs 5 jobs at a time with a 600s
+per-job timeout, and the nightly pipeline has a 7200s timeout of its own.
+
+Timing is not yet measured for a full batch. Dev `jobs` rows for completed
+`analyze` jobs over the last 30 days: 1,260 jobs, p50 17.7s, p90 36.9s. Most
+were reuse-only; a leader job also clones and calls the LLM, so these values are
+a floor, not a batch estimate. Measure the first rescan on dev.
 
 During the rescan the previous analysis stays in `showroom_analysis` and the
 Advisor keeps showing it. Each successful re-analysis replaces its row and
 clears `is_stale`. A re-analyzed donor row is reusable immediately by other
 items with the same content. Old policy-1 rows are never reused, because the
 donor lookup excludes stale rows and rejects a different policy version.
+
+A retryable failure (LLM call error, timeout, malformed or unparseable
+response, embedding error) records `scan_status = 'failed'` but keeps the prior
+analysis and embeddings, so the item stays visible and the next scan retries.
+A definitive source failure (repo or ref gone, unresolved source, no content)
+still clears the prior analysis and embeddings.
 
 ## One owner
 

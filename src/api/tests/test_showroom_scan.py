@@ -114,24 +114,58 @@ def test_curator_url_resolves_target_and_is_selected_after_catalog_refresh(db, s
     assert result["source"]["owner_ci_name"] == name
 
 
-def test_exception_invalidates_only_generated_target_artifacts(db, scan):
+def test_llm_exception_keeps_prior_analysis_and_embeddings_for_retry(db, scan):
     cid = add_item(db, scan)
     other = add_item(db, scan, "isolation-test.other.prod")
     scan_babylon_item(db, scan.settings, cid)
     scan_babylon_item(db, scan.settings, other)
+    prior = db.get_showroom_analysis(cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
     with db.pool.connection() as conn:
         conn.execute("UPDATE showroom_analysis SET notes = 'Human', curated_duration_min = 37 WHERE content_id = %s", (cid,))
     other_before = db.get_embeddings_for_content(other)
     scan.llm.side_effect = RuntimeError("LLM transport failed")
     result = scan_babylon_item(db, scan.settings, cid, force=True)
     assert result["success"] is False
-    assert db.get_embeddings_for_content(cid) == []
-    assert db.get_content_entity(cid)["summary"] is None
+    # Retryable model failure: the previous analysis stays visible and the next scan retries.
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_content_entity(cid)["summary"] == prior["summary"]
     analysis = db.get_showroom_analysis(cid)
-    assert analysis["summary"] is None
+    assert analysis["summary"] == prior["summary"]
     assert analysis["notes"] == "Human"
     assert analysis["curated_duration_min"] == 37
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
     assert db.get_embeddings_for_content(other) == other_before
+
+
+def test_parse_failed_response_keeps_prior_analysis_and_embeddings_for_retry(db, scan):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior = db.get_showroom_analysis(cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
+    scan.llm.return_value.text = "not json at all"
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "parse_failed"
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_showroom_analysis(cid)["summary"] == prior["summary"]
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+
+
+def test_definitive_no_content_failure_still_clears_prior_artifacts(db, scan, git_repo):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    repo, git, _, _ = git_repo
+    (repo / "content/modules/ROOT/pages/index.adoc").write_text("= Home\n\n* xref:other.adoc[Next]")
+    git("add", ".")
+    git("commit", "-m", "Stub")
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "no_content"
+    assert db.get_embeddings_for_content(cid) == []
+    assert db.get_showroom_analysis(cid)["summary"] is None
+    assert db.get_content_entity(cid)["summary"] is None
 
 
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):

@@ -6,11 +6,10 @@ resolved commit + content_path + analysis_config) on a dedicated connection
 serializes the CIs and stages that can share one generation.
 """
 import hashlib
-import subprocess
 
 from rcars.services.analyzer import (
     analyze_description, analyze_showroom, classify_scan_error, description_source,
-    ls_remote_sha, regenerate_embeddings, showroom_reuse_key,
+    is_definitive_scan_failure, ls_remote_sha, regenerate_embeddings, showroom_reuse_key,
 )
 from rcars.services.showroom_source import (
     analysis_generation, content_owner, effective_analysis_source, effective_showroom_source,
@@ -24,6 +23,19 @@ def _snapshot(item):
     return (effective_showroom_source(item).to_dict(), *(item.get(key) for key in
         ("display_name", "category", "product", "keywords", "content_type", "retired_at",
          "analysis_source_override", "custom_description")))
+
+
+def _record_scan_failure(db, content_id, error, message, *, conn):
+    """Definitive source failures clear artifacts; retryable ones keep them.
+
+    A retryable failure records the scan failure so the next scan selects the
+    item again, but leaves the prior analysis and embeddings in place so the
+    item stays in the Advisor until a replacement succeeds.
+    """
+    if is_definitive_scan_failure(error):
+        db.invalidate_babylon_scan_failure(content_id, error, message, conn=conn)
+    else:
+        db.set_scan_status(content_id, "failed", error, message, conn=conn)
 
 
 # Longer than one analysis, well inside the 600s scan job timeout.
@@ -112,7 +124,7 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                     or analysis_generation(db.get_showroom_analysis(content_id, conn=conn, for_update=True)) != observed_generation):
                 return {"content_id": content_id, "success": False, "outcome": "superseded", "source": source.to_dict()}
             if "error" in result:
-                db.invalidate_babylon_scan_failure(content_id, result["error"], result.get("message"), conn=conn)
+                _record_scan_failure(db, content_id, result["error"], result.get("message"), conn=conn)
                 return {"content_id": content_id, "success": False, "outcome": "failed", "source": source.to_dict(), **result}
             outcome = result["outcome"]
             if outcome != "unchanged":
@@ -144,17 +156,13 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
         return outcome_result
     except Exception as exc:
         error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
-        if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) and error != "http_404":
-            # Retryable Git failures keep prior artifacts; a missing repo is definitive.
-            log.warning("showroom_scan_transient_failure", component="scanner", content_id=content_id, error_class=error)
-            return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
         with db.pool.connection() as conn:
             current = db.lock_babylon_item(conn, content_id)
             if (current is None or _snapshot(current) != snapshot
                     or analysis_generation(db.get_showroom_analysis(content_id, conn=conn, for_update=True)) != observed_generation):
                 return {"content_id": content_id, "success": False, "outcome": "superseded"}
-            db.invalidate_babylon_scan_failure(content_id, error, message, conn=conn)
-        log.exception("showroom_scan_failed", content_id=content_id, error_class=error)
+            _record_scan_failure(db, content_id, error, message, conn=conn)
+        log.warning("showroom_scan_failed", component="scanner", content_id=content_id, error_class=error)
         return {"content_id": content_id, "success": False, "outcome": "failed", "error": error, "message": message}
 
 
