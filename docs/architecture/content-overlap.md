@@ -77,19 +77,18 @@ stages.
 **Comparison drawer:** Clicking a neighbor's verdict badge opens a side drawer
 that shows the assessment for the pair.
 
-**Top-level items** are filtered by stage (prod by default). **Neighbors** show
-items from all stages, so a prod item can see dev or event overlaps.
-
-## Browse Card Integration
-
-The "Similar Content" section on browse cards shows the top neighbors for each
-content entity, with a link to the full overlap report.
+**Top-level items** show from all stages by default. The stage filter can limit
+them to one stage. **Neighbors** always show items from all stages, so a prod item
+can see dev or event overlaps.
 
 ## Integration Points
 
 - **Overlap page** (`/analysis/overlap`) — item-centric report with comparison drawer
-- **Browse page** — expanded items show a "Similar Content" section
-- **Sync page** (`/system/sync`) — "Refresh Similarity" action card
-- **Nightly pipeline** — Step 6
-- **API** — item-centric report, per-item similarity, and queued recomputation
-- **CLI** — `rcars overlap-candidates`
+- **Sync page** (`/system/sync`) — **Run Babylon Pipeline** under Scheduled
+  Maintenance runs the overlap step
+- **Nightly pipeline** — step 6
+- **CLI** — `rcars overlap-candidates` generates candidates only, with no LLM
+- **API** — `GET /api/v1/analysis/overlap` (report), `GET
+  /api/v1/analysis/overlap/{a}/{b}` (cached pair), `POST
+  /api/v1/analysis/overlap/assess` (assess one pair), `POST
+  /api/v1/admin/sync-babylon` (full Babylon pipeline)

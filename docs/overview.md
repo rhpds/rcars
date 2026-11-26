@@ -43,7 +43,7 @@ The pipeline supports event URL parsing (paste a conference URL, get matched con
 
 ### Content Overlap Detection
 
-RCARS compares lab embeddings against each other to find catalog items that teach substantially the same material. This is a curator tool for identifying duplicates — items with 85%+ cosine similarity are flagged as near-duplicates, and 75-84% as related content worth reviewing. Comparisons are scoped by stage (prod vs prod only).
+RCARS finds catalog items that teach substantially the same material. Candidate pairs come from shared products and topics, not embedding distance. An LLM then gives each pair a verdict: redundant, complementary, or differentiated. This is a curator tool for identifying duplicates. It covers all stages by default, and the stage filter can limit the top-level items.
 
 ### Performance Analysis
 

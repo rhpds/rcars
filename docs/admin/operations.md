@@ -61,20 +61,33 @@ The scan worker has higher resource limits because it runs `git clone` operation
 
 ## Scan Deduplication
 
-The scan worker runs one LLM content analysis per distinct `content_hash` plus
-`analysis_config`. `content_hash` is the hash of the selected, filtered Showroom
-files the LLM reads. `analysis_config` covers the prompt template, vocabulary,
-model, policy version and content type. A pre-clone check by repo + resolved
-commit + `content_path` finds a known hash without a clone.
+The scan worker can reuse a finished analysis instead of calling the LLM. Reuse
+is conditional. The item needs an eligible donor with the same `content_hash`,
+the same `analysis_config`, and the same content type. `content_hash` is the hash
+of the selected, filtered Showroom files the LLM reads. `analysis_config` covers
+the prompt template, vocabulary, model, policy version, and the per-item inputs
+the content prompt still carries: CI name, display name, category and product.
+A forced rescan (`--force`) skips the donor lookup.
 
-Reuse crosses CIs and stages. Each item keeps its own `showroom_analysis` row and
-its own embeddings, so every CI is independently searchable. A reused row records
-`reused_from`. Reuse never sets card identity; that comes from the catalog
-families (see [Catalog Identity](../architecture/catalog-identity.md)).
+A pre-clone check by repo + resolved commit + `content_path` finds a known hash
+without a clone.
+
+Because the CI name and the other per-item lines are still in the prompt, cross-CI
+reuse rarely applies today: two different CIs give different configurations. Stage
+copies of one CI usually match, since CI name is the stage-stripped name. They
+still need the same display name, category, product and content type. The planned
+prompt change (RHDPCD-2302 PR 7) removes those lines and makes cross-CI reuse the
+normal case.
+
+Each item keeps its own `showroom_analysis` row and its own embeddings, so every
+CI is independently searchable. A reused row records `reused_from`. Reuse never
+sets card identity; that comes from the catalog families (see
+[Catalog Identity](../architecture/catalog-identity.md)).
 
 Example: `agd-v2.modernize-ocp-virt` in dev (`main`) and in prod (a tag on the
-same commit) read the same files. One analysis runs; the other reuses it. A stage
-copy that reads different files gets its own analysis.
+same commit) read the same files. When their display name, category and product
+also match, one analysis runs and the other reuses it. A stage copy that reads
+different files, or has a different prompt input, gets its own analysis.
 
 ## Scheduled Maintenance Pipeline
 
@@ -83,10 +96,10 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 1. **Catalog Refresh** — syncs catalog metadata from all Babylon namespaces. For AgnosticD v2 items, this also extracts infrastructure metadata (config type, cloud provider, workloads, OCP/RHEL version, ACL groups) and stores them alongside the catalog data. Missing items are **soft-deleted** rather than purged; analysis and embeddings are preserved, while derived reporting metrics can be refreshed or cleaned up. Items that reappear are automatically un-retired. See [Retirement System — Catalog Soft-Delete](../architecture/retirement-system.md#catalog-soft-delete).
 2. **Stale Check** — runs `git ls-remote` on all analyzed Showrooms, then clones only repos with new commits to compare content hashes
 3. **Enqueue Re-Analysis** — queues analysis jobs for any items found stale or unanalyzed
-4. **Workload Role Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses an LLM to determine what product each role installs. Updates the `infrastructure` table with descriptions, products, capabilities, and vector embeddings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
-5. **Base Config Scan** — scans AgnosticD v2 config repositories for base environment configurations (e.g. `ocp4-cluster`, `cloud-vms-base`). Uses the same change-detection and LLM analysis approach as the workload scan. Runs as part of the same pipeline step.
-6. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
-7. **Overlap Candidates** — finds overlapping content pairs by shared products and topics, then assesses unassessed pairs with the LLM. See [Content Overlap](../architecture/content-overlap.md).
+4. **Workload Role and Base Config Scan** — step 4 in the pipeline log. Scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses an LLM to determine what product each role installs. Updates the `infrastructure` table with descriptions, products, capabilities, and vector embeddings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true). The same step scans AgnosticD v2 config repositories for base environment configurations (e.g. `ocp4-cluster`, `cloud-vms-base`), using the same change-detection and LLM analysis approach.
+5. **Sandbox Summary** — step 4b in the pipeline log. Generates summaries for sandboxes from the infrastructure metadata that step 4 populated.
+6. **Reporting Sync** — step 5 in the pipeline log. Pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
+7. **Overlap Candidates** — step 6 in the pipeline log. Finds overlapping content pairs by shared products and topics, then assesses new and stale pairs with the LLM. See [Content Overlap](../architecture/content-overlap.md).
 
 The full orchestrator then runs the portfolio-architecture sub-pipeline and, when GitHub App integration is configured, the retirement sweep. The sweep opens due removal PRs and reconciles merged removal/cancellation-revert PRs; it still checks merges when no new removal PRs are due. The sub-pipelines have separate error handling so failure in one does not prevent the next from being attempted.
 

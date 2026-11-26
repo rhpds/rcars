@@ -55,9 +55,17 @@ component show as two cards.
 stages (`prod`, `event`, `dev`, `test`) are stripped. A non-Babylon item uses its
 `content_id`.
 
-Stage copies of one CI share a `stage_key`. Soft retirement, the Advisor
-retirement filter, Browse retirement badges, performance joins and the ignore flag
-all match on `stage_key`. Do not write a regex or a name split for this.
+Stage copies of one CI share a `stage_key`. These consumers match on it: Browse
+retirement badges (`_SIBLING_RETIREMENT_JOIN`), the Advisor started-retirement
+filter, the overlap representative rule and family keys, and the "similar to"
+stage-copy exclusion. Do not write a regex or a name split for these.
+
+Other consumers do **not** use `stage_key` for a stage sibling. The Performance
+report joins `retirement_workflow` by `content_id`, so an event-stage row does not
+inherit a prod sibling's retirement state. The Performance ignore flag updates one
+`content_id`. Catalog soft-delete retires one `content_id` at a time. It closes a
+retirement workflow only when every known stage name of that CI is gone, and it
+builds those names itself instead of reading `stage_key`.
 
 Stage copies are **not** merged by `stage_key` alone. They merge only when the
 user selects more than one stage **and** their displayed analyses have the same

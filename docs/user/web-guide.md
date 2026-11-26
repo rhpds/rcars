@@ -220,7 +220,6 @@ Click an item to expand it. The expanded view shows:
 - **Module list** with per-module topics
 - **Links** to RHDP Catalog and Showroom repository
 - **Scan errors** (if failed) — error class, message, and failure timestamp
-- **Similar Content** — if overlap detection has been run (see Content Analysis below), a panel listing other catalog items with similar Showroom content, ranked by similarity percentage. High overlap (≥85%) is shown in red; related content (75–85%) in amber. Click a similar item's name to search for it in Browse.
 
 **Curator controls** (visible to curators only): add/remove tags, edit notes, set curated duration (minutes), override Showroom URL, set content path with "Set & Scan" button, flag for review, and Re-analyze button.
 
@@ -273,18 +272,20 @@ New pairs get an LLM assessment with one of three verdicts:
 #### Using the Overlap page
 
 1. Use the verdict filter to show redundant, complementary, or differentiated pairs.
-2. Use the stage filter to limit the top-level items to one stage.
+2. Use the stage filter to limit the top-level items to one stage. It defaults to **All stages**.
 3. Use the search box to filter items by name.
 4. Expand an item to see its neighbors and their verdicts.
 5. Click a verdict badge to open the comparison drawer.
 6. Click a lab name to open it in Browse.
 
-The nightly maintenance pipeline finds new pairs and assesses them. The
-**Refresh Similarity** action on the Sync page runs the same step on demand.
+The nightly maintenance pipeline finds new pairs and assesses them. To run it on
+demand, open **Sync → Scheduled Maintenance** and click **Run Babylon Pipeline**.
+The overlap step is the last Babylon step.
 
-**CLI and API access:** Run `rcars overlap-candidates` to find pairs. For
-programmatic reports and on-demand assessment, see
-[Swagger UI](../architecture/api-reference.md#interactive-api-documentation).
+**CLI and API access:** Run `rcars overlap-candidates` to find pairs (no LLM).
+`POST /api/v1/admin/sync-babylon` runs the full Babylon pipeline, which includes
+overlap. `POST /api/v1/analysis/overlap/assess` assesses one pair. For reports,
+see [Swagger UI](../architecture/api-reference.md#interactive-api-documentation).
 
 ### Performance Analysis (`/analysis/performance`)
 

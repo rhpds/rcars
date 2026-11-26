@@ -106,9 +106,9 @@ rcars scan --max 5          # Limit to 5 items (useful for testing)
 
 **Parallelism:** Items are processed in parallel threads (default: 5, controlled by `RCARS_MAX_PARALLEL`). Reduce this if you hit API rate limits or memory pressure.
 
-**Cost:** Each item requires one Sonnet API call. A full scan of ~130 Showroom items will make ~130 calls. Use `--max` to test on a small batch before running a full scan.
+**Cost:** A scan makes at most one Sonnet API call per item. Reuse lowers the count. An item reuses a donor analysis only when the `content_hash`, `analysis_config` and content type all match, and the run is not forced. `analysis_config` includes the per-item prompt inputs (CI name, display name, category, product), so two different CIs usually need separate calls today. Use `--max` to test on a small batch before running a full scan.
 
-**Deduplication:** One LLM content analysis runs per distinct `content_hash` plus `analysis_config`. A pre-clone check by repo + resolved commit + `content_path` finds a known hash. Reuse crosses CIs and stages; each item still gets its own analysis row and embeddings. Ref names and CI names never count as content.
+**Deduplication:** A pre-clone check by repo + resolved commit + `content_path` finds a known hash. A donor with the same `content_hash` and `analysis_config` is reused from any CI or stage; each item still gets its own analysis row and embeddings. Ref names never count as content. A forced rescan skips reuse. The planned prompt change (RHDPCD-2302 PR 7) removes the per-item lines from the prompt and makes cross-CI reuse the normal case.
 
 ---
 
