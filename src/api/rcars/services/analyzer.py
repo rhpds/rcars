@@ -20,6 +20,7 @@ from rcars.services.analysis_identity import (
     canonical_content as _canonical_content,
     compute_analysis_config,
     compute_content_hash as hash_showroom_content,
+    compute_description_analysis_config,
     donor_matches_commit, donor_matches_content, fingerprint as _fingerprint, pre_clone_key,
 )
 from rcars.services.showroom_source import (
@@ -635,6 +636,13 @@ def _item_analysis_config(item: dict, model: str) -> str:
     return compute_analysis_config(item.get("content_type") or "lab", model)
 
 
+def _description_analysis_config(item: dict, model: str) -> str:
+    """Description analyses keep the item fields their prompt still sends."""
+    return compute_description_analysis_config(
+        item.get("ci_name", ""), item.get("display_name", ""), item.get("category", ""),
+        item.get("product", ""), item.get("content_type") or "lab", model)
+
+
 def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
     """Pre-clone queue/lock key: repo + resolved commit + content_path + analysis_config.
 
@@ -821,7 +829,7 @@ def build_description_prompt(
 def description_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
     """Read-only selection predicate; text and context hashes both gate re-analysis."""
     source = description_source(item)
-    analysis_config = _item_analysis_config(item, settings.model)
+    analysis_config = _description_analysis_config(item, settings.model)
     if not _own_analysis_current(row, source, analysis_config):
         return True
     if row.get("content_hash") != description_content_hash(description_text(item)):
@@ -855,7 +863,7 @@ def analyze_description(item: dict, settings, *, force: bool = False, db=None) -
     embeddings = db.get_embeddings_for_content(content_id) if db is not None else []
 
     content_hash = description_content_hash(text)
-    analysis_config = _item_analysis_config(item, settings.model)
+    analysis_config = _description_analysis_config(item, settings.model)
     system_prompt, user_message = build_description_prompt(
         ci_name, display_name, category, product, text,
         entity_content_type=entity_content_type,

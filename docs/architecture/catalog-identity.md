@@ -104,6 +104,8 @@ over 410 distinct `content_hash`. One run per distinct (`content_hash`, entity
 content type) is about 414 runs. The pre-clone grouping gives 422 leader
 groups, so 414-422 runs is the expected range, against 841 if every item stage
 ran alone. The 8 description-sourced analyses are per item and re-run as well.
+Their prompt still names the item, so
+`compute_description_analysis_config` keeps the item fields in their setup.
 
 The batch is safe to spread. Step 3 enqueues and returns; the scan worker runs 5
 jobs at a time with a 600s per-job timeout (clone + one LLM call + embeddings),

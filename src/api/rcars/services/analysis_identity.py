@@ -4,8 +4,10 @@ Two owner functions, everything else calls them:
 
 * ``compute_content_hash`` -- same Showroom content. Equal hash of the selected,
   filtered files the LLM reads. Ref names, tags and CI names never count.
-* ``compute_analysis_config`` -- same analysis setup. Prompt template, vocabulary
-  block, model, policy version and entity content type.
+* ``compute_analysis_config`` -- same analysis setup for Showroom content. Prompt
+  template, vocabulary block, model, policy version and entity content type.
+* ``compute_description_analysis_config`` -- the same for a catalog description,
+  whose prompt still carries the item fields.
 
 An analysis may be reused when ``content_hash`` and ``analysis_config`` (and the
 entity content type) are equal. ``repo + resolved commit + content_path`` is only
@@ -63,6 +65,21 @@ def compute_analysis_config(entity_content_type: str, model: str) -> str:
     from rcars.services import analyzer
     system, _ = analyzer.build_analysis_prompt({}, entity_content_type=entity_content_type)
     return fingerprint(system, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
+
+
+def compute_description_analysis_config(ci_name: str, display_name: str, category: str,
+                                        product: str, entity_content_type: str, model: str) -> str:
+    """Analysis setup for description-based analyses.
+
+    The description prompt still names the item and sends its fields to the LLM,
+    so those fields remain part of its identity. This is separate from the
+    content-only Showroom ``compute_analysis_config``. Description analyses are
+    per item and are never Showroom donors.
+    """
+    from rcars.services import analyzer
+    system, _ = analyzer.build_analysis_prompt({}, entity_content_type=entity_content_type)
+    item_context = [ci_name, display_name, category, product]
+    return fingerprint(system, item_context, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
 
 
 def pre_clone_key(repo: str, commit: str, content_path: str | None, analysis_config: str,

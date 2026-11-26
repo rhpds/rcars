@@ -249,6 +249,22 @@ def test_analyze_description_rename_reruns(db, monkeypatch):
     assert env.llm.call_count == 1
 
 
+def test_analyze_description_category_change_reruns(db, monkeypatch):
+    """The description prompt still sends category, so a change must invalidate it."""
+    content_id = add_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+    env.llm.reset_mock()
+    set_raw(db, "babylon_items", "category", "A new category", content_id)
+
+    result = analyzer.analyze_description(db.get_babylon_item(content_id), env.settings, db=db)
+
+    assert result["outcome"] == "analyzed"
+    assert env.llm.call_count == 1
+
+
 def test_analyze_description_blank_text_returns_no_content(db, monkeypatch):
     content_id = add_item(db)
     db.set_analysis_source(content_id, "agnosticv_description")
