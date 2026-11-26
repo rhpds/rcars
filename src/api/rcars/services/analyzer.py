@@ -213,8 +213,14 @@ def classify_scan_error(
         stderr_lower = stderr.lower()
         if any(ind in stderr_lower for ind in ("rate limit", "secondary rate", "too many requests")):
             return "throttled", f"GitHub throttled the request for {url}{suffix}: {stderr.strip()}"
-        if "permission denied" in stderr_lower or "403" in stderr_lower:
+        if any(ind in stderr_lower for ind in ("permission denied", "authentication failed",
+                                               "could not read username", "invalid username or password",
+                                               "access denied")):
             return "private_repo", f"Permission denied cloning {url}{suffix}: {stderr.strip()}"
+        if "403" in stderr_lower:
+            # Bare HTTP 403: GitHub uses it for throttling, so treat it as
+            # transient unless the stderr shows an authorization failure.
+            return "throttled", f"GitHub returned 403 for {url}{suffix}: {stderr.strip()}"
         if "not found" in stderr_lower or "404" in stderr_lower:
             return "http_404", f"Repository not found: {url}{suffix}: {stderr.strip()}"
         return "clone_failed", f"Git clone failed for {url}{suffix}: {stderr.strip()}"

@@ -196,6 +196,20 @@ def test_permission_denied_git_failure_still_clears_prior_artifacts(db, scan, mo
     assert db.get_embeddings_for_content(cid) == []
 
 
+def test_bare_403_git_failure_keeps_prior_artifacts(db, scan, monkeypatch):
+    """A bare HTTP 403 can be throttling, so it must not clear healthy items."""
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
+    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
+        128, ["git", "ls-remote"], stderr="The requested URL returned error: 403")))
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "throttled"
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_showroom_analysis(cid)["summary"] == "Configure TLS"
+
+
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):
     cid = add_item(db, scan)
     scan_babylon_item(db, scan.settings, cid)
