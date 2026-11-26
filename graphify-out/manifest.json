@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "docs/admin/cli-guide.md": {
-    "mtime": 1795683549.3164458,
-    "seen": 1795683964.1669261,
-    "ast_hash": "dc8ebda262ed9e8046bfc99e2255f699",
+    "mtime": 1795684786.8044603,
+    "seen": 1795684850.008872,
+    "ast_hash": "0ae0a248b9893ec5460cafab4437a537",
     "semantic_hash": ""
   },
   "docs/admin/deployment.md": {
@@ -642,9 +642,9 @@
     "semantic_hash": ""
   },
   "docs/admin/operations.md": {
-    "mtime": 1795683529.5065475,
-    "seen": 1795683964.16693,
-    "ast_hash": "be97b5c85a4cf53d80e8b92e781d1779",
+    "mtime": 1795684777.6940637,
+    "seen": 1795684850.008894,
+    "ast_hash": "a8d6196c7e1138b16c505165d57d86f2",
     "semantic_hash": ""
   },
   "docs/admin/token-usage.md": {
@@ -660,9 +660,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/content-overlap.md": {
-    "mtime": 1795683517.5984776,
-    "seen": 1795683964.166933,
-    "ast_hash": "f5408aefc8f54d2c614961864063cbeb",
+    "mtime": 1795684799.3067663,
+    "seen": 1795684850.0089622,
+    "ast_hash": "a80b5292479e771f2d3c18d7203c86f7",
     "semantic_hash": ""
   },
   "docs/architecture/data-design.md": {
@@ -696,9 +696,9 @@
     "semantic_hash": ""
   },
   "docs/overview.md": {
-    "mtime": 1795683208.191817,
-    "seen": 1795683964.1669388,
-    "ast_hash": "2ff1e392c0827dfae388f79251ad9d3c",
+    "mtime": 1795684820.6475523,
+    "seen": 1795684850.0091882,
+    "ast_hash": "65560d9933dc6aec6706c96d74131d90",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/2026-04-07-eca-production-redesign-design.md": {
@@ -822,9 +822,9 @@
     "semantic_hash": "fd601bade2cb8f5bc7b7bd53a98cf59c"
   },
   "docs/user/web-guide.md": {
-    "mtime": 1795683573.212806,
-    "seen": 1795683964.166959,
-    "ast_hash": "24a25f1bef29aacf922b331afabf965b",
+    "mtime": 1795684810.7548687,
+    "seen": 1795684850.0099788,
+    "ast_hash": "d869eecf8e948bd8da66c07faa9971ca",
     "semantic_hash": ""
   },
   "mkdocs.yml": {
@@ -1902,9 +1902,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/catalog-identity.md": {
-    "mtime": 1795683483.5500712,
-    "seen": 1795683964.166933,
-    "ast_hash": "8b8ad532182e9b02054cfd695848160f",
+    "mtime": 1795684833.6239479,
+    "seen": 1795684850.008961,
+    "ast_hash": "f647f567c940ef673e7e2f7fae0e78da",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {

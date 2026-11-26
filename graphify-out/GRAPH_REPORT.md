@@ -1,7 +1,7 @@
 # Graph Report - chore-rhdpcd-2297-cleanup  (2026-11-26)
 
 ## Corpus Check
-- 304 files · ~333,309 words
+- 304 files · ~333,575 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 13 file(s) not represented in the graph (top: (none) 5, .css 5, .example 2)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `4878402d`
+- Built from commit: `605c8dc5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -222,8 +222,8 @@
 1. `Database` - 318 edges
 2. `Settings` - 177 edges
 3. `load_vocabulary()` - 67 edges
-4. `seed()` - 50 edges
-5. `Candidate` - 50 edges
+4. `Candidate` - 50 edges
+5. `seed()` - 50 edges
 6. `item()` - 50 edges
 7. `create_app()` - 43 edges
 8. `scan_babylon_item()` - 42 edges
@@ -895,7 +895,7 @@ Nodes (6): Content Owner Model for Virtual CIs — Design, Problem, Rollout, Roo
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Database` connect `Database` to `_reference_context`, `.upsert_babylon_catalog_item`, `db/__init__.py`, `test_retirement_jira_events.py`, `test_overlap_assessment.py`, `ops.py`, `Any`, `.upsert_babylon_catalog_item`, `_jira_event_messages`, `orchestrator.py`, `Settings`, `.close`, `test_showroom_source.py`, `Any`, `seed`, `.upsert_infrastructure`, `scan_configs`, `test_advisor_families.py`, `workflow_lock_id`, `settings.py`, `pipeline.py`, `extract_base_name`, `test_api_infrastructure.py`, `._artifact_connection`, `RouterOutput`, `main`, `test_analysis_identity.py`, `test_osspa_analysis.py`, `handlers.py`, `run_osspa_sync`, `TestGetNonprodBaseNames`, `test_catalog_osspa_routes.py`, `.get_unknown_terms`, `test_overlap_chat_families.py`, `test_field_source_sync.py`, `generate_embedding`, `Advisor v2 — Content-Type Drivers`, `command`, `is_content_excluded`, `test_nonprod.py`, `test_retirement_pr_status.py`, `reporting_db_show`, `pytest`, `showroom_source.py`, `seed_chat_fixtures`, `.create_job`, `_resolve_item_by_name`, `_generate_key`?**
-  _High betweenness centrality (0.151) - this node is a cross-community bridge._
+  _High betweenness centrality (0.169) - this node is a cross-community bridge._
 - **Are the 14 inferred relationships involving `Database` (e.g. with `One owner` and `lifespan()`) actually correct?**
   _`Database` has 14 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `rcars`, `rcars`, `RCARS_DATABASE_URL` to the rest of the system?**
@@ -903,7 +903,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `Database` be split into smaller, more focused modules?**
   _Cohesion score 0.0257703081232493 - nodes in this community are weakly interconnected._
 - **Why does `Advisor v2 — Content-Type Drivers` connect `Advisor v2 — Content-Type Drivers` to `workers/base.py`?**
-  _High betweenness centrality (0.125) - this node is a cross-community bridge._
+  _High betweenness centrality (0.117) - this node is a cross-community bridge._
 - **Are the 19 inferred relationships involving `Settings` (e.g. with `lifespan()` and `get_current_user()`) actually correct?**
   _`Settings` has 19 INFERRED edges - model-reasoned connections that need verification._
 - **Should `react` be split into smaller, more focused modules?**
