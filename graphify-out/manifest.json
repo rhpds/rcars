@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795688509.8025465,
-    "seen": 1795688863.4111109,
-    "ast_hash": "22cd86cc91dabb1fdf1d139b01f06378",
+    "mtime": 1795691208.0766852,
+    "seen": 1795691548.885057,
+    "ast_hash": "75789196605c64826fc3f26fbfb606b0",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -1908,9 +1908,15 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_history_schema.py": {
-    "mtime": 1795688484.7827792,
-    "seen": 1795688863.41379,
-    "ast_hash": "538663ff5f6227515d3a5ffb526bb997",
+    "mtime": 1795691208.0769846,
+    "seen": 1795691548.8876522,
+    "ast_hash": "e8e2e084889c1e8a0739d07f8908c502",
+    "semantic_hash": ""
+  },
+  "src/api/tests/test_retirement_history_logic.py": {
+    "mtime": 1795691208.0768387,
+    "seen": 1795691548.887651,
+    "ast_hash": "db611b24f0f77ff8d869d2a3d02acd54",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {
