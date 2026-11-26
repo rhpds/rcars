@@ -64,7 +64,7 @@ async def _close_jira(db, settings, wf: dict, *, cancelled: bool, jira_available
     close = jira.close_issue_wont_do if cancelled else jira.close_issue_done
     if not await asyncio.to_thread(close, settings, wf["jira_key"]):
         raise CleanupError("Jira has no available closing transition; cleanup retained for retry")
-    db.record_retirement_jira_closure(wf["content_id"], cancelled=cancelled)
+    db.record_retirement_jira_closure(wf["content_id"], wf["id"], cancelled=cancelled)
     db.log_action(_base_name(wf["content_id"]), "retirement_jira_closed", "cleanup",
                   f"Jira: closed ({wf['jira_key']}); outcome: {'cancelled' if cancelled else 'retired'}")
 

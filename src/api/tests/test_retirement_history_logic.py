@@ -88,6 +88,18 @@ def _insert_history_row(db, content_id, *, jira_key="RHDPCD-9002"):
         return row
 
 
+def _other_babylon_ids(db):
+    """Every Babylon content_id except this test's, so the sweep stays local."""
+    with db.pool.connection() as conn:
+        rows = conn.execute(
+            "SELECT content_id FROM content_entities "
+            "WHERE source = 'babylon' AND content_id != ALL(%s)",
+            (list(CONTENT_IDS),),
+        ).fetchall()
+    # retire_missing_babylon refuses an empty scan on purpose.
+    return {row["content_id"] for row in rows} or {"babylon:history-logic.placeholder.prod"}
+
+
 def _workflow_rows(db, content_id):
     with db.pool.connection() as conn:
         return conn.execute(
@@ -228,7 +240,9 @@ def test_returning_stage_revives_the_family_workflow(db):
     db.upsert_retirement_workflow(PROD, {"step_approved_at": "NOW()", "step_started_at": "NOW()"})
 
     # Every stage disappears from the CRD scan: both retire, the workflow closes.
-    db.retire_missing_babylon({"babylon:unrelated.item.prod"})
+    # Keep every other Babylon row in the "current" set so the database-wide
+    # sweep only touches the rows this test owns.
+    db.retire_missing_babylon(_other_babylon_ids(db))
     assert db.get_retirement_workflow(PROD)["status"] == "retired"
     assert db.list_nonprod_items() == []
 
@@ -282,3 +296,18 @@ def test_returning_item_leaves_a_non_retired_workflow_alone(db):
     assert wf is not None
     assert wf["revived_at"] is None
     assert wf["status"] == "started"
+
+
+def test_stale_jira_closure_does_not_close_the_new_workflow(db):
+    """The Jira call outlives the workflow it started on."""
+    _seed_item(db)
+    old = db.upsert_retirement_workflow(PROD, {"step_approved_at": "NOW()", "step_retired_at": "NOW()",
+                                               "jira_key": "RHDPCD-9003"})
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE retirement_workflow SET revived_at = NOW() WHERE id = %s", (old["id"],))
+        conn.commit()
+    new = db.upsert_retirement_workflow(PROD, {"jira_key": "RHDPCD-9004"})
+
+    assert db.record_retirement_jira_closure(PROD, old["id"], cancelled=False) is None
+    assert db.get_retirement_workflow(PROD)["jira_closed_at"] is None
+    assert new["id"] == _current_id(db, PROD)

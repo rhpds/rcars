@@ -4424,11 +4424,17 @@ class Database:
                 self._insert_retirement_jira_event(conn, wf, f"{PR_KINDS[pr_field]}_pr_{outcome}", at, wf[pr_field])
             conn.commit()
 
-    def record_retirement_jira_closure(self, content_id: str, *, cancelled: bool) -> dict | None:
+    def record_retirement_jira_closure(self, content_id: str, workflow_id: int, *, cancelled: bool) -> dict | None:
+        """Record the closure on the workflow whose Jira issue was closed.
+
+        The Jira call runs outside this transaction, so a revive plus a new
+        current row can land in between. The id keeps the closure off that new row.
+        """
         with self._pool.connection() as conn:
             wf = conn.execute(
                 "UPDATE retirement_workflow SET jira_closed_at = COALESCE(jira_closed_at, NOW()), updated_at = NOW() "
-                "WHERE content_id = %s AND revived_at IS NULL RETURNING *", (content_id,),
+                "WHERE id = %s AND content_id = %s AND revived_at IS NULL RETURNING *",
+                (workflow_id, content_id),
             ).fetchone()
             if wf and not cancelled and wf.get("step_retired_at") and not wf.get("cancellation_requested_at") and not wf.get("agv_revert_pr_url"):
                 self._insert_retirement_jira_event(conn, wf, "workflow_completed", wf["jira_closed_at"])
