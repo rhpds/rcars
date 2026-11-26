@@ -448,10 +448,6 @@ class TestPromptInjection:
         from rcars.services.analyzer import build_analysis_prompt
 
         system_prompt, user_message = build_analysis_prompt(
-            ci_name="lb1",
-            display_name="Lab One",
-            category="workshop",
-            product="OpenShift",
             content_files={"m1.adoc": "some content"},
             entity_content_type="lab",
         )
@@ -464,10 +460,6 @@ class TestPromptInjection:
         from rcars.services.analyzer import build_analysis_prompt
 
         system_prompt, _ = build_analysis_prompt(
-            ci_name="lb1",
-            display_name="Lab One",
-            category="workshop",
-            product="OpenShift",
             content_files={"m1.adoc": "some content"},
             entity_content_type="architecture",
         )
@@ -513,8 +505,6 @@ class TestAnalyzerNormalizesOnce:
         result = analyzer.analyze_showroom(
             ci_name="lb1",
             display_name="Lab One",
-            category="workshop",
-            product="OpenShift",
             showroom_url="https://example.com/x.git",
             showroom_ref=None,
             settings=SimpleNamespace(embedding_model="example-embed", embedding_dim=768),

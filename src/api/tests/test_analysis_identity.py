@@ -55,8 +55,7 @@ def test_empty_content_hash_is_never_a_reusable_key():
 # ── analysis_config ──
 
 def config(**changes):
-    args = dict(scope_key="example.item", display_name="Example", category="Workshop", product="OpenShift",
-                entity_content_type="lab", model="example-model")
+    args = dict(entity_content_type="lab", model="example-model")
     return ident.compute_analysis_config(**{**args, **changes})
 
 
@@ -79,31 +78,42 @@ def test_config_follows_content_type_when_vocabulary_mode_differs():
     assert config(entity_content_type="architecture") != config(entity_content_type="lab")
 
 
-def test_stored_digest_is_unchanged_so_deploy_does_not_rescan():
-    """The value must equal the pre-PR6 context hash, or every analysis would be redone."""
-    system, info = analyzer.build_analysis_prompt("example.item", "Example", "Workshop", "OpenShift", {},
-                                                  entity_content_type="lab")
-    legacy = analyzer._fingerprint(system, info, "example-model", SHOWROOM_ANALYSIS_POLICY_VERSION)
-    assert ident.PROMPT_CARRIES_ITEM_CONTEXT is True
-    assert config() == legacy
+def test_prompt_carries_only_content_and_entity_content_type():
+    """The content prompt must not name the item; item fields come from the catalog row."""
+    system, user_message = analyzer.build_analysis_prompt(
+        {"m1.adoc": "= Module one\n\nSome content"}, entity_content_type="lab")
+    assert user_message == "## Showroom Content\n\n=== File: m1.adoc ===\n= Module one\n\nSome content"
+    for item_field in ("## Item Information", "- CI Name:", "- Display Name:",
+                       "- Category:", "- Product:"):
+        assert item_field not in system and item_field not in user_message
 
 
-def test_item_context_is_inside_config_until_prompt_drops_it():
-    """PR 7 flips PROMPT_CARRIES_ITEM_CONTEXT to False; nothing else needs to change."""
-    assert ident.PROMPT_CARRIES_ITEM_CONTEXT is True
-    for change in ({"scope_key": "example.other"}, {"display_name": "Other"},
-                   {"category": "Demo"}, {"product": "Ansible"}):
-        assert config(**change) != config()
+def test_two_items_with_the_same_content_and_type_share_the_analysis_config():
+    """Different CI name, display name, category and product must not change the config."""
+    item = dict(content_type="lab", display_name="Lab One", category="Workshop", product="OpenShift")
+    other = dict(content_type="lab", display_name="Lab Two (prod)", category="Demo", product="Ansible")
+    assert (analyzer._item_analysis_config(item, "example-model")
+            == analyzer._item_analysis_config(other, "example-model"))
+    assert (analyzer._item_analysis_config(item, "example-model")
+            != analyzer._item_analysis_config({**other, "content_type": "architecture"}, "example-model"))
 
 
-def test_item_context_leaves_config_when_prompt_stops_carrying_it(monkeypatch):
-    monkeypatch.setattr(ident, "PROMPT_CARRIES_ITEM_CONTEXT", False)
-    base = config()
-    for change in ({"scope_key": "example.other"}, {"display_name": "Other"},
-                   {"category": "Demo"}, {"product": "Ansible"}):
-        assert config(**change) == base
-    assert config(model="other-model") != base
-    assert config(entity_content_type="architecture") != base
+def test_policy_version_bump_marks_an_older_analysis_as_not_current():
+    """The policy bump is what forces the one-time rescan after the prompt change."""
+    from rcars.services.showroom_source import ResolvedShowroom, signature_matches_source
+    source = ResolvedShowroom("resolved", "example.item.prod", "example.item",
+                              "https://git.example.com/org/repo", "main", None,
+                              paths=(("example.item.prod",),))
+    current = dict(scope_key="example.item", repo=source.repo, ref="main", content_path=None,
+                   commit="a" * 40, content_hash="hash-a", context_hash=config(), input_hash="input-a",
+                   policy_version=SHOWROOM_ANALYSIS_POLICY_VERSION)
+    assert signature_matches_source(current, source)
+    older = {**current, "policy_version": SHOWROOM_ANALYSIS_POLICY_VERSION - 1}
+    assert not signature_matches_source(older, source)
+
+
+def test_policy_version_was_bumped_for_the_content_only_prompt():
+    assert SHOWROOM_ANALYSIS_POLICY_VERSION == 2
 
 
 # ── pre-clone key ──

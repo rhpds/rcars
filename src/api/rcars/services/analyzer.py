@@ -20,6 +20,7 @@ from rcars.services.analysis_identity import (
     canonical_content as _canonical_content,
     compute_analysis_config,
     compute_content_hash as hash_showroom_content,
+    compute_description_analysis_config,
     donor_matches_commit, donor_matches_content, fingerprint as _fingerprint, pre_clone_key,
 )
 from rcars.services.showroom_source import (
@@ -225,6 +226,16 @@ def classify_scan_error(
         return "parse_error", f"Failed to parse analysis response for {url}: {msg}"
 
     return "unknown", f"Unexpected error scanning {url}: {msg}"
+
+
+class RetryableAnalysisError(Exception):
+    """A failure after the Showroom content was read.
+
+    Covers the LLM call, parsing, embedding generation and persisting the
+    result. The scan keeps the prior analysis and embeddings and records the
+    failure so the next scan retries. Source, clone and content-read failures
+    do not use this class and keep their original behavior.
+    """
 
 
 def _is_github_throttle(stderr: str) -> bool:
@@ -442,16 +453,18 @@ def get_repo_head(clone_path: Path) -> tuple[str | None, str | None]:
 
 
 def build_analysis_prompt(
-    ci_name: str,
-    display_name: str,
-    category: str,
-    product: str,
     content_files: dict[str, str],
     entity_content_type: str = "lab",
 ) -> tuple[str, str]:
     """Build analysis prompt split into system instructions and user data.
 
-    entity_content_type is content_entities.content_type — NOT the LLM's
+    The prompt carries ONLY the selected Showroom content plus the entity content
+    type. It must not name the item: CI name, display name, category and product
+    are per-catalog-row fields, and two items with the same content must produce
+    the same prompt (and so reuse one analysis). Item fields reach the UI from
+    `content_entities`, never from the analysis.
+
+    entity_content_type is content_entities.content_type -- NOT the LLM's
     self-reported content_type, which does not exist yet at this point. It
     selects the action-verb hints in the injected vocabulary block.
 
@@ -477,21 +490,13 @@ def build_analysis_prompt(
     all_content = "\n\n".join(content_parts)
     all_content = truncate_content(all_content)
 
-    # Split template: system gets role + instructions, user gets item info + content
-    item_info_start = template.index("\n## Item Information\n")
+    # Split template: system gets role + instructions, user gets content only.
     instructions_start = template.index("\n## Instructions\n")
     content_start = template.index("\n## Showroom Content\n")
 
-    system_prompt = template[:item_info_start].strip() + "\n\n" + template[instructions_start:content_start].strip()
+    system_prompt = template[:instructions_start].strip() + "\n\n" + template[instructions_start:content_start].strip()
 
-    user_message = (
-        f"## Item Information\n"
-        f"- CI Name: {ci_name}\n"
-        f"- Display Name: {display_name or ci_name}\n"
-        f"- Category: {category or 'Unknown'}\n"
-        f"- Product: {product or 'Unknown'}\n\n"
-        f"## Showroom Content\n\n{all_content}"
-    )
+    user_message = f"## Showroom Content\n\n{all_content}"
 
     return system_prompt, user_message
 
@@ -636,10 +641,16 @@ def _own_analysis_current(row, source, analysis_config, *, allow_stale=False):
                 and provenance.get("source") == source.to_dict())
 
 
-def _item_analysis_config(item: dict, scope_key: str, model: str) -> str:
+def _item_analysis_config(item: dict, model: str) -> str:
     """Argument unpacking only; ``compute_analysis_config`` is the single owner."""
-    return compute_analysis_config(scope_key, item.get("display_name", ""), item.get("category", ""),
-                                   item.get("product", ""), item.get("content_type") or "lab", model)
+    return compute_analysis_config(item.get("content_type") or "lab", model)
+
+
+def _description_analysis_config(item: dict, model: str) -> str:
+    """Description analyses keep the item fields their prompt still sends."""
+    return compute_description_analysis_config(
+        item.get("ci_name", ""), item.get("display_name", ""), item.get("category", ""),
+        item.get("product", ""), item.get("content_type") or "lab", model)
 
 
 def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
@@ -653,7 +664,7 @@ def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
             or effective_analysis_source(item) != "showroom"):
         return None
     return pre_clone_key(source.repo, commit, source.content_path,
-                         _item_analysis_config(item, source.scope_key, settings.model),
+                         _item_analysis_config(item, settings.model),
                          item.get("content_type") or "lab")
 
 
@@ -715,7 +726,7 @@ def order_for_reuse(items: list[dict], settings,
 def showroom_analysis_current(item: dict, row: dict, settings) -> bool:
     """Current source AND actual non-content prompt inputs, not just Git SHA."""
     source = effective_showroom_source(item)
-    config = _item_analysis_config(item, source.scope_key or item["ci_name"], settings.model)
+    config = _item_analysis_config(item, settings.model)
     return item.get("scan_status") == "success" and _own_analysis_current(row, source, config)
 
 
@@ -769,6 +780,18 @@ def _finish_showroom_result(ci_name, display_name, keywords, settings, analysis,
         "content_file_count": content_file_count}
 
 
+def _finish_retryably(*args, **kwargs):
+    """``_finish_showroom_result`` generates embeddings, so a failure is retryable.
+
+    Reuse and embedding repair run after the content was read. A failed
+    embedding call must keep the recipient's prior analysis and embeddings.
+    """
+    try:
+        return _finish_showroom_result(*args, **kwargs)
+    except Exception as exc:
+        raise RetryableAnalysisError(str(exc)) from exc
+
+
 # ── Description-based analysis ──
 
 
@@ -801,10 +824,14 @@ def build_description_prompt(
     description_text: str,
     entity_content_type: str = "lab",
 ) -> tuple[str, str]:
-    """Same output contract as the Showroom prompt, framed for a short catalog description."""
+    """Same output contract as the Showroom prompt, framed for a short catalog description.
+
+    The Showroom prompt builder is used for the system instructions only; this path
+    keeps its own item information and remains per item (out of scope for the
+    content-only Showroom prompt change).
+    """
     system_prompt, _ = build_analysis_prompt(
-        ci_name, display_name, category, product, {},
-        entity_content_type=entity_content_type,
+        {}, entity_content_type=entity_content_type,
     )
     system_prompt += (
         "\n\nThe input is a short catalog description, not Showroom module content. "
@@ -824,7 +851,7 @@ def build_description_prompt(
 def description_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
     """Read-only selection predicate; text and context hashes both gate re-analysis."""
     source = description_source(item)
-    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
+    analysis_config = _description_analysis_config(item, settings.model)
     if not _own_analysis_current(row, source, analysis_config):
         return True
     if row.get("content_hash") != description_content_hash(description_text(item)):
@@ -858,7 +885,7 @@ def analyze_description(item: dict, settings, *, force: bool = False, db=None) -
     embeddings = db.get_embeddings_for_content(content_id) if db is not None else []
 
     content_hash = description_content_hash(text)
-    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
+    analysis_config = _description_analysis_config(item, settings.model)
     system_prompt, user_message = build_description_prompt(
         ci_name, display_name, category, product, text,
         entity_content_type=entity_content_type,
@@ -951,8 +978,6 @@ def build_infrastructure_embedding_text(row: dict[str, Any]) -> str:
 def analyze_showroom(
     ci_name: str,
     display_name: str,
-    category: str,
-    product: str,
     showroom_url: str,
     showroom_ref: str | None,
     settings,
@@ -991,8 +1016,7 @@ def analyze_showroom(
         showroom_url, showroom_ref, content_path = source.repo, source.ref, source.content_path
         if any(value and ("{{" in value or "{%" in value) for value in (showroom_url, showroom_ref, content_path)):
             return {"error": "invalid_source", "message": "Unresolved Showroom variables"}
-        analysis_config = compute_analysis_config(source.scope_key, display_name, category, product,
-                                                  entity_content_type, model)
+        analysis_config = compute_analysis_config(entity_content_type, model)
         revision = ls_remote_sha(showroom_url, showroom_ref)
         own = db.get_showroom_analysis(content_id) if db is not None else None
         own_embeddings = db.get_embeddings_for_content(content_id) if own and db is not None else []
@@ -1002,7 +1026,7 @@ def analyze_showroom(
         if own_current:
             own_signature = AnalysisSignature(**own["analysis_provenance_json"]["signature"])
             if own_signature.commit == revision and not own.get("is_stale"):
-                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+                return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(own),
                     own_signature, source, origin=own, prior_embeddings=own_embeddings, outcome="unchanged")
 
         # Pre-clone shortcut: a complete analysis of the same repo + commit + content_path
@@ -1023,7 +1047,7 @@ def analyze_showroom(
                     SHOWROOM_ANALYSIS_POLICY_VERSION)
                 log.info("analyze_reused", ci_name=ci_name, stage="pre_clone", reused_from=donor["content_id"],
                          commit=revision[:8], content_hash=donor["content_hash"])
-                return _finish_showroom_result(
+                return _finish_retryably(
                     ci_name, display_name, keywords, settings, analysis_from_row(donor), signature, source,
                     origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", reused_from=donor["content_id"])
@@ -1062,14 +1086,13 @@ def analyze_showroom(
 
         content_hash = hash_showroom_content(content_files)
         system_prompt, user_message = build_analysis_prompt(
-            source.scope_key, display_name, category, product, content_files,
-            entity_content_type=entity_content_type,
+            content_files, entity_content_type=entity_content_type,
         )
         signature = AnalysisSignature(source.scope_key, source.repo, source.ref, source.content_path,
             head_sha, content_hash, analysis_config, compute_analysis_input_hash(system_prompt, user_message, model),
             SHOWROOM_ANALYSIS_POLICY_VERSION)
         if own_current and own_signature.content_hash == content_hash and own_signature.input_hash == signature.input_hash:
-            return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+            return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(own),
                 signature, source, origin=own, prior_embeddings=own_embeddings, outcome="revision_verified", head_date=head_date)
 
         # Post-clone lookup: only content_hash + analysis_config identify a donor (any CI,
@@ -1083,51 +1106,58 @@ def analyze_showroom(
                     entity_content_type=entity_content_type):
                 log.info("analyze_reused", ci_name=ci_name, stage="post_clone", reused_from=donor["content_id"],
                          commit=head_sha[:8], content_hash=content_hash)
-                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(donor),
+                return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(donor),
                     signature, source, origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", head_date=head_date, content_file_count=len(content_files), reused_from=donor["content_id"])
 
-        # Build prompt and call Sonnet
+        # Build prompt and call the model. Everything below runs after the
+        # content was read, so an LLM call, parse or embedding failure is
+        # retryable: the scan keeps the prior analysis and retries later.
         log.info("analyze_sending", ci_name=ci_name, model=model, prompt_chars=len(system_prompt) + len(user_message))
+        try:
+            from rcars.config import call_llm
+            result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
-        from rcars.config import call_llm
-        result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
+            input_tokens = result.input_tokens
+            output_tokens = result.output_tokens
+            log.info("analyze_response", ci_name=ci_name, input_tokens=input_tokens,
+                     output_tokens=output_tokens, provider=result.provider)
 
-        input_tokens = result.input_tokens
-        output_tokens = result.output_tokens
-        log.info("analyze_response", ci_name=ci_name, input_tokens=input_tokens,
-                 output_tokens=output_tokens, provider=result.provider)
+            if db is not None:
+                db.log_token_usage(
+                    operation="scan",
+                    model=model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    ci_name=ci_name,
+                    provider=result.provider,
+                )
 
-        if db is not None:
-            db.log_token_usage(
-                operation="scan",
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                ci_name=ci_name,
-                provider=result.provider,
+            response_text = result.text
+            analysis = parse_analysis_response(response_text)
+            if not isinstance(analysis, dict) or not analysis.get("summary"):
+                log.error("analyze_parse_failed", ci_name=ci_name)
+                return {"error": "parse_failed", "retryable": True,
+                        "message": f"Failed to parse LLM response for {ci_name}"}
+
+            # Normalize ONCE, here — never at the individual write sites.
+            from rcars.services.vocabulary import normalize_analysis
+            analysis = normalize_analysis(
+                analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
             )
 
-        response_text = result.text
-        analysis = parse_analysis_response(response_text)
-        if not isinstance(analysis, dict) or not analysis.get("summary"):
-            log.error("analyze_parse_failed", ci_name=ci_name)
-            return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
-
-        # Normalize ONCE, here — never at the individual write sites.
-        from rcars.services.vocabulary import normalize_analysis
-        analysis = normalize_analysis(
-            analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
-        )
-
-        analysis.setdefault("modules", [])
-        result = _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature, source,
-            origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
-            force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
-            content_file_count=len(content_files))
-        result["elapsed_seconds"] = round(time.monotonic() - t0, 1)
-        log.info("analyze_complete", ci_name=ci_name, outcome=result["outcome"], signature=signature.to_dict())
-        return result
+            analysis.setdefault("modules", [])
+            result = _finish_retryably(ci_name, display_name, keywords, settings, analysis, signature, source,
+                origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
+                force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
+                content_file_count=len(content_files))
+            result["elapsed_seconds"] = round(time.monotonic() - t0, 1)
+            log.info("analyze_complete", ci_name=ci_name, outcome=result["outcome"], signature=signature.to_dict())
+            return result
+        except RetryableAnalysisError:
+            raise
+        except Exception as exc:
+            raise RetryableAnalysisError(str(exc)) from exc
 
     except InvalidShowroomRef as exc:
         return {"error": "invalid_ref", "message": str(exc)}
