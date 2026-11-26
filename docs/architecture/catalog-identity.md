@@ -130,11 +130,12 @@ clears `is_stale`. A re-analyzed donor row is reusable immediately by other
 items with the same content. Old policy-1 rows are never reused, because the
 donor lookup excludes stale rows and rejects a different policy version.
 
-A retryable failure (LLM call error, timeout, malformed or unparseable
-response, embedding error) records `scan_status = 'failed'` but keeps the prior
-analysis and embeddings, so the item stays visible and the next scan retries.
-A definitive source failure (repo or ref gone, unresolved source, no content)
-still clears the prior analysis and embeddings.
+After the content is read, a failure of the LLM call, a malformed or
+unparseable response, or an embedding error records `scan_status = 'failed'`
+but keeps the prior analysis and embeddings, so the item stays visible and the
+next scan retries. Source, clone and content-read failures keep their original
+behavior. Description-sourced analyses keep their original failure behavior and
+do not preserve prior artifacts.
 
 ## One owner
 

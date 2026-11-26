@@ -1,4 +1,3 @@
-import subprocess
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -170,44 +169,13 @@ def test_definitive_no_content_failure_still_clears_prior_artifacts(db, scan, gi
     assert db.get_content_entity(cid)["summary"] is None
 
 
-def test_throttled_git_failure_keeps_prior_analysis_and_embeddings(db, scan, monkeypatch):
-    """An exhausted GitHub rate limit is transient, not a private repo."""
+def test_llm_failure_item_is_selected_by_the_batch_scan(db, scan):
     cid = add_item(db, scan)
     scan_babylon_item(db, scan.settings, cid)
-    prior_embeddings = db.get_embeddings_for_content(cid)
-    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
-        128, ["git", "ls-remote"], stderr="remote: rate limit exceeded")))
-    result = scan_babylon_item(db, scan.settings, cid, force=True)
-    assert result["success"] is False
-    assert result["error"] == "throttled"
-    assert db.get_embeddings_for_content(cid) == prior_embeddings
-    assert db.get_showroom_analysis(cid)["summary"] == "Configure TLS"
-    assert db.get_babylon_item(cid)["scan_status"] == "failed"
-
-
-def test_permission_denied_git_failure_still_clears_prior_artifacts(db, scan, monkeypatch):
-    cid = add_item(db, scan)
-    scan_babylon_item(db, scan.settings, cid)
-    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
-        128, ["git", "ls-remote"], stderr="Permission denied (publickey)")))
-    result = scan_babylon_item(db, scan.settings, cid, force=True)
-    assert result["success"] is False
-    assert result["error"] == "private_repo"
-    assert db.get_embeddings_for_content(cid) == []
-
-
-def test_bare_403_git_failure_keeps_prior_artifacts(db, scan, monkeypatch):
-    """A bare HTTP 403 can be throttling, so it must not clear healthy items."""
-    cid = add_item(db, scan)
-    scan_babylon_item(db, scan.settings, cid)
-    prior_embeddings = db.get_embeddings_for_content(cid)
-    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
-        128, ["git", "ls-remote"], stderr="The requested URL returned error: 403")))
-    result = scan_babylon_item(db, scan.settings, cid, force=True)
-    assert result["success"] is False
-    assert result["error"] == "throttled"
-    assert db.get_embeddings_for_content(cid) == prior_embeddings
-    assert db.get_showroom_analysis(cid)["summary"] == "Configure TLS"
+    assert cid not in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+    scan.llm.side_effect = RuntimeError("LLM transport failed")
+    scan_babylon_item(db, scan.settings, cid, force=True)
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
 
 
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):

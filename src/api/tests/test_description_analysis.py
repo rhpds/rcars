@@ -419,31 +419,6 @@ def test_scan_description_error_marks_failed(db, monkeypatch):
     assert item["scan_error_class"] == "parse_failed"
 
 
-def test_failed_description_scan_records_success_after_an_unchanged_rescan(db, monkeypatch):
-    """A retryable failure keeps the analysis; a later unchanged pass must clear failed."""
-    from rcars.services.showroom_scan import scan_babylon_item
-
-    content_id = add_description_item(db)
-    db.set_analysis_source(content_id, "agnosticv_description")
-    env = mock_analysis(monkeypatch)
-    persist_result(db, content_id, analyzer.analyze_description(
-        db.get_babylon_item(content_id), env.settings, db=db))
-    env.llm.return_value = SimpleNamespace(
-        text="this is not json", input_tokens=1, output_tokens=1, provider="test")
-    assert scan_babylon_item(db, env.settings, content_id, force=True)["outcome"] == "failed"
-    assert db.get_babylon_item(content_id)["scan_status"] == "failed"
-
-    env.llm.reset_mock()
-    env.llm.return_value = SimpleNamespace(
-        text=LLM_RESPONSE, input_tokens=1, output_tokens=1, provider="test")
-    result = scan_babylon_item(db, env.settings, content_id)
-
-    assert result["outcome"] == "unchanged"
-    assert env.llm.call_count == 0
-    assert db.get_babylon_item(content_id)["scan_status"] == "success"
-    assert db.get_showroom_analysis(content_id)["summary"] == "Description summary"
-
-
 def test_scan_blank_description_marks_no_content(db, monkeypatch):
     from rcars.services.showroom_scan import scan_babylon_item
 

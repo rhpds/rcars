@@ -211,16 +211,8 @@ def classify_scan_error(
 
     if isinstance(exc, subprocess.CalledProcessError):
         stderr_lower = stderr.lower()
-        if any(ind in stderr_lower for ind in ("rate limit", "secondary rate", "too many requests")):
-            return "throttled", f"GitHub throttled the request for {url}{suffix}: {stderr.strip()}"
-        if any(ind in stderr_lower for ind in ("permission denied", "authentication failed",
-                                               "could not read username", "invalid username or password",
-                                               "access denied")):
+        if "permission denied" in stderr_lower or "403" in stderr_lower:
             return "private_repo", f"Permission denied cloning {url}{suffix}: {stderr.strip()}"
-        if "403" in stderr_lower:
-            # Bare HTTP 403: GitHub uses it for throttling, so treat it as
-            # transient unless the stderr shows an authorization failure.
-            return "throttled", f"GitHub returned 403 for {url}{suffix}: {stderr.strip()}"
         if "not found" in stderr_lower or "404" in stderr_lower:
             return "http_404", f"Repository not found: {url}{suffix}: {stderr.strip()}"
         return "clone_failed", f"Git clone failed for {url}{suffix}: {stderr.strip()}"
@@ -236,21 +228,13 @@ def classify_scan_error(
     return "unknown", f"Unexpected error scanning {url}: {msg}"
 
 
-# Only these failures prove the source has no usable content, so only these may
-# clear an item's prior analysis and embeddings. Every other failure (LLM call
-# error, timeout, parse failure, embedding error, unknown exception) is
-# retryable: the prior analysis and embeddings stay, the scan is marked failed,
-# and the next scan retries. This keeps healthy items in the Advisor during a
-# batch rescan.
-DEFINITIVE_SCAN_FAILURES = frozenset({
-    "http_404", "invalid_ref", "private_repo",
-    "invalid_source", "jinja_url", "none_source", "ambiguous_source", "excluded_source",
-    "missing_antora", "no_content",
-})
+class RetryableAnalysisError(Exception):
+    """A failure after the Showroom content was read: LLM call, parse or embeddings.
 
-
-def is_definitive_scan_failure(error_class: str) -> bool:
-    return error_class in DEFINITIVE_SCAN_FAILURES
+    The scan keeps the prior analysis and embeddings and records the failure so
+    the next scan retries. Source, clone and content-read failures do not use
+    this class and keep their original behavior.
+    """
 
 
 def _is_github_throttle(stderr: str) -> bool:
@@ -1113,47 +1097,54 @@ def analyze_showroom(
                     signature, source, origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", head_date=head_date, content_file_count=len(content_files), reused_from=donor["content_id"])
 
-        # Build prompt and call Sonnet
+        # Build prompt and call the model. Everything below runs after the
+        # content was read, so an LLM call, parse or embedding failure is
+        # retryable: the scan keeps the prior analysis and retries later.
         log.info("analyze_sending", ci_name=ci_name, model=model, prompt_chars=len(system_prompt) + len(user_message))
+        try:
+            from rcars.config import call_llm
+            result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
 
-        from rcars.config import call_llm
-        result = call_llm(settings, model=model, messages=[{"role": "user", "content": user_message}], max_tokens=8192, system=system_prompt)
+            input_tokens = result.input_tokens
+            output_tokens = result.output_tokens
+            log.info("analyze_response", ci_name=ci_name, input_tokens=input_tokens,
+                     output_tokens=output_tokens, provider=result.provider)
 
-        input_tokens = result.input_tokens
-        output_tokens = result.output_tokens
-        log.info("analyze_response", ci_name=ci_name, input_tokens=input_tokens,
-                 output_tokens=output_tokens, provider=result.provider)
+            if db is not None:
+                db.log_token_usage(
+                    operation="scan",
+                    model=model,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    ci_name=ci_name,
+                    provider=result.provider,
+                )
 
-        if db is not None:
-            db.log_token_usage(
-                operation="scan",
-                model=model,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                ci_name=ci_name,
-                provider=result.provider,
+            response_text = result.text
+            analysis = parse_analysis_response(response_text)
+            if not isinstance(analysis, dict) or not analysis.get("summary"):
+                log.error("analyze_parse_failed", ci_name=ci_name)
+                return {"error": "parse_failed", "retryable": True,
+                        "message": f"Failed to parse LLM response for {ci_name}"}
+
+            # Normalize ONCE, here — never at the individual write sites.
+            from rcars.services.vocabulary import normalize_analysis
+            analysis = normalize_analysis(
+                analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
             )
 
-        response_text = result.text
-        analysis = parse_analysis_response(response_text)
-        if not isinstance(analysis, dict) or not analysis.get("summary"):
-            log.error("analyze_parse_failed", ci_name=ci_name)
-            return {"error": "parse_failed", "message": f"Failed to parse LLM response for {ci_name}"}
-
-        # Normalize ONCE, here — never at the individual write sites.
-        from rcars.services.vocabulary import normalize_analysis
-        analysis = normalize_analysis(
-            analysis, entity_content_type, db=db, content_id=f"babylon:{ci_name}"
-        )
-
-        analysis.setdefault("modules", [])
-        result = _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature, source,
-            origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
-            force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
-            content_file_count=len(content_files))
-        result["elapsed_seconds"] = round(time.monotonic() - t0, 1)
-        log.info("analyze_complete", ci_name=ci_name, outcome=result["outcome"], signature=signature.to_dict())
-        return result
+            analysis.setdefault("modules", [])
+            result = _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature, source,
+                origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
+                force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
+                content_file_count=len(content_files))
+            result["elapsed_seconds"] = round(time.monotonic() - t0, 1)
+            log.info("analyze_complete", ci_name=ci_name, outcome=result["outcome"], signature=signature.to_dict())
+            return result
+        except RetryableAnalysisError:
+            raise
+        except Exception as exc:
+            raise RetryableAnalysisError(str(exc)) from exc
 
     except InvalidShowroomRef as exc:
         return {"error": "invalid_ref", "message": str(exc)}
