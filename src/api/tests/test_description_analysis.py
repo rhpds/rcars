@@ -419,6 +419,28 @@ def test_scan_description_error_marks_failed(db, monkeypatch):
     assert item["scan_error_class"] == "parse_failed"
 
 
+def test_scan_description_write_failure_clears_prior_artifacts(db, monkeypatch):
+    """Description results keep origin/main failure behavior: a write failure clears."""
+    from rcars.services.showroom_scan import scan_babylon_item
+
+    content_id = add_description_item(db)
+    db.set_analysis_source(content_id, "agnosticv_description")
+    env = mock_analysis(monkeypatch)
+    persist_result(db, content_id, analyzer.analyze_description(
+        db.get_babylon_item(content_id), env.settings, db=db))
+    assert db.get_embeddings_for_content(content_id)
+    set_raw(db, "babylon_items", "description", "A different description.", content_id)
+    monkeypatch.setattr(db, "upsert_showroom_analysis",
+                        Mock(side_effect=RuntimeError("db write failed")))
+
+    result = scan_babylon_item(db, env.settings, content_id)
+
+    assert result["success"] is False
+    assert db.get_embeddings_for_content(content_id) == []
+    assert db.get_showroom_analysis(content_id)["summary"] is None
+    assert db.get_content_entity(content_id)["summary"] is None
+
+
 def test_scan_blank_description_marks_no_content(db, monkeypatch):
     from rcars.services.showroom_scan import scan_babylon_item
 

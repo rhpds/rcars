@@ -141,10 +141,12 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                         regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
                             result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
                     db.set_scan_status(content_id, "success", conn=conn)
-                except RetryableAnalysisError:
-                    raise
                 except Exception as exc:
-                    raise RetryableAnalysisError(str(exc)) from exc
+                    # Only Showroom results keep prior artifacts on a write
+                    # failure; descriptions keep origin/main behavior.
+                    if effective_analysis_source(item) == "showroom":
+                        raise RetryableAnalysisError(str(exc)) from exc
+                    raise
             for stub in db.get_pure_stubs_for_owner(item["ci_name"], conn=conn):
                 db.mirror_content_owner(stub["content_id"], item["ci_name"], conn=conn)
         outcome_result = {"content_id": content_id, "ci_name": item["ci_name"], "success": True, "outcome": outcome,
