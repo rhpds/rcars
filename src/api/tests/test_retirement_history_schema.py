@@ -8,10 +8,12 @@ rows share a content_id as long as only one of them is current.
 """
 
 import os
+import uuid
 from urllib.parse import urlparse
 
 import psycopg
 import pytest
+from psycopg import conninfo
 
 from rcars.db.database import Database
 
@@ -51,10 +53,14 @@ CREATE TABLE retirement_workflow (
 """
 
 
-@pytest.fixture
-def db():
+def _require_test_database():
     if "test" not in urlparse(TEST_DB_URL).path:
         raise RuntimeError("Retirement schema tests require a test database")
+
+
+@pytest.fixture
+def db():
+    _require_test_database()
     database = Database(TEST_DB_URL)
     database.create_schema()
     with psycopg.connect(TEST_DB_URL, autocommit=True) as conn:
@@ -234,38 +240,40 @@ CREATE UNIQUE INDEX uq_rw_current_content
 """
 
 
-def _schema_dsn(schema):
-    parts = urlparse(TEST_DB_URL)
-    password = f" password={parts.password}" if parts.password else ""
-    return (f"host={parts.hostname} port={parts.port or 5432} dbname={parts.path.lstrip('/')} "
-            f"user={parts.username}{password} options='-csearch_path={schema}'")
+def _scratch_schema_dsn(schema):
+    """Conninfo for the test database with search_path set to a scratch schema."""
+    info = conninfo.conninfo_to_dict(TEST_DB_URL)
+    info["options"] = f"-csearch_path={schema}"
+    return conninfo.make_conninfo(**info)
 
 
 def test_upsert_cannot_overwrite_a_history_row_on_the_pr1_shape():
     """Mixed-schema deploy window: the old primary key still matches the content_id."""
-    schema = "pr1_shape_2331"
-    dsn = _schema_dsn(schema)
-    with psycopg.connect(dsn, autocommit=True) as conn:
-        conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
-        conn.execute(f"CREATE SCHEMA {schema}")
-        conn.execute(PR1_SHAPE_DDL)
-        conn.execute(
-            "INSERT INTO retirement_workflow (content_id, status, step_retired_at, revived_at) "
-            "VALUES (%s, 'retired', NOW(), NOW())",
-            (CONTENT_IDS[0],),
-        )
-    database = Database(dsn)
-    try:
-        with pytest.raises(RuntimeError, match="changed concurrently"):
-            database.upsert_retirement_workflow(CONTENT_IDS[0], {"status": "approved"})
-        with database.pool.connection() as conn:
-            row = conn.execute(
-                "SELECT status, revived_at FROM retirement_workflow WHERE content_id = %s",
-                (CONTENT_IDS[0],),
-            ).fetchone()
-        assert row["status"] == "retired"
-        assert row["revived_at"] is not None
-    finally:
-        database.close()
-        with psycopg.connect(TEST_DB_URL, autocommit=True) as conn:
-            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+    _require_test_database()
+    schema = f"pr1_shape_2331_{uuid.uuid4().hex[:8]}"
+    dsn = _scratch_schema_dsn(schema)
+    with psycopg.connect(TEST_DB_URL, autocommit=True) as admin:
+        admin.execute(f"CREATE SCHEMA {schema}")
+        try:
+            with psycopg.connect(dsn, autocommit=True) as conn:
+                conn.execute(PR1_SHAPE_DDL)
+                conn.execute(
+                    "INSERT INTO retirement_workflow (content_id, status, step_retired_at, revived_at) "
+                    "VALUES (%s, 'retired', NOW(), NOW())",
+                    (CONTENT_IDS[0],),
+                )
+            database = Database(dsn)
+            try:
+                with pytest.raises(RuntimeError, match="changed concurrently"):
+                    database.upsert_retirement_workflow(CONTENT_IDS[0], {"status": "approved"})
+                with database.pool.connection() as conn:
+                    row = conn.execute(
+                        "SELECT status, revived_at FROM retirement_workflow WHERE content_id = %s",
+                        (CONTENT_IDS[0],),
+                    ).fetchone()
+                assert row["status"] == "retired"
+                assert row["revived_at"] is not None
+            finally:
+                database.close()
+        finally:
+            admin.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
