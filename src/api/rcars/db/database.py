@@ -698,13 +698,34 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_rw_id ON retirement_workflow(id);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_rw_current_content
     ON retirement_workflow(content_id) WHERE revived_at IS NULL;
 
+-- RHDPCD-2331 step 2: the primary key moves from content_id to id, so a
+-- content_id can hold one current workflow plus any number of history rows.
+-- uq_rw_current_content stays the "one current row" rule. Idempotent: after
+-- the first run the constraint is no longer PRIMARY KEY (content_id), so the
+-- block is skipped on every fresh install and every later deploy.
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint
+               WHERE conrelid = 'retirement_workflow'::regclass
+                 AND conname = 'retirement_workflow_pkey'
+                 AND pg_get_constraintdef(oid) = 'PRIMARY KEY (content_id)') THEN
+        ALTER TABLE retirement_workflow ALTER COLUMN content_id SET NOT NULL;
+        ALTER TABLE retirement_workflow DROP CONSTRAINT retirement_workflow_pkey;
+        ALTER TABLE retirement_workflow ADD CONSTRAINT retirement_workflow_pkey PRIMARY KEY (id);
+    END IF;
+END $$;
+-- The primary key now supplies id uniqueness, so step 1's index is redundant.
+DROP INDEX IF EXISTS uq_rw_id;
+CREATE INDEX IF NOT EXISTS idx_rw_content ON retirement_workflow(content_id);
+
 """
 
 # Approved retirement for an item or any stage sibling. Stages share one AgV
 # description, so retiring one retires all; the workflow row lives only on the
 # stage it was started from. Stage siblings share content_entities.stage_key
 # (non-Babylon items: their content_id). Expects the `ce` alias; exposes
-# `rw.status` and `rw.retirement_target_date`.
+# `rw.status` and `rw.retirement_target_date`. Revived (history) rows are not
+# current workflows and are ignored.
 _SIBLING_RETIREMENT_JOIN = """
     LEFT JOIN (
         SELECT DISTINCT ON (family) family, status, retirement_target_date
@@ -713,7 +734,7 @@ _SIBLING_RETIREMENT_JOIN = """
                    rw.status, rw.retirement_target_date, rw.updated_at
             FROM retirement_workflow rw
             LEFT JOIN content_entities rw_ce ON rw_ce.content_id = rw.content_id
-            WHERE rw.step_approved_at IS NOT NULL
+            WHERE rw.step_approved_at IS NOT NULL AND rw.revived_at IS NULL
         ) approved
         ORDER BY family, updated_at DESC
     ) rw ON rw.family = COALESCE(ce.stage_key, ce.content_id)
@@ -1007,6 +1028,7 @@ class Database:
             ON CONFLICT (content_id) DO UPDATE SET {', '.join(bi_updates)}
         """
 
+        revived: list[dict] = []
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 previous = self.lock_babylon_item(conn, content_id)
@@ -1036,7 +1058,32 @@ class Database:
                 if (source and effective_source.status in ("invalid", "ambiguous")
                         and effective_analysis_source(effective_item) == "showroom"):
                     self.invalidate_babylon_scan_failure(content_id, f"{effective_source.status}_source", effective_source.error, conn=conn)
+                # RHDPCD-2331: the item came back. This upsert is the only place
+                # that clears retired_at for a returning CatalogItem (retire_missing_babylon
+                # runs after the upserts, so its un-retire branch never sees one).
+                # One returning stage revives the family's current retired workflow;
+                # a workflow that is not retired is left alone.
+                if previous and previous.get("retired_at") is not None:
+                    revived = conn.execute(
+                        "UPDATE retirement_workflow rw "
+                        "SET revived_at = NOW(), "
+                        "    revived_reason = 'CatalogItem returned (catalog refresh)', "
+                        "    updated_at = NOW() "
+                        "FROM content_entities ce "
+                        "WHERE ce.content_id = rw.content_id "
+                        "  AND COALESCE(ce.stage_key, ce.content_id) = %s "
+                        "  AND rw.revived_at IS NULL "
+                        "  AND (rw.status = 'retired' OR rw.step_retired_at IS NOT NULL) "
+                        "RETURNING rw.content_id, rw.jira_key",
+                        (ce_data["stage_key"],),
+                    ).fetchall()
             conn.commit()
+        for workflow in revived:
+            logger.info("retirement_workflow_revived", component="rcars",
+                        action="retirement_revived", content_id=workflow["content_id"],
+                        jira_key=workflow["jira_key"], family=ce_data["stage_key"])
+            self.log_action(ce_data["stage_key"], "retirement_revived", "pipeline",
+                            f"Jira: {workflow['jira_key']}; workflow closed as revived")
         return content_id
 
     def get_content_entity(self, content_id: str) -> dict[str, Any] | None:
@@ -2283,7 +2330,7 @@ class Database:
             retiring_filter = (
                 "AND NOT EXISTS (SELECT 1 FROM retirement_workflow rw "
                 "LEFT JOIN content_entities rw_ce ON rw_ce.content_id = rw.content_id "
-                "WHERE rw.status = 'started' "
+                "WHERE rw.status = 'started' AND rw.revived_at IS NULL "
                 "AND COALESCE(rw_ce.stage_key, rw.content_id) "
                 "= COALESCE(ce.stage_key, ce.content_id))"
             )
@@ -3855,7 +3902,7 @@ class Database:
             JOIN content_entities ce ON ce.content_id = ps.content_id
             LEFT JOIN babylon_items bi ON bi.content_id = ps.content_id
             LEFT JOIN performance_channels pc ON pc.content_id = ps.content_id AND pc.channel = %(channel)s
-            LEFT JOIN retirement_workflow rw ON rw.content_id = ps.content_id
+            LEFT JOIN retirement_workflow rw ON rw.content_id = ps.content_id AND rw.revived_at IS NULL
             {where}
             ORDER BY {order_expr} {direction} NULLS LAST
         """
@@ -4128,6 +4175,7 @@ class Database:
             SELECT 1 FROM retirement_workflow rrw
             JOIN babylon_items rbi ON rbi.content_id = rrw.content_id
             WHERE substring(rbi.ci_name FROM '^(.+)\\.[^.]+$') = nu.catalog_base_name
+              AND rrw.revived_at IS NULL
               AND (rrw.status = 'retired' OR rrw.step_retired_at IS NOT NULL)
         )"""]
         params: dict = {}
@@ -4170,7 +4218,7 @@ class Database:
             FROM nonprod_usage nu
             JOIN content_entities ce ON ce.content_id = nu.content_id
             LEFT JOIN babylon_items bi ON bi.content_id = nu.content_id
-            LEFT JOIN retirement_workflow rw ON rw.content_id = nu.content_id
+            LEFT JOIN retirement_workflow rw ON rw.content_id = nu.content_id AND rw.revived_at IS NULL
             {where}
             ORDER BY {order_expr} {direction} NULLS LAST
         """
@@ -4220,7 +4268,7 @@ class Database:
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
                 cur.execute(
-                    "SELECT * FROM retirement_workflow WHERE content_id = %s",
+                    "SELECT * FROM retirement_workflow WHERE content_id = %s AND revived_at IS NULL",
                     (content_id,),
                 )
                 return cur.fetchone()
@@ -4290,7 +4338,7 @@ class Database:
         sql = (
             f"INSERT INTO retirement_workflow ({', '.join(columns)}) "
             f"VALUES ({', '.join(placeholders)}) "
-            f"ON CONFLICT (content_id) DO UPDATE SET "
+            f"ON CONFLICT (content_id) WHERE revived_at IS NULL DO UPDATE SET "
             f"{', '.join(p for p in update_parts if not p.startswith('content_id'))} "
             f"RETURNING *"
         )
@@ -4314,7 +4362,7 @@ class Database:
                 set_sql = ", ".join(f"{col} = %s" for col in fields)
                 row = cur.execute(
                     f"UPDATE retirement_workflow SET {set_sql}, updated_at = NOW() "
-                    "WHERE content_id = %s "
+                    "WHERE content_id = %s AND revived_at IS NULL "
                     "AND cancellation_requested_at IS NULL AND agv_revert_pr_url IS NULL "
                     "AND step_retired_at IS NULL "
                     "RETURNING *, CURRENT_TIMESTAMP AS event_recorded_at",
@@ -4342,13 +4390,17 @@ class Database:
         if pr_field not in PR_KINDS:
             raise ValueError("Invalid retirement PR field")
         with self._pool.connection() as conn:
-            wf = conn.execute("SELECT * FROM retirement_workflow WHERE content_id = %s FOR UPDATE", (content_id,)).fetchone()
+            wf = conn.execute(
+                "SELECT * FROM retirement_workflow WHERE content_id = %s AND revived_at IS NULL FOR UPDATE",
+                (content_id,),
+            ).fetchone()
             if not wf:
                 return None
             if wf.get(pr_field) and wf[pr_field] != pr["pr_url"]:
                 raise ValueError("Retirement PR is already recorded")
             wf = conn.execute(
-                f"UPDATE retirement_workflow SET {pr_field} = %s, updated_at = NOW() WHERE content_id = %s RETURNING *",
+                f"UPDATE retirement_workflow SET {pr_field} = %s, updated_at = NOW() "
+                f"WHERE content_id = %s AND revived_at IS NULL RETURNING *",
                 (pr["pr_url"], content_id),
             ).fetchone()
             self._insert_retirement_jira_event(conn, wf, f"{PR_KINDS[pr_field]}_pr_opened", pr.get("created_at"), pr["pr_url"])
@@ -4362,7 +4414,10 @@ class Database:
         if not state.get("merged") and state.get("state") != "closed":
             return
         with self._pool.connection() as conn:
-            wf = conn.execute("SELECT * FROM retirement_workflow WHERE content_id = %s FOR UPDATE", (content_id,)).fetchone()
+            wf = conn.execute(
+                "SELECT * FROM retirement_workflow WHERE content_id = %s AND revived_at IS NULL FOR UPDATE",
+                (content_id,),
+            ).fetchone()
             if wf and wf.get(pr_field) and (not state.get("url") or state["url"] == wf[pr_field]):
                 outcome = "merged" if state.get("merged") else "closed"
                 at = state.get("merged_at") if outcome == "merged" else state.get("closed_at")
@@ -4373,7 +4428,7 @@ class Database:
         with self._pool.connection() as conn:
             wf = conn.execute(
                 "UPDATE retirement_workflow SET jira_closed_at = COALESCE(jira_closed_at, NOW()), updated_at = NOW() "
-                "WHERE content_id = %s RETURNING *", (content_id,),
+                "WHERE content_id = %s AND revived_at IS NULL RETURNING *", (content_id,),
             ).fetchone()
             if wf and not cancelled and wf.get("step_retired_at") and not wf.get("cancellation_requested_at") and not wf.get("agv_revert_pr_url"):
                 self._insert_retirement_jira_event(conn, wf, "workflow_completed", wf["jira_closed_at"])
@@ -4383,13 +4438,15 @@ class Database:
     def finalize_retirement_cancellation(self, content_id: str) -> bool:
         with self._pool.connection() as conn:
             wf = conn.execute(
-                "SELECT *, CURRENT_TIMESTAMP AS event_recorded_at FROM retirement_workflow WHERE content_id = %s FOR UPDATE",
+                "SELECT *, CURRENT_TIMESTAMP AS event_recorded_at FROM retirement_workflow "
+                "WHERE content_id = %s AND revived_at IS NULL FOR UPDATE",
                 (content_id,),
             ).fetchone()
             if not wf:
                 return False
             self._insert_retirement_jira_event(conn, wf, "workflow_cancelled", wf["event_recorded_at"])
-            conn.execute("DELETE FROM retirement_workflow WHERE content_id = %s", (content_id,))
+            # Delete by id: a content_id can also hold revived history rows.
+            conn.execute("DELETE FROM retirement_workflow WHERE id = %s", (wf["id"],))
             conn.commit()
             return True
 
@@ -4416,10 +4473,11 @@ class Database:
             conn.commit()
 
     def delete_retirement_workflow(self, content_id: str) -> bool:
+        """Delete the current workflow only; revived history rows are kept."""
         with self._pool.connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM retirement_workflow WHERE content_id = %s",
+                    "DELETE FROM retirement_workflow WHERE content_id = %s AND revived_at IS NULL",
                     (content_id,),
                 )
                 deleted = cur.rowcount > 0
@@ -4438,7 +4496,8 @@ class Database:
                 row = conn.execute(
                     "UPDATE retirement_workflow "
                     "SET cancellation_requested_at = COALESCE(cancellation_requested_at, NOW()), updated_at = NOW() "
-                    "WHERE content_id = %s AND step_retired_at IS NULL AND status IS DISTINCT FROM 'retired' "
+                    "WHERE content_id = %s AND revived_at IS NULL "
+                    "AND step_retired_at IS NULL AND status IS DISTINCT FROM 'retired' "
                     "RETURNING *",
                     (content_id,),
                 ).fetchone()
@@ -4454,7 +4513,7 @@ class Database:
         with self._pool.connection() as conn:
             row = conn.execute(
                 f"UPDATE retirement_workflow SET {assignments}, updated_at = NOW() "
-                "WHERE content_id = %s RETURNING *",
+                "WHERE content_id = %s AND revived_at IS NULL RETURNING *",
                 [*fields.values(), content_id],
             ).fetchone()
             conn.commit()
@@ -4494,7 +4553,7 @@ class Database:
                    rw.curator_notes, rw.approval_snapshot,
                    rw.created_at AS workflow_created_at, rw.updated_at AS workflow_updated_at
             FROM content_entities ce
-            LEFT JOIN retirement_workflow rw ON rw.content_id = ce.content_id
+            LEFT JOIN retirement_workflow rw ON rw.content_id = ce.content_id AND rw.revived_at IS NULL
             LEFT JOIN babylon_items bi ON bi.content_id = ce.content_id
             LEFT JOIN performance_scores ps ON ps.content_id = ce.content_id
             LEFT JOIN performance_channels pc ON pc.content_id = ce.content_id AND pc.channel = 'rhdp'
@@ -4515,11 +4574,13 @@ class Database:
                 return str(row["earliest"]) if row and row["earliest"] else None
 
     def list_retirement_workflows(self, status: str | None = None) -> list[dict]:
+        """Current workflows only; revived history rows are not swept."""
         if status:
-            sql = "SELECT * FROM retirement_workflow WHERE status = %s ORDER BY updated_at DESC"
+            sql = ("SELECT * FROM retirement_workflow "
+                   "WHERE status = %s AND revived_at IS NULL ORDER BY updated_at DESC")
             params = (status,)
         else:
-            sql = "SELECT * FROM retirement_workflow ORDER BY updated_at DESC"
+            sql = "SELECT * FROM retirement_workflow WHERE revived_at IS NULL ORDER BY updated_at DESC"
             params = ()
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
@@ -4530,25 +4591,14 @@ class Database:
         """Return workflows where the target date has passed and no removal PR exists."""
         sql = (
             "SELECT * FROM retirement_workflow "
-            "WHERE step_started_at IS NOT NULL "
+            "WHERE revived_at IS NULL "
+            "AND step_started_at IS NOT NULL "
             "AND retirement_target_date <= CURRENT_DATE "
             "AND agv_retire_pr_url IS NULL "
             "AND agv_revert_pr_url IS NULL "
             "AND cancellation_requested_at IS NULL "
             "AND step_retired_at IS NULL "
             "ORDER BY retirement_target_date ASC"
-        )
-        with self._pool.connection() as conn:
-            with conn.cursor(row_factory=dict_row) as cur:
-                cur.execute(sql)
-                return cur.fetchall()
-
-    def list_retirement_pending_revert(self) -> list[dict]:
-        """Return workflows with a revert PR that may need cleanup."""
-        sql = (
-            "SELECT * FROM retirement_workflow "
-            "WHERE agv_revert_pr_url IS NOT NULL "
-            "ORDER BY updated_at ASC"
         )
         with self._pool.connection() as conn:
             with conn.cursor(row_factory=dict_row) as cur:
@@ -4562,7 +4612,7 @@ class Database:
         sql = (
             f"UPDATE retirement_workflow "
             f"SET step_retired_at = NOW(), status = 'retired', updated_at = NOW() "
-            f"WHERE content_id IN ({placeholders}) "
+            f"WHERE content_id IN ({placeholders}) AND revived_at IS NULL "
             f"AND step_retired_at IS NULL AND cancellation_requested_at IS NULL AND agv_revert_pr_url IS NULL"
         )
         with self._pool.connection() as conn:

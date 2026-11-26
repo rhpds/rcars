@@ -99,6 +99,14 @@ def _indexes(db):
     return {row["indexname"]: row["indexdef"] for row in rows}
 
 
+def _primary_key(db):
+    with db.pool.connection() as conn:
+        return conn.execute(
+            "SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint "
+            "WHERE conrelid = 'retirement_workflow'::regclass AND contype = 'p'"
+        ).fetchone()["definition"]
+
+
 def _index_keys(db, index_name):
     """Key columns of one index, in order, from pg_index."""
     with db.pool.connection() as conn:
@@ -146,7 +154,10 @@ def test_old_shape_is_upgraded_and_rows_are_kept(db):
     assert "(revived_at IS NULL)" in current_index
     # Keyed on content_id, not on id: ON CONFLICT (content_id) can only infer this one.
     assert _index_keys(db, "uq_rw_current_content") == ["content_id"]
-    assert _index_keys(db, "uq_rw_id") == ["id"]
+    # Step 2 moved the primary key to id and dropped the now-redundant index.
+    assert _primary_key(db) == "PRIMARY KEY (id)"
+    assert "uq_rw_id" not in indexes
+    assert "idx_rw_content" in indexes
 
 
 def test_upgrade_is_idempotent(db):
@@ -170,14 +181,13 @@ UPSERT_CURRENT_SQL = (
 
 
 def test_current_row_index_keeps_history_rows_out_of_the_upsert(db):
-    """Mimic the step-2 shape, all inside one transaction that is rolled back."""
+    """One current row and one history row can share a content_id; the upsert
+    updates the current one and leaves the history row alone."""
     db.create_schema()
     with db.pool.connection() as conn:
         before = conn.execute(
             "SELECT id FROM retirement_workflow WHERE content_id = %s", (CONTENT_IDS[0],)
         ).fetchone()
-        # Step 2 drops the content_id primary key. Rolled back below.
-        conn.execute("ALTER TABLE retirement_workflow DROP CONSTRAINT retirement_workflow_pkey")
         conn.execute(
             "UPDATE retirement_workflow SET revived_at = NOW() WHERE content_id = %s",
             (CONTENT_IDS[0],),
@@ -192,7 +202,6 @@ def test_current_row_index_keeps_history_rows_out_of_the_upsert(db):
             "WHERE content_id = %s ORDER BY id",
             (CONTENT_IDS[0],),
         ).fetchall()
-        conn.rollback()
 
     history = [row for row in rows if row["revived_at"] is not None]
     current = [row for row in rows if row["revived_at"] is None]
