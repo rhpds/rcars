@@ -677,6 +677,27 @@ CREATE TABLE IF NOT EXISTS catalog_family_members (
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_family_members_member ON catalog_family_members(member_content_id);
 
+-- Retirement history (RHDPCD-2331), step 1 of 2: a workflow that comes back
+-- keeps its row. revived_at set = closed because the item returned; NULL = the
+-- current workflow. Nothing reads these columns yet, so old code keeps working
+-- and content_id stays unique among current rows. The primary-key swap to id
+-- ships one deploy later.
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS revived_at TIMESTAMPTZ;
+ALTER TABLE retirement_workflow ADD COLUMN IF NOT EXISTS revived_reason TEXT;
+-- DO block, not "ADD COLUMN IF NOT EXISTS id BIGSERIAL": the IF NOT EXISTS form
+-- can leave an orphan sequence behind on re-run.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_schema = 'public' AND table_name = 'retirement_workflow'
+                     AND column_name = 'id') THEN
+        ALTER TABLE retirement_workflow ADD COLUMN id BIGSERIAL;
+    END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_rw_id ON retirement_workflow(id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_rw_current_content
+    ON retirement_workflow(content_id) WHERE revived_at IS NULL;
+
 """
 
 # Approved retirement for an item or any stage sibling. Stages share one AgV
