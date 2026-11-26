@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795688509.8025465,
-    "seen": 1795688863.4111109,
-    "ast_hash": "22cd86cc91dabb1fdf1d139b01f06378",
+    "mtime": 1795693456.8597062,
+    "seen": 1795693819.181952,
+    "ast_hash": "d69e955ad8d4c6d8f508a79222a5e7fe",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -1596,9 +1596,9 @@
     "semantic_hash": ""
   },
   "src/api/rcars/services/retirement_cleanup.py": {
-    "mtime": 1795687060.0961049,
-    "seen": 1795687531.033025,
-    "ast_hash": "7cb2abee9d20cd18dee4a5c7afa9d6a8",
+    "mtime": 1795692123.440873,
+    "seen": 1795692506.996414,
+    "ast_hash": "950186401f0c83509a9c0159dc1ab3e0",
     "semantic_hash": ""
   },
   "src/api/tests/test_required_jira_cleanup.py": {
@@ -1614,9 +1614,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_jira_events.py": {
-    "mtime": 1795687060.1117222,
-    "seen": 1795687531.0330749,
-    "ast_hash": "7a353aef0f9482733146801335cbddcf",
+    "mtime": 1795692129.678663,
+    "seen": 1795692506.998364,
+    "ast_hash": "92d81427d90179959858331a4d4b5c2a",
     "semantic_hash": ""
   },
   "src/api/rcars/services/showroom_scan.py": {
@@ -1908,9 +1908,15 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_history_schema.py": {
-    "mtime": 1795688484.7827792,
-    "seen": 1795688863.41379,
-    "ast_hash": "538663ff5f6227515d3a5ffb526bb997",
+    "mtime": 1795694524.867345,
+    "seen": 1795694885.377764,
+    "ast_hash": "f0877fb2397390adcc3a79db878e84f2",
+    "semantic_hash": ""
+  },
+  "src/api/tests/test_retirement_history_logic.py": {
+    "mtime": 1795692139.975332,
+    "seen": 1795692506.9983182,
+    "ast_hash": "4053294159b28c27683d5cb92e192573",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {

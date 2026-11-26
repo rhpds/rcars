@@ -45,6 +45,10 @@ def event_time(db):
     return wf.get("jira_event_tracking_started_at", datetime.now(timezone.utc)) + timedelta(seconds=5)
 
 
+def wf_id(db):
+    return db.get_retirement_workflow(CID)["id"]
+
+
 def test_database_open_event_is_atomic_and_deduplicated(db):
     pr = {"pr_url": NOTICE, "created_at": event_time(db).isoformat()}
     db.record_retirement_pr(CID, "agv_notice_pr_url", pr)
@@ -83,8 +87,8 @@ def test_database_cancellation_event_survives_deletion_and_new_incarnation(db):
 
 def test_database_jira_closure_queues_completion_once(db):
     db.auto_close_retired_workflows({CID})
-    db.record_retirement_jira_closure(CID, cancelled=False)
-    db.record_retirement_jira_closure(CID, cancelled=False)
+    db.record_retirement_jira_closure(CID, wf_id(db), cancelled=False)
+    db.record_retirement_jira_closure(CID, wf_id(db), cancelled=False)
     events = db.list_pending_retirement_jira_events(content_id=CID)
     assert len(events) == 1 and events[0]["event_type"] == "workflow_completed"
     assert db.get_retirement_workflow(CID)["jira_closed_at"] is not None
@@ -93,14 +97,14 @@ def test_database_jira_closure_queues_completion_once(db):
 
 
 def test_database_cancellation_jira_closure_is_not_final_completion(db):
-    db.record_retirement_jira_closure(CID, cancelled=True)
+    db.record_retirement_jira_closure(CID, wf_id(db), cancelled=True)
     assert db.list_pending_retirement_jira_events(content_id=CID) == []
 
 
 def test_database_cancellation_intent_prevents_completed_event(db):
     db.auto_close_retired_workflows({CID})
     db.update_retirement_cleanup(CID, {"cancellation_requested_at": datetime.now(timezone.utc)})
-    db.record_retirement_jira_closure(CID, cancelled=False)
+    db.record_retirement_jira_closure(CID, wf_id(db), cancelled=False)
     assert db.list_pending_retirement_jira_events(content_id=CID) == []
 
 
