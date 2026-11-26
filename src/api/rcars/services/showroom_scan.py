@@ -163,7 +163,8 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                     or analysis_generation(db.get_showroom_analysis(content_id, conn=conn, for_update=True)) != observed_generation):
                 return {"content_id": content_id, "success": False, "outcome": "superseded"}
             db.set_scan_status(content_id, "failed", "analysis_failed", str(exc), conn=conn)
-        log.warning("showroom_scan_analysis_failed", component="scanner", content_id=content_id)
+        log.warning("showroom_scan_analysis_failed", component="scanner", content_id=content_id,
+                    error=str(exc)[:500], cause=repr(exc.__cause__), exc_info=exc)
         return {"content_id": content_id, "success": False, "outcome": "failed",
                 "error": "analysis_failed", "message": str(exc)}
     except Exception as exc:
