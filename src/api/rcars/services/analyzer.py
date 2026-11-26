@@ -229,11 +229,12 @@ def classify_scan_error(
 
 
 class RetryableAnalysisError(Exception):
-    """A failure after the Showroom content was read: LLM call, parse or embeddings.
+    """A failure after the Showroom content was read.
 
-    The scan keeps the prior analysis and embeddings and records the failure so
-    the next scan retries. Source, clone and content-read failures do not use
-    this class and keep their original behavior.
+    Covers the LLM call, parsing, embedding generation and persisting the
+    result. The scan keeps the prior analysis and embeddings and records the
+    failure so the next scan retries. Source, clone and content-read failures
+    do not use this class and keep their original behavior.
     """
 
 
@@ -1091,7 +1092,7 @@ def analyze_showroom(
             head_sha, content_hash, analysis_config, compute_analysis_input_hash(system_prompt, user_message, model),
             SHOWROOM_ANALYSIS_POLICY_VERSION)
         if own_current and own_signature.content_hash == content_hash and own_signature.input_hash == signature.input_hash:
-            return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+            return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(own),
                 signature, source, origin=own, prior_embeddings=own_embeddings, outcome="revision_verified", head_date=head_date)
 
         # Post-clone lookup: only content_hash + analysis_config identify a donor (any CI,
@@ -1146,7 +1147,7 @@ def analyze_showroom(
             )
 
             analysis.setdefault("modules", [])
-            result = _finish_showroom_result(ci_name, display_name, keywords, settings, analysis, signature, source,
+            result = _finish_retryably(ci_name, display_name, keywords, settings, analysis, signature, source,
                 origin=own, prior_embeddings=own_embeddings, fresh_generation=True,
                 force=force, head_date=head_date, input_tokens=input_tokens, output_tokens=output_tokens,
                 content_file_count=len(content_files))

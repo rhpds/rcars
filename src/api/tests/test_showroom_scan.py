@@ -178,6 +178,32 @@ def test_llm_failure_item_is_selected_by_the_batch_scan(db, scan):
     assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
 
 
+def test_revision_verified_embedding_failure_keeps_prior_artifacts(db, scan, git_repo):
+    """New commit, same content, changed display name: the summary embedding regenerates."""
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior = db.get_showroom_analysis(cid)
+    before = db.get_embeddings_for_content(cid)
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE content_entities SET display_name = %s WHERE content_id = %s", ("New name", cid))
+    repo, git, _, _ = git_repo
+    (repo / "README.md").write_text("Documentation only change")
+    git("add", ".")
+    git("commit", "-m", "Docs")
+    scan.embed.side_effect = RuntimeError("embedding server down")
+    scan.llm.reset_mock()
+
+    result = scan_babylon_item(db, scan.settings, cid)
+
+    assert result["success"] is False
+    assert result["error"] == "analysis_failed"
+    assert scan.llm.call_count == 0  # revision_verified, not a fresh analysis
+    assert db.get_showroom_analysis(cid)["summary"] == prior["summary"]
+    assert db.get_embeddings_for_content(cid) == before
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+
+
 def test_donor_reuse_embedding_failure_keeps_recipient_prior_artifacts(db, scan, monkeypatch):
     donor = add_item(db, scan, "isolation-test.donor.prod", display_name="Donor workshop")
     assert scan_babylon_item(db, scan.settings, donor)["success"]

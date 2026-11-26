@@ -121,25 +121,30 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                 return {"content_id": content_id, "success": False, "outcome": "failed", "source": source.to_dict(), **result}
             outcome = result["outcome"]
             if outcome != "unchanged":
-                analysis = result["analysis"]
-                data = {"content_id": content_id, "analysis_provenance_json": result["analysis_provenance"],
-                        "last_repo_commit": result["last_repo_commit"], "last_repo_updated": result.get("last_repo_updated"),
-                        "content_hash": result["content_hash"], "is_stale": False, "stale_commit": None,
-                        "last_analyzed": result["last_analyzed"]}
-                if outcome in ("analyzed", "reused"):
-                    data.update({key: analysis.get(key) for key in ("summary", "content_type", "difficulty", "estimated_duration_min")})
-                    data.update({key + "_json": analysis.get(key) for key in ("products", "audience", "recommender_audience", "topics",
-                        "modules", "learning_objectives", "use_cases")})
-                    formats = analysis.get("format_suitability")
-                    data["format_suitability_json"] = ({key: value for key, value in formats.items() if key in ("demo", "hands_on_lab")}
-                                                       if isinstance(formats, dict) else None)
-                    db.update_content_entity_card(content_id, summary=analysis.get("summary"), products_json=analysis.get("products"),
-                        topics_json=analysis.get("topics"), audience_json=analysis.get("audience"), difficulty=analysis.get("difficulty"), conn=conn)
-                db.upsert_showroom_analysis(data, conn=conn)
-                if outcome in ("analyzed", "reused", "embeddings_repaired") or result.get("embedding_changes"):
-                    regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
-                        result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
-                db.set_scan_status(content_id, "success", conn=conn)
+                try:
+                    analysis = result["analysis"]
+                    data = {"content_id": content_id, "analysis_provenance_json": result["analysis_provenance"],
+                            "last_repo_commit": result["last_repo_commit"], "last_repo_updated": result.get("last_repo_updated"),
+                            "content_hash": result["content_hash"], "is_stale": False, "stale_commit": None,
+                            "last_analyzed": result["last_analyzed"]}
+                    if outcome in ("analyzed", "reused"):
+                        data.update({key: analysis.get(key) for key in ("summary", "content_type", "difficulty", "estimated_duration_min")})
+                        data.update({key + "_json": analysis.get(key) for key in ("products", "audience", "recommender_audience", "topics",
+                            "modules", "learning_objectives", "use_cases")})
+                        formats = analysis.get("format_suitability")
+                        data["format_suitability_json"] = ({key: value for key, value in formats.items() if key in ("demo", "hands_on_lab")}
+                                                           if isinstance(formats, dict) else None)
+                        db.update_content_entity_card(content_id, summary=analysis.get("summary"), products_json=analysis.get("products"),
+                            topics_json=analysis.get("topics"), audience_json=analysis.get("audience"), difficulty=analysis.get("difficulty"), conn=conn)
+                    db.upsert_showroom_analysis(data, conn=conn)
+                    if outcome in ("analyzed", "reused", "embeddings_repaired") or result.get("embedding_changes"):
+                        regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
+                            result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
+                    db.set_scan_status(content_id, "success", conn=conn)
+                except RetryableAnalysisError:
+                    raise
+                except Exception as exc:
+                    raise RetryableAnalysisError(str(exc)) from exc
             for stub in db.get_pure_stubs_for_owner(item["ci_name"], conn=conn):
                 db.mirror_content_owner(stub["content_id"], item["ci_name"], conn=conn)
         outcome_result = {"content_id": content_id, "ci_name": item["ci_name"], "success": True, "outcome": outcome,
