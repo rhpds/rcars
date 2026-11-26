@@ -160,20 +160,15 @@ async def handle_recommend(res: Resolution, db: Database, settings: Settings,
         session_results=ordered_results)
 
 
-async def handle_overlap(res: Resolution, db: Database, settings: Settings,
-                         stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
-    if not res.items and not res.scope_ids:
-        return HandlerResult(
-            blocks=[Block(type="notice", data={"kind": "no_items"})],
-            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
-    anchors = res.items or [db.get_babylon_item(cid) or db.get_content_entity(cid) or {"content_id": cid, "display_name": cid}
-                            for cid in res.scope_ids]
-    anchor = anchors[0]
-    cid = anchor["content_id"]
+def overlap_neighbors(db: Database, cid: str, stages: list[str], limit: int) -> tuple[list[str], list[dict]]:
+    """The one overlap lookup for an item: (group, neighbors).
 
-    # A virtual CI often has no analysis of its own, so overlap pairs sit on its
-    # members (the anchor component holds the analysis). Look from the item and from
-    # its members; a pair inside that group is the same content, never a neighbor.
+    A virtual CI often has no analysis of its own, so overlap pairs sit on its
+    members (the anchor component holds the analysis). Look from the item and from
+    its members; a pair inside that group is the same content, never a neighbor.
+    One row per neighbor, best pair first, ties by neighbor content_id so every limit cuts the same list. The overlap handler and the item card
+    both use this, so they always list the same items.
+    """
     group = [cid] + sorted({r["member_content_id"] for r in db.get_family_rows([cid])
                             if r["virtual_content_id"] == cid})
     with db.pool.connection() as conn:
@@ -183,6 +178,7 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
         rows = conn.execute(
             f"""SELECT * FROM (
                  SELECT DISTINCT ON (ce.content_id)
+                      ce.content_id AS neighbor_id,
                       oc.content_id_a, oc.content_id_b,
                       oc.shared_products, oc.shared_topics, oc.llm_assessment,
                       ce.display_name, bi.ci_name, bi.stage
@@ -196,11 +192,10 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
                  {stage_clause}
                  ORDER BY ce.content_id, oc.shared_products DESC, oc.shared_topics DESC
                ) one_per_neighbor
-               ORDER BY shared_products DESC, shared_topics DESC
-               LIMIT 10""",
-            {"group": group, "stages": stages},
+               ORDER BY shared_products DESC, shared_topics DESC, neighbor_id
+               LIMIT %(limit)s""",
+            {"group": group, "stages": stages, "limit": limit},
         ).fetchall()
-
     neighbors = []
     for r in rows:
         other_id = r["content_id_a"] if r["content_id_b"] in group else r["content_id_b"]
@@ -214,6 +209,21 @@ async def handle_overlap(res: Resolution, db: Database, settings: Settings,
             "verdict": assessment.get("verdict"),
             "recommendation": assessment.get("recommendation"),
         })
+    return group, neighbors
+
+
+async def handle_overlap(res: Resolution, db: Database, settings: Settings,
+                         stages: list[str], include_zt: bool, on_progress) -> HandlerResult:
+    if not res.items and not res.scope_ids:
+        return HandlerResult(
+            blocks=[Block(type="notice", data={"kind": "no_items"})],
+            scaffold_facts={"error": "No items specified"}, anchor_ids=[], session_results=[])
+    anchors = res.items or [db.get_babylon_item(cid) or db.get_content_entity(cid) or {"content_id": cid, "display_name": cid}
+                            for cid in res.scope_ids]
+    anchor = anchors[0]
+    cid = anchor["content_id"]
+
+    group, neighbors = overlap_neighbors(db, cid, stages, limit=10)
 
     return HandlerResult(
         blocks=[Block(type="item_card", data=_item_card(db, anchor)),
@@ -287,28 +297,9 @@ async def handle_item_facts(res: Resolution, db: Database, settings: Settings,
                   or {"content_id": res.scope_ids[0], "display_name": res.scope_ids[0]}))
     card = _item_card(db, item)
 
-    with db.pool.connection() as conn:
-        from psycopg.rows import dict_row
-        conn.row_factory = dict_row
-        stage_clause = "AND (bi_n.stage IS NULL OR bi_n.stage = ANY(%(stages)s))" if stages else ""
-        n_rows = conn.execute(
-            f"""SELECT oc.content_id_a, oc.content_id_b, oc.shared_products, oc.shared_topics,
-                      oc.llm_assessment, ce.display_name, bi_n.stage
-               FROM overlap_candidates oc
-               JOIN content_entities ce ON ce.content_id =
-                   CASE WHEN oc.content_id_a = %(cid)s THEN oc.content_id_b ELSE oc.content_id_a END
-               LEFT JOIN babylon_items bi_n ON bi_n.content_id = ce.content_id
-               WHERE (oc.content_id_a = %(cid)s OR oc.content_id_b = %(cid)s)
-               {stage_clause}
-               ORDER BY oc.shared_products DESC, oc.shared_topics DESC LIMIT 5""",
-            {"cid": item["content_id"], "stages": stages},
-        ).fetchall()
-    card["neighbors"] = [
-        {"content_id": r["content_id_b"] if r["content_id_a"] == item["content_id"] else r["content_id_a"],
-         "display_name": r["display_name"],
-         "stage": r["stage"],
-         "verdict": (r["llm_assessment"] or {}).get("verdict")}
-        for r in n_rows]
+    _, found = overlap_neighbors(db, item["content_id"], stages, limit=5)
+    card["neighbors"] = [{"content_id": n["content_id"], "display_name": n["display_name"],
+                          "stage": n["stage"], "verdict": n["verdict"]} for n in found]
     return HandlerResult(
         blocks=[Block(type="item_card", data=card)],
         scaffold_facts={"display_name": card["display_name"], "stage": card["stage"],

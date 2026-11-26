@@ -361,3 +361,71 @@ def test_item_card_of_a_virtual_ci_without_analysis_shows_its_anchors_summary(db
     link(db, virtual, anchor)
     card = handlers._item_card(db, db.get_babylon_item(virtual))
     assert card["summary"] == "About agd-v2.lab.prod"
+
+
+# ── item card uses the same family-group neighbours as the overlap handler ──
+
+def _family_with_pairs_on_the_member(db):
+    member = add(db, "agd-v2.lab.prod", display="Lab member")
+    one = add(db, "zt-one.prod", display="One")
+    two = add(db, "zt-two.prod", display="Two")
+    virtual = db.upsert_babylon_catalog_item({  # no analysis of its own: pairs sit on the member
+        "ci_name": "published.lab.prod", "stage": "prod", "display_name": "Lab"})
+    link(db, virtual, member)
+    generate_overlap_candidates(db.pool)
+    return virtual, member, {one, two}
+
+
+@pytest.mark.asyncio
+async def test_item_facts_card_lists_the_same_neighbours_as_overlap(db):
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    virtual, member, expected = _family_with_pairs_on_the_member(db)
+    res = Resolution(kind="execute", output=RouterOutput(intent="item_facts", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    settings = SETTINGS(chat_intent_roles_str="")
+    facts = await handlers.handle_item_facts(res, db, settings, ["prod"], True, None)
+    overlap = await handlers.handle_overlap(res, db, settings, ["prod"], True, None)
+    card_ids = {n["content_id"] for n in facts.blocks[0].data["neighbors"]}
+    assert card_ids == expected == {n["content_id"] for n in overlap.session_results}
+    assert member not in card_ids and virtual not in card_ids  # never the anchor's own family
+    assert facts.scaffold_facts["neighbor_count"] == 2
+
+
+@pytest.mark.asyncio
+async def test_overlap_table_block_has_the_family_neighbours(db):
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    virtual, _, expected = _family_with_pairs_on_the_member(db)
+    res = Resolution(kind="execute", output=RouterOutput(intent="overlap", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    out = await handlers.handle_overlap(res, db, SETTINGS(chat_intent_roles_str=""), ["prod"], True, None)
+    assert {n["content_id"] for n in out.blocks[1].data["neighbors"]} == expected
+
+
+def test_overlap_neighbors_is_the_one_shared_lookup(db):
+    from rcars.services.chat.handlers import overlap_neighbors
+    virtual, member, expected = _family_with_pairs_on_the_member(db)
+    group, neighbors = overlap_neighbors(db, virtual, ["prod"], limit=1)
+    assert set(group) == {virtual, member} and len(neighbors) == 1
+
+
+@pytest.mark.asyncio
+async def test_tied_scores_card_is_the_first_five_table_rows(db):
+    """More than ten neighbors with the same score: both limits cut the same ordered list."""
+    from rcars.services.chat import handlers
+    from rcars.services.chat.router import Resolution
+    member = add(db, "agd-v2.lab.prod")
+    others = [add(db, f"zt-n{i:03d}.prod") for i in range(12)]
+    virtual = db.upsert_babylon_catalog_item({"ci_name": "published.lab.prod", "stage": "prod",
+                                              "display_name": "Lab"})
+    link(db, virtual, member)
+    generate_overlap_candidates(db.pool)
+    res = Resolution(kind="execute", output=RouterOutput(intent="overlap", args={}, confidence=1.0),
+                     items=[db.get_babylon_item(virtual)])
+    settings = SETTINGS(chat_intent_roles_str="")
+    table = (await handlers.handle_overlap(res, db, settings, ["prod"], True, None)).blocks[1].data["neighbors"]
+    card = (await handlers.handle_item_facts(res, db, settings, ["prod"], True, None)).blocks[0].data["neighbors"]
+    expected = sorted(others)  # equal scores: ties break by neighbor content_id
+    assert [n["content_id"] for n in table] == expected[:10]
+    assert [n["content_id"] for n in card] == expected[:5] == [n["content_id"] for n in table[:5]]
