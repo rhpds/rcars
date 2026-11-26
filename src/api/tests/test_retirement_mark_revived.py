@@ -24,8 +24,9 @@ A_BASE = "test-mark-revived.a"
 B_BASE = "test-mark-revived.b"
 A_PROD = f"babylon:{A_BASE}.prod"
 A_DEV = f"babylon:{A_BASE}.dev"
+A_EVENT = f"babylon:{A_BASE}.event"
 B_PROD = f"babylon:{B_BASE}.prod"
-CONTENT_IDS = (A_PROD, A_DEV, B_PROD)
+CONTENT_IDS = (A_PROD, A_DEV, A_EVENT, B_PROD)
 
 
 @pytest.fixture
@@ -215,8 +216,7 @@ def test_reason_option_is_recorded(db):
     assert _workflows(db, A_PROD)[0]["revived_reason"] == "Backfill: after RHDPCD-2256"
 
 
-def test_only_the_validated_workflow_is_marked_in_a_family_with_two(db):
-    """Two stage rows can share a family: only the row the dry run showed changes."""
+def _two_current_workflows(db):
     with db.pool.connection() as conn:
         conn.execute(
             "INSERT INTO retirement_workflow (content_id, status, step_retired_at) "
@@ -226,9 +226,48 @@ def test_only_the_validated_workflow_is_marked_in_a_family_with_two(db):
             "VALUES (%s, 'retired', NOW() - INTERVAL '1 day')", (A_DEV,))
         conn.commit()
 
+
+def test_repeat_apply_revives_the_named_workflow_and_then_stops(db):
+    """Two stage rows share a family: the named one is the stable target."""
+    _two_current_workflows(db)
+
+    first = _run("--content-id", A_DEV, "--apply")
+
+    assert first.exit_code == 0, first.output
+    assert first.output.count("marked babylon:") == 1
+    assert _workflows(db, A_DEV)[0]["revived_at"] is not None
+    assert _workflows(db, A_PROD)[0]["revived_at"] is None
+
+    second = _run("--content-id", A_DEV, "--apply")
+
+    assert second.exit_code == 0, second.output
+    assert "already marked revived" in second.output
+    assert _workflows(db, A_PROD)[0]["revived_at"] is None
+
+
+def test_ambiguous_family_is_refused(db):
+    """No workflow on the named content_id and two siblings: never guess."""
+    _two_current_workflows(db)
+
+    result = _run("--content-id", A_EVENT, "--apply")
+
+    assert result.exit_code == 1
+    assert "2 current retired workflows" in result.output
+    assert A_DEV in result.output and A_PROD in result.output
+    assert _workflows(db, A_DEV)[0]["revived_at"] is None
+    assert _workflows(db, A_PROD)[0]["revived_at"] is None
+
+
+def test_failed_audit_insert_leaves_the_workflow_current(db, monkeypatch):
+    db.upsert_retirement_workflow(A_PROD, {"step_approved_at": "NOW()", "step_started_at": "NOW()"})
+    _retire_everything(db)
+    _item_returns(db, A_DEV)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("audit insert failed")
+
+    monkeypatch.setattr(Database, "log_action", boom)
     result = _run("--content-id", A_DEV, "--apply")
 
-    assert result.exit_code == 0, result.output
-    assert result.output.count("marked babylon:") == 1
-    assert _workflows(db, A_PROD)[0]["revived_at"] is not None
-    assert _workflows(db, A_DEV)[0]["revived_at"] is None
+    assert result.exit_code != 0
+    assert _workflows(db, A_PROD)[0]["revived_at"] is None

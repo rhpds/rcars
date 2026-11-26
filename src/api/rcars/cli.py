@@ -814,23 +814,53 @@ def retirement_mark_revived_cmd(content_ids: tuple[str, ...], reason: str, apply
             families[content_id] = entity.get("stage_key") or content_id
 
         known = db.list_family_workflows(list(families.values()))
+        by_family: dict[str, list[dict]] = {}
+        for row in known:
+            by_family.setdefault(row["family"], []).append(row)
+
+        # The target must not move between runs: prefer the workflow of the
+        # content_id the operator named, fall back to the only sibling of the
+        # family, and refuse an ambiguous family instead of picking one.
         accepted: dict[int, str] = {}  # workflow id -> family, the only rows the update may touch
         for content_id, family in families.items():
-            rows = [row for row in known if row["family"] == family]
+            rows = by_family.get(family, [])
             current = [row for row in rows if row["revived_at"] is None]
-            if not current:
-                if rows:
-                    _print(f"  SKIP {content_id}: family {family} is already marked revived")
-                else:
-                    _print(f"  SKIP {content_id}: no workflow for family {family}")
+            retired = [row for row in current
+                       if row["status"] == "retired" or row["step_retired_at"]]
+            named = [row for row in current if row["content_id"] == content_id]
+
+            if named:
+                workflow = named[0]
+                if workflow not in retired:
+                    _print(f"  SKIP {content_id}: no current retired workflow for family {family} "
+                           f"(status {workflow['status']})")
                     skipped += 1
+                    continue
+            elif any(row["revived_at"] is not None for row in rows):
+                # Repeat run: the family is already marked, so this is a no-op.
+                _print(f"  SKIP {content_id}: family {family} is already marked revived")
                 continue
-            workflow = current[0]
-            if not (workflow["status"] == "retired" or workflow["step_retired_at"]):
+            elif len(retired) == 1:
+                workflow = retired[0]
+            elif len(retired) > 1:
+                _print(f"  SKIP {content_id}: family {family} has {len(retired)} current retired "
+                       f"workflows; name one of them with --content-id:")
+                for row in retired:
+                    _print(f"      {row['content_id']} (workflow {row['id']}, "
+                           f"Jira {row['jira_key'] or 'none'})")
+                skipped += 1
+                continue
+            elif current:
+                workflow = current[0]
                 _print(f"  SKIP {content_id}: no current retired workflow for family {family} "
                        f"(status {workflow['status']})")
                 skipped += 1
                 continue
+            else:
+                _print(f"  SKIP {content_id}: no workflow for family {family}")
+                skipped += 1
+                continue
+
             if workflow["agv_retire_pr_url"] and not force:
                 _print(f"  SKIP {content_id}: the workflow has a removal PR "
                        f"({workflow['agv_retire_pr_url']}), so it was retired on purpose. "
@@ -841,20 +871,19 @@ def retirement_mark_revived_cmd(content_ids: tuple[str, ...], reason: str, apply
 
         if not apply:
             _print("DRY RUN — no changes. Re-run with --apply to write.")
-        closed = db.revive_family_workflows(
-            list(accepted.values()), reason, dry_run=not apply,
-            workflow_ids=list(accepted), allow_retirement_pr=force)
+            closed = db.revive_family_workflows(
+                list(accepted.values()), reason, dry_run=True,
+                workflow_ids=list(accepted), allow_retirement_pr=force)
+        else:
+            closed = db.backfill_revived_workflows(
+                list(accepted.values()), reason, workflow_ids=list(accepted),
+                allow_retirement_pr=force)
         for row in closed:
             jira = f", Jira {row['jira_key']}" if row["jira_key"] else ""
             verb = "marked" if apply else "would mark"
             _print(f"  {verb} {row['content_id']} (family {row['family']}): "
                    f"workflow {row['id']}, status {row['status']}{jira}")
         _print(f"{len(closed)} workflow(s) {'marked' if apply else 'would be marked'} revived.")
-        if apply:
-            for row in closed:
-                jira = row["jira_key"] or "none"
-                db.log_action(row["family"], "retirement_revived", "cli",
-                              f"Backfill: Jira: {jira}; workflow closed as revived")
         if skipped:
             raise SystemExit(1)
     finally:

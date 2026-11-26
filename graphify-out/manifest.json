@@ -114,9 +114,9 @@
     "semantic_hash": "fbc5ddfc3f30d8b4ea594942f4f3285f"
   },
   "src/api/rcars/cli.py": {
-    "mtime": 1795698579.2437994,
-    "seen": 1795698950.961826,
-    "ast_hash": "1f7fe9247823e4f212702a8c5a32e045",
+    "mtime": 1795699242.5480294,
+    "seen": 1795699630.77981,
+    "ast_hash": "96fd22699b269715c0136d1628506b4e",
     "semantic_hash": ""
   },
   "src/api/rcars/config.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795698496.4002843,
-    "seen": 1795698950.9619148,
-    "ast_hash": "3d50277227e60d62f5cb3f52466bf4cf",
+    "mtime": 1795699252.3537567,
+    "seen": 1795699630.779912,
+    "ast_hash": "5ba6a88714e76e5e69845973fc70622b",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "docs/admin/cli-guide.md": {
-    "mtime": 1795697693.9051585,
-    "seen": 1795698076.9587069,
-    "ast_hash": "e93654fbda2a2eab13bb07389e13a4ef",
+    "mtime": 1795699263.1024108,
+    "seen": 1795699630.785287,
+    "ast_hash": "58bdcce94e56287ed16b238f930910b8",
     "semantic_hash": ""
   },
   "docs/admin/deployment.md": {
@@ -1920,9 +1920,9 @@
     "semantic_hash": ""
   },
   "src/api/tests/test_retirement_mark_revived.py": {
-    "mtime": 1795698559.5913126,
-    "seen": 1795698950.964729,
-    "ast_hash": "404593dc02ee142cf1834fb6777b17b8",
+    "mtime": 1795699231.2321925,
+    "seen": 1795699630.782953,
+    "ast_hash": "5aadbcc20801ab97ba16a18b96b728da",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {

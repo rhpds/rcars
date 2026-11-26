@@ -3433,13 +3433,21 @@ class Database:
 
     # ── Audit log ──
 
-    def log_action(self, ci_name: str, action: str, user_id: str | None = None, details: str | None = None):
-        with self._pool.connection() as conn:
+    def log_action(self, ci_name: str, action: str, user_id: str | None = None, details: str | None = None,
+                   *, conn=None):
+        """Write an analysis_log row, joining the caller's transaction when given."""
+        if conn is not None:
             conn.execute(
                 "INSERT INTO analysis_log (ci_name, action, user_id, details) VALUES (%s, %s, %s, %s)",
                 (ci_name, action, user_id, details),
             )
-            conn.commit()
+            return
+        with self._pool.connection() as own:
+            own.execute(
+                "INSERT INTO analysis_log (ci_name, action, user_id, details) VALUES (%s, %s, %s, %s)",
+                (ci_name, action, user_id, details),
+            )
+            own.commit()
 
     # ── Jobs ──
 
@@ -4312,6 +4320,27 @@ class Database:
         with self._pool.connection() as own:
             rows = own.execute(sql, params).fetchall()
             own.rollback() if dry_run else own.commit()
+            return rows
+
+    def backfill_revived_workflows(self, families: list[str], reason: str, *,
+                                   workflow_ids: list[int],
+                                   allow_retirement_pr: bool = False,
+                                   actor: str = "cli") -> list[dict]:
+        """Revive the workflows and write their audit rows in one transaction.
+
+        Nothing commits unless both halves succeed, so a failed audit insert
+        leaves the workflow current and the command can be retried.
+        """
+        with self._pool.connection() as conn:
+            rows = self.revive_family_workflows(
+                families, reason, conn=conn, workflow_ids=workflow_ids,
+                allow_retirement_pr=allow_retirement_pr)
+            for row in rows:
+                self.log_action(
+                    row["family"], "retirement_revived", actor,
+                    f"Backfill: Jira: {row['jira_key'] or 'none'}; workflow closed as revived",
+                    conn=conn)
+            conn.commit()
             return rows
 
     def list_family_workflows(self, families: list[str]) -> list[dict]:

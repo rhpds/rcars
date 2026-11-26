@@ -320,7 +320,7 @@ rcars retirement mark-revived --content-id babylon:example.item.event
 rcars retirement mark-revived --content-id babylon:example.item.event --apply
 ```
 
-Only the families named with `--content-id` are considered; the command never scans for candidates, because the data cannot tell a revive from a workflow retired by a merged removal PR while the CatalogItem was still present. The command refuses, in this order:
+Only the families named with `--content-id` are considered; the command never scans for candidates, because the data cannot tell a revive from a workflow retired by a merged removal PR while the CatalogItem was still present. It marks the workflow on the named content_id when that row exists. When it does not, it uses the only current retired workflow of the family, and it refuses a family with more than one without naming any of them, listing the candidates instead, so the same command always targets the same workflow. The command refuses, in this order:
 
 - a content_id with no content entity;
 - an item whose entity is still retired;
