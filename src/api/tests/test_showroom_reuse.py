@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from tests.test_analyzer import git_repo
-from rcars.services import analysis_identity, analyzer
+from rcars.services import analyzer
 from rcars.services.showroom_source import ResolvedShowroom
 
 
@@ -68,7 +68,7 @@ def scan(git_repo, tmp_path, monkeypatch):
     monkeypatch.setattr("rcars.config.call_llm", llm)
     monkeypatch.setattr(analyzer, "generate_embedding", embed)
     db = MemoryArtifacts()
-    kwargs = dict(ci_name="example.item.prod", display_name="TLS workshop", category="Workshop", product="",
+    kwargs = dict(ci_name="example.item.prod", display_name="TLS workshop",
                   showroom_url=source.repo, showroom_ref=source.ref, settings=settings, model=settings.model,
                   clone_dir=str(tmp_path), db=db, source=source, keywords=["original"])
 
@@ -302,22 +302,16 @@ def test_different_content_path_in_one_repo_is_not_reused(scan, git_repo, monkey
     assert clone.call_count == 1 and scan.llm.call_count == 1
 
 
-@pytest.mark.parametrize("prompt_carries_item_context", [True, False])
-def test_different_ci_with_the_same_files_reuses_only_once_context_is_out_of_the_config(
-        scan, monkeypatch, prompt_carries_item_context):
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", prompt_carries_item_context)
+def test_different_ci_with_the_same_files_reuses_because_context_is_out_of_the_config(scan):
     first = scan.run(ci_name="example.other.prod", display_name="Another workshop",
                      source=replace(scan.source, scope_key="example.other"))
     scan.db.save(first)
     scan.llm.reset_mock()
     as_donor(scan, content_id="babylon:example.other.prod")
     result = scan.run()  # example.item.prod, "TLS workshop": same files, other CI
-    if prompt_carries_item_context:
-        assert result["outcome"] == "analyzed" and scan.llm.call_count == 1
-    else:
-        assert result["outcome"] == "reused" and scan.llm.call_count == 0
-        assert result["analysis_provenance"]["reused_from"] == "babylon:example.other.prod"
-        assert "TLS workshop" in result["ci_embedding_text"]  # the summary embedding stays per item
+    assert result["outcome"] == "reused" and scan.llm.call_count == 0
+    assert result["analysis_provenance"]["reused_from"] == "babylon:example.other.prod"
+    assert "TLS workshop" in result["ci_embedding_text"]  # the summary embedding stays per item
 
 
 @pytest.mark.parametrize("changes,blocks_reuse", [

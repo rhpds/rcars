@@ -204,11 +204,14 @@ keywords. Stale, failed, retired, description-sourced or incomplete donors canno
 donate. Concurrent scans queue and lock on the pre-clone key (repo + commit + path +
 `analysis_config`), so one leader runs and siblings across CIs and stages reuse it.
 
-The content prompt still carries per-CI lines (CI name, display name, category,
-product), so they are still part of `analysis_config` (`PROMPT_CARRIES_ITEM_CONTEXT`).
-Until they leave the prompt, another CI reading the same files is not a donor; stage
-copies of one CI are, even under different ref names. The nightly pipeline logs
-`scan_reuse_summary` (own LLM runs vs distinct content, and the repeated runs).
+The content prompt carries only the selected Showroom content and the entity
+content type. It does not name the item, so CI name, display name, category and
+product are not part of `analysis_config` and another CI reading the same files
+is a donor. Item fields for cards come from `content_entities`, never from the
+analysis. The nightly pipeline logs `scan_reuse_summary` (own LLM runs vs
+distinct content, and the repeated runs). A prompt change bumps
+`SHOWROOM_ANALYSIS_POLICY_VERSION`; see
+[catalog identity](catalog-identity.md#rescan-after-a-prompt-change).
 
 - Same source/revision/context with current complete embeddings: lightweight
   freshness check only; no analysis job, clone, LLM, embedding call, or replacement.

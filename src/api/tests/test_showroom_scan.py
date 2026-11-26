@@ -302,7 +302,7 @@ async def test_scan_endpoints_submit_each_stage_without_llm_or_fanout(db, scan, 
         conn.execute("DELETE FROM jobs WHERE created_by IN ('test@example.com', 'rescan-all')")
 
 
-def test_cli_scans_virtual_and_independent_stages(db, scan, monkeypatch):
+def test_cli_scans_independent_stages_and_reuses_shared_content(db, scan, monkeypatch):
     from rcars import cli as cli_module
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.prod", "isolation-test.virtual.dev")]
     scan.settings.max_parallel = 1
@@ -313,7 +313,8 @@ def test_cli_scans_virtual_and_independent_stages(db, scan, monkeypatch):
     result = CliRunner().invoke(cli_module.cli, ["scan"])
     assert result.exit_code == 0, result.output
     assert all(db.get_babylon_item(cid)["scan_status"] == "success" for cid in ids)
-    assert scan.llm.call_count == 2
+    # Same files and content type, so the second stage reuses the first analysis.
+    assert scan.llm.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -390,7 +391,7 @@ def commit_of(db, cid):
     return ls_remote_sha(source["repo"], source["ref"])
 
 
-def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_repo):
+def test_reuse_key_ignores_ref_name_ci_and_display_name(db, scan, git_repo):
     from rcars.services.analysis_identity import pre_clone_key
     from rcars.services.analyzer import showroom_reuse_key
     git_repo[1]("tag", "v1")  # another ref name on the same commit as main
@@ -398,9 +399,7 @@ def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_r
     renamed = add_item(db, scan, "isolation-test.a.event", display_name="TLS workshop (event)")
     other = add_item(db, scan, "isolation-test.b.prod")
     key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
-    assert key(prod) == key(dev)
-    assert key(renamed) != key(prod)  # per-CI context is still in the prompt, so still in analysis_config
-    assert key(other) != key(prod)
+    assert key(prod) == key(dev) == key(renamed) == key(other)
     scan_babylon_item(db, scan.settings, prod)
     signature = db.get_showroom_analysis(prod)["analysis_provenance_json"]["signature"]
     # Guards against the pre-clone key drifting from analyze_showroom's signature inputs.
@@ -408,10 +407,8 @@ def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_r
                          signature["context_hash"], "lab") == key(prod)
 
 
-def test_reuse_key_is_shared_across_cis_once_context_leaves_the_config(db, scan, monkeypatch):
-    from rcars.services import analysis_identity
+def test_reuse_key_is_shared_across_cis(db, scan):
     from rcars.services.analyzer import showroom_reuse_key
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
     one, two = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.b.dev",
                                                                      display_name="Another name")
     key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
@@ -463,14 +460,13 @@ def test_order_for_reuse_puts_one_prod_preferred_leader_per_group_first(db, scan
              "isolation-test.b.dev", "isolation-test.c.event", "isolation-test.c.dev"]
     items = [db.get_babylon_item(add_item(db, scan, name)) for name in names]
     ordered = [item["ci_name"] for item in order_for_reuse(items, scan.settings)]
-    assert ordered == ["isolation-test.a.prod", "isolation-test.c.event", "isolation-test.b.dev",
-                       "isolation-test.a.event", "isolation-test.a.dev", "isolation-test.c.dev"]
+    # All share repo, commit, path and analysis_config, so only one leader runs the LLM.
+    assert ordered == ["isolation-test.a.prod", "isolation-test.a.event", "isolation-test.c.event",
+                       "isolation-test.a.dev", "isolation-test.b.dev", "isolation-test.c.dev"]
 
 
-def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, scan, git_repo, monkeypatch):
-    from rcars.services import analysis_identity
+def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, scan, git_repo):
     from rcars.services.analyzer import order_for_reuse
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
     git_repo[1]("tag", "v1")
     specs = [("isolation-test.a.dev", "v1"), ("isolation-test.b.prod", "main"), ("isolation-test.a.prod", "main"),
              ("isolation-test.c.dev", "light")]  # `light` is the earlier commit: its own group
@@ -480,18 +476,15 @@ def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, sc
                        "isolation-test.a.dev"]
 
 
-@pytest.mark.parametrize("second,second_ref,prompt_carries_item_context", [
-    ("isolation-test.a.dev", None, True),         # stage sibling, same ref
-    ("isolation-test.a.dev", "v1", True),         # stage sibling, another ref name on the same commit
-    ("isolation-test.b.prod", None, False),       # another CI on the same files, once context is out
+@pytest.mark.parametrize("second,second_ref", [
+    ("isolation-test.a.dev", None),         # stage sibling, same ref
+    ("isolation-test.a.dev", "v1"),         # stage sibling, another ref name on the same commit
+    ("isolation-test.b.prod", None),        # another CI on the same files
 ])
-def test_concurrent_sibling_scans_make_one_llm_call(db, scan, git_repo, monkeypatch, second, second_ref,
-                                                    prompt_carries_item_context):
+def test_concurrent_sibling_scans_make_one_llm_call(db, scan, git_repo, monkeypatch, second, second_ref):
     import threading
     import time
     from concurrent.futures import ThreadPoolExecutor
-    from rcars.services import analysis_identity
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", prompt_carries_item_context)
     git_repo[1]("tag", "v1")
     prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, second, ref=second_ref)
     reply, both_started = scan.llm.return_value, threading.Barrier(2, timeout=10)
@@ -561,13 +554,14 @@ def test_reuse_lock_wait_times_out_and_reports_not_acquired(db):
 
 
 @pytest.mark.asyncio
-async def test_scan_endpoint_enqueues_group_leaders_before_siblings(db, scan):
+async def test_scan_endpoint_enqueues_the_single_group_leader_first(db, scan):
     from rcars.api.routes.analysis import start_scan
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.dev", "isolation-test.a.prod", "isolation-test.b.dev")]
     redis = SimpleNamespace(enqueue_job=AsyncMock())
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis, settings=scan.settings)))
     await start_scan(request, user="test@example.com")
     order = [call.kwargs["content_id"] for call in redis.enqueue_job.call_args_list if call.kwargs["content_id"] in ids]
-    assert order.index(ids[1]) < order.index(ids[2]) < order.index(ids[0])
+    # All three share one pre-clone key, so only the prod leader runs the LLM first.
+    assert order == [ids[1], ids[0], ids[2]]
     with db.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE created_by = 'test@example.com'")

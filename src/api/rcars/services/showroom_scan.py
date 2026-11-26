@@ -100,7 +100,6 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
             result = {"error": f"{source.status}_source", "message": source.error or "Unresolved source"}
         else:
             result = analyze_showroom(ci_name=item["ci_name"], display_name=item.get("display_name", ""),
-                category=item.get("category", ""), product=item.get("product", ""),
                 showroom_url=source.repo, showroom_ref=source.ref, settings=settings, model=settings.model,
                 clone_dir=settings.clone_dir, db=db, content_path=source.content_path,
                 keywords=item.get("keywords") or [], entity_content_type=item.get("content_type") or "lab",

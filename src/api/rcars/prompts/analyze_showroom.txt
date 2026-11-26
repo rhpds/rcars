@@ -1,11 +1,5 @@
 You are analyzing a Red Hat Demo Platform (RHDP) Showroom — a hands-on lab or demo guide built with AsciiDoc.
 
-## Item Information
-- CI Name: {ci_name}
-- Display Name: {display_name}
-- Category: {category}
-- Product: {product}
-
 ## Instructions
 
 Analyze the Showroom content below and produce a structured JSON assessment. Focus on what someone would LEARN or EXPERIENCE by completing this lab/demo.

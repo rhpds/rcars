@@ -442,16 +442,18 @@ def get_repo_head(clone_path: Path) -> tuple[str | None, str | None]:
 
 
 def build_analysis_prompt(
-    ci_name: str,
-    display_name: str,
-    category: str,
-    product: str,
     content_files: dict[str, str],
     entity_content_type: str = "lab",
 ) -> tuple[str, str]:
     """Build analysis prompt split into system instructions and user data.
 
-    entity_content_type is content_entities.content_type — NOT the LLM's
+    The prompt carries ONLY the selected Showroom content plus the entity content
+    type. It must not name the item: CI name, display name, category and product
+    are per-catalog-row fields, and two items with the same content must produce
+    the same prompt (and so reuse one analysis). Item fields reach the UI from
+    `content_entities`, never from the analysis.
+
+    entity_content_type is content_entities.content_type -- NOT the LLM's
     self-reported content_type, which does not exist yet at this point. It
     selects the action-verb hints in the injected vocabulary block.
 
@@ -477,21 +479,13 @@ def build_analysis_prompt(
     all_content = "\n\n".join(content_parts)
     all_content = truncate_content(all_content)
 
-    # Split template: system gets role + instructions, user gets item info + content
-    item_info_start = template.index("\n## Item Information\n")
+    # Split template: system gets role + instructions, user gets content only.
     instructions_start = template.index("\n## Instructions\n")
     content_start = template.index("\n## Showroom Content\n")
 
-    system_prompt = template[:item_info_start].strip() + "\n\n" + template[instructions_start:content_start].strip()
+    system_prompt = template[:instructions_start].strip() + "\n\n" + template[instructions_start:content_start].strip()
 
-    user_message = (
-        f"## Item Information\n"
-        f"- CI Name: {ci_name}\n"
-        f"- Display Name: {display_name or ci_name}\n"
-        f"- Category: {category or 'Unknown'}\n"
-        f"- Product: {product or 'Unknown'}\n\n"
-        f"## Showroom Content\n\n{all_content}"
-    )
+    user_message = f"## Showroom Content\n\n{all_content}"
 
     return system_prompt, user_message
 
@@ -636,10 +630,9 @@ def _own_analysis_current(row, source, analysis_config, *, allow_stale=False):
                 and provenance.get("source") == source.to_dict())
 
 
-def _item_analysis_config(item: dict, scope_key: str, model: str) -> str:
+def _item_analysis_config(item: dict, model: str) -> str:
     """Argument unpacking only; ``compute_analysis_config`` is the single owner."""
-    return compute_analysis_config(scope_key, item.get("display_name", ""), item.get("category", ""),
-                                   item.get("product", ""), item.get("content_type") or "lab", model)
+    return compute_analysis_config(item.get("content_type") or "lab", model)
 
 
 def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
@@ -653,7 +646,7 @@ def showroom_reuse_key(item: dict, settings, commit: str | None) -> str | None:
             or effective_analysis_source(item) != "showroom"):
         return None
     return pre_clone_key(source.repo, commit, source.content_path,
-                         _item_analysis_config(item, source.scope_key, settings.model),
+                         _item_analysis_config(item, settings.model),
                          item.get("content_type") or "lab")
 
 
@@ -715,7 +708,7 @@ def order_for_reuse(items: list[dict], settings,
 def showroom_analysis_current(item: dict, row: dict, settings) -> bool:
     """Current source AND actual non-content prompt inputs, not just Git SHA."""
     source = effective_showroom_source(item)
-    config = _item_analysis_config(item, source.scope_key or item["ci_name"], settings.model)
+    config = _item_analysis_config(item, settings.model)
     return item.get("scan_status") == "success" and _own_analysis_current(row, source, config)
 
 
@@ -801,10 +794,14 @@ def build_description_prompt(
     description_text: str,
     entity_content_type: str = "lab",
 ) -> tuple[str, str]:
-    """Same output contract as the Showroom prompt, framed for a short catalog description."""
+    """Same output contract as the Showroom prompt, framed for a short catalog description.
+
+    The Showroom prompt builder is used for the system instructions only; this path
+    keeps its own item information and remains per item (out of scope for the
+    content-only Showroom prompt change).
+    """
     system_prompt, _ = build_analysis_prompt(
-        ci_name, display_name, category, product, {},
-        entity_content_type=entity_content_type,
+        {}, entity_content_type=entity_content_type,
     )
     system_prompt += (
         "\n\nThe input is a short catalog description, not Showroom module content. "
@@ -824,7 +821,7 @@ def build_description_prompt(
 def description_work_needed(item: dict, row: dict, embeddings: list[dict], settings) -> bool:
     """Read-only selection predicate; text and context hashes both gate re-analysis."""
     source = description_source(item)
-    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
+    analysis_config = _item_analysis_config(item, settings.model)
     if not _own_analysis_current(row, source, analysis_config):
         return True
     if row.get("content_hash") != description_content_hash(description_text(item)):
@@ -858,7 +855,7 @@ def analyze_description(item: dict, settings, *, force: bool = False, db=None) -
     embeddings = db.get_embeddings_for_content(content_id) if db is not None else []
 
     content_hash = description_content_hash(text)
-    analysis_config = _item_analysis_config(item, source.scope_key, settings.model)
+    analysis_config = _item_analysis_config(item, settings.model)
     system_prompt, user_message = build_description_prompt(
         ci_name, display_name, category, product, text,
         entity_content_type=entity_content_type,
@@ -951,8 +948,6 @@ def build_infrastructure_embedding_text(row: dict[str, Any]) -> str:
 def analyze_showroom(
     ci_name: str,
     display_name: str,
-    category: str,
-    product: str,
     showroom_url: str,
     showroom_ref: str | None,
     settings,
@@ -991,8 +986,7 @@ def analyze_showroom(
         showroom_url, showroom_ref, content_path = source.repo, source.ref, source.content_path
         if any(value and ("{{" in value or "{%" in value) for value in (showroom_url, showroom_ref, content_path)):
             return {"error": "invalid_source", "message": "Unresolved Showroom variables"}
-        analysis_config = compute_analysis_config(source.scope_key, display_name, category, product,
-                                                  entity_content_type, model)
+        analysis_config = compute_analysis_config(entity_content_type, model)
         revision = ls_remote_sha(showroom_url, showroom_ref)
         own = db.get_showroom_analysis(content_id) if db is not None else None
         own_embeddings = db.get_embeddings_for_content(content_id) if own and db is not None else []
@@ -1062,8 +1056,7 @@ def analyze_showroom(
 
         content_hash = hash_showroom_content(content_files)
         system_prompt, user_message = build_analysis_prompt(
-            source.scope_key, display_name, category, product, content_files,
-            entity_content_type=entity_content_type,
+            content_files, entity_content_type=entity_content_type,
         )
         signature = AnalysisSignature(source.scope_key, source.repo, source.ref, source.content_path,
             head_sha, content_hash, analysis_config, compute_analysis_input_hash(system_prompt, user_message, model),

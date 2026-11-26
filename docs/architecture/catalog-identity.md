@@ -80,6 +80,43 @@ Ref names, tags, commits and CI names never count. `services/analysis_identity.p
 owns the rule. Scan reuse uses it with `analysis_config`; the Advisor stage merge
 uses it alone.
 
+## Rescan after a prompt change
+
+The Showroom content prompt carries only the selected content plus the entity
+content type. When that prompt changes, bump `SHOWROOM_ANALYSIS_POLICY_VERSION`
+in `services/showroom_source.py`. The policy version is part of
+`analysis_config` and of every stored signature, so all older analyses stop
+matching and are selected for re-analysis.
+
+What triggers the re-analysis:
+
+1. The nightly maintenance pipeline (`run_nightly_pipeline` →
+   `run_babylon_pipeline`). Step 2 `run_stale_check` runs the same current check,
+   then step 3 `scan_candidates` → `get_items_needing_analysis` →
+   `showroom_work_needed` enqueues every item stage whose analysis no longer
+   matches. Jobs go to `arq:queue:scan` and run in the background.
+2. Manually, without waiting for the night: `rcars scan` analyzes everything
+   that needs work, `rcars scan --content-id babylon:<ci_name>` one item, and
+   `rcars scan --force` bypasses the unchanged and donor fast paths.
+
+Expected LLM runs on dev (read-only counts, 2026-11-26): 841 Showroom analyses
+over 410 distinct `content_hash`. One run per distinct (`content_hash`, entity
+content type) is about 414 runs. The pre-clone grouping gives 422 leader
+groups, so 414-422 runs is the expected range, against 841 if every item stage
+ran alone. The 8 description-sourced analyses are per item and re-run as well.
+
+The batch is safe to spread. Step 3 enqueues and returns; the scan worker runs 5
+jobs at a time with a 600s per-job timeout (clone + one LLM call + embeddings),
+and the nightly pipeline has a 7200s timeout of its own. The queue therefore
+drains in the background over roughly one to two hours. About 414 LLM calls,
+five at a time, are normal night-time load for RHDP MaaS.
+
+During the rescan the previous analysis stays in `showroom_analysis` and the
+Advisor keeps showing it. Each successful re-analysis replaces its row and
+clears `is_stale`. A re-analyzed donor row is reusable immediately by other
+items with the same content. Old policy-1 rows are never reused, because the
+donor lookup excludes stale rows and rejects a different policy version.
+
 ## One owner
 
 `services/catalog_identity.py` is the only place that decides when two Advisor

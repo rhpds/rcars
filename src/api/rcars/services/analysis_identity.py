@@ -20,13 +20,6 @@ import re
 
 from rcars.services.showroom_source import SHOWROOM_ANALYSIS_POLICY_VERSION
 
-# The content prompt still carries per-CI lines (CI name, display name, category,
-# product). While it does, those lines are part of the LLM input, so they MUST be
-# part of analysis_config or reuse would hand one CI the analysis written for
-# another. The prompt-change PR (RHDPCD-2302 PR 7) removes the lines from the
-# prompt and sets this to False. Nothing else needs to change.
-PROMPT_CARRIES_ITEM_CONTEXT = True
-
 
 def fingerprint(*values) -> str:
     return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
@@ -58,21 +51,18 @@ def compute_content_hash(files: dict[str, str]) -> str:
 EMPTY_CONTENT_HASH = compute_content_hash({})
 
 
-def compute_analysis_config(scope_key: str, display_name: str, category: str, product: str,
-                            entity_content_type: str, model: str) -> str:
+def compute_analysis_config(entity_content_type: str, model: str) -> str:
     """Digest of everything except the content that shapes the LLM result.
 
-    The entity content type reaches the digest through the vocabulary block of
-    the system prompt. The value is deliberately identical to the digest stored
-    before this module existed (``signature.context_hash``): a different formula
-    would make every stored analysis look outdated and force a full rescan. The
-    donor matchers below also compare the entity content type explicitly.
+    The content prompt carries only content plus the entity content type (through
+    the vocabulary block), so item identity -- CI name, display name, category,
+    product, scope key -- is deliberately absent. Two items with the same content
+    and content type therefore share one analysis_config and may reuse one
+    analysis across CIs and stages.
     """
     from rcars.services import analyzer
-    system, info = analyzer.build_analysis_prompt(scope_key, display_name, category, product, {},
-                                                  entity_content_type=entity_content_type)
-    return fingerprint(system, info if PROMPT_CARRIES_ITEM_CONTEXT else None, model,
-                       SHOWROOM_ANALYSIS_POLICY_VERSION)
+    system, _ = analyzer.build_analysis_prompt({}, entity_content_type=entity_content_type)
+    return fingerprint(system, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
 
 
 def pre_clone_key(repo: str, commit: str, content_path: str | None, analysis_config: str,
