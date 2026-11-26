@@ -61,15 +61,20 @@ The scan worker has higher resource limits because it runs `git clone` operation
 
 ## Scan Deduplication
 
-The scan worker deduplicates by `(showroom_url, showroom_ref)`. When multiple catalog items share the same Showroom content:
+The scan worker runs one LLM content analysis per distinct `content_hash` plus
+`analysis_config`. `content_hash` is the hash of the selected, filtered Showroom
+files the LLM reads. `analysis_config` covers the prompt template, vocabulary,
+model, policy version and content type. A pre-clone check by repo + resolved
+commit + `content_path` finds a known hash without a clone.
 
-1. One representative item is scanned (cloned + analyzed by LLM)
-2. The analysis and embeddings are propagated to all siblings
-3. Each sibling gets its own `showroom_analysis` row and `embeddings` — every CI is independently searchable
+Reuse crosses CIs and stages. Each item keeps its own `showroom_analysis` row and
+its own embeddings, so every CI is independently searchable. A reused row records
+`reused_from`. Reuse never sets card identity; that comes from the catalog
+families (see [Catalog Identity](../architecture/catalog-identity.md)).
 
-Example: if `agd-v2.modernize-ocp-virt` has dev (ref=main), event (ref=v1.0.0), and prod (ref=v1.0.0):
-- Dev is scanned independently (different ref)
-- Event and prod share the same ref — one is scanned, the other gets propagated analysis
+Example: `agd-v2.modernize-ocp-virt` in dev (`main`) and in prod (a tag on the
+same commit) read the same files. One analysis runs; the other reuses it. A stage
+copy that reads different files gets its own analysis.
 
 ## Scheduled Maintenance Pipeline
 
@@ -81,7 +86,7 @@ The scan worker runs a nightly maintenance pipeline via arq's built-in cron supp
 4. **Workload Role Scan** — scans the AgnosticD v2 workload collection repos on GitHub (`github.com/agnosticd/*`) for changes. If a repo has new commits since the last scan, clones it, reads the Ansible code for each role, and uses an LLM to determine what product each role installs. Updates the `infrastructure` table with descriptions, products, capabilities, and vector embeddings. Gated on `RCARS_WORKLOAD_SCAN_ENABLED` (default: true).
 5. **Base Config Scan** — scans AgnosticD v2 config repositories for base environment configurations (e.g. `ocp4-cluster`, `cloud-vms-base`). Uses the same change-detection and LLM analysis approach as the workload scan. Runs as part of the same pipeline step.
 6. **Reporting Sync** — pulls provision, sales, and cost data from the RHDP reporting MCP server and computes performance scores. Requires `RCARS_REPORTING_MCP_URL` and `RCARS_REPORTING_MCP_TOKEN` to be configured. See [Performance Analysis](../architecture/performance-analysis.md) for details.
-7. **Compute Similarity** — recomputes pairwise content overlap scores from current embeddings.
+7. **Overlap Candidates** — finds overlapping content pairs by shared products and topics, then assesses unassessed pairs with the LLM. See [Content Overlap](../architecture/content-overlap.md).
 
 The full orchestrator then runs the portfolio-architecture sub-pipeline and, when GitHub App integration is configured, the retirement sweep. The sweep opens due removal PRs and reconciles merged removal/cancellation-revert PRs; it still checks merges when no new removal PRs are due. The sub-pipelines have separate error handling so failure in one does not prevent the next from being attempted.
 

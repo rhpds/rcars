@@ -153,7 +153,7 @@ export const api = {
   listJobs: (limit = 50) => request<{ items: unknown[]; total: number }>(`/admin/jobs?limit=${limit}`),
   getScanProgress: () => request<{
     queued: number; running: number; complete: number; failed: number;
-    total: number; total_propagated: number; recent_complete: string[]; recent_failures: string[];
+    total: number; recent_complete: string[]; recent_failures: string[];
   }>('/admin/scan-progress'),
   getJobStatus: (jobId: string) =>
     request<{ status: string; result: unknown; error: string | null }>(`/advisor/query/${jobId}/result`),

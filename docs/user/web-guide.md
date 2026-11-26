@@ -251,38 +251,40 @@ The Analysis section is a top-level navigation group in the sidebar, visible to 
 
 ### Content Overlap (`/analysis/overlap`)
 
-The Overlap page helps identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built separate OpenShift Pipelines labs with 85% topic overlap.
+The Overlap page helps identify catalog items that teach substantially the same content. This is useful for culling duplicates — for example, two different teams may have independently built separate OpenShift Pipelines labs with the same products and topics.
 
-#### Understanding how similarity works
+#### Understanding how overlap works
 
-When RCARS scans a Showroom lab, it sends the lab's content to Claude Sonnet, which returns a structured analysis: summary, topics, products, modules, and learning objectives. RCARS then feeds that analysis text into a nomic-embed-text-v1.5 embedding model, which converts it into a list of 768 numbers called an **embedding**. Think of this as a fingerprint that captures *what the lab is about* — not the exact words used, but the underlying meaning. Two labs about "deploying containerized applications on OpenShift" will get similar fingerprints even if they use completely different wording.
+Each analyzed lab has structured fields: a summary, a product list, and a topic
+list. RCARS pairs two active labs when they share enough products and topics
+(default: 1 product and 2 topics) and their content is not identical. This is a
+deterministic match, not a distance score.
 
-Every analyzed lab in the catalog already has one of these fingerprints stored in the database from its original scan. The overlap detection reuses them — it does not call Claude or any external API. The entire computation runs inside PostgreSQL.
+Stage copies of one CI count as one item; the highest stage represents them. A
+published virtual CI and a component it covers are the same content, so they are
+never a pair.
 
-To compare two labs, RCARS uses **cosine similarity**, which measures how closely two fingerprints point in the same direction. Imagine each fingerprint as an arrow in a high-dimensional space. If two arrows point the same way, the angle between them is small and the cosine similarity is close to 1.0 (100%). If they point in unrelated directions, the similarity drops toward 0. In practice:
+New pairs get an LLM assessment with one of three verdicts:
 
-- **90%+** — the labs cover nearly identical material
-- **85–90%** — strong overlap, likely candidates for consolidation
-- **75–85%** — related topics with some differentiation
-- **Below 75%** — different enough that overlap is not a concern (these pairs are not stored)
-
-The computation compares every lab against every other lab within the selected stage. With ~100 prod labs, that is about 5,000 comparisons — pgvector handles this in under a second.
+- **Redundant** — the labs teach the same material. Consider a merge or a retirement.
+- **Complementary** — the labs overlap but each adds something. Keep both.
+- **Differentiated** — the shared topics are small next to the differences.
 
 #### Using the Overlap page
 
-1. Select a **stage** from the dropdown (Production, Event, or Dev).
-2. Click **Compute Similarity** to run the comparison. This is fast (seconds) and consumes no LLM tokens.
-3. The stats cards show total pairs, high overlap count, and related count.
-4. Use the second dropdown to filter between "All pairs" and "High overlap only."
-5. Use the **search box** to filter pairs by name.
-6. Click any pair to expand it and see both summaries side by side.
-7. Click a lab name to navigate to it in Browse for detailed review.
+1. Use the verdict filter to show redundant, complementary, or differentiated pairs.
+2. Use the stage filter to limit the top-level items to one stage.
+3. Use the search box to filter items by name.
+4. Expand an item to see its neighbors and their verdicts.
+5. Click a verdict badge to open the comparison drawer.
+6. Click a lab name to open it in Browse.
 
-Published Virtual CIs are excluded because they have no Showroom content of their own — they are wrappers that point to a base CI. The comparison happens between the base CIs that own the actual lab content.
+The nightly maintenance pipeline finds new pairs and assesses them. The
+**Refresh Similarity** action on the Sync page runs the same step on demand.
 
-**CLI and API access:** Similarity can also be computed via the CLI (`rcars compute-similarity [--stage prod] [--threshold 0.75]`). For programmatic recomputation, overlap reports, and per-item similarity, see [Swagger UI](../architecture/api-reference.md#interactive-api-documentation) for current contracts and access requirements.
-
-**When to recompute:** After a full scan or re-analysis, since the underlying fingerprints may have changed. The "Last computed" timestamp shows when the data was last refreshed.
+**CLI and API access:** Run `rcars overlap-candidates` to find pairs. For
+programmatic reports and on-demand assessment, see
+[Swagger UI](../architecture/api-reference.md#interactive-api-documentation).
 
 ### Performance Analysis (`/analysis/performance`)
 

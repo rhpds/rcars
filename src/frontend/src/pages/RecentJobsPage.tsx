@@ -13,7 +13,7 @@ interface Job {
   created_at: string
   completed_at: string | null
   progress_json: { ci_name?: string; content_id?: string } | null
-  result_json: { ci_name?: string; status?: string; propagated?: number; error?: string; message?: string } | null
+  result_json: { ci_name?: string; status?: string; error?: string; message?: string } | null
 }
 
 // ── RecentJobsPage ──

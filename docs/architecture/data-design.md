@@ -22,7 +22,7 @@ content_entities          babylon_items (1:1 extension)
 
 ### Two-table design
 
-- **`content_entities`** holds fields that apply to *any* content source: identity (`content_id`, `source`, `content_type`), card-level metadata (display name, summary, products, topics, audience, difficulty), and lifecycle state (`retired_at`).
+- **`content_entities`** holds fields that apply to *any* content source: identity (`content_id`, `source`, `content_type`, `stage_key`), card-level metadata (display name, summary, products, topics, audience, difficulty), and lifecycle state (`retired_at`). `stage_key` is the CI name minus its stage suffix and links stage copies; see [Catalog Identity](catalog-identity.md).
 - **`babylon_items`** extends `content_entities` 1:1 for Babylon-sourced content. It holds everything CRD-specific: `ci_name`, stage, category, Showroom URL/ref, cloud provider, OCP version, AgnosticD config, scan status, and infrastructure metadata.
 
 ### Why this split
@@ -163,6 +163,7 @@ CREATE TABLE IF NOT EXISTS content_entities (
     source          TEXT NOT NULL,
     content_type    TEXT NOT NULL,
     is_hands_on     BOOLEAN NOT NULL DEFAULT FALSE,
+    stage_key       TEXT,
 
     display_name    TEXT NOT NULL,
     summary         TEXT,

@@ -108,22 +108,25 @@ rcars scan --max 5          # Limit to 5 items (useful for testing)
 
 **Cost:** Each item requires one Sonnet API call. A full scan of ~130 Showroom items will make ~130 calls. Use `--max` to test on a small batch before running a full scan.
 
-**Deduplication:** Refs are resolved to commit SHAs via batch `git ls-remote`. CIs sharing the same Showroom URL + commit SHA are scanned once and results are propagated to all siblings automatically.
+**Deduplication:** One LLM content analysis runs per distinct `content_hash` plus `analysis_config`. A pre-clone check by repo + resolved commit + `content_path` finds a known hash. Reuse crosses CIs and stages; each item still gets its own analysis row and embeddings. Ref names and CI names never count as content.
 
 ---
 
-### `rcars compute-similarity`
+### `rcars overlap-candidates`
 
-Computes pairwise cosine similarity between catalog item embeddings within a selected stage. Compares every item against every other item in that stage and stores pairs above the threshold. No LLM calls — runs entirely in PostgreSQL using pgvector.
+Finds overlapping content pairs by shared products and topics and stores them in
+`overlap_candidates`. Stage copies count as one item. A virtual CI and its own
+family members are never a pair. Pairs that do not meet the thresholds are
+pruned. No LLM calls.
 
 ```bash
-rcars compute-similarity                        # Prod items, default threshold 0.75
-rcars compute-similarity --stage event          # Event items (-s shorthand)
-rcars compute-similarity --stage dev            # Dev items
-rcars compute-similarity --threshold 0.80       # Higher threshold = fewer pairs (-t shorthand)
+rcars overlap-candidates                       # Default: 1 shared product, 2 shared topics
+rcars overlap-candidates -p 2                  # Require 2 shared products
+rcars overlap-candidates -t 3                  # Require 3 shared topics
 ```
 
-Recompute after scans or re-analysis since the underlying embeddings may have changed. Also available via the Content Analysis UI (`/analysis/overlap`) or the API (`POST /api/v1/admin/compute-similarity?stage=prod`).
+The nightly maintenance pipeline runs this step, then assesses new pairs with
+the LLM. See [Content Overlap](../architecture/content-overlap.md).
 
 ---
 
