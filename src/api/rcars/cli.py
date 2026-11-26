@@ -814,7 +814,7 @@ def retirement_mark_revived_cmd(content_ids: tuple[str, ...], reason: str, apply
             families[content_id] = entity.get("stage_key") or content_id
 
         known = db.list_family_workflows(list(families.values()))
-        accepted: dict[str, str] = {}
+        accepted: dict[int, str] = {}  # workflow id -> family, the only rows the update may touch
         for content_id, family in families.items():
             rows = [row for row in known if row["family"] == family]
             current = [row for row in rows if row["revived_at"] is None]
@@ -837,11 +837,13 @@ def retirement_mark_revived_cmd(content_ids: tuple[str, ...], reason: str, apply
                        f"Re-run with --force if the item truly came back.")
                 skipped += 1
                 continue
-            accepted[family] = content_id
+            accepted[workflow["id"]] = family
 
         if not apply:
             _print("DRY RUN — no changes. Re-run with --apply to write.")
-        closed = db.revive_family_workflows(list(accepted), reason, dry_run=not apply)
+        closed = db.revive_family_workflows(
+            list(accepted.values()), reason, dry_run=not apply,
+            workflow_ids=list(accepted), allow_retirement_pr=force)
         for row in closed:
             jira = f", Jira {row['jira_key']}" if row["jira_key"] else ""
             verb = "marked" if apply else "would mark"

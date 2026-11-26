@@ -213,3 +213,22 @@ def test_reason_option_is_recorded(db):
 
     assert result.exit_code == 0, result.output
     assert _workflows(db, A_PROD)[0]["revived_reason"] == "Backfill: after RHDPCD-2256"
+
+
+def test_only_the_validated_workflow_is_marked_in_a_family_with_two(db):
+    """Two stage rows can share a family: only the row the dry run showed changes."""
+    with db.pool.connection() as conn:
+        conn.execute(
+            "INSERT INTO retirement_workflow (content_id, status, step_retired_at) "
+            "VALUES (%s, 'retired', NOW())", (A_PROD,))
+        conn.execute(
+            "INSERT INTO retirement_workflow (content_id, status, step_retired_at) "
+            "VALUES (%s, 'retired', NOW() - INTERVAL '1 day')", (A_DEV,))
+        conn.commit()
+
+    result = _run("--content-id", A_DEV, "--apply")
+
+    assert result.exit_code == 0, result.output
+    assert result.output.count("marked babylon:") == 1
+    assert _workflows(db, A_PROD)[0]["revived_at"] is not None
+    assert _workflows(db, A_DEV)[0]["revived_at"] is None

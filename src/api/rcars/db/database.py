@@ -752,6 +752,7 @@ _REVIVE_FAMILY_WORKFLOWS_SQL = """
       AND COALESCE(ce.stage_key, ce.content_id) = ANY(%(families)s)
       AND rw.revived_at IS NULL
       AND (rw.status = 'retired' OR rw.step_retired_at IS NOT NULL)
+      {extra_filters}
     RETURNING rw.id, rw.content_id, rw.jira_key, rw.status, rw.step_retired_at,
               COALESCE(ce.stage_key, ce.content_id) AS family
 """
@@ -4280,21 +4281,36 @@ class Database:
     # ── Retirement Workflow ──
 
     def revive_family_workflows(self, families: list[str], reason: str, *,
-                                conn=None, dry_run: bool = False) -> list[dict]:
+                                conn=None, dry_run: bool = False,
+                                workflow_ids: list[int] | None = None,
+                                allow_retirement_pr: bool = True) -> list[dict]:
         """Close each family's current retired workflow because its item came back.
 
         Joins the caller's transaction when `conn` is given. With dry_run the
         update is rolled back, so the caller sees what would change and nothing
         is written.
+
+        The catalog refresh calls this with families only and allows a removal
+        PR: a soft-deleted entity that is active again is proof the item came
+        back, whatever retirement path opened the workflow. The backfill CLI
+        passes the workflow ids it validated so no other row of the family is
+        touched, and sets allow_retirement_pr from --force.
         """
         families = sorted(set(families))
         if not families:
             return []
-        params = {"families": families, "reason": reason}
+        params: dict = {"families": families, "reason": reason}
+        extra = []
+        if workflow_ids is not None:
+            extra.append("AND rw.id = ANY(%(workflow_ids)s)")
+            params["workflow_ids"] = sorted(set(workflow_ids))
+        if not allow_retirement_pr:
+            extra.append("AND rw.agv_retire_pr_url IS NULL")
+        sql = _REVIVE_FAMILY_WORKFLOWS_SQL.format(extra_filters=" ".join(extra))
         if conn is not None:
-            return conn.execute(_REVIVE_FAMILY_WORKFLOWS_SQL, params).fetchall()
+            return conn.execute(sql, params).fetchall()
         with self._pool.connection() as own:
-            rows = own.execute(_REVIVE_FAMILY_WORKFLOWS_SQL, params).fetchall()
+            rows = own.execute(sql, params).fetchall()
             own.rollback() if dry_run else own.commit()
             return rows
 
