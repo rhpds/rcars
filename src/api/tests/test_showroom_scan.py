@@ -8,7 +8,7 @@ from click.testing import CliRunner
 from tests.showroom_helpers import db
 from tests.test_showroom_reuse import scan, git_repo
 from rcars.services import analyzer
-from rcars.services.showroom_source import ResolvedShowroom
+from rcars.services.showroom_source import AnalysisSignature, ResolvedShowroom
 from rcars.services.showroom_scan import scan_babylon_item
 
 
@@ -176,6 +176,36 @@ def test_llm_failure_item_is_selected_by_the_batch_scan(db, scan):
     scan.llm.side_effect = RuntimeError("LLM transport failed")
     scan_babylon_item(db, scan.settings, cid, force=True)
     assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+
+
+def test_donor_reuse_embedding_failure_keeps_recipient_prior_artifacts(db, scan, monkeypatch):
+    donor = add_item(db, scan, "isolation-test.donor.prod", display_name="Donor workshop")
+    assert scan_babylon_item(db, scan.settings, donor)["success"]
+    recipient = add_item(db, scan, "isolation-test.recipient.prod", display_name="Recipient workshop")
+    signature = AnalysisSignature("isolation-test.recipient", scan.source.repo, "main", None,
+                                  "a" * 40, "oldhash", "oldconfig", "oldinput", 1)
+    db.upsert_showroom_analysis({
+        "content_id": recipient, "summary": "Old recipient analysis", "modules_json": [],
+        "content_hash": "oldhash",
+        "analysis_provenance_json": {"signature": signature.to_dict()},
+    })
+    db.replace_embeddings(recipient, [{
+        "content_id": recipient, "content_type": "lab", "source": "babylon",
+        "embed_type": "summary", "content_text": "old text", "embedding": [0.1] * 768,
+    }])
+    db.set_scan_status(recipient, "success")
+    before = db.get_embeddings_for_content(recipient)
+    scan.embed.side_effect = RuntimeError("embedding server down")
+    monkeypatch.setattr(analyzer, "clone_showroom", Mock(side_effect=AssertionError("must reuse the donor")))
+
+    result = scan_babylon_item(db, scan.settings, recipient)
+
+    assert result["success"] is False
+    assert result["error"] == "analysis_failed"
+    assert db.get_showroom_analysis(recipient)["summary"] == "Old recipient analysis"
+    assert db.get_embeddings_for_content(recipient) == before
+    assert db.get_babylon_item(recipient)["scan_status"] == "failed"
+    assert recipient in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
 
 
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):

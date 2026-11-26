@@ -779,6 +779,18 @@ def _finish_showroom_result(ci_name, display_name, keywords, settings, analysis,
         "content_file_count": content_file_count}
 
 
+def _finish_retryably(*args, **kwargs):
+    """``_finish_showroom_result`` generates embeddings, so a failure is retryable.
+
+    Reuse and embedding repair run after the content was read. A failed
+    embedding call must keep the recipient's prior analysis and embeddings.
+    """
+    try:
+        return _finish_showroom_result(*args, **kwargs)
+    except Exception as exc:
+        raise RetryableAnalysisError(str(exc)) from exc
+
+
 # ── Description-based analysis ──
 
 
@@ -1013,7 +1025,7 @@ def analyze_showroom(
         if own_current:
             own_signature = AnalysisSignature(**own["analysis_provenance_json"]["signature"])
             if own_signature.commit == revision and not own.get("is_stale"):
-                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(own),
+                return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(own),
                     own_signature, source, origin=own, prior_embeddings=own_embeddings, outcome="unchanged")
 
         # Pre-clone shortcut: a complete analysis of the same repo + commit + content_path
@@ -1034,7 +1046,7 @@ def analyze_showroom(
                     SHOWROOM_ANALYSIS_POLICY_VERSION)
                 log.info("analyze_reused", ci_name=ci_name, stage="pre_clone", reused_from=donor["content_id"],
                          commit=revision[:8], content_hash=donor["content_hash"])
-                return _finish_showroom_result(
+                return _finish_retryably(
                     ci_name, display_name, keywords, settings, analysis_from_row(donor), signature, source,
                     origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", reused_from=donor["content_id"])
@@ -1093,7 +1105,7 @@ def analyze_showroom(
                     entity_content_type=entity_content_type):
                 log.info("analyze_reused", ci_name=ci_name, stage="post_clone", reused_from=donor["content_id"],
                          commit=head_sha[:8], content_hash=content_hash)
-                return _finish_showroom_result(ci_name, display_name, keywords, settings, analysis_from_row(donor),
+                return _finish_retryably(ci_name, display_name, keywords, settings, analysis_from_row(donor),
                     signature, source, origin=donor, prior_embeddings=db.get_embeddings_for_content(donor["content_id"]),
                     outcome="reused", head_date=head_date, content_file_count=len(content_files), reused_from=donor["content_id"])
 
