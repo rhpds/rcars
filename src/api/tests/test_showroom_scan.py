@@ -1,3 +1,4 @@
+import subprocess
 from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -7,6 +8,7 @@ from click.testing import CliRunner
 
 from tests.showroom_helpers import db
 from tests.test_showroom_reuse import scan, git_repo
+from rcars.services import analyzer
 from rcars.services.showroom_source import ResolvedShowroom
 from rcars.services.showroom_scan import scan_babylon_item
 
@@ -166,6 +168,32 @@ def test_definitive_no_content_failure_still_clears_prior_artifacts(db, scan, gi
     assert db.get_embeddings_for_content(cid) == []
     assert db.get_showroom_analysis(cid)["summary"] is None
     assert db.get_content_entity(cid)["summary"] is None
+
+
+def test_throttled_git_failure_keeps_prior_analysis_and_embeddings(db, scan, monkeypatch):
+    """An exhausted GitHub rate limit is transient, not a private repo."""
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
+    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
+        128, ["git", "ls-remote"], stderr="remote: rate limit exceeded")))
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "throttled"
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_showroom_analysis(cid)["summary"] == "Configure TLS"
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+
+
+def test_permission_denied_git_failure_still_clears_prior_artifacts(db, scan, monkeypatch):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    monkeypatch.setattr(analyzer, "ls_remote_sha", Mock(side_effect=subprocess.CalledProcessError(
+        128, ["git", "ls-remote"], stderr="Permission denied (publickey)")))
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "private_repo"
+    assert db.get_embeddings_for_content(cid) == []
 
 
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):

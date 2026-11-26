@@ -211,6 +211,8 @@ def classify_scan_error(
 
     if isinstance(exc, subprocess.CalledProcessError):
         stderr_lower = stderr.lower()
+        if any(ind in stderr_lower for ind in ("rate limit", "secondary rate", "too many requests")):
+            return "throttled", f"GitHub throttled the request for {url}{suffix}: {stderr.strip()}"
         if "permission denied" in stderr_lower or "403" in stderr_lower:
             return "private_repo", f"Permission denied cloning {url}{suffix}: {stderr.strip()}"
         if "not found" in stderr_lower or "404" in stderr_lower:
