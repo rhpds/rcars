@@ -4340,6 +4340,11 @@ class Database:
             f"VALUES ({', '.join(placeholders)}) "
             f"ON CONFLICT (content_id) WHERE revived_at IS NULL DO UPDATE SET "
             f"{', '.join(p for p in update_parts if not p.startswith('content_id'))} "
+            # Guard for the deploy window where this code runs before init-db
+            # swaps the primary key off content_id: without it PostgreSQL can
+            # match a revived history row through the old primary key and
+            # overwrite it in place.
+            f"WHERE retirement_workflow.revived_at IS NULL "
             f"RETURNING *"
         )
 
@@ -4348,6 +4353,9 @@ class Database:
                 cur.execute(sql, params + update_params)
                 row = cur.fetchone()
             conn.commit()
+        if row is None:
+            raise RuntimeError(
+                f"Retirement workflow for {content_id} changed concurrently; update not applied")
         return row
 
     def edit_retirement_workflow(self, content_id: str, fields: dict, *, event_message: str | None = None) -> dict | None:

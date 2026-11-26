@@ -211,3 +211,61 @@ def test_current_row_index_keeps_history_rows_out_of_the_upsert(db):
     assert len(current) == 1
     assert current[0]["id"] != before["id"]
     assert current[0]["status"] == "approved"
+
+
+# The shape one deploy behind: primary key still on content_id, with the step-1
+# history columns and index. New code can run against it until init-db finishes.
+PR1_SHAPE_DDL = """
+CREATE TABLE retirement_workflow (
+    content_id          TEXT PRIMARY KEY,
+    status              TEXT NOT NULL DEFAULT 'reviewed',
+    step_approved_at    TIMESTAMPTZ,
+    step_started_at     TIMESTAMPTZ,
+    step_retired_at     TIMESTAMPTZ,
+    curator_notes       TEXT,
+    approval_snapshot   JSONB,
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    revived_at          TIMESTAMPTZ,
+    revived_reason      TEXT,
+    id                  BIGSERIAL
+);
+CREATE UNIQUE INDEX uq_rw_current_content
+    ON retirement_workflow(content_id) WHERE revived_at IS NULL;
+"""
+
+
+def _schema_dsn(schema):
+    parts = urlparse(TEST_DB_URL)
+    password = f" password={parts.password}" if parts.password else ""
+    return (f"host={parts.hostname} port={parts.port or 5432} dbname={parts.path.lstrip('/')} "
+            f"user={parts.username}{password} options='-csearch_path={schema}'")
+
+
+def test_upsert_cannot_overwrite_a_history_row_on_the_pr1_shape():
+    """Mixed-schema deploy window: the old primary key still matches the content_id."""
+    schema = "pr1_shape_2331"
+    dsn = _schema_dsn(schema)
+    with psycopg.connect(dsn, autocommit=True) as conn:
+        conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
+        conn.execute(f"CREATE SCHEMA {schema}")
+        conn.execute(PR1_SHAPE_DDL)
+        conn.execute(
+            "INSERT INTO retirement_workflow (content_id, status, step_retired_at, revived_at) "
+            "VALUES (%s, 'retired', NOW(), NOW())",
+            (CONTENT_IDS[0],),
+        )
+    database = Database(dsn)
+    try:
+        with pytest.raises(RuntimeError, match="changed concurrently"):
+            database.upsert_retirement_workflow(CONTENT_IDS[0], {"status": "approved"})
+        with database.pool.connection() as conn:
+            row = conn.execute(
+                "SELECT status, revived_at FROM retirement_workflow WHERE content_id = %s",
+                (CONTENT_IDS[0],),
+            ).fetchone()
+        assert row["status"] == "retired"
+        assert row["revived_at"] is not None
+    finally:
+        database.close()
+        with psycopg.connect(TEST_DB_URL, autocommit=True) as conn:
+            conn.execute(f"DROP SCHEMA IF EXISTS {schema} CASCADE")
