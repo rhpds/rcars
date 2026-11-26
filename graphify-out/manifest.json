@@ -114,9 +114,9 @@
     "semantic_hash": "fbc5ddfc3f30d8b4ea594942f4f3285f"
   },
   "src/api/rcars/cli.py": {
-    "mtime": 1795687060.0846553,
-    "seen": 1795687531.0329971,
-    "ast_hash": "83c9a18be330bfeec9eea3e5304a5a90",
+    "mtime": 1795697641.4866438,
+    "seen": 1795698076.953553,
+    "ast_hash": "87003a77aed77cfe0969ffa05be1269e",
     "semantic_hash": ""
   },
   "src/api/rcars/config.py": {
@@ -132,9 +132,9 @@
     "semantic_hash": "f5a5823ee959c76ec4ec4435e7155bdd"
   },
   "src/api/rcars/db/database.py": {
-    "mtime": 1795693456.8597062,
-    "seen": 1795693819.181952,
-    "ast_hash": "d69e955ad8d4c6d8f508a79222a5e7fe",
+    "mtime": 1795697601.2997775,
+    "seen": 1795698076.9536588,
+    "ast_hash": "c8efa14b3cf29ae51603094e3b319fed",
     "semantic_hash": ""
   },
   "src/api/rcars/logging.py": {
@@ -630,9 +630,9 @@
     "semantic_hash": ""
   },
   "docs/admin/cli-guide.md": {
-    "mtime": 1795687060.0490327,
-    "seen": 1795687531.033121,
-    "ast_hash": "0ae0a248b9893ec5460cafab4437a537",
+    "mtime": 1795697693.9051585,
+    "seen": 1795698076.9587069,
+    "ast_hash": "e93654fbda2a2eab13bb07389e13a4ef",
     "semantic_hash": ""
   },
   "docs/admin/deployment.md": {
@@ -1560,9 +1560,9 @@
     "semantic_hash": ""
   },
   "docs/architecture/retirement-system.md": {
-    "mtime": 1795687060.053355,
-    "seen": 1795687531.033128,
-    "ast_hash": "02b98aebc76912ad55f92bf8e5c51b49",
+    "mtime": 1795697687.9490724,
+    "seen": 1795698076.958987,
+    "ast_hash": "98b0f8dd363f94e3ec744cbd473a3df9",
     "semantic_hash": ""
   },
   "docs/superpowers/specs/agv-retire-integration.md": {
@@ -1917,6 +1917,12 @@
     "mtime": 1795692139.975332,
     "seen": 1795692506.9983182,
     "ast_hash": "4053294159b28c27683d5cb92e192573",
+    "semantic_hash": ""
+  },
+  "src/api/tests/test_retirement_mark_revived.py": {
+    "mtime": 1795697666.3616374,
+    "seen": 1795698076.956578,
+    "ast_hash": "1366dbdc7bb816d35ab918e7e860aac0",
     "semantic_hash": ""
   },
   "src/frontend/package-lock.json": {

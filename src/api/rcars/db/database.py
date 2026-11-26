@@ -740,6 +740,32 @@ _SIBLING_RETIREMENT_JOIN = """
     ) rw ON rw.family = COALESCE(ce.stage_key, ce.content_id)
 """
 
+# RHDPCD-2331: the one rule for closing a family's current retired workflow as
+# revived. The catalog refresh and the backfill CLI both use it, so they cannot
+# disagree. Stages share a family through content_entities.stage_key.
+_WORKFLOW_REVIVED_BY_REFRESH = "CatalogItem returned (catalog refresh)"
+_REVIVE_FAMILY_WORKFLOWS_SQL = """
+    UPDATE retirement_workflow rw
+    SET revived_at = NOW(), revived_reason = %(reason)s, updated_at = NOW()
+    FROM content_entities ce
+    WHERE ce.content_id = rw.content_id
+      AND COALESCE(ce.stage_key, ce.content_id) = ANY(%(families)s)
+      AND rw.revived_at IS NULL
+      AND (rw.status = 'retired' OR rw.step_retired_at IS NOT NULL)
+    RETURNING rw.id, rw.content_id, rw.jira_key, rw.status, rw.step_retired_at,
+              COALESCE(ce.stage_key, ce.content_id) AS family
+"""
+
+_FAMILY_WORKFLOWS_SQL = """
+    SELECT rw.id, rw.content_id, rw.status, rw.step_retired_at, rw.revived_at,
+           rw.agv_retire_pr_url, rw.jira_key,
+           COALESCE(ce.stage_key, ce.content_id) AS family
+    FROM retirement_workflow rw
+    JOIN content_entities ce ON ce.content_id = rw.content_id
+    WHERE COALESCE(ce.stage_key, ce.content_id) = ANY(%s)
+    ORDER BY rw.id
+"""
+
 
 def _prefix_overlap(query_words: set[str], name_words: set[str], min_prefix: int = 4) -> int:
     """Count keyword matches allowing prefix matching for words >= min_prefix chars."""
@@ -1064,19 +1090,8 @@ class Database:
                 # One returning stage revives the family's current retired workflow;
                 # a workflow that is not retired is left alone.
                 if previous and previous.get("retired_at") is not None:
-                    revived = conn.execute(
-                        "UPDATE retirement_workflow rw "
-                        "SET revived_at = NOW(), "
-                        "    revived_reason = 'CatalogItem returned (catalog refresh)', "
-                        "    updated_at = NOW() "
-                        "FROM content_entities ce "
-                        "WHERE ce.content_id = rw.content_id "
-                        "  AND COALESCE(ce.stage_key, ce.content_id) = %s "
-                        "  AND rw.revived_at IS NULL "
-                        "  AND (rw.status = 'retired' OR rw.step_retired_at IS NOT NULL) "
-                        "RETURNING rw.content_id, rw.jira_key",
-                        (ce_data["stage_key"],),
-                    ).fetchall()
+                    revived = self.revive_family_workflows(
+                        [ce_data["stage_key"]], _WORKFLOW_REVIVED_BY_REFRESH, conn=conn)
             conn.commit()
         for workflow in revived:
             logger.info("retirement_workflow_revived", component="rcars",
@@ -4263,6 +4278,33 @@ class Database:
         return deleted
 
     # ── Retirement Workflow ──
+
+    def revive_family_workflows(self, families: list[str], reason: str, *,
+                                conn=None, dry_run: bool = False) -> list[dict]:
+        """Close each family's current retired workflow because its item came back.
+
+        Joins the caller's transaction when `conn` is given. With dry_run the
+        update is rolled back, so the caller sees what would change and nothing
+        is written.
+        """
+        families = sorted(set(families))
+        if not families:
+            return []
+        params = {"families": families, "reason": reason}
+        if conn is not None:
+            return conn.execute(_REVIVE_FAMILY_WORKFLOWS_SQL, params).fetchall()
+        with self._pool.connection() as own:
+            rows = own.execute(_REVIVE_FAMILY_WORKFLOWS_SQL, params).fetchall()
+            own.rollback() if dry_run else own.commit()
+            return rows
+
+    def list_family_workflows(self, families: list[str]) -> list[dict]:
+        """All workflows of these families, current and revived."""
+        families = sorted(set(families))
+        if not families:
+            return []
+        with self._pool.connection() as conn:
+            return conn.execute(_FAMILY_WORKFLOWS_SQL, (families,)).fetchall()
 
     def get_retirement_workflow(self, content_id: str) -> dict | None:
         with self._pool.connection() as conn:

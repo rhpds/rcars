@@ -772,3 +772,88 @@ def retirement_sweep_cmd():
         _print(f"Done. Opened {opened} removal PR(s).")
     finally:
         db.close()
+
+
+RETIREMENT_REVIVED_BACKFILL_REASON = "Backfill: item returned before history tracking"
+
+
+@retirement_group.command("mark-revived")
+@click.option("--content-id", "content_ids", multiple=True, required=True,
+              help="Content ID of an item that came back (repeatable)")
+@click.option("--reason", default=RETIREMENT_REVIVED_BACKFILL_REASON, show_default=True,
+              help="Stored in retirement_workflow.revived_reason")
+@click.option("--apply", is_flag=True, default=False,
+              help="Write the change. Without it nothing is written.")
+@click.option("--force", is_flag=True, default=False,
+              help="Also mark a workflow that has a removal PR URL")
+def retirement_mark_revived_cmd(content_ids: tuple[str, ...], reason: str, apply: bool, force: bool):
+    """Close a retired workflow as revived for items that came back untracked.
+
+    Use this when a CatalogItem returned before revive tracking existed (or
+    before this release). Only the families named with --content-id are
+    considered: the data cannot tell a revive from a workflow retired by a
+    merged removal PR while the CatalogItem was still present, so nothing is
+    marked automatically. That workflow has a removal PR URL and needs --force.
+
+    The command is a dry run unless --apply is given.
+    """
+    db = get_db()
+    try:
+        families: dict[str, str] = {}
+        skipped = 0
+        for content_id in content_ids:
+            entity = db.get_content_entity(content_id)
+            if not entity:
+                _print(f"  SKIP {content_id}: no content entity for that content_id")
+                skipped += 1
+                continue
+            if entity.get("retired_at"):
+                _print(f"  SKIP {content_id}: the item is still retired")
+                skipped += 1
+                continue
+            families[content_id] = entity.get("stage_key") or content_id
+
+        known = db.list_family_workflows(list(families.values()))
+        accepted: dict[str, str] = {}
+        for content_id, family in families.items():
+            rows = [row for row in known if row["family"] == family]
+            current = [row for row in rows if row["revived_at"] is None]
+            if not current:
+                if rows:
+                    _print(f"  SKIP {content_id}: family {family} is already marked revived")
+                else:
+                    _print(f"  SKIP {content_id}: no workflow for family {family}")
+                    skipped += 1
+                continue
+            workflow = current[0]
+            if not (workflow["status"] == "retired" or workflow["step_retired_at"]):
+                _print(f"  SKIP {content_id}: no current retired workflow for family {family} "
+                       f"(status {workflow['status']})")
+                skipped += 1
+                continue
+            if workflow["agv_retire_pr_url"] and not force:
+                _print(f"  SKIP {content_id}: the workflow has a removal PR "
+                       f"({workflow['agv_retire_pr_url']}), so it was retired on purpose. "
+                       f"Re-run with --force if the item truly came back.")
+                skipped += 1
+                continue
+            accepted[family] = content_id
+
+        if not apply:
+            _print("DRY RUN — no changes. Re-run with --apply to write.")
+        closed = db.revive_family_workflows(list(accepted), reason, dry_run=not apply)
+        for row in closed:
+            jira = f", Jira {row['jira_key']}" if row["jira_key"] else ""
+            verb = "marked" if apply else "would mark"
+            _print(f"  {verb} {row['content_id']} (family {row['family']}): "
+                   f"workflow {row['id']}, status {row['status']}{jira}")
+        _print(f"{len(closed)} workflow(s) {'marked' if apply else 'would be marked'} revived.")
+        if apply:
+            for row in closed:
+                jira = row["jira_key"] or "none"
+                db.log_action(row["family"], "retirement_revived", "cli",
+                              f"Backfill: Jira: {jira}; workflow closed as revived")
+        if skipped:
+            raise SystemExit(1)
+    finally:
+        db.close()
