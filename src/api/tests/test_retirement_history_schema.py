@@ -99,6 +99,19 @@ def _indexes(db):
     return {row["indexname"]: row["indexdef"] for row in rows}
 
 
+def _index_keys(db, index_name):
+    """Key columns of one index, in order, from pg_index."""
+    with db.pool.connection() as conn:
+        return conn.execute(
+            "SELECT array_agg(a.attname ORDER BY k.ord) AS keys "
+            "FROM pg_index i "
+            "CROSS JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord) "
+            "JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum "
+            "WHERE i.indexrelid = %s::regclass",
+            (index_name,),
+        ).fetchone()["keys"]
+
+
 def _rows(db):
     with db.pool.connection() as conn:
         return conn.execute(
@@ -131,6 +144,9 @@ def test_old_shape_is_upgraded_and_rows_are_kept(db):
     current_index = indexes["uq_rw_current_content"]
     assert current_index.startswith("CREATE UNIQUE INDEX")
     assert "(revived_at IS NULL)" in current_index
+    # Keyed on content_id, not on id: ON CONFLICT (content_id) can only infer this one.
+    assert _index_keys(db, "uq_rw_current_content") == ["content_id"]
+    assert _index_keys(db, "uq_rw_id") == ["id"]
 
 
 def test_upgrade_is_idempotent(db):
@@ -146,16 +162,43 @@ def test_upgrade_is_idempotent(db):
     assert _rows(db) == first_rows
 
 
-def test_current_row_index_serves_the_upsert_predicate(db):
-    """The next deploy's upsert infers this index from (content_id) WHERE revived_at IS NULL."""
+# The upsert the next deploy will use. It must update the current row only.
+UPSERT_CURRENT_SQL = (
+    "INSERT INTO retirement_workflow (content_id, status) VALUES (%s, 'approved') "
+    "ON CONFLICT (content_id) WHERE revived_at IS NULL DO UPDATE SET status = EXCLUDED.status"
+)
+
+
+def test_current_row_index_keeps_history_rows_out_of_the_upsert(db):
+    """Mimic the step-2 shape, all inside one transaction that is rolled back."""
     db.create_schema()
     with db.pool.connection() as conn:
+        before = conn.execute(
+            "SELECT id FROM retirement_workflow WHERE content_id = %s", (CONTENT_IDS[0],)
+        ).fetchone()
+        # Step 2 drops the content_id primary key. Rolled back below.
+        conn.execute("ALTER TABLE retirement_workflow DROP CONSTRAINT retirement_workflow_pkey")
         conn.execute(
-            "INSERT INTO retirement_workflow (content_id, status) VALUES (%s, 'reviewed') "
-            "ON CONFLICT (content_id) WHERE revived_at IS NULL DO UPDATE SET status = EXCLUDED.status",
+            "UPDATE retirement_workflow SET revived_at = NOW() WHERE content_id = %s",
             (CONTENT_IDS[0],),
         )
+        conn.execute(
+            "INSERT INTO retirement_workflow (content_id, status) VALUES (%s, 'reviewed')",
+            (CONTENT_IDS[0],),
+        )
+        conn.execute(UPSERT_CURRENT_SQL, (CONTENT_IDS[0],))
         rows = conn.execute(
-            "SELECT status FROM retirement_workflow WHERE content_id = %s", (CONTENT_IDS[0],)
+            "SELECT id, status, revived_at FROM retirement_workflow "
+            "WHERE content_id = %s ORDER BY id",
+            (CONTENT_IDS[0],),
         ).fetchall()
-    assert [row["status"] for row in rows] == ["reviewed"]
+        conn.rollback()
+
+    history = [row for row in rows if row["revived_at"] is not None]
+    current = [row for row in rows if row["revived_at"] is None]
+    assert len(history) == 1
+    assert history[0]["id"] == before["id"]
+    assert history[0]["status"] == "retired"
+    assert len(current) == 1
+    assert current[0]["id"] != before["id"]
+    assert current[0]["status"] == "approved"
