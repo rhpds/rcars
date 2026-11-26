@@ -80,6 +80,63 @@ Ref names, tags, commits and CI names never count. `services/analysis_identity.p
 owns the rule. Scan reuse uses it with `analysis_config`; the Advisor stage merge
 uses it alone.
 
+## Rescan after a prompt change
+
+The Showroom content prompt carries only the selected content plus the entity
+content type. When that prompt changes, bump `SHOWROOM_ANALYSIS_POLICY_VERSION`
+in `services/showroom_source.py`. The policy version is part of
+`analysis_config` and of every stored signature, so all older analyses stop
+matching and are selected for re-analysis.
+
+What triggers the re-analysis:
+
+1. The nightly maintenance pipeline (`run_nightly_pipeline` →
+   `run_babylon_pipeline`). Step 2 `run_stale_check` runs the same current check,
+   then step 3 `scan_candidates` → `get_items_needing_analysis` →
+   `showroom_work_needed` enqueues every item stage whose analysis no longer
+   matches. Jobs go to `arq:queue:scan` and run in the background.
+2. Manually, without waiting for the night: `rcars scan` analyzes everything
+   that needs work, `rcars scan --content-id babylon:<ci_name>` one item, and
+   `rcars scan --force` bypasses the unchanged and donor fast paths.
+
+Expected LLM runs on dev (read-only counts, 2026-11-26, after the eligibility
+filters of `get_items_needing_analysis`: active lab/demo, non-test, resolved
+Showroom or description source, no pure stubs):
+
+- 731 eligible Showroom analyses have a summary; all are policy 1.
+  17 eligible Showroom items have no summary. 8 items are description-sourced.
+- The 731 prior analyses cover 355 distinct (`content_hash`, entity content
+  type) pairs and 401 distinct stored pre-clone groups (repo + stored commit +
+  content path + content type).
+- Estimate: about 363-426 LLM runs -- 355-401 Showroom leaders, plus up to 17
+  items with no prior hash, plus 8 description items. The same batch under the
+  old per-CI config needs about 412-469 runs. Treat both as estimates: content
+  can change, a fresh commit can move a group, and concurrent jobs in different
+  pre-clone groups can miss the same donor.
+- Description analyses keep the item fields in their setup
+  (`compute_description_analysis_config`) and re-run per item.
+
+Step 3 enqueues and returns; the scan worker runs 5 jobs at a time with a 600s
+per-job timeout, and the nightly pipeline has a 7200s timeout of its own.
+
+Timing is not yet measured for a full batch. Dev `jobs` rows for completed
+`analyze` jobs over the last 30 days: 1,260 jobs, p50 17.7s, p90 36.9s. Most
+were reuse-only; a leader job also clones and calls the LLM, so these values are
+a floor, not a batch estimate. Measure the first rescan on dev.
+
+During the rescan the previous analysis stays in `showroom_analysis` and the
+Advisor keeps showing it. Each successful re-analysis replaces its row and
+clears `is_stale`. A re-analyzed donor row is reusable immediately by other
+items with the same content. Old policy-1 rows are never reused, because the
+donor lookup excludes stale rows and rejects a different policy version.
+
+After the content is read, a failure of the LLM call, a malformed or
+unparseable response, or an embedding error records `scan_status = 'failed'`
+but keeps the prior analysis and embeddings, so the item stays visible and the
+next scan retries. Source, clone and content-read failures keep their original
+behavior. Description-sourced analyses keep their original failure behavior and
+do not preserve prior artifacts.
+
 ## One owner
 
 `services/catalog_identity.py` is the only place that decides when two Advisor

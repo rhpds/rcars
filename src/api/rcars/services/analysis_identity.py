@@ -4,8 +4,10 @@ Two owner functions, everything else calls them:
 
 * ``compute_content_hash`` -- same Showroom content. Equal hash of the selected,
   filtered files the LLM reads. Ref names, tags and CI names never count.
-* ``compute_analysis_config`` -- same analysis setup. Prompt template, vocabulary
-  block, model, policy version and entity content type.
+* ``compute_analysis_config`` -- same analysis setup for Showroom content. Prompt
+  template, vocabulary block, model, policy version and entity content type.
+* ``compute_description_analysis_config`` -- the same for a catalog description,
+  whose prompt still carries the item fields.
 
 An analysis may be reused when ``content_hash`` and ``analysis_config`` (and the
 entity content type) are equal. ``repo + resolved commit + content_path`` is only
@@ -19,13 +21,6 @@ import json
 import re
 
 from rcars.services.showroom_source import SHOWROOM_ANALYSIS_POLICY_VERSION
-
-# The content prompt still carries per-CI lines (CI name, display name, category,
-# product). While it does, those lines are part of the LLM input, so they MUST be
-# part of analysis_config or reuse would hand one CI the analysis written for
-# another. The prompt-change PR (RHDPCD-2302 PR 7) removes the lines from the
-# prompt and sets this to False. Nothing else needs to change.
-PROMPT_CARRIES_ITEM_CONTEXT = True
 
 
 def fingerprint(*values) -> str:
@@ -58,21 +53,33 @@ def compute_content_hash(files: dict[str, str]) -> str:
 EMPTY_CONTENT_HASH = compute_content_hash({})
 
 
-def compute_analysis_config(scope_key: str, display_name: str, category: str, product: str,
-                            entity_content_type: str, model: str) -> str:
+def compute_analysis_config(entity_content_type: str, model: str) -> str:
     """Digest of everything except the content that shapes the LLM result.
 
-    The entity content type reaches the digest through the vocabulary block of
-    the system prompt. The value is deliberately identical to the digest stored
-    before this module existed (``signature.context_hash``): a different formula
-    would make every stored analysis look outdated and force a full rescan. The
-    donor matchers below also compare the entity content type explicitly.
+    The content prompt carries only content plus the entity content type (through
+    the vocabulary block), so item identity -- CI name, display name, category,
+    product, scope key -- is deliberately absent. Two items with the same content
+    and content type therefore share one analysis_config and may reuse one
+    analysis across CIs and stages.
     """
     from rcars.services import analyzer
-    system, info = analyzer.build_analysis_prompt(scope_key, display_name, category, product, {},
-                                                  entity_content_type=entity_content_type)
-    return fingerprint(system, info if PROMPT_CARRIES_ITEM_CONTEXT else None, model,
-                       SHOWROOM_ANALYSIS_POLICY_VERSION)
+    system, _ = analyzer.build_analysis_prompt({}, entity_content_type=entity_content_type)
+    return fingerprint(system, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
+
+
+def compute_description_analysis_config(ci_name: str, display_name: str, category: str,
+                                        product: str, entity_content_type: str, model: str) -> str:
+    """Analysis setup for description-based analyses.
+
+    The description prompt still names the item and sends its fields to the LLM,
+    so those fields remain part of its identity. This is separate from the
+    content-only Showroom ``compute_analysis_config``. Description analyses are
+    per item and are never Showroom donors.
+    """
+    from rcars.services import analyzer
+    system, _ = analyzer.build_analysis_prompt({}, entity_content_type=entity_content_type)
+    item_context = [ci_name, display_name, category, product]
+    return fingerprint(system, item_context, model, SHOWROOM_ANALYSIS_POLICY_VERSION)
 
 
 def pre_clone_key(repo: str, commit: str, content_path: str | None, analysis_config: str,

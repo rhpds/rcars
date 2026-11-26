@@ -7,7 +7,8 @@ from click.testing import CliRunner
 
 from tests.showroom_helpers import db
 from tests.test_showroom_reuse import scan, git_repo
-from rcars.services.showroom_source import ResolvedShowroom
+from rcars.services import analyzer
+from rcars.services.showroom_source import AnalysisSignature, ResolvedShowroom
 from rcars.services.showroom_scan import scan_babylon_item
 
 
@@ -114,24 +115,123 @@ def test_curator_url_resolves_target_and_is_selected_after_catalog_refresh(db, s
     assert result["source"]["owner_ci_name"] == name
 
 
-def test_exception_invalidates_only_generated_target_artifacts(db, scan):
+def test_llm_exception_keeps_prior_analysis_and_embeddings_for_retry(db, scan):
     cid = add_item(db, scan)
     other = add_item(db, scan, "isolation-test.other.prod")
     scan_babylon_item(db, scan.settings, cid)
     scan_babylon_item(db, scan.settings, other)
+    prior = db.get_showroom_analysis(cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
     with db.pool.connection() as conn:
         conn.execute("UPDATE showroom_analysis SET notes = 'Human', curated_duration_min = 37 WHERE content_id = %s", (cid,))
     other_before = db.get_embeddings_for_content(other)
     scan.llm.side_effect = RuntimeError("LLM transport failed")
     result = scan_babylon_item(db, scan.settings, cid, force=True)
     assert result["success"] is False
-    assert db.get_embeddings_for_content(cid) == []
-    assert db.get_content_entity(cid)["summary"] is None
+    # Retryable model failure: the previous analysis stays visible and the next scan retries.
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_content_entity(cid)["summary"] == prior["summary"]
     analysis = db.get_showroom_analysis(cid)
-    assert analysis["summary"] is None
+    assert analysis["summary"] == prior["summary"]
     assert analysis["notes"] == "Human"
     assert analysis["curated_duration_min"] == 37
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
     assert db.get_embeddings_for_content(other) == other_before
+
+
+def test_parse_failed_response_keeps_prior_analysis_and_embeddings_for_retry(db, scan):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior = db.get_showroom_analysis(cid)
+    prior_embeddings = db.get_embeddings_for_content(cid)
+    scan.llm.return_value.text = "not json at all"
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "parse_failed"
+    assert db.get_embeddings_for_content(cid) == prior_embeddings
+    assert db.get_showroom_analysis(cid)["summary"] == prior["summary"]
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+
+
+def test_definitive_no_content_failure_still_clears_prior_artifacts(db, scan, git_repo):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    repo, git, _, _ = git_repo
+    (repo / "content/modules/ROOT/pages/index.adoc").write_text("= Home\n\n* xref:other.adoc[Next]")
+    git("add", ".")
+    git("commit", "-m", "Stub")
+    result = scan_babylon_item(db, scan.settings, cid, force=True)
+    assert result["success"] is False
+    assert result["error"] == "no_content"
+    assert db.get_embeddings_for_content(cid) == []
+    assert db.get_showroom_analysis(cid)["summary"] is None
+    assert db.get_content_entity(cid)["summary"] is None
+
+
+def test_llm_failure_item_is_selected_by_the_batch_scan(db, scan):
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    assert cid not in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+    scan.llm.side_effect = RuntimeError("LLM transport failed")
+    scan_babylon_item(db, scan.settings, cid, force=True)
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+
+
+def test_revision_verified_embedding_failure_keeps_prior_artifacts(db, scan, git_repo):
+    """New commit, same content, changed display name: the summary embedding regenerates."""
+    cid = add_item(db, scan)
+    scan_babylon_item(db, scan.settings, cid)
+    prior = db.get_showroom_analysis(cid)
+    before = db.get_embeddings_for_content(cid)
+    with db.pool.connection() as conn:
+        conn.execute("UPDATE content_entities SET display_name = %s WHERE content_id = %s", ("New name", cid))
+    repo, git, _, _ = git_repo
+    (repo / "README.md").write_text("Documentation only change")
+    git("add", ".")
+    git("commit", "-m", "Docs")
+    scan.embed.side_effect = RuntimeError("embedding server down")
+    scan.llm.reset_mock()
+
+    result = scan_babylon_item(db, scan.settings, cid)
+
+    assert result["success"] is False
+    assert result["error"] == "analysis_failed"
+    assert scan.llm.call_count == 0  # revision_verified, not a fresh analysis
+    assert db.get_showroom_analysis(cid)["summary"] == prior["summary"]
+    assert db.get_embeddings_for_content(cid) == before
+    assert db.get_babylon_item(cid)["scan_status"] == "failed"
+    assert cid in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
+
+
+def test_donor_reuse_embedding_failure_keeps_recipient_prior_artifacts(db, scan, monkeypatch):
+    donor = add_item(db, scan, "isolation-test.donor.prod", display_name="Donor workshop")
+    assert scan_babylon_item(db, scan.settings, donor)["success"]
+    recipient = add_item(db, scan, "isolation-test.recipient.prod", display_name="Recipient workshop")
+    signature = AnalysisSignature("isolation-test.recipient", scan.source.repo, "main", None,
+                                  "a" * 40, "oldhash", "oldconfig", "oldinput", 1)
+    db.upsert_showroom_analysis({
+        "content_id": recipient, "summary": "Old recipient analysis", "modules_json": [],
+        "content_hash": "oldhash",
+        "analysis_provenance_json": {"signature": signature.to_dict()},
+    })
+    db.replace_embeddings(recipient, [{
+        "content_id": recipient, "content_type": "lab", "source": "babylon",
+        "embed_type": "summary", "content_text": "old text", "embedding": [0.1] * 768,
+    }])
+    db.set_scan_status(recipient, "success")
+    before = db.get_embeddings_for_content(recipient)
+    scan.embed.side_effect = RuntimeError("embedding server down")
+    monkeypatch.setattr(analyzer, "clone_showroom", Mock(side_effect=AssertionError("must reuse the donor")))
+
+    result = scan_babylon_item(db, scan.settings, recipient)
+
+    assert result["success"] is False
+    assert result["error"] == "analysis_failed"
+    assert db.get_showroom_analysis(recipient)["summary"] == "Old recipient analysis"
+    assert db.get_embeddings_for_content(recipient) == before
+    assert db.get_babylon_item(recipient)["scan_status"] == "failed"
+    assert recipient in {row["content_id"] for row in db.get_items_needing_analysis(scan.settings)}
 
 
 def test_catalog_resolution_failure_invalidates_previous_vectors_without_scan(db, scan):
@@ -302,7 +402,7 @@ async def test_scan_endpoints_submit_each_stage_without_llm_or_fanout(db, scan, 
         conn.execute("DELETE FROM jobs WHERE created_by IN ('test@example.com', 'rescan-all')")
 
 
-def test_cli_scans_virtual_and_independent_stages(db, scan, monkeypatch):
+def test_cli_scans_independent_stages_and_reuses_shared_content(db, scan, monkeypatch):
     from rcars import cli as cli_module
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.prod", "isolation-test.virtual.dev")]
     scan.settings.max_parallel = 1
@@ -313,7 +413,8 @@ def test_cli_scans_virtual_and_independent_stages(db, scan, monkeypatch):
     result = CliRunner().invoke(cli_module.cli, ["scan"])
     assert result.exit_code == 0, result.output
     assert all(db.get_babylon_item(cid)["scan_status"] == "success" for cid in ids)
-    assert scan.llm.call_count == 2
+    # Same files and content type, so the second stage reuses the first analysis.
+    assert scan.llm.call_count == 1
 
 
 @pytest.mark.asyncio
@@ -390,7 +491,7 @@ def commit_of(db, cid):
     return ls_remote_sha(source["repo"], source["ref"])
 
 
-def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_repo):
+def test_reuse_key_ignores_ref_name_ci_and_display_name(db, scan, git_repo):
     from rcars.services.analysis_identity import pre_clone_key
     from rcars.services.analyzer import showroom_reuse_key
     git_repo[1]("tag", "v1")  # another ref name on the same commit as main
@@ -398,9 +499,7 @@ def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_r
     renamed = add_item(db, scan, "isolation-test.a.event", display_name="TLS workshop (event)")
     other = add_item(db, scan, "isolation-test.b.prod")
     key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
-    assert key(prod) == key(dev)
-    assert key(renamed) != key(prod)  # per-CI context is still in the prompt, so still in analysis_config
-    assert key(other) != key(prod)
+    assert key(prod) == key(dev) == key(renamed) == key(other)
     scan_babylon_item(db, scan.settings, prod)
     signature = db.get_showroom_analysis(prod)["analysis_provenance_json"]["signature"]
     # Guards against the pre-clone key drifting from analyze_showroom's signature inputs.
@@ -408,10 +507,8 @@ def test_reuse_key_ignores_ref_name_and_matches_stored_signature(db, scan, git_r
                          signature["context_hash"], "lab") == key(prod)
 
 
-def test_reuse_key_is_shared_across_cis_once_context_leaves_the_config(db, scan, monkeypatch):
-    from rcars.services import analysis_identity
+def test_reuse_key_is_shared_across_cis(db, scan):
     from rcars.services.analyzer import showroom_reuse_key
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
     one, two = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, "isolation-test.b.dev",
                                                                      display_name="Another name")
     key = lambda cid: showroom_reuse_key(db.get_babylon_item(cid), scan.settings, commit_of(db, cid))
@@ -463,14 +560,13 @@ def test_order_for_reuse_puts_one_prod_preferred_leader_per_group_first(db, scan
              "isolation-test.b.dev", "isolation-test.c.event", "isolation-test.c.dev"]
     items = [db.get_babylon_item(add_item(db, scan, name)) for name in names]
     ordered = [item["ci_name"] for item in order_for_reuse(items, scan.settings)]
-    assert ordered == ["isolation-test.a.prod", "isolation-test.c.event", "isolation-test.b.dev",
-                       "isolation-test.a.event", "isolation-test.a.dev", "isolation-test.c.dev"]
+    # All share repo, commit, path and analysis_config, so only one leader runs the LLM.
+    assert ordered == ["isolation-test.a.prod", "isolation-test.a.event", "isolation-test.c.event",
+                       "isolation-test.a.dev", "isolation-test.b.dev", "isolation-test.c.dev"]
 
 
-def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, scan, git_repo, monkeypatch):
-    from rcars.services import analysis_identity
+def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, scan, git_repo):
     from rcars.services.analyzer import order_for_reuse
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", False)
     git_repo[1]("tag", "v1")
     specs = [("isolation-test.a.dev", "v1"), ("isolation-test.b.prod", "main"), ("isolation-test.a.prod", "main"),
              ("isolation-test.c.dev", "light")]  # `light` is the earlier commit: its own group
@@ -480,18 +576,15 @@ def test_order_for_reuse_groups_stages_with_other_ref_names_and_other_cis(db, sc
                        "isolation-test.a.dev"]
 
 
-@pytest.mark.parametrize("second,second_ref,prompt_carries_item_context", [
-    ("isolation-test.a.dev", None, True),         # stage sibling, same ref
-    ("isolation-test.a.dev", "v1", True),         # stage sibling, another ref name on the same commit
-    ("isolation-test.b.prod", None, False),       # another CI on the same files, once context is out
+@pytest.mark.parametrize("second,second_ref", [
+    ("isolation-test.a.dev", None),         # stage sibling, same ref
+    ("isolation-test.a.dev", "v1"),         # stage sibling, another ref name on the same commit
+    ("isolation-test.b.prod", None),        # another CI on the same files
 ])
-def test_concurrent_sibling_scans_make_one_llm_call(db, scan, git_repo, monkeypatch, second, second_ref,
-                                                    prompt_carries_item_context):
+def test_concurrent_sibling_scans_make_one_llm_call(db, scan, git_repo, monkeypatch, second, second_ref):
     import threading
     import time
     from concurrent.futures import ThreadPoolExecutor
-    from rcars.services import analysis_identity
-    monkeypatch.setattr(analysis_identity, "PROMPT_CARRIES_ITEM_CONTEXT", prompt_carries_item_context)
     git_repo[1]("tag", "v1")
     prod, dev = add_item(db, scan, "isolation-test.a.prod"), add_item(db, scan, second, ref=second_ref)
     reply, both_started = scan.llm.return_value, threading.Barrier(2, timeout=10)
@@ -561,13 +654,14 @@ def test_reuse_lock_wait_times_out_and_reports_not_acquired(db):
 
 
 @pytest.mark.asyncio
-async def test_scan_endpoint_enqueues_group_leaders_before_siblings(db, scan):
+async def test_scan_endpoint_enqueues_the_single_group_leader_first(db, scan):
     from rcars.api.routes.analysis import start_scan
     ids = [add_item(db, scan, name) for name in ("isolation-test.a.dev", "isolation-test.a.prod", "isolation-test.b.dev")]
     redis = SimpleNamespace(enqueue_job=AsyncMock())
     request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db=db, arq_redis=redis, settings=scan.settings)))
     await start_scan(request, user="test@example.com")
     order = [call.kwargs["content_id"] for call in redis.enqueue_job.call_args_list if call.kwargs["content_id"] in ids]
-    assert order.index(ids[1]) < order.index(ids[2]) < order.index(ids[0])
+    # All three share one pre-clone key, so only the prod leader runs the LLM first.
+    assert order == [ids[1], ids[0], ids[2]]
     with db.pool.connection() as conn:
         conn.execute("DELETE FROM jobs WHERE created_by = 'test@example.com'")

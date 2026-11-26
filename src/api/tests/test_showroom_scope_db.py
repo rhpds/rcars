@@ -10,7 +10,7 @@ URL = "https://github.com/example/content"
 
 def CONFIG_FOR_EXAMPLE(model):
     from rcars.services.analysis_identity import compute_analysis_config
-    return compute_analysis_config("isolation-test.item", "Example", "", "", "lab", model)
+    return compute_analysis_config("lab", model)
 
 
 def by_commit(db, signature, **changes):
@@ -38,8 +38,10 @@ def seed(db, name="isolation-test.item.prod", **overrides):
         "showroom_url": URL, "showroom_ref": "main", "showroom_source": source,
         **overrides,
     })
+    from rcars.services.showroom_source import SHOWROOM_ANALYSIS_POLICY_VERSION
     signature = AnalysisSignature("isolation-test.item", URL, "main", None, "a" * 40,
-                                   "content", CONFIG_FOR_EXAMPLE(settings.model), "input", 1)
+                                   "content", CONFIG_FOR_EXAMPLE(settings.model), "input",
+                                   SHOWROOM_ANALYSIS_POLICY_VERSION)
     provenance = {"signature": signature.to_dict(), "source": source,
                   "generated_for": content_id, "generated_commit": "a" * 40,
                   "reused_from": None, "embedding_fingerprints": {"summary": compute_embedding_fingerprint(

@@ -9,8 +9,8 @@ import hashlib
 import subprocess
 
 from rcars.services.analyzer import (
-    analyze_description, analyze_showroom, classify_scan_error, description_source,
-    ls_remote_sha, regenerate_embeddings, showroom_reuse_key,
+    RetryableAnalysisError, analyze_description, analyze_showroom, classify_scan_error,
+    description_source, ls_remote_sha, regenerate_embeddings, showroom_reuse_key,
 )
 from rcars.services.showroom_source import (
     analysis_generation, content_owner, effective_analysis_source, effective_showroom_source,
@@ -100,7 +100,6 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
             result = {"error": f"{source.status}_source", "message": source.error or "Unresolved source"}
         else:
             result = analyze_showroom(ci_name=item["ci_name"], display_name=item.get("display_name", ""),
-                category=item.get("category", ""), product=item.get("product", ""),
                 showroom_url=source.repo, showroom_ref=source.ref, settings=settings, model=settings.model,
                 clone_dir=settings.clone_dir, db=db, content_path=source.content_path,
                 keywords=item.get("keywords") or [], entity_content_type=item.get("content_type") or "lab",
@@ -113,29 +112,41 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                     or analysis_generation(db.get_showroom_analysis(content_id, conn=conn, for_update=True)) != observed_generation):
                 return {"content_id": content_id, "success": False, "outcome": "superseded", "source": source.to_dict()}
             if "error" in result:
-                db.invalidate_babylon_scan_failure(content_id, result["error"], result.get("message"), conn=conn)
+                if result.get("retryable"):
+                    # Post-content failure: keep the prior analysis and record
+                    # the error so the next scan retries.
+                    db.set_scan_status(content_id, "failed", result["error"], result.get("message"), conn=conn)
+                else:
+                    db.invalidate_babylon_scan_failure(content_id, result["error"], result.get("message"), conn=conn)
                 return {"content_id": content_id, "success": False, "outcome": "failed", "source": source.to_dict(), **result}
             outcome = result["outcome"]
             if outcome != "unchanged":
-                analysis = result["analysis"]
-                data = {"content_id": content_id, "analysis_provenance_json": result["analysis_provenance"],
-                        "last_repo_commit": result["last_repo_commit"], "last_repo_updated": result.get("last_repo_updated"),
-                        "content_hash": result["content_hash"], "is_stale": False, "stale_commit": None,
-                        "last_analyzed": result["last_analyzed"]}
-                if outcome in ("analyzed", "reused"):
-                    data.update({key: analysis.get(key) for key in ("summary", "content_type", "difficulty", "estimated_duration_min")})
-                    data.update({key + "_json": analysis.get(key) for key in ("products", "audience", "recommender_audience", "topics",
-                        "modules", "learning_objectives", "use_cases")})
-                    formats = analysis.get("format_suitability")
-                    data["format_suitability_json"] = ({key: value for key, value in formats.items() if key in ("demo", "hands_on_lab")}
-                                                       if isinstance(formats, dict) else None)
-                    db.update_content_entity_card(content_id, summary=analysis.get("summary"), products_json=analysis.get("products"),
-                        topics_json=analysis.get("topics"), audience_json=analysis.get("audience"), difficulty=analysis.get("difficulty"), conn=conn)
-                db.upsert_showroom_analysis(data, conn=conn)
-                if outcome in ("analyzed", "reused", "embeddings_repaired") or result.get("embedding_changes"):
-                    regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
-                        result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
-                db.set_scan_status(content_id, "success", conn=conn)
+                try:
+                    analysis = result["analysis"]
+                    data = {"content_id": content_id, "analysis_provenance_json": result["analysis_provenance"],
+                            "last_repo_commit": result["last_repo_commit"], "last_repo_updated": result.get("last_repo_updated"),
+                            "content_hash": result["content_hash"], "is_stale": False, "stale_commit": None,
+                            "last_analyzed": result["last_analyzed"]}
+                    if outcome in ("analyzed", "reused"):
+                        data.update({key: analysis.get(key) for key in ("summary", "content_type", "difficulty", "estimated_duration_min")})
+                        data.update({key + "_json": analysis.get(key) for key in ("products", "audience", "recommender_audience", "topics",
+                            "modules", "learning_objectives", "use_cases")})
+                        formats = analysis.get("format_suitability")
+                        data["format_suitability_json"] = ({key: value for key, value in formats.items() if key in ("demo", "hands_on_lab")}
+                                                           if isinstance(formats, dict) else None)
+                        db.update_content_entity_card(content_id, summary=analysis.get("summary"), products_json=analysis.get("products"),
+                            topics_json=analysis.get("topics"), audience_json=analysis.get("audience"), difficulty=analysis.get("difficulty"), conn=conn)
+                    db.upsert_showroom_analysis(data, conn=conn)
+                    if outcome in ("analyzed", "reused", "embeddings_repaired") or result.get("embedding_changes"):
+                        regenerate_embeddings(db, content_id, item["content_type"], "babylon", result["ci_embedding_text"],
+                            result["ci_embedding"], module_embeddings=result.get("module_embeddings"), conn=conn)
+                    db.set_scan_status(content_id, "success", conn=conn)
+                except Exception as exc:
+                    # Only Showroom results keep prior artifacts on a write
+                    # failure; descriptions keep origin/main behavior.
+                    if effective_analysis_source(item) == "showroom":
+                        raise RetryableAnalysisError(str(exc)) from exc
+                    raise
             for stub in db.get_pure_stubs_for_owner(item["ci_name"], conn=conn):
                 db.mirror_content_owner(stub["content_id"], item["ci_name"], conn=conn)
         outcome_result = {"content_id": content_id, "ci_name": item["ci_name"], "success": True, "outcome": outcome,
@@ -143,6 +154,19 @@ def _scan_babylon_item(db, settings, content_id: str, *, force: bool = False) ->
                           "signature": result["analysis_provenance"]["signature"]}
         log.info("showroom_scan_complete", component="scanner", action=outcome, **outcome_result)
         return outcome_result
+    except RetryableAnalysisError as exc:
+        # Post-content failure (LLM call, parse, embeddings): keep the prior
+        # analysis and embeddings, record the failure, retry on the next scan.
+        with db.pool.connection() as conn:
+            current = db.lock_babylon_item(conn, content_id)
+            if (current is None or _snapshot(current) != snapshot
+                    or analysis_generation(db.get_showroom_analysis(content_id, conn=conn, for_update=True)) != observed_generation):
+                return {"content_id": content_id, "success": False, "outcome": "superseded"}
+            db.set_scan_status(content_id, "failed", "analysis_failed", str(exc), conn=conn)
+        log.warning("showroom_scan_analysis_failed", component="scanner", content_id=content_id,
+                    error=str(exc)[:500], cause=repr(exc.__cause__), exc_info=exc)
+        return {"content_id": content_id, "success": False, "outcome": "failed",
+                "error": "analysis_failed", "message": str(exc)}
     except Exception as exc:
         error, message = classify_scan_error(exc, source.repo, source.ref, source.content_path)
         if isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)) and error != "http_404":

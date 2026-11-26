@@ -3,7 +3,10 @@ from dataclasses import asdict, dataclass, field, replace
 from copy import deepcopy
 
 KNOWN_STAGES = frozenset({"dev", "event", "prod", "test"})
-SHOWROOM_ANALYSIS_POLICY_VERSION = 1
+# Version 2: the Showroom content prompt carries only content and the entity
+# content type. Version 1 analyses embedded the CI name, display name, category
+# and product, so they are stale and are re-analyzed after the bump.
+SHOWROOM_ANALYSIS_POLICY_VERSION = 2
 
 
 def is_content_excluded(identity: str) -> bool:
