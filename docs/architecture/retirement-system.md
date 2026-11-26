@@ -223,7 +223,13 @@ Workflow completion and catalog visibility are separate:
 
 During a successful Babylon refresh, missing items are soft-deleted with a retirement reason, while their analysis, embeddings, workload mappings, and notes remain available. An empty catalog scan is guarded against mass retirement. When no active stage siblings remain, catalog retirement can also complete associated workflows, even without an RCARS-created removal PR.
 
-Active catalog queries normally exclude soft-deleted items. Curators can include them through the Browse **Show Retired** control; item detail and retirement reporting remain available. If an item reappears in a later scan, RCARS clears its catalog retirement markers. That does not automatically erase an existing workflow's completion history.
+Active catalog queries normally exclude soft-deleted items. Curators can include them through the Browse **Show Retired** control; item detail and retirement reporting remain available. If an item reappears in a later scan, RCARS clears its catalog retirement markers and closes the family's current retired workflow as revived: the row keeps its status, retirement step, and Jira link, and gets `revived_at` and `revived_reason`. The item then shows again as active, and the old retirement stays available as history. See [Retirement History](#retirement-history).
+
+## Retirement History
+
+A `content_id` can hold one current workflow (`revived_at IS NULL`) plus any number of revived history rows. Every query and every route reads the current row only. A revive happens when a CatalogItem returns to the catalog scan after its entity was soft-deleted; one returning stage revives the whole family (`content_entities.stage_key`). It is not the same as a workflow completed from a merged removal PR while the CatalogItem still exists: that workflow was retired on purpose and stays current.
+
+Revives detected before this behaviour existed have no marker. Record them with the backfill command described under `rcars retirement mark-revived` in the [CLI Guide](../admin/cli-guide.md). No Jira comment is posted on a revive, and the old ticket is not changed.
 
 Reporting metrics are refreshable data, not an immutable archive. Fully retired base names are excluded from normal reporting imports; cleanup may remove derived performance rows. The approval snapshot is the durable record of the metrics used for the decision. Partial retirement can leave active stage variants in performance/non-production views.
 

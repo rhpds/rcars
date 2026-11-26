@@ -308,6 +308,29 @@ This CLI path currently creates due PRs only. It does **not** perform the merged
 
 ---
 
+### `rcars retirement mark-revived`
+
+Closes a family's current retired workflow as revived, for items that came back before revive tracking existed. It sets `revived_at` and `revived_reason` and keeps the row as history. It writes nothing unless `--apply` is given.
+
+```bash
+# Dry run: print what would change.
+rcars retirement mark-revived --content-id babylon:example.item.event
+
+# Write the change.
+rcars retirement mark-revived --content-id babylon:example.item.event --apply
+```
+
+Only the families named with `--content-id` are considered; the command never scans for candidates, because the data cannot tell a revive from a workflow retired by a merged removal PR while the CatalogItem was still present. It marks the workflow on the named content_id when that row exists. When it does not, it uses the only current retired workflow of the family, and it refuses a family with more than one without naming any of them, listing the candidates instead, so the same command always targets the same workflow. The command refuses, in this order:
+
+- a content_id with no content entity;
+- an item whose entity is still retired;
+- a family with no current workflow, or with a current workflow that is not retired;
+- a workflow that has a removal PR URL, unless `--force` is given. Such a workflow was retired on purpose; use `--force` only when the item truly came back.
+
+A second run reports `already marked revived` and changes nothing. `--reason` overrides the default `Backfill: item returned before history tracking`. The command writes one `retirement_revived` row to `analysis_log` per workflow it marks.
+
+---
+
 ### `rcars serve`
 
 Starts the RCARS web server. In production this is managed by the OpenShift deployment.
